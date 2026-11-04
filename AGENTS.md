@@ -1,9 +1,10 @@
 ## Business Context
 
 Primary business reference:
-docs/RETAILOPS_AGENT_BUSINESS_CONTEXT.md
+docs/requirement/RETAILOPS_AGENT_BUSINESS_CONTEXT.md
 
 For each task:
+
 1. Identify the relevant task ID.
 2. Read the corresponding business rules.
 3. Inspect the current implementation and database design.
