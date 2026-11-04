@@ -3,15 +3,12 @@
 from fastapi import FastAPI
 
 from app.api.router import api_router
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure a RetailOps FastAPI application."""
-    settings = get_settings()
-    application = FastAPI(title=settings.app_name)
-    application.include_router(api_router, prefix=settings.api_v1_prefix)
+    resolved_settings = settings or get_settings()
+    application = FastAPI(title=resolved_settings.app_name)
+    application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
     return application
-
-
-app = create_app()

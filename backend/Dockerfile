@@ -23,8 +23,10 @@ RUN addgroup --system retailops \
     && adduser --system --ingroup retailops --home /nonexistent retailops
 
 COPY --chown=retailops:retailops app ./app
+COPY --chown=retailops:retailops alembic.ini ./
+COPY --chown=retailops:retailops migrations ./migrations
 
 USER retailops
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app"]
+CMD ["uvicorn", "--factory", "app.main:create_app"]
