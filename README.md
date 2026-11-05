@@ -1,41 +1,62 @@
-# RetailOps
+# RetailOps — Hệ thống quản lý vận hành bán lẻ
 
-## Local database and backend
+**RetailOps V1.0** là dự án nhóm phát triển hệ thống hỗ trợ vận hành cửa hàng bán lẻ. Dự án được tổ chức theo kiến trúc **Modular Monolith**, với Backend FastAPI, MySQL và Frontend React/Vite theo kế hoạch triển khai.
 
-Requirements: Docker Desktop with Compose, and `uv` for host-side tests.
+> **Trạng thái:** Hướng dẫn dưới đây phản ánh Backend Foundation đã có trong repository. Các chức năng nghiệp vụ và giao diện React được bổ sung qua các task/PR riêng. Không coi các chức năng dự kiến là đã hoàn thành.
 
-1. Copy `.env.example` to `.env`.
-2. Replace every `CHANGE_ME` value with independently generated local
-   credentials. Do not reuse the example values or share a team-wide default.
-   If the integration-test URL contains special password characters,
-   URL-encode them.
-3. Build and start MySQL and the backend:
+## Công nghệ và cấu trúc
 
-   ```powershell
-   docker compose up --build -d
-   ```
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.x, Alembic.
+- **Database:** MySQL 8.4 (Docker Compose).
+- **Frontend dự kiến:** React + Vite + Axios.
+- **Kiểm thử/CI:** Pytest, Ruff, GitHub Actions; Frontend CI chỉ chạy lint/build thực sự khi dự án frontend đã được khởi tạo.
+- **Quản lý mã nguồn:** `feature/*` → `develop` → `main`.
 
-MySQL is bound only to `127.0.0.1`; the backend is available at
-`http://127.0.0.1:8000`. Compose waits for an authenticated MySQL `SELECT 1`
-before starting the backend.
+Các quy tắc cộng tác và commit message được mô tả tại [CONTRIBUTING.md](CONTRIBUTING.md). Đặc tả yêu cầu đã phê duyệt nằm tại [docs/requirement/RetailOps_SRS_Approved.md](docs/requirement/RetailOps_SRS_Approved.md).
 
-If port 3306 is already in use, change `MYSQL_HOST_PORT` in `.env` and change
-the port in `RETAILOPS_TEST_DATABASE_URL` to the same value. For example, both
-must use `13306`; changing only one leaves host-side tests pointed at the wrong
-server.
+## 1. Chuẩn bị môi trường local
 
-MySQL initialization scripts run only when `/var/lib/mysql` is first created.
-Changing `.env` later does not rotate existing MySQL passwords and does not
-rerun the test-user provisioning script. For an existing verified local volume,
-first confirm the Compose project and volume:
+Cần cài **Docker Desktop** với Docker Compose. Để chạy kiểm thử Backend trực tiếp trên máy, cần thêm **Python 3.12** và `uv`. Frontend sẽ yêu cầu Node.js/npm khi được triển khai; xem hướng dẫn trong `frontend/README.md` khi file đó xuất hiện.
+
+### 1.1. Tạo file cấu hình
+
+Sao chép file mẫu:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Thay **toàn bộ** giá trị `CHANGE_ME` bằng mật khẩu mạnh, riêng biệt, tự tạo cho máy local. Không sử dụng lại giá trị mẫu, không dùng chung một bộ mật khẩu cho cả nhóm và **không commit `.env`**.
+
+Nếu mật khẩu trong `RETAILOPS_TEST_DATABASE_URL` có ký tự đặc biệt, phải URL-encode đúng. Chuỗi này phải sử dụng đúng tài khoản kiểm thử và cùng cổng host với `MYSQL_HOST_PORT`.
+
+### 1.2. Khởi chạy MySQL và Backend
+
+```powershell
+docker compose up --build -d
+```
+
+MySQL chỉ được ánh xạ vào `127.0.0.1`; Backend mặc định tại `http://127.0.0.1:8000`. Docker Compose đợi kiểm tra kết nối MySQL có xác thực (`SELECT 1`) thành công trước khi khởi chạy Backend.
+
+Nếu cổng `3306` trên máy đã bị MySQL khác sử dụng, đổi **cả hai** giá trị trong `.env`:
+
+- `MYSQL_HOST_PORT=13306`
+- Cổng trong `RETAILOPS_TEST_DATABASE_URL` cũng phải là `13306`.
+
+Lưu ý: Cổng `3306` **bên trong container** không thay đổi. Nếu bạn đã cấu hình `BACKEND_HOST_PORT` khác `8000`, hãy dùng cổng thực tế khi truy cập Backend.
+
+## 2. Lưu ý quan trọng về MySQL volume và mật khẩu
+
+Script khởi tạo MySQL chỉ chạy khi thư mục dữ liệu `/var/lib/mysql` được tạo lần đầu. **Đổi mật khẩu trong `.env` không tự đổi mật khẩu các tài khoản đã tồn tại trong MySQL volume**, cũng không tự chạy lại script cấp quyền cho test user.
+
+Với volume local đã tồn tại, trước hết kiểm tra đúng Docker Compose project và volume:
 
 ```powershell
 docker volume inspect retailops_mysql_data --format '{{json .Labels}}'
 docker compose ps
 ```
 
-After confirming the volume belongs to the local `retailops` project, start
-MySQL with the new environment and explicitly provision only the test user:
+Sau khi xác nhận volume thuộc đúng project local `retailops` và các thông tin xác thực phù hợp, có thể khởi động MySQL rồi cấp lại tài khoản **test** bằng công cụ đã có:
 
 ```powershell
 docker compose up -d --wait mysql
@@ -44,42 +65,34 @@ docker compose exec `
   mysql bash /usr/local/bin/provision-existing-test-user
 ```
 
-This command requires the locally configured root credential at runtime; it is
-not stored in source. It recreates only the dedicated test user and grants that
-user schema-scoped test permissions. It also revokes any legacy development-user
-grant on the test schema; it does not rotate the development user.
+Công cụ này yêu cầu mật khẩu root local hợp lệ ở thời điểm thực thi. Nó **chỉ tạo lại tài khoản test chuyên dụng và các quyền trong test schema**, đồng thời thu hồi quyền truy cập test schema cũ của development user (nếu có); **không đổi mật khẩu tài khoản development user**.
 
-## Migrations
+Nếu đã thay mật khẩu root/development user của volume cũ, phải có quy trình `ALTER USER` hoặc đồng bộ thông tin xác thực phù hợp trước; các lệnh trên không tự giải quyết sai lệch đó. **Không xóa volume để xử lý lỗi đăng nhập khi chưa xác nhận dữ liệu có thể bỏ đi.**
 
-Apply reviewed migrations and inspect the current revision inside the backend
-container:
+## 3. Database migration với Alembic
+
+Áp dụng migration đã được review và xem revision hiện tại:
 
 ```powershell
 docker compose exec backend alembic upgrade head
 docker compose exec backend alembic current
 ```
 
-The Task 02 baseline creates only Alembic's version table. It does not create
-RetailOps business tables.
+Task 02 chỉ tạo bảng `alembic_version`; **chưa tạo các bảng nghiệp vụ RetailOps**.
 
-MySQL DDL can cause implicit commits and Alembic reports it as
-non-transactional. Every future business migration must be reviewed with an
-explicit backup/recovery plan; do not assume a failed DDL migration rolls back
-atomically.
+MySQL DDL có thể implicit commit và Alembic coi DDL là thao tác không có rollback transaction hoàn chỉnh. Vì vậy, mọi migration nghiệp vụ sau này phải có kế hoạch backup/recovery; không giả định DDL sẽ tự rollback an toàn khi lỗi.
 
-Verify the entire migration chain on a uniquely named, temporary Compose
-project and volume:
+Kiểm tra toàn bộ chuỗi migration trên Docker Compose project và volume tạm độc lập:
 
 ```powershell
 .\scripts\verify-clean-migration.ps1
 ```
 
-The script verifies the temporary volume's Compose project label before its
-automatic cleanup. It never uses or resets the normal development/test volume.
+Script xác minh nhãn project của volume tạm trước khi dọn dẹp. Nó không reset volume development/test thông thường.
 
-## Tests
+## 4. Chạy kiểm thử Backend
 
-Task 01 unit/API tests do not require Docker or MySQL:
+### Unit/API tests — không cần Docker/MySQL
 
 ```powershell
 cd backend
@@ -87,38 +100,37 @@ uv sync --locked
 uv run pytest -m "not integration"
 ```
 
-Integration tests require the dedicated database named by
-`RETAILOPS_TEST_DATABASE_URL`. Start MySQL first, then run pytest with the root
-`.env` loaded only for that process:
+### Integration tests — cần MySQL test riêng
+
+Trước tiên khởi chạy MySQL. Sau đó chạy trong thư mục `backend`, nạp biến từ file `.env` ở thư mục gốc chỉ cho tiến trình test:
 
 ```powershell
 cd backend
 uv run dotenv -f ../.env run -- pytest -m integration
 ```
 
-The integration suite accepts only `mysql+pymysql` URLs on `127.0.0.1` or
-`localhost`, and requires exact matches for `MYSQL_TEST_DATABASE` and
-`MYSQL_TEST_USER`. The test-only user must differ from the development user and
-has no permission on the development schema. Missing or unsafe configuration
-makes the integration command fail rather than skip.
+Integration tests chỉ chấp nhận URL `mysql+pymysql` trỏ đến `127.0.0.1` hoặc `localhost`; tên database và test user phải khớp chính xác `MYSQL_TEST_DATABASE`, `MYSQL_TEST_USER`. Tài khoản test phải khác development user và không có quyền truy cập development schema. Thiếu cấu hình hoặc cấu hình không an toàn sẽ làm lệnh test **thất bại**, không được lặng lẽ bỏ qua.
 
-## Stop and reset
+## 5. Dừng và quản lý dữ liệu local
 
-Stop containers while retaining the named MySQL volume:
+Dừng container **và giữ nguyên dữ liệu** trong MySQL volume:
 
 ```powershell
 docker compose down
 ```
 
-Changing `.env` is not a credential rotation for an existing volume. Prefer an
-explicit `ALTER USER` operational procedure when data must be retained.
+Đổi `.env` không phải thao tác xoay vòng (rotate) mật khẩu trên volume cũ. Khi cần giữ dữ liệu, ưu tiên quy trình `ALTER USER` có kiểm soát.
 
-Only when all local data is intentionally disposable, verify the exact Compose
-project, volume labels, and data status before running the destructive reset:
+Chỉ khi **đã xác minh toàn bộ dữ liệu local được phép xóa**, kiểm tra chính xác Compose project, nhãn volume và trạng thái dữ liệu trước khi cân nhắc lệnh sau:
 
 ```powershell
 docker compose down -v
 ```
 
-The `-v` command is destructive, is never run automatically by normal project
-commands, and is not part of normal shutdown.
+**CẢNH BÁO: `-v` xóa volume và dữ liệu MySQL.** Không dùng để dừng dự án thông thường và không chạy tự động.
+
+## 6. Quy trình phát triển nhóm
+
+Mỗi thành viên clone repository một lần, sau đó cập nhật `develop`, tạo nhánh `feature/*` từ `develop`, commit có mã task, push và mở Pull Request vào `develop`. Chỉ merge khi các kiểm tra phù hợp đã chạy và người review chấp thuận.
+
+Đọc [CONTRIBUTING.md](CONTRIBUTING.md) để biết lệnh Git, định dạng commit, cách review PR và điều kiện đưa code lên `main`.
