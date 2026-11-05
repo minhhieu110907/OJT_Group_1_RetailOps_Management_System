@@ -62,6 +62,6 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Lint
-        run: npm run lint --if-present
+        run: npm run lint
       - name: Production build
         run: npm run build
