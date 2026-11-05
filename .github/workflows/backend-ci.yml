@@ -1,0 +1,97 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-unit:
+    name: Backend / Ruff + unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Ruff
+        run: uv run --locked ruff check .
+      - name: Unit and API tests
+        run: uv run --locked pytest -m "not integration"
+
+  mysql-integration:
+    name: Backend / MySQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked dependencies
+        working-directory: backend
+        run: uv sync --locked
+      - name: Generate isolated CI-only MySQL credentials
+        run: |
+          set -euo pipefail
+          umask 077
+          app_password="$(openssl rand -hex 24)"
+          test_password="$(openssl rand -hex 24)"
+          root_password="$(openssl rand -hex 24)"
+          {
+            printf 'MYSQL_DATABASE=retailops\n'
+            printf 'MYSQL_TEST_DATABASE=retailops_test\n'
+            printf 'MYSQL_USER=retailops_app\n'
+            printf 'MYSQL_PASSWORD=%s\n' "$app_password"
+            printf 'MYSQL_TEST_USER=retailops_test_runner\n'
+            printf 'MYSQL_TEST_PASSWORD=%s\n' "$test_password"
+            printf 'MYSQL_ROOT_PASSWORD=%s\n' "$root_password"
+            printf 'MYSQL_HOST_PORT=13306\n'
+            printf 'BACKEND_HOST_PORT=18000\n'
+            printf 'RETAILOPS_TEST_DATABASE_URL=mysql+pymysql://retailops_test_runner:%s@127.0.0.1:13306/retailops_test?charset=utf8mb4\n' "$test_password"
+          } > .env
+      - name: Start isolated MySQL 8.4 database
+        run: docker compose up -d --wait mysql
+      - name: MySQL integration tests (must fail if configuration is missing)
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          set -a
+          source ../.env
+          set +a
+          uv run --locked pytest -m integration
+      - name: Tear down containers and ephemeral volume
+        if: always()
+        run: docker compose down --volumes --remove-orphans
