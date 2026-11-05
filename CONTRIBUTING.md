@@ -19,6 +19,56 @@ git switch -c feature/<task-slug>
 
 Do not develop new work on an already merged feature branch.
 
+## Commit message convention (required)
+
+Every **new, manually authored commit** must follow Conventional Commits and
+include a **real, traceable task ID**:
+
+```text
+<type>(<scope>): <short imperative description> [<TASK-ID>]
+```
+
+Examples:
+
+```text
+feat(frontend): initialize React and Axios integration [T3C98D1]
+fix(inventory): prevent negative stock under concurrency [<assigned-task-id>]
+test(sales): cover repeated cancellation requests [<assigned-task-id>]
+ci(frontend): require lint and production build [<assigned-task-id>]
+docs(git): document commit message policy [OPS-001]
+```
+
+- **Required types:** `feat`, `fix`, `refactor`, `test`, `docs`, `ci`,
+  `chore`, or `perf`.
+- **Scope:** use the affected module or area, such as `auth`, `product`,
+  `inventory`, `sales`, `purchasing`, `frontend`, `backend`, `db`, or `git`.
+- **Description:** short English imperative describing the change, not "update",
+  "done", or "fix bug" without context.
+- **Task ID:** use the exact identifier from the assigned learning/backlog task,
+  such as `T3C98D1`. For internal maintenance, create and document a real
+  team-tracked task ID first (e.g., `OPS-001` for this Git policy change).
+  Never invent a course/task ID or reuse an unrelated ID just to pass review.
+- If a task has not been assigned an ID, obtain or register one **before
+  committing**. The requirement also applies to documentation, refactors, and CI.
+- One commit may contain multiple logically related changes for the same task.
+  Prefer small, scoped commits over mixing unrelated tasks.
+
+Example command:
+
+```powershell
+git commit -m "feat(frontend): initialize React and Axios integration [T3C98D1]"
+```
+
+The PR title should also contain the relevant task ID. When squash-merging,
+preserve it in the resulting commit title. For GitHub-generated merge commits,
+record the task ID in the PR title and constituent authored commits; a
+generated "Merge pull request #..." subject is not required to follow this
+template. Older commits made before this policy are grandfathered.
+
+**Review policy:** Reviewers should request corrections when new authored
+commit messages lack a task ID. This is currently a documented team convention,
+not an automatically enforced commitlint rule.
+
 ## Pull requests
 
 1. Make scoped changes based on the approved SRS and assigned task.
