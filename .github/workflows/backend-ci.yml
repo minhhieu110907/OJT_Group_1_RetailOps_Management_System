@@ -83,7 +83,42 @@ jobs:
             printf 'RETAILOPS_TEST_DATABASE_URL=mysql+pymysql://retailops_test_runner:%s@127.0.0.1:13306/retailops_test?charset=utf8mb4\n' "$test_password"
           } > .env
       - name: Start isolated MySQL 8.4 database
-        run: docker compose up -d --wait mysql
+        run: |
+          set -euo pipefail
+          docker compose up -d mysql
+          container_id="$(docker compose ps -q mysql)"
+          if [[ -z "$container_id" ]]; then
+            echo "::error::MySQL container was not created"
+            exit 1
+          fi
+          # MySQL initialization is variable on fresh GitHub-hosted runners.
+          # Keep health checks and a bounded deadline; never skip integration tests.
+          deadline=$((SECONDS + 180))
+          while (( SECONDS < deadline )); do
+            status="$(docker inspect --format '{{.State.Status}}' "$container_id")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container_id")"
+            if [[ "$status" == "running" && "$health" == "healthy" ]]; then
+              echo "MySQL passed its authenticated health check."
+              exit 0
+            fi
+            if [[ "$status" == "exited" || "$status" == "dead" ]]; then
+              echo "::error::MySQL terminated during startup (status: $status)."
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "::error::MySQL did not become healthy within 180 seconds."
+          exit 1
+      - name: Diagnose MySQL startup failure
+        if: failure()
+        run: |
+          echo "## MySQL startup diagnostics" >> "$GITHUB_STEP_SUMMARY"
+          docker compose ps -a || true
+          docker compose logs --no-color --tail=120 mysql || true
+          container_id="$(docker compose ps -q -a mysql)"
+          if [[ -n "$container_id" ]]; then
+            docker inspect --format '{{json .State.Health}}' "$container_id" || true
+          fi
       - name: MySQL integration tests (must fail if configuration is missing)
         working-directory: backend
         run: |
