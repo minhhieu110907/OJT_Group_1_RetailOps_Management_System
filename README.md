@@ -4,6 +4,29 @@
 
 > **Trạng thái:** Hướng dẫn dưới đây phản ánh Backend Foundation đã có trong repository. Các chức năng nghiệp vụ và giao diện React được bổ sung qua các task/PR riêng. Không coi các chức năng dự kiến là đã hoàn thành.
 
+## Frontend Foundation (T3C98D1)
+
+Repository đã được khởi tạo dự án React + Vite trong thư mục `frontend/` với Axios client và Vite proxy để tích hợp với FastAPI local. Xem hướng dẫn chi tiết tại [frontend/README.md](frontend/README.md).
+
+### Chạy local
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
+
+Mặc định Vite chạy trên `http://127.0.0.1:5173` và chuyển tiếp các request `/api` tới backend `http://127.0.0.1:8000`.
+
+### Build và lint
+
+```powershell
+cd frontend
+npm run lint
+npm run build
+```
+
 ## Công nghệ và cấu trúc
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.x, Alembic.
