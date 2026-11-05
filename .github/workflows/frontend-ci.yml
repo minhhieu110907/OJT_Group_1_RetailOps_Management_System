@@ -1,0 +1,67 @@
+name: Frontend CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-frontend:
+    name: Frontend / Check project readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.detect.outputs.ready }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Validate frontend manifest and lockfile
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f frontend/package.json && -f frontend/package-lock.json ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Frontend manifest and lockfile detected; lint/build checks will run." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ ! -e frontend/package.json && ! -e frontend/package-lock.json ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Frontend project is not initialized; lint/build were NOT executed."
+            echo "Frontend NOT INITIALIZED: lint/build were NOT executed. This is NOT a frontend validation pass." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Frontend project is incomplete: both frontend/package.json and frontend/package-lock.json are required."
+            exit 1
+          fi
+
+  lint-and-build:
+    name: Frontend / Lint + Build
+    needs: detect-frontend
+    if: needs.detect-frontend.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint --if-present
+      - name: Production build
+        run: npm run build
