@@ -1,14 +1,21 @@
-# Contributing to RetailOps
+# Hướng dẫn đóng góp cho RetailOps
 
-This repository uses a lightweight, PR-based workflow for the six-person team.
+Tài liệu này thống nhất quy trình cộng tác Git/GitHub của **nhóm sáu thành viên** phát triển RetailOps.
 
-## Branches
+## 1. Quy ước ngôn ngữ
 
-- `main`: stable release baseline. Do not push directly.
-- `develop`: integration branch and GitHub default branch. Do not push directly.
-- `feature/<task-slug>`, `fix/<task-slug>`, `chore/<task-slug>`: short-lived working branches, created from current `develop`.
+- **Tiếng Việt** là ngôn ngữ mặc định trong README, hướng dẫn sử dụng, mô tả nghiệp vụ, tài liệu bàn giao và nội dung Pull Request để cả nhóm và ban giám khảo dễ theo dõi.
+- Giữ **tiếng Anh** cho tên biến/hàm/class, endpoint, đường dẫn, tên nhánh, Git commands, commit message và những thuật ngữ kỹ thuật cần chính xác.
+- Khi viết tài liệu tiếng Việt, có thể giữ các thuật ngữ như `transaction`, `migration`, `CI`, `idempotency`; giải thích ngắn gọn khi cần.
+- Không dịch tên định danh trong source code hoặc thay đổi nghiệp vụ chỉ để đồng nhất ngôn ngữ tài liệu.
 
-Create a working branch:
+## 2. Quy tắc nhánh
+
+- `main`: baseline ổn định, phục vụ bản demo/release. **Không push trực tiếp.**
+- `develop`: nhánh tích hợp và default branch trên GitHub. **Không push trực tiếp.**
+- `feature/<task-slug>`, `fix/<task-slug>`, `chore/<task-slug>`: nhánh làm việc ngắn hạn, tạo từ `develop` mới nhất.
+
+Bắt đầu một task mới:
 
 ```powershell
 git fetch origin
@@ -17,18 +24,19 @@ git pull --ff-only origin develop
 git switch -c feature/<task-slug>
 ```
 
-Do not develop new work on an already merged feature branch.
+Không tiếp tục phát triển tính năng mới trên nhánh feature đã được merge. Khi đang làm dở một task, tiếp tục trên nhánh feature hiện tại; không tự động pull `develop` vào nhánh feature khi chưa hiểu tác động.
 
-## Commit message convention (required)
+## 3. Quy định commit message — bắt buộc có mã task
 
-Every **new, manually authored commit** must follow Conventional Commits and
-include a **real, traceable task ID**:
+**Mọi commit mới do thành viên chủ động tạo** phải tuân thủ Conventional Commits và chứa **mã task thực có thể truy vết**.
+
+Định dạng:
 
 ```text
 <type>(<scope>): <short imperative description> [<TASK-ID>]
 ```
 
-Examples:
+Ví dụ:
 
 ```text
 feat(frontend): initialize React and Axios integration [T3C98D1]
@@ -38,58 +46,46 @@ ci(frontend): require lint and production build [<assigned-task-id>]
 docs(git): document commit message policy [OPS-001]
 ```
 
-- **Required types:** `feat`, `fix`, `refactor`, `test`, `docs`, `ci`,
-  `chore`, or `perf`.
-- **Scope:** use the affected module or area, such as `auth`, `product`,
-  `inventory`, `sales`, `purchasing`, `frontend`, `backend`, `db`, or `git`.
-- **Description:** short English imperative describing the change, not "update",
-  "done", or "fix bug" without context.
-- **Task ID:** use the exact identifier from the assigned learning/backlog task,
-  such as `T3C98D1`. For internal maintenance, create and document a real
-  team-tracked task ID first (e.g., `OPS-001` for this Git policy change).
-  Never invent a course/task ID or reuse an unrelated ID just to pass review.
-- If a task has not been assigned an ID, obtain or register one **before
-  committing**. The requirement also applies to documentation, refactors, and CI.
-- One commit may contain multiple logically related changes for the same task.
-  Prefer small, scoped commits over mixing unrelated tasks.
+- **Type:** `feat` (tính năng mới), `fix` (sửa lỗi), `refactor` (cải thiện cấu trúc, không đổi hành vi), `test` (kiểm thử), `docs` (tài liệu), `ci` (CI), `chore` (bảo trì), `perf` (hiệu suất).
+- **Scope:** phần bị tác động, chẳng hạn `auth`, `product`, `inventory`, `sales`, `purchasing`, `frontend`, `backend`, `db`, `git`.
+- **Description:** dùng tiếng Anh, ngắn gọn, mô tả hành động cụ thể; tránh câu chung chung như “update”, “done” hoặc “fix bug”.
+- **Task ID:** sử dụng **đúng mã task đã giao**, ví dụ `T3C98D1`. Công việc nội bộ phải có task được nhóm ghi nhận, ví dụ `OPS-001`. Không tự bịa mã Rikkei hoặc dùng mã task không liên quan chỉ để đáp ứng quy định.
+- Nếu task chưa có mã, hãy đăng ký/nhận mã theo dõi **trước khi commit**. Áp dụng cả cho tài liệu, refactor và CI.
+- Một commit nên tập trung vào một thay đổi logic có liên quan; không trộn nhiều task độc lập.
 
-Example command:
+Ví dụ lệnh:
 
 ```powershell
 git commit -m "feat(frontend): initialize React and Axios integration [T3C98D1]"
 ```
 
-The PR title should also contain the relevant task ID. When squash-merging,
-preserve it in the resulting commit title. For GitHub-generated merge commits,
-record the task ID in the PR title and constituent authored commits; a
-generated "Merge pull request #..." subject is not required to follow this
-template. Older commits made before this policy are grandfathered.
+**Tiêu đề PR cũng cần chứa mã task.** Nếu dùng Squash and merge, giữ mã task trong tên commit kết quả. Với merge commit GitHub tự sinh kiểu `Merge pull request #...`, mã task nằm trong PR title và các commit gốc; không bắt buộc sửa subject tự sinh. Các commit lịch sử trước khi ban hành quy định được giữ nguyên.
 
-**Review policy:** Reviewers should request corrections when new authored
-commit messages lack a task ID. This is currently a documented team convention,
-not an automatically enforced commitlint rule.
+**Thực thi:** Reviewer cần yêu cầu sửa nếu commit mới không có mã task hợp lệ. Hiện đây là quy ước của nhóm; **chưa có commitlint tự động bắt buộc**.
 
-## Pull requests
+## 4. Quy trình Pull Request
 
-1. Make scoped changes based on the approved SRS and assigned task.
-2. Run relevant local tests; disclose any checks not run.
-3. Push the working branch; open a PR into `develop`.
-4. Wait for CI to pass and obtain a review before merge.
-5. The Tech Lead coordinates merges. Use a merge commit when preserving meaningful task commits is useful; otherwise squash is acceptable.
-6. Delete short-lived remote branches after merging when no longer needed.
+1. Xác định task, đọc SRS/business rules đã phê duyệt và giới hạn phạm vi thay đổi.
+2. Chạy các kiểm thử liên quan; nếu chưa chạy được, ghi rõ nguyên nhân và phần chưa kiểm chứng.
+3. Push nhánh đang làm việc và tạo PR hướng vào `develop`.
+4. Điền [mẫu Pull Request](.github/pull_request_template.md), đợi CI và code review đạt yêu cầu rồi mới merge.
+5. Tech Lead điều phối việc merge. Có thể dùng merge commit nếu muốn giữ các commit task có ý nghĩa, hoặc squash khi phù hợp; tuân thủ quy tắc mã task.
+6. Sau khi merge, xóa nhánh remote ngắn hạn nếu không còn sử dụng.
 
-A green CI run is a minimum gate, not proof that every requirement or security property is correct. Review authentication/authorization, SQL safety, transaction boundaries, concurrency, idempotency, migrations, and untrusted AI tool inputs according to the change.
+**CI xanh là điều kiện tối thiểu, không chứng minh code không có lỗi.** Khi review cần xem xét authentication/authorization, SQL safety, transaction boundary, concurrency, idempotency, database migrations và dữ liệu đầu vào không tin cậy của AI tools tùy theo phạm vi PR.
 
-Never commit `.env`, secrets, production credentials, real customer data, or generated local databases.
+**Tuyệt đối không commit** `.env`, secrets, production credentials, dữ liệu khách hàng thật hoặc database local được sinh ra.
 
-## Release to main
+## 5. Phát hành từ develop lên main
 
-Open a PR `develop` -> `main` only when the complete target commit is suitable for a stable release. This is **not** required at the end of every Sprint.
+Chỉ tạo PR `develop` → `main` khi **toàn bộ commit đích** đủ ổn định cho bản phát hành; không bắt buộc merge `main` sau mỗi Sprint.
 
-Before release, verify scope and approved requirements, CI, end-to-end behavior, security and data integrity, migration safety, and deployment/rollback readiness. Tag the release on `main` only after merging and validating it. Do not merge `develop` merely because one completed feature is working while other merged work is unstable.
+Trước release cần xác nhận phạm vi và yêu cầu đã phê duyệt, CI, kiểm thử end-to-end, bảo mật và tính toàn vẹn dữ liệu, an toàn migration, khả năng deploy và kế hoạch rollback/khôi phục. Chỉ gắn version tag lên `main` sau khi merge và kiểm chứng.
 
-## Enforcement and platform limitations
+Không merge toàn bộ `develop` chỉ vì một tính năng đã hoạt động nếu các thay đổi khác trên `develop` còn chưa ổn định.
 
-Apply branch rulesets for `main` and `develop` when the GitHub plan supports enforcing them on this private repository. Prefer required PRs, one review from another team member, and required `Backend / Ruff + unit` and `Backend / MySQL integration` checks when applicable.
+## 6. Giới hạn thực thi trên GitHub
 
-Until rulesets are verified as enforced, the above are team conventions, not technical controls. Repository owners must monitor direct pushes. Avoid requiring backend-only checks for frontend-only PRs until CI coverage is broadened or path-aware checks are deliberately implemented.
+Khi gói GitHub cho phép, cấu hình rulesets bảo vệ `main` và `develop`: bắt buộc PR, review từ ít nhất một thành viên khác và các status checks phù hợp như `Backend / Ruff + unit`, `Backend / MySQL integration` và `Frontend / Lint + Build` khi frontend đã tồn tại.
+
+Cho đến khi xác minh rulesets thực sự được enforce, các quy tắc trên vẫn là **quy ước nhóm**, chưa phải rào chắn kỹ thuật. Người quản lý repository cần giám sát direct push. Nếu sử dụng path filtering, cần kiểm tra required checks để tránh trạng thái Pending khi workflow bị bỏ qua; không xem `Skipped` là bằng chứng frontend đã được kiểm thử.

@@ -1,46 +1,49 @@
-# RetailOps Pull Request
+# Pull Request — RetailOps
 
-## Summary
-<!-- Describe the change and why it is needed. Keep PRs scoped and reviewable. -->
+## 1. Tóm tắt thay đổi
+<!-- Mô tả ngắn gọn thay đổi và lý do. Giữ PR trong một phạm vi có thể review. -->
 
-## Task and requirements
-- Task / backlog ID:
-- Relevant SRS section or business rule:
-- Scope changes: None / Approved by PO (link to decision)
+## 2. Task và yêu cầu liên quan
+- **Mã task/backlog (bắt buộc):**
+- **Mục SRS hoặc quy tắc nghiệp vụ liên quan:**
+- **Thay đổi phạm vi:** Không / Đã được Product Owner phê duyệt (đính kèm liên kết)
+- **Tiêu đề PR:** phải chứa mã task, ví dụ `feat(frontend): initialize React foundation [T3C98D1]`
 
-## Change type
-- [ ] Feature
-- [ ] Bug fix
-- [ ] Refactor
-- [ ] Documentation / tooling
+## 3. Loại thay đổi
+- [ ] Tính năng mới (Feature)
+- [ ] Sửa lỗi (Bug fix)
+- [ ] Tái cấu trúc code (Refactor)
+- [ ] Tài liệu / công cụ (Documentation / tooling)
 - [ ] Database migration
-- [ ] Release (develop -> main)
+- [ ] Phát hành (`develop` → `main`)
 
-## Validation
-- [ ] CI checks passed, or explain why they have not run
-- [ ] Relevant tests added/updated and run
-- [ ] No real credentials or local `.env` committed
-- [ ] Authorization / permission checks reviewed if applicable
-- [ ] Database transaction, concurrency, and idempotency reviewed if applicable
-- [ ] Database migration impact and recovery plan documented if applicable
-- [ ] API contract / frontend compatibility checked if applicable
+## 4. Kiểm thử và xác minh
+- [ ] Các CI checks phù hợp đã chạy và thành công; nếu chưa, giải thích rõ
+- [ ] Đã bổ sung/cập nhật và chạy các bài kiểm thử liên quan
+- [ ] Không commit mật khẩu thật, secrets hoặc file `.env` local
+- [ ] Đã review authentication/authorization và quyền truy cập (nếu liên quan)
+- [ ] Đã review transaction, concurrency và idempotency (nếu liên quan)
+- [ ] Đã đánh giá tác động database migration và phương án recovery (nếu liên quan)
+- [ ] Đã kiểm tra API contract và tương thích frontend/backend (nếu liên quan)
 
-**Commands run and results:**
-<!-- Do not claim success if tests were not executed. -->
+**Lệnh đã chạy và kết quả thực tế:**
+<!-- Không đánh dấu PASS hoặc khẳng định thành công khi chưa thực sự chạy. -->
 
-## Risk and rollback
-- Risk level: Low / Medium / High
-- Known limitations or follow-ups:
-- Rollback or mitigation plan:
-<!-- For MySQL DDL, do not assume transactional rollback. -->
+## 5. Rủi ro và phương án khôi phục
+- **Mức rủi ro:** Low / Medium / High
+- **Giới hạn đã biết / việc cần làm tiếp:**
+- **Phương án rollback hoặc giảm thiểu rủi ro:**
+<!-- MySQL DDL có thể implicit commit; không mặc định migration sẽ rollback nguyên tử. -->
 
-## Evidence
-<!-- Link to screenshots, test logs, API examples or design references when relevant. -->
+## 6. Minh chứng
+<!-- Link ảnh chụp, kết quả test, GitHub Actions, API response, tài liệu thiết kế... Không để lộ secrets. -->
 
-## Reviewer checklist
-- [ ] Changes match approved requirements, without unapproved scope
-- [ ] Security / data-integrity risks understood
-- [ ] No blocking issues remain
+## 7. Checklist của reviewer
+- [ ] Thay đổi phù hợp yêu cầu đã duyệt, không tự mở rộng scope
+- [ ] Các rủi ro Security / Data Integrity đã được đánh giá
+- [ ] Không còn vấn đề chặn merge
+- [ ] Commit và tiêu đề PR sử dụng mã task có thể truy vết
 
-<!-- Release PRs (develop -> main): explicitly state release scope, version/tag,
-     end-to-end verification, migration safety and deploy/rollback readiness. -->
+<!-- Riêng PR develop → main: ghi rõ phạm vi release, version/tag dự kiến,
+     kết quả kiểm thử end-to-end, độ an toàn migration, khả năng deploy,
+     rollback/recovery. -->
