@@ -2,13 +2,15 @@
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = BACKEND_DIR.parent
+DEVELOPMENT_CORS_ORIGIN = "http://127.0.0.1:5173"
 
 
 class Settings(BaseSettings):
@@ -26,6 +28,37 @@ class Settings(BaseSettings):
     db_max_overflow: int = 5
     db_pool_timeout_seconds: int = 10
     db_pool_recycle_seconds: int = 1800
+    cors_origins: str = ""
+
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, value: str) -> str:
+        """Validate a comma-separated exact-origin allowlist."""
+        origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if (
+                origin == "*"
+                or "*" in origin
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+            ):
+                raise ValueError("CORS origins must be exact HTTP(S) origins")
+        return ",".join(origins)
+
+    @property
+    def cors_origin_allowlist(self) -> list[str]:
+        """Return the validated exact origins for FastAPI middleware."""
+        if self.cors_origins:
+            return self.cors_origins.split(",")
+        if self.environment.casefold() == "development":
+            return [DEVELOPMENT_CORS_ORIGIN]
+        return []
 
     @property
     def database_url(self) -> URL:

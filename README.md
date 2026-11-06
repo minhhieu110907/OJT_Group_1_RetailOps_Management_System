@@ -101,7 +101,26 @@ docker compose exec backend alembic upgrade head
 docker compose exec backend alembic current
 ```
 
-Task 02 chỉ tạo bảng `alembic_version`; **chưa tạo các bảng nghiệp vụ RetailOps**.
+T3C9A19 tạo đúng bốn bảng nền Auth: `users`,
+`staff_approval_requests`, `auth_sessions`, `refresh_tokens`. Không tạo bảng
+Notification hoặc domain khác.
+
+### 3.1. Seed tài khoản Admin
+
+Điền `RETAILOPS_ADMIN_SEED_EMAIL` và `RETAILOPS_ADMIN_SEED_PASSWORD` trong
+`.env` bằng credentials local do Tech Lead cung cấp. Hai biến này không được
+truyền vào container Backend chạy thường trực. Sau khi migration hoàn tất, chỉ
+nạp chúng vào container seed ngắn hạn bằng lệnh tường minh:
+
+```powershell
+docker compose -f compose.yaml -f compose.local.yaml run --rm `
+  --env-from-file .env backend python -m app.modules.auth.seed
+```
+
+Seed không chạy khi FastAPI startup hoặc trong Alembic migration. Lần đầu seed
+tạo đúng một tài khoản `ADMIN/ACTIVE`; chạy lại với cùng email là no-op và
+không rotate password. Nếu đã có Admin khác hoặc email đã thuộc tài khoản khác,
+lệnh fail closed. Command không in email, password hoặc password hash.
 
 MySQL DDL có thể implicit commit và Alembic coi DDL là thao tác không có rollback transaction hoàn chỉnh. Vì vậy, mọi migration nghiệp vụ sau này phải có kế hoạch backup/recovery; không giả định DDL sẽ tự rollback an toàn khi lỗi.
 
