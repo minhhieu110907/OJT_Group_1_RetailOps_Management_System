@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import URL, inspect
 from sqlalchemy.engine import Engine
+
+from app.db.metadata import metadata
 
 pytestmark = pytest.mark.integration
 
@@ -15,7 +18,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 def test_alembic_upgrade_head(
     integration_database_url: URL,
-    integration_engine: Engine,
+    migrated_integration_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RETAILOPS_DB_HOST", integration_database_url.host or "")
@@ -29,11 +32,16 @@ def test_alembic_upgrade_head(
     get_settings.cache_clear()
     alembic_config = Config(BACKEND_DIR / "alembic.ini")
     command.upgrade(alembic_config, "head")
+    command.check(alembic_config)
 
-    assert inspect(integration_engine).has_table("alembic_version")
-    with integration_engine.connect() as connection:
+    required_tables = {"alembic_version", *metadata.tables}
+    actual_tables = set(inspect(migrated_integration_engine).get_table_names())
+    assert required_tables <= actual_tables
+    with migrated_integration_engine.connect() as connection:
         current_revision = connection.exec_driver_sql(
             "SELECT version_num FROM alembic_version"
         ).scalar_one()
-    assert current_revision == "20261105_01"
+    expected_head = ScriptDirectory.from_config(alembic_config).get_current_head()
+    assert expected_head is not None
+    assert current_revision == expected_head
     get_settings.cache_clear()
