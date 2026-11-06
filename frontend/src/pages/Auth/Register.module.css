@@ -1,0 +1,234 @@
+/* Hộp thông báo vàng */
+.infoBanner {
+  width: 100%;
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 10px;
+  padding: 13px 15px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.infoIcon {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.infoTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+  margin-bottom: 3px;
+}
+
+.infoDesc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-secondary, #586574);
+}
+
+.infoDesc strong {
+  color: var(--color-neutral, #242A30);
+}
+
+/* Hộp báo lỗi trong form Đăng ký */
+.errorBox {
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: var(--color-danger, #B91C1C);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+/* Tiêu đề trong Card */
+.cardHeader {
+  margin-bottom: 20px;
+}
+
+.cardTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+  margin-bottom: 6px;
+}
+
+.cardSubtitle {
+  font-size: 13.5px;
+  color: var(--color-secondary, #586574);
+  line-height: 1.45;
+}
+
+/* Form Fields */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-neutral, #242A30);
+}
+
+.required {
+  color: var(--color-danger, #B91C1C);
+}
+
+.inputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.leftIcon {
+  position: absolute;
+  left: 12px;
+  color: var(--color-secondary, #586574);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px 10px 38px;
+  font-size: 13.5px;
+  color: var(--color-neutral, #242A30);
+  background-color: #FFFFFF;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.inputWithRightIcon {
+  padding-right: 38px;
+}
+
+.input:focus {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.12);
+}
+
+.eyeBtn {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--color-secondary, #586574);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+}
+
+.eyeBtn:hover {
+  color: var(--color-neutral, #242A30);
+}
+
+.helperText {
+  font-size: 11.5px;
+  color: var(--color-secondary, #586574);
+}
+
+/* Khung tiêu chí mật khẩu */
+.criteriaBox {
+  background-color: #F8FAFC;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.criteriaTitle {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-secondary, #586574);
+  margin-bottom: 8px;
+}
+
+.criteriaGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+
+.criteriaItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--color-neutral, #242A30);
+}
+
+/* Ghi chú bảo mật */
+.privacyNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--color-secondary, #586574);
+}
+
+.privacyIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Nút Submit */
+.submitBtn {
+  margin-top: 4px;
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.submitBtn:hover {
+  background-color: #066649;
+}
+
+/* Footer bên trong Card */
+.cardFooter {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #F1F5F9;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-secondary, #586574);
+}
+
+.loginLink {
+  color: var(--color-primary, #087F5B);
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.loginLink:hover {
+  text-decoration: underline;
+}

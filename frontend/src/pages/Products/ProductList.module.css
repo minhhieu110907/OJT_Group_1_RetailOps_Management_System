@@ -1,0 +1,219 @@
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Thanh tiêu đề trang & Nút hành động chính */
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pageTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+  margin-bottom: 4px;
+}
+
+.pageSubtitle {
+  font-size: 14px;
+  color: var(--color-secondary, #586574);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: none;
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.primaryBtn:hover {
+  background-color: #066649;
+}
+
+/* Thanh bộ lọc & Tìm kiếm (Filter Bar) */
+.filterCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.searchWrap {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-secondary, #586574);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 9px 12px 9px 36px;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--color-neutral, #242A30);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.12);
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filterSelect {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 8px;
+  background-color: #FFFFFF;
+  color: var(--color-neutral, #242A30);
+  font-size: 13.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+.filterSelect:focus {
+  border-color: var(--color-primary, #087F5B);
+}
+
+/* Định dạng các ô bên trong Bảng */
+.skuText {
+  font-weight: 600;
+  color: var(--color-secondary, #586574);
+}
+
+.productName {
+  font-weight: 600;
+  color: var(--color-neutral, #242A30);
+}
+
+.priceText {
+  font-weight: 600;
+  color: var(--color-neutral, #242A30);
+}
+
+.costPriceText {
+  font-weight: 500;
+  color: var(--color-secondary, #586574);
+}
+
+.stockBadge {
+  display: inline-block;
+  min-width: 36px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: #F8FAFC;
+  border: 1px solid var(--color-border, #E2E8F0);
+  font-weight: 600;
+}
+
+/* Badge trạng thái bo tròn dùng chung */
+.pillBadge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badgeSuccess {
+  background-color: var(--color-tertiary, #E7F4ED);
+  color: var(--color-primary, #087F5B);
+}
+
+.badgeWarning {
+  background-color: #FEF3C7;
+  color: #B45309;
+}
+
+.badgeDanger {
+  background-color: #FEE2E2;
+  color: var(--color-danger, #B91C1C);
+}
+
+.badgeNeutral {
+  background-color: #F1F5F9;
+  color: var(--color-secondary, #586574);
+}
+
+/* Cụm nút thao tác Sửa / Xóa */
+.actionGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.iconActionBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background-color: transparent;
+  color: var(--color-secondary, #586574);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.editBtn:hover {
+  background-color: #F1F5F9;
+  color: var(--color-neutral, #242A30);
+}
+
+.deleteBtn:hover {
+  background-color: #FEE2E2;
+  color: var(--color-danger, #B91C1C);
+}
+
+/* Khu vực chân bảng chứa Pagination */
+.paginationRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
