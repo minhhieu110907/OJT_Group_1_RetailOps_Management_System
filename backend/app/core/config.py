@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     db_pool_timeout_seconds: int = 10
     db_pool_recycle_seconds: int = 1800
     cors_origins: str = ""
+    jwt_secret: SecretStr | None = None
+    csrf_secret: SecretStr | None = None
+    jwt_issuer: str = "retailops-api"
+    jwt_audience: str = "retailops-api"
+    access_token_ttl_seconds: int = 900
+    session_ttl_seconds: int = 28_800
+    csrf_ttl_seconds: int = 1_800
+    refresh_cookie_name: str = "retailops_refresh"
+    csrf_cookie_name: str = "retailops_csrf"
+    auth_cookie_path: str = "/api/v1/auth"
+    cookie_secure: bool | None = None
 
     @field_validator("cors_origins")
     @classmethod
@@ -51,6 +62,31 @@ class Settings(BaseSettings):
                 raise ValueError("CORS origins must be exact HTTP(S) origins")
         return ",".join(origins)
 
+    @model_validator(mode="after")
+    def validate_auth_configuration(self) -> "Settings":
+        """Reject unsafe TTLs and incomplete production secret configuration."""
+        if not 1 <= self.access_token_ttl_seconds <= 900:
+            raise ValueError("Access token TTL must be between 1 and 900 seconds")
+        if not 1 <= self.session_ttl_seconds <= 28_800:
+            raise ValueError("Session TTL must be between 1 and 28800 seconds")
+        if not 60 <= self.csrf_ttl_seconds <= 3_600:
+            raise ValueError("CSRF TTL must be between 60 and 3600 seconds")
+        for name, secret in (("JWT", self.jwt_secret), ("CSRF", self.csrf_secret)):
+            if secret is not None:
+                secret_value = secret.get_secret_value()
+                if len(secret_value.encode()) < 32 or secret_value.startswith(
+                    "CHANGE_ME"
+                ):
+                    raise ValueError(
+                        f"{name} secret must be a non-placeholder of at least 32 bytes"
+                    )
+        if self.environment.casefold() == "production":
+            if self.jwt_secret is None or self.csrf_secret is None:
+                raise ValueError("Production requires JWT and CSRF secrets")
+            if self.cookie_secure is False:
+                raise ValueError("Production auth cookies must be Secure")
+        return self
+
     @property
     def cors_origin_allowlist(self) -> list[str]:
         """Return the validated exact origins for FastAPI middleware."""
@@ -59,6 +95,22 @@ class Settings(BaseSettings):
         if self.environment.casefold() == "development":
             return [DEVELOPMENT_CORS_ORIGIN]
         return []
+
+    @property
+    def auth_cookie_secure(self) -> bool:
+        """Use Secure cookies in production while allowing explicit local HTTP."""
+        if self.environment.casefold() == "production":
+            return True
+        return bool(self.cookie_secure)
+
+    def require_auth_secrets(self) -> tuple[bytes, bytes]:
+        """Return configured secrets or fail closed before auth work begins."""
+        if self.jwt_secret is None or self.csrf_secret is None:
+            raise RuntimeError("Authentication secrets are not configured")
+        return (
+            self.jwt_secret.get_secret_value().encode(),
+            self.csrf_secret.get_secret_value().encode(),
+        )
 
     @property
     def database_url(self) -> URL:
