@@ -40,3 +40,59 @@ class UnauthenticatedError(AppException):
 class CsrfRejectedError(AppException):
     def __init__(self) -> None:
         super().__init__("CSRF_REJECTED", "Yêu cầu không hợp lệ.", 403)
+
+
+class ForbiddenError(AppException):
+    def __init__(
+        self,
+        message: str = "Bạn không có quyền thực hiện thao tác này.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("FORBIDDEN", message, 403, details)
+
+
+class ResourceNotFoundError(AppException):
+    def __init__(
+        self,
+        message: str = "Không tìm thấy tài nguyên.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("RESOURCE_NOT_FOUND", message, 404, details)
+
+
+class ConflictError(AppException):
+    def __init__(
+        self,
+        code: str = "CONFLICT",
+        message: str = "Dữ liệu xung đột.",
+        details: Any = None,
+    ) -> None:
+        super().__init__(code, message, 409, details)
+
+
+class DuplicateSkuError(ConflictError):
+    def __init__(
+        self,
+        message: str = "Mã SKU đã tồn tại.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("DUPLICATE_SKU", message, details)
+
+
+class InvalidStateError(ConflictError):
+    def __init__(
+        self,
+        message: str = "Trạng thái không hợp lệ để thực hiện thao tác này.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("INVALID_STATE", message, details)
+
+
+class DomainValidationError(AppException):
+    def __init__(
+        self,
+        message: str = "Dữ liệu không hợp lệ.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("VALIDATION_ERROR", message, 422, details)
+
