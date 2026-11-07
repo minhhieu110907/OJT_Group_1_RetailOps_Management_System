@@ -1,0 +1,143 @@
+/* Lớp phủ mờ tối xung quanh (Backdrop) */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease-out;
+}
+
+/* Khung hộp Modal chính giữa màn hình */
+.modalBox {
+  width: 100%;
+  background-color: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.15),
+    0 8px 10px -6px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  animation: scaleIn 0.15s ease-out;
+}
+
+/* Phần Header & Nội dung đồng đều padding 24px (Không có ô icon đỏ ở góc trái) */
+.bodySection {
+  padding: 24px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+  line-height: 1.35;
+  margin: 0;
+}
+
+.closeBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background-color: transparent;
+  color: var(--color-secondary, #586574);
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.closeBtn:hover {
+  background-color: #F1F5F9;
+  color: var(--color-neutral, #242A30);
+}
+
+/* Nội dung bên dưới tiêu đề (cách 8px, căn lề trái thẳng hàng hoàn toàn với tiêu đề) */
+.content {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-secondary, #586574);
+  text-align: left;
+}
+
+/* Phần Footer ngăn cách bởi đường viền mảnh 1px solid #F1F5F9 */
+.footerSection {
+  border-top: 1px solid #F1F5F9;
+  background-color: #FAFAFA;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Kiểu dáng chuẩn cho nút Hủy và nút nguy hiểm (Đăng xuất / Xóa) trong Footer */
+.cancelBtn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #CBD5E1;
+  background-color: #FFFFFF;
+  color: var(--color-neutral, #242A30);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cancelBtn:hover {
+  background-color: #F8FAFC;
+  border-color: #94A3B8;
+}
+
+.dangerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--color-danger, #B91C1C);
+  background-color: var(--color-danger, #B91C1C);
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.dangerBtn:hover {
+  background-color: #991B1B;
+  border-color: #991B1B;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+

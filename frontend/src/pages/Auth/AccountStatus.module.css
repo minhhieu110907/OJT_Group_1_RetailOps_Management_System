@@ -1,0 +1,458 @@
+/* Khung tổng thể bên trong AuthCard */
+.statusWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Hàng trên cùng: Nhãn Cập nhật lần cuối bên phải */
+.topMetaRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.lastUpdatedTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-secondary, #586574);
+  background-color: #F8FAFC;
+  border: 1px solid var(--color-border, #E2E8F0);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+/* Khối lỗi kết nối (Error Banner - chỉ hiển thị khi gặp lỗi mạng/máy chủ) */
+.connectionErrorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 10px;
+  padding: 12px 14px;
+  animation: fadeSlideIn 0.18s ease-out;
+}
+
+.connectionErrorLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-danger, #B91C1C);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.retryConnectBtn {
+  background-color: #FFFFFF;
+  color: var(--color-danger, #B91C1C);
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background-color 0.15s ease;
+}
+
+.retryConnectBtn:hover:not(:disabled) {
+  background-color: #FEE2E2;
+}
+
+.retryConnectBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Thẻ Card trung tâm đại diện cho trạng thái hồ sơ (Duy nhất 1 Card hiển thị) */
+.statusCard {
+  border-radius: 12px;
+  padding: 20px;
+  background-color: #FFFFFF;
+  border: 1.5px solid var(--color-border, #E2E8F0);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  animation: fadeSlideIn 0.2s ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 3 Biến thể viền Card theo trạng thái */
+.cardPending {
+  border-color: #F59E0B;
+  box-shadow: 0 4px 16px -4px rgba(245, 158, 11, 0.12);
+}
+
+.cardApproved {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 4px 16px -4px rgba(8, 127, 91, 0.14);
+}
+
+.cardRejected {
+  border-color: var(--color-danger, #B91C1C);
+  box-shadow: 0 4px 16px -4px rgba(185, 28, 28, 0.12);
+}
+
+/* Huy hiệu trạng thái (Badge + Chấm tròn) */
+.badgeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badgePending {
+  background-color: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.badgeApproved {
+  background-color: var(--color-tertiary, #E7F4ED);
+  color: var(--color-primary, #087F5B);
+  border: 1px solid #A7F3D0;
+}
+
+.badgeRejected {
+  background-color: #FEF2F2;
+  color: var(--color-danger, #B91C1C);
+  border: 1px solid #FECACA;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotAmber {
+  background-color: #F59E0B;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+}
+
+.dotGreen {
+  background-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.22);
+}
+
+.dotRed {
+  background-color: var(--color-danger, #B91C1C);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.22);
+}
+
+/* Tiêu đề & Mô tả trạng thái */
+.headerBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stateTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+  letter-spacing: -0.01em;
+}
+
+.stateDesc {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-secondary, #586574);
+}
+
+/* Bảng thông tin hồ sơ (Info Table) */
+.infoTable {
+  background-color: #F8FAFC;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #E2E8F0;
+}
+
+.infoRow:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.infoLabel {
+  color: var(--color-secondary, #586574);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.infoValue {
+  color: var(--color-neutral, #242A30);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+.rolePill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: var(--color-tertiary, #E7F4ED);
+  color: var(--color-primary, #087F5B);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Ghi chú hộp thư / thông báo xanh */
+.mailNoteBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 8px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #92400E;
+}
+
+.greenNoteBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background-color: var(--color-tertiary, #E7F4ED);
+  border: 1px solid #A7F3D0;
+  border-radius: 8px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #065F46;
+}
+
+.noteIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+}
+
+/* Khung lý do từ chối (Viền đứt màu đỏ nhạt) */
+.rejectReasonBox {
+  background-color: #FEF2F2;
+  border: 1.5px dashed #FCA5A5;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rejectReasonLabel {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-danger, #B91C1C);
+}
+
+.rejectReasonText {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #7F1D1D;
+}
+
+/* Khung Gửi lại yêu cầu (Rate limit 24h / Đủ điều kiện) */
+.resubmitSection {
+  background-color: #F8FAFC;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 10px;
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.resubmitHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.resubmitTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+}
+
+.subBadgeLocked {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: #FEE2E2;
+  color: var(--color-danger, #B91C1C);
+}
+
+.subBadgeEligible {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: var(--color-tertiary, #E7F4ED);
+  color: var(--color-primary, #087F5B);
+}
+
+.resubmitDesc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-secondary, #586574);
+}
+
+.cooldownTag {
+  font-size: 12px;
+  font-weight: 600;
+  color: #B45309;
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.verifyControlBtn {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border, #E2E8F0);
+  background-color: #FFFFFF;
+  color: var(--color-neutral, #242A30);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.verifyControlBtn:hover {
+  border-color: var(--color-primary, #087F5B);
+  background-color: #F8FAFC;
+}
+
+.verifyControlActive {
+  border-color: var(--color-primary, #087F5B);
+  background-color: var(--color-tertiary, #E7F4ED);
+  color: var(--color-primary, #087F5B);
+}
+
+/* Cụm nút hành động chính & phụ */
+.actionButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.primaryActionBtn {
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 8px;
+  border: none;
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.primaryActionBtn:hover:not(:disabled) {
+  background-color: #066649;
+}
+
+.primaryActionBtn:disabled {
+  background-color: #CBD5E1;
+  color: #64748B;
+  cursor: not-allowed;
+}
+
+.secondaryActionBtn {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #E2E8F0);
+  background-color: #FFFFFF;
+  color: var(--color-neutral, #242A30);
+  font-size: 13.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.secondaryActionBtn:hover {
+  background-color: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #FFFFFF;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,10 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
-  font-family: Inter, 'Be Vietnam Pro', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Bảng mã màu chuẩn RetailOps v1.0 */
+  --color-primary: #087F5B;    /* Xanh lá đậm chủ đạo - nền Logo, chữ & icon menu active */
+  --color-tertiary: #E7F4ED;   /* Xanh bạc hà nhạt - nền menu active, nền Avatar Admin */
+  --color-secondary: #586574;  /* Xám xanh trung tính - chữ & icon menu thường, nhãn v1.0, chú thích vai trò */
+  --color-neutral: #242A30;    /* Đen xám than - tên thương hiệu RetailOps, tên người dùng, tiêu đề */
+  --color-danger: #B91C1C;     /* Đỏ đậm - dùng cho nút hành động nguy hiểm / Đăng xuất trong Modal */
+  --color-bg-page: #F8FAFC;    /* Nền vùng nội dung chính */
+  --color-border: #E2E8F0;     /* Viền mảnh ngăn cách Sidebar và Header */
+
+  /* Font chữ hệ thống */
+  --font-family-base: 'Inter', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  font-family: var(--font-family-base);
   font-size: 14px;
   line-height: 1.5;
   font-weight: 400;
-  color: #242a30;
-  background-color: #f8f9fa;
+  color: var(--color-neutral);
+  background-color: var(--color-bg-page);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -13,6 +27,8 @@
 
 * {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 html,
@@ -20,23 +36,21 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background-color: #f8f9fa;
-  color: #242a30;
+  background-color: var(--color-bg-page);
+  color: var(--color-neutral);
 }
 
+body,
 button,
 input,
-textarea,
-select {
-  font: inherit;
+select,
+textarea {
+  font-family: var(--font-family-base);
+  color: var(--color-neutral);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
   min-height: 100vh;
-}
-
-h1,
-h2,
-p {
-  margin: 0;
 }
