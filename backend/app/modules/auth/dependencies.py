@@ -9,9 +9,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import UnauthenticatedError
+from app.core.exceptions import ForbiddenError, UnauthenticatedError
 from app.db.session import get_db_session
-from app.modules.auth.models import User
+from app.modules.auth.models import User, UserRole
 from app.modules.auth.service import AuthService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -38,3 +38,13 @@ def get_current_principal(
         raise UnauthenticatedError()
     user, session_id = service.live_user(session, credentials.credentials)
     return CurrentPrincipal(user=user, session_id=session_id)
+
+
+def require_admin(
+    principal: Annotated[CurrentPrincipal, Depends(get_current_principal)],
+) -> CurrentPrincipal:
+    """Require an authenticated ACTIVE user with the ADMIN role."""
+    if principal.user.role != UserRole.ADMIN:
+        raise ForbiddenError()
+    return principal
+
