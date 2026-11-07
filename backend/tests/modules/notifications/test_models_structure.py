@@ -1,9 +1,13 @@
 """Structure and metadata tests for AdminNotification ORM model (Phase A)."""
 
+from collections.abc import Generator
+from importlib import import_module
+
+import pytest
 from sqlalchemy import BigInteger, UniqueConstraint, inspect
 from sqlalchemy.dialects.mysql import DATETIME
 
-from app.modules.notifications.models import AdminNotification
+from app.db.base import Base
 
 EXPECTED_COLUMNS = {
     "id",
@@ -21,9 +25,39 @@ FORBIDDEN_COLUMNS = {
 }
 
 
-def test_admin_notification_columns_and_types_match_erd() -> None:
-    """Verify table name, exact 5 columns, types, nullability, and defaults."""
+def _is_registered_for_alembic(model: type[Base]) -> bool:
+    """Return True if the model is registered in the central Alembic metadata."""
+    try:
+        metadata_module = import_module("app.db.metadata")
+    except ModuleNotFoundError:
+        return False
+    registered = getattr(metadata_module, "REGISTERED_MODELS", ())
+    return model in registered
+
+
+@pytest.fixture(scope="module")
+def admin_notification_cls() -> Generator[type[Base]]:
+    """Load AdminNotification without polluting global Alembic metadata."""
+    from app.modules.notifications.models import AdminNotification
+
     table = AdminNotification.__table__
+    if table.name not in Base.metadata.tables:
+        Base.metadata._add_table(table.name, table.schema, table)
+    try:
+        yield AdminNotification
+    finally:
+        if (
+            not _is_registered_for_alembic(AdminNotification)
+            and table.name in Base.metadata.tables
+        ):
+            Base.metadata.remove(table)
+
+
+def test_admin_notification_columns_and_types_match_erd(
+    admin_notification_cls: type[Base],
+) -> None:
+    """Verify table name, exact 5 columns, types, nullability, and defaults."""
+    table = admin_notification_cls.__table__
     assert table.name == "admin_notifications"
 
     actual_columns = set(table.columns.keys())
@@ -59,9 +93,11 @@ def test_admin_notification_columns_and_types_match_erd() -> None:
     assert table.c.read_at.server_default is None
 
 
-def test_admin_notification_pk_unique_fk_and_index() -> None:
+def test_admin_notification_pk_unique_fk_and_index(
+    admin_notification_cls: type[Base],
+) -> None:
     """Verify explicit PK, UNIQUE, FK target_fullname, and composite index."""
-    table = AdminNotification.__table__
+    table = admin_notification_cls.__table__
 
     assert table.primary_key.name == "pk_admin_notifications"
     assert [col.name for col in table.primary_key.columns] == ["id"]
@@ -104,8 +140,9 @@ def test_admin_notification_pk_unique_fk_and_index() -> None:
     }
 
 
-def test_admin_notification_has_no_relationships() -> None:
+def test_admin_notification_has_no_relationships(
+    admin_notification_cls: type[Base],
+) -> None:
     """Verify no ORM relationship() is defined on AdminNotification."""
-    mapper = inspect(AdminNotification)
+    mapper = inspect(admin_notification_cls)
     assert len(mapper.relationships) == 0
-

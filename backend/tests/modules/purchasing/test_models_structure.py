@@ -1,11 +1,14 @@
 """Structure and metadata tests for Purchasing ORM models (Phase A)."""
 
 import re
+from collections.abc import Generator
+from importlib import import_module
 
+import pytest
 from sqlalchemy import BigInteger, CheckConstraint, Integer, String, inspect
 from sqlalchemy.dialects.mysql import DATETIME
 
-from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
+from app.db.base import Base
 
 EXPECTED_RECEIPT_COLUMNS = {
     "id",
@@ -36,9 +39,44 @@ def _normalize_sql(expr: str) -> str:
     return re.sub(r"\s+", " ", expr).strip()
 
 
-def test_purchase_receipt_columns_types_and_defaults_match_erd() -> None:
+def _is_registered_for_alembic(model: type[Base]) -> bool:
+    """Return True if the model is registered in the central Alembic metadata."""
+    try:
+        metadata_module = import_module("app.db.metadata")
+    except ModuleNotFoundError:
+        return False
+    registered = getattr(metadata_module, "REGISTERED_MODELS", ())
+    return model in registered
+
+
+@pytest.fixture(scope="module")
+def purchasing_models() -> Generator[tuple[type[Base], type[Base]]]:
+    """Load Purchasing models without polluting global Alembic metadata."""
+    from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
+
+    models = (PurchaseReceipt, PurchaseReceiptItem)
+    for model in models:
+        table = model.__table__
+        if table.name not in Base.metadata.tables:
+            Base.metadata._add_table(table.name, table.schema, table)
+    try:
+        yield PurchaseReceipt, PurchaseReceiptItem
+    finally:
+        for model in reversed(models):
+            table = model.__table__
+            if (
+                not _is_registered_for_alembic(model)
+                and table.name in Base.metadata.tables
+            ):
+                Base.metadata.remove(table)
+
+
+def test_purchase_receipt_columns_types_and_defaults_match_erd(
+    purchasing_models: tuple[type[Base], type[Base]],
+) -> None:
     """Verify PurchaseReceipt columns, types, nullability, and server defaults."""
-    table = PurchaseReceipt.__table__
+    receipt_cls, _ = purchasing_models
+    table = receipt_cls.__table__
     assert table.name == "purchase_receipts"
     assert set(table.columns.keys()) == EXPECTED_RECEIPT_COLUMNS
 
@@ -93,9 +131,12 @@ def test_purchase_receipt_columns_types_and_defaults_match_erd() -> None:
         assert col.nullable is is_nullable
 
 
-def test_purchase_receipt_constraints_fks_and_indexes() -> None:
+def test_purchase_receipt_constraints_fks_and_indexes(
+    purchasing_models: tuple[type[Base], type[Base]],
+) -> None:
     """Verify PurchaseReceipt PK, FKs, CHECKs (exact 2), and 3 composite indexes."""
-    table = PurchaseReceipt.__table__
+    receipt_cls, _ = purchasing_models
+    table = receipt_cls.__table__
 
     assert table.primary_key.name == "pk_purchase_receipts"
     assert [col.name for col in table.primary_key.columns] == ["id"]
@@ -161,9 +202,12 @@ def test_purchase_receipt_constraints_fks_and_indexes() -> None:
     }
 
 
-def test_purchase_receipt_item_columns_pk_fks_and_check_match_erd() -> None:
+def test_purchase_receipt_item_columns_pk_fks_and_check_match_erd(
+    purchasing_models: tuple[type[Base], type[Base]],
+) -> None:
     """Verify PurchaseReceiptItem columns, composite PK, FKs, and CHECK."""
-    table = PurchaseReceiptItem.__table__
+    _, item_cls = purchasing_models
+    table = item_cls.__table__
     assert table.name == "purchase_receipt_items"
     assert set(table.columns.keys()) == EXPECTED_ITEM_COLUMNS
 
@@ -227,8 +271,10 @@ def test_purchase_receipt_item_columns_pk_fks_and_check_match_erd() -> None:
     }
 
 
-def test_purchasing_models_have_no_relationships() -> None:
+def test_purchasing_models_have_no_relationships(
+    purchasing_models: tuple[type[Base], type[Base]],
+) -> None:
     """Verify no ORM relationship() is defined on Purchasing models."""
-    assert len(inspect(PurchaseReceipt).relationships) == 0
-    assert len(inspect(PurchaseReceiptItem).relationships) == 0
-
+    receipt_cls, item_cls = purchasing_models
+    assert len(inspect(receipt_cls).relationships) == 0
+    assert len(inspect(item_cls).relationships) == 0
