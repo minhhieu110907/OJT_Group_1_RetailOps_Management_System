@@ -64,4 +64,3 @@ def downgrade() -> None:
     """Drop suppliers and categories tables."""
     op.drop_table("suppliers")
     op.drop_table("categories")
-
