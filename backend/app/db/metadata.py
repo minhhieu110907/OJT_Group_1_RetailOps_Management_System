@@ -1,4 +1,4 @@
-"""Central registry of reviewed ORM metadata for Alembic."""
+"""Central SQLAlchemy metadata registry for Alembic."""
 
 from app.db.base import Base
 from app.modules.auth.models import (
@@ -7,6 +7,15 @@ from app.modules.auth.models import (
     StaffApprovalRequest,
     User,
 )
+from app.modules.notifications.models import AdminNotification
 
-REGISTERED_MODELS = (User, StaffApprovalRequest, AuthSession, RefreshToken)
+REGISTERED_MODELS = (
+    User,
+    StaffApprovalRequest,
+    AuthSession,
+    RefreshToken,
+    AdminNotification,
+)
 metadata = Base.metadata
+
+__all__ = ["Base", "REGISTERED_MODELS", "metadata"]
