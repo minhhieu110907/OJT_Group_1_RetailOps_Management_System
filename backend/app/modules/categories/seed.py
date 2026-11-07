@@ -21,10 +21,17 @@ def seed_categories(
     session: Session,
     categories_data: list[dict[str, Any]] | None = None,
 ) -> int:
-    """Seed initial categories idempotently.
+    """Seed initial categories idempotently using add/flush without committing.
 
-    Checks if a category with the same name already exists.
-    Returns the number of newly created categories.
+    Checks if a category with the same name already exists in the session/database.
+    Returns the number of newly added categories.
+
+    Note:
+        This seed procedure is designed to run sequentially (e.g. during deployment
+        or application startup) and does not claim concurrency safety. In accordance
+        with ERD V1.0, the categories table does not enforce a UNIQUE constraint
+        on the name column. Transaction management (commit/rollback) is the
+        responsibility of the caller (e.g. CLI main or service layer).
     """
     items = categories_data if categories_data is not None else DEFAULT_CATEGORIES
     created_count = 0
@@ -46,20 +53,24 @@ def seed_categories(
         created_count += 1
 
     if created_count > 0:
-        session.commit()
+        session.flush()
 
     return created_count
 
 
 def main() -> None:
-    """CLI runner for categories seed."""
+    """CLI runner for categories seed; owns the transaction boundary."""
     from app.db.session import get_session_factory
 
     with get_session_factory()() as session:
-        created = seed_categories(session)
-    print(f"Categories seed completed: {created} created")
+        try:
+            created = seed_categories(session)
+            session.commit()
+            print(f"Categories seed completed: {created} created")
+        except Exception:
+            session.rollback()
+            raise
 
 
 if __name__ == "__main__":
     main()
-

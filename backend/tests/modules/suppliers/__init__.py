@@ -1,2 +1,1 @@
 """Supplier module tests."""
-

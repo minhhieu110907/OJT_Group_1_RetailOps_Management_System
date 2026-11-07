@@ -35,6 +35,7 @@ def test_category_seed_is_idempotent(db_session: Session) -> None:
     # First execution: should insert all default categories
     first_run_created = seed_categories(db_session)
     assert first_run_created == len(DEFAULT_CATEGORIES)
+    db_session.commit()
 
     categories = db_session.scalars(select(Category)).all()
     assert len(categories) == len(DEFAULT_CATEGORIES)
@@ -46,6 +47,7 @@ def test_category_seed_is_idempotent(db_session: Session) -> None:
     # Second execution: should be a clean no-op
     second_run_created = seed_categories(db_session)
     assert second_run_created == 0
+    db_session.commit()
 
     total_count = db_session.scalar(select(func.count(Category.id)))
     assert total_count == len(DEFAULT_CATEGORIES)
@@ -54,6 +56,7 @@ def test_category_seed_is_idempotent(db_session: Session) -> None:
 def test_category_seed_custom_data_skips_existing(db_session: Session) -> None:
     """Verify custom seed list correctly skips existing names without error."""
     seed_categories(db_session, [{"name": "Đồ uống"}])
+    db_session.commit()
     assert db_session.scalar(select(func.count(Category.id))) == 1
 
     custom_batch = [
@@ -62,8 +65,20 @@ def test_category_seed_custom_data_skips_existing(db_session: Session) -> None:
         {"name": "Đồ chơi"},  # new
     ]
     created = seed_categories(db_session, custom_batch)
+    db_session.commit()
     assert created == 2
     assert db_session.scalar(select(func.count(Category.id))) == 3
+
+
+def test_category_seed_does_not_commit_and_respects_rollback(
+    db_session: Session,
+) -> None:
+    """Verify seed_categories does not commit internally and honors rollback."""
+    created = seed_categories(db_session, [{"name": "Rollback Category"}])
+    assert created == 1
+    db_session.rollback()
+
+    assert db_session.scalar(select(func.count(Category.id))) == 0
 
 
 def test_supplier_seed_is_idempotent(db_session: Session) -> None:
@@ -71,6 +86,7 @@ def test_supplier_seed_is_idempotent(db_session: Session) -> None:
     # First execution: should insert all default suppliers
     first_run_created = seed_suppliers(db_session)
     assert first_run_created == len(DEFAULT_SUPPLIERS)
+    db_session.commit()
 
     suppliers = db_session.scalars(select(Supplier)).all()
     assert len(suppliers) == len(DEFAULT_SUPPLIERS)
@@ -82,6 +98,7 @@ def test_supplier_seed_is_idempotent(db_session: Session) -> None:
     # Second execution: should be a clean no-op
     second_run_created = seed_suppliers(db_session)
     assert second_run_created == 0
+    db_session.commit()
 
     total_count = db_session.scalar(select(func.count(Supplier.id)))
     assert total_count == len(DEFAULT_SUPPLIERS)
@@ -94,6 +111,7 @@ def test_supplier_seed_custom_data_skips_existing(db_session: Session) -> None:
         db_session,
         [{"name": initial_name, "contact_email": "test@example.com"}],
     )
+    db_session.commit()
     assert db_session.scalar(select(func.count(Supplier.id))) == 1
 
     custom_batch = [
@@ -102,5 +120,17 @@ def test_supplier_seed_custom_data_skips_existing(db_session: Session) -> None:
         {"name": "Nhà cung cấp Mới 2"},  # new
     ]
     created = seed_suppliers(db_session, custom_batch)
+    db_session.commit()
     assert created == 2
     assert db_session.scalar(select(func.count(Supplier.id))) == 3
+
+
+def test_supplier_seed_does_not_commit_and_respects_rollback(
+    db_session: Session,
+) -> None:
+    """Verify seed_suppliers does not commit internally and honors rollback."""
+    created = seed_suppliers(db_session, [{"name": "Rollback Supplier"}])
+    assert created == 1
+    db_session.rollback()
+
+    assert db_session.scalar(select(func.count(Supplier.id))) == 0

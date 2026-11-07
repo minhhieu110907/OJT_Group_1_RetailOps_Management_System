@@ -54,4 +54,3 @@ class Category(Base):
             name="ck_categories_status",
         ),
     )
-

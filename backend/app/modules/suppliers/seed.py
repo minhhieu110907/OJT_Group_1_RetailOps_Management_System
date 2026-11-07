@@ -31,10 +31,17 @@ def seed_suppliers(
     session: Session,
     suppliers_data: list[dict[str, Any]] | None = None,
 ) -> int:
-    """Seed initial suppliers idempotently.
+    """Seed initial suppliers idempotently using add/flush without committing.
 
-    Checks if a supplier with the same name already exists.
-    Returns the number of newly created suppliers.
+    Checks if a supplier with the same name already exists in the session/database.
+    Returns the number of newly added suppliers.
+
+    Note:
+        This seed procedure is designed to run sequentially (e.g. during deployment
+        or application startup) and does not claim concurrency safety. In accordance
+        with ERD V1.0, the suppliers table does not enforce a UNIQUE constraint
+        on the name column. Transaction management (commit/rollback) is the
+        responsibility of the caller (e.g. CLI main or service layer).
     """
     items = suppliers_data if suppliers_data is not None else DEFAULT_SUPPLIERS
     created_count = 0
@@ -58,20 +65,24 @@ def seed_suppliers(
         created_count += 1
 
     if created_count > 0:
-        session.commit()
+        session.flush()
 
     return created_count
 
 
 def main() -> None:
-    """CLI runner for suppliers seed."""
+    """CLI runner for suppliers seed; owns the transaction boundary."""
     from app.db.session import get_session_factory
 
     with get_session_factory()() as session:
-        created = seed_suppliers(session)
-    print(f"Suppliers seed completed: {created} created")
+        try:
+            created = seed_suppliers(session)
+            session.commit()
+            print(f"Suppliers seed completed: {created} created")
+        except Exception:
+            session.rollback()
+            raise
 
 
 if __name__ == "__main__":
     main()
-

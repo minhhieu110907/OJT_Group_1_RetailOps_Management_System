@@ -62,4 +62,3 @@ class Supplier(Base):
             name="ck_suppliers_status",
         ),
     )
-
