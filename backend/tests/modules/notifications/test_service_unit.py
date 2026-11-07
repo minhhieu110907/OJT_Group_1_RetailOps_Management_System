@@ -11,6 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.core.exceptions import AppException
 from app.main import create_app
+from app.modules.auth.models import StaffApprovalRequest, User
+from app.modules.auth.repository import AuthRepository
+from app.modules.auth.security import PasswordHasher
+from app.modules.auth.service import AuthService
 from app.modules.notifications.models import AdminNotification
 from app.modules.notifications.repository import NotificationRepository
 from app.modules.notifications.schemas import (
@@ -377,3 +381,134 @@ def test_router_registration_in_openapi_without_duplicate_prefixes() -> None:
     assert not any(path.startswith("/api/v1/api/v1") for path in paths)
     assert "/api/v1/health" in paths
     assert "/api/v1/auth/login" in paths
+    assert "/api/v1/auth/register" in paths
+
+
+class _FakeAuthSession:
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class _FakeAuthRepository(AuthRepository):
+    def __init__(self) -> None:
+        self.admin = User(
+            id=1,
+            email_normalized="admin@example.com",
+            password_hash="h",
+            role="ADMIN",
+            status="ACTIVE",
+            admin_slot=1,
+            last_reapplied_at=None,
+            created_at=datetime(2026, 11, 7, 8, 0, 0),
+            updated_at=datetime(2026, 11, 7, 8, 0, 0),
+        )
+        self.users: dict[str, User] = {}
+        self.approvals: dict[int, StaffApprovalRequest] = {}
+        self._next_user_id = 10
+        self._next_approval_id = 100
+
+    def find_sole_admin(self, _session: object) -> User | None:
+        return self.admin
+
+    def find_user_by_email(self, _session: object, email: str) -> User | None:
+        return self.users.get(email)
+
+    def find_pending_approval_by_user(
+        self, _session: object, user_id: int
+    ) -> StaffApprovalRequest | None:
+        return self.approvals.get(user_id)
+
+    def add_staff_registration(
+        self,
+        _session: object,
+        user: User,
+        approval_request: StaffApprovalRequest,
+    ) -> None:
+        user.id = self._next_user_id
+        self._next_user_id += 1
+        approval_request.id = self._next_approval_id
+        self._next_approval_id += 1
+        approval_request.user_id = user.id
+        self.users[user.email_normalized] = user
+        self.approvals[user.id] = approval_request
+
+
+def test_auth_register_triggers_notification_and_rolls_back_on_failure() -> None:
+    settings = Settings(
+        db_host="unused",
+        db_name="unused",
+        db_user="unused",
+        db_password=SecretStr("unused"),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+    )
+    auth_repo = _FakeAuthRepository()
+    notif_repo = FakeNotificationRepository()
+    notif_service = NotificationService(repository=notif_repo)
+    auth_service = AuthService(
+        settings,
+        repository=auth_repo,
+        password_hasher=PasswordHasher(work_factor=4),
+        notification_service=notif_service,
+    )
+    tx_session = _FakeAuthSession()
+
+    # 1. Invalid email fails before DB write and creates 0 notifications
+    with pytest.raises(AppException) as exc_info:
+        auth_service.register(
+            tx_session,  # type: ignore[arg-type]
+            "bad-email",
+            "valid-password",
+        )
+    assert exc_info.value.status_code == 422
+    assert notif_service.count_unread(tx_session, admin_user_id=1).count == 0  # type: ignore[arg-type]
+
+    # 2. Valid registration creates User + Approval + 1 Notification and commits once
+    res1 = auth_service.register(
+        tx_session,  # type: ignore[arg-type]
+        "  Staff.New@Example.COM ",
+        "valid-password",
+    )
+    assert res1.message
+    assert tx_session.commits == 1
+    assert notif_service.count_unread(tx_session, admin_user_id=1).count == 1  # type: ignore[arg-type]
+
+    # 3. Retry with same email does not create a second notification
+    res2 = auth_service.register(
+        tx_session,  # type: ignore[arg-type]
+        "staff.new@example.com",
+        "valid-password",
+    )
+    assert res2.message == res1.message
+    assert notif_service.count_unread(tx_session, admin_user_id=1).count == 1  # type: ignore[arg-type]
+
+    # 4. If notification service fails, AuthService rolls back the transaction
+    class _FailingNotifService(NotificationService):
+        def create_for_approval(
+            self,
+            session: object,
+            admin_user_id: int,
+            approval_request_id: int,
+        ) -> AdminNotification:
+            raise RuntimeError("Notification failure")
+
+    failing_auth = AuthService(
+        settings,
+        repository=auth_repo,
+        password_hasher=PasswordHasher(work_factor=4),
+        notification_service=_FailingNotifService(repository=notif_repo),
+    )
+    with pytest.raises(RuntimeError, match="Notification failure"):
+        failing_auth.register(
+            tx_session,  # type: ignore[arg-type]
+            "fail.staff@example.com",
+            "valid-password",
+        )
+    assert tx_session.rollbacks == 1

@@ -4,12 +4,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import delete, inspect, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
+from app.core.exceptions import AppException
 from app.modules.auth.models import StaffApprovalRequest, User
+from app.modules.auth.security import PasswordHasher
+from app.modules.auth.service import AuthService
 from app.modules.notifications.models import AdminNotification
 from app.modules.notifications.repository import NotificationRepository
 from app.modules.notifications.service import NotificationService
@@ -362,3 +367,153 @@ def test_concurrent_create_mark_read_and_mark_all_read(
     with ThreadPoolExecutor(max_workers=2) as pool:
         counts = list(pool.map(lambda _i: worker_mark_all(), range(2)))
     assert sum(counts) == 2
+
+
+def test_auth_register_triggers_single_admin_notification_and_deduplicates_retry(
+    migrated_integration_engine: Engine,
+) -> None:
+    settings = Settings(
+        db_host="unused",
+        db_name="unused",
+        db_user="unused",
+        db_password=SecretStr("unused"),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+    )
+    auth_service = AuthService(
+        settings,
+        password_hasher=PasswordHasher(work_factor=4),
+    )
+
+    with Session(migrated_integration_engine) as session:
+        admin, _seed_staff, _seed_approval = _seed_admin_and_approval(
+            session, "reg_admin"
+        )
+        admin_id = admin.id
+        session.commit()
+
+        # 1. Invalid registration must fail with 422 and create zero notifications
+        before_count = len(
+            list(
+                session.scalars(
+                    select(AdminNotification).where(
+                        AdminNotification.admin_user_id == admin_id
+                    )
+                )
+            )
+        )
+        with pytest.raises(AppException) as exc_info:
+            auth_service.register(session, "not-an-email", "valid-password")
+        assert exc_info.value.status_code == 422
+        after_invalid_count = len(
+            list(
+                session.scalars(
+                    select(AdminNotification).where(
+                        AdminNotification.admin_user_id == admin_id
+                    )
+                )
+            )
+        )
+        assert after_invalid_count == before_count
+
+        # 2. Valid registration creates User + Approval + 1 AdminNotification
+        target_email = f"{EMAIL_PREFIX}new_register@example.com"
+        first_res = auth_service.register(
+            session,
+            f"  {target_email.upper()}  ",
+            "valid-password",
+        )
+        assert first_res.message
+
+        user = session.scalar(select(User).where(User.email_normalized == target_email))
+        assert user is not None
+        assert user.status == "PENDING_APPROVAL"
+
+        approvals = list(
+            session.scalars(
+                select(StaffApprovalRequest).where(
+                    StaffApprovalRequest.user_id == user.id
+                )
+            )
+        )
+        assert len(approvals) == 1
+
+        notifs = list(
+            session.scalars(
+                select(AdminNotification).where(
+                    AdminNotification.approval_request_id == approvals[0].id
+                )
+            )
+        )
+        assert len(notifs) == 1
+        assert notifs[0].admin_user_id == admin_id
+        first_notif_id = notifs[0].id
+        first_created_at = notifs[0].created_at
+
+        # 3. Retry / duplicate registration does not create duplicate records
+        second_res = auth_service.register(session, target_email, "valid-password")
+        assert second_res.message == first_res.message
+
+        approvals_after = list(
+            session.scalars(
+                select(StaffApprovalRequest).where(
+                    StaffApprovalRequest.user_id == user.id
+                )
+            )
+        )
+        notifs_after = list(
+            session.scalars(
+                select(AdminNotification).where(
+                    AdminNotification.approval_request_id == approvals[0].id
+                )
+            )
+        )
+        assert len(approvals_after) == 1
+        assert len(notifs_after) == 1
+        assert notifs_after[0].id == first_notif_id
+        assert notifs_after[0].created_at == first_created_at
+
+
+def test_auth_register_rolls_back_user_and_approval_when_notification_fails(
+    migrated_integration_engine: Engine,
+) -> None:
+    class FailingNotificationService(NotificationService):
+        def create_for_approval(
+            self,
+            session: Session,
+            admin_user_id: int,
+            approval_request_id: int,
+        ) -> AdminNotification:
+            raise RuntimeError("Simulated notification failure inside same transaction")
+
+    settings = Settings(
+        db_host="unused",
+        db_name="unused",
+        db_user="unused",
+        db_password=SecretStr("unused"),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+    )
+    failing_auth = AuthService(
+        settings,
+        password_hasher=PasswordHasher(work_factor=4),
+        notification_service=FailingNotificationService(
+            repository=NotificationRepository()
+        ),
+    )
+
+    rollback_email = f"{EMAIL_PREFIX}rollback_reg@example.com"
+    with Session(migrated_integration_engine) as session:
+        _seed_admin_and_approval(session, "reg_rb_seed")
+        session.commit()
+
+        with pytest.raises(RuntimeError, match="Simulated notification failure"):
+            failing_auth.register(session, rollback_email, "valid-password")
+
+    with Session(migrated_integration_engine) as verify_session:
+        assert (
+            verify_session.scalar(
+                select(User).where(User.email_normalized == rollback_email)
+            )
+            is None
+        )
