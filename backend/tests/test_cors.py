@@ -13,6 +13,12 @@ def make_settings(
     *,
     environment: str = "development",
 ) -> Settings:
+    kwargs = {}
+    if environment == "production":
+        kwargs = {
+            "jwt_secret": SecretStr("j" * 32),
+            "csrf_secret": SecretStr("c" * 32),
+        }
     return Settings(
         db_host="unused",
         db_name="unused",
@@ -20,6 +26,7 @@ def make_settings(
         db_password=SecretStr("unused"),
         environment=environment,
         cors_origins=cors_origins,
+        **kwargs,
     )
 
 
@@ -38,17 +45,24 @@ async def test_cors_allows_configured_origin_with_credentials() -> None:
         app=create_app(make_settings("http://127.0.0.1:5173"))
     )
     async with httpx.AsyncClient(transport=transport, base_url="http://api") as client:
-        response = await client.options(
+        preflight = await client.options(
             "/api/v1/health",
             headers={
                 "Origin": "http://127.0.0.1:5173",
                 "Access-Control-Request-Method": "GET",
             },
         )
+        response = await client.get(
+            "/api/v1/health",
+            headers={"Origin": "http://127.0.0.1:5173"},
+        )
 
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == ("http://127.0.0.1:5173")
+    assert preflight.headers["access-control-allow-credentials"] == "true"
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == ("http://127.0.0.1:5173")
-    assert response.headers["access-control-allow-credentials"] == "true"
+    assert response.headers["access-control-expose-headers"] == "X-CSRF-Token"
 
 
 @pytest.mark.anyio

@@ -79,10 +79,10 @@ def seed_admin(
 
 def main() -> None:
     """Run the explicit Admin seed without printing credentials."""
-    from app.db.session import SessionLocal
+    from app.db.session import get_session_factory
 
     settings = AdminSeedSettings()
-    with SessionLocal() as session:
+    with get_session_factory()() as session:
         created = seed_admin(
             session,
             email=settings.email,

@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.modules.auth.models import ApprovalStatus, UserRole, UserStatus
 
@@ -56,3 +56,39 @@ class RefreshTokenMetadata(OrmReadModel):
     generation: int
     issued_at: datetime
     consumed_at: datetime | None
+
+
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class LoginRequest(StrictRequest):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=72)
+
+
+class AuthenticatedUser(BaseModel):
+    id: int
+    email_normalized: str
+    role: UserRole
+    status: UserStatus
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: AuthenticatedUser
+
+
+class CsrfResponse(BaseModel):
+    csrf_token: str
+
+
+class RegisterRequest(StrictRequest):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=72)
+
+
+class RegisterResponse(BaseModel):
+    message: str

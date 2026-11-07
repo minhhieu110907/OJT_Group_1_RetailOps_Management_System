@@ -1,6 +1,9 @@
 """Integration tests against a dedicated MySQL test database."""
 
 import importlib
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+from time import sleep
 from uuid import uuid4
 
 import pytest
@@ -101,3 +104,32 @@ def test_temporary_probe_survives_new_connection(
         if probe_created:
             with integration_engine.begin() as connection:
                 connection.execute(text(f"DROP TABLE `{probe_table}`"))
+
+
+def test_session_factory_initializes_once_under_concurrency(
+    integration_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.db.session as session_module
+
+    calls = 0
+    calls_lock = Lock()
+
+    def counted_engine_factory() -> Engine:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        sleep(0.05)
+        return integration_engine
+
+    monkeypatch.setattr(session_module, "engine", None)
+    monkeypatch.setattr(session_module, "SessionLocal", None)
+    monkeypatch.setattr(session_module, "_create_engine", counted_engine_factory)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        factories = list(
+            executor.map(lambda _index: session_module.get_session_factory(), range(8))
+        )
+
+    assert calls == 1
+    assert len({id(factory) for factory in factories}) == 1
