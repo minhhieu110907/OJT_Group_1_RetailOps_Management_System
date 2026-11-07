@@ -37,7 +37,15 @@ export default function AccountStatus() {
   };
 
   // Trạng thái chính của hồ sơ: 'PENDING' | 'APPROVED' | 'REJECTED'
-  const [status, setStatus] = useState(incomingState.status || 'PENDING');
+  // Chuẩn hóa tương thích với Backend enum (PENDING_APPROVAL -> PENDING, ACTIVE -> APPROVED)
+  const rawStatus = incomingState.status;
+  const initialStatus =
+    rawStatus === 'PENDING_APPROVAL'
+      ? 'PENDING'
+      : rawStatus === 'ACTIVE'
+      ? 'APPROVED'
+      : rawStatus || 'PENDING';
+  const [status, setStatus] = useState(initialStatus);
 
   // Trạng thái con của mục Gửi lại khi REJECTED:
   // - 'LOCKED_24H' (Mặc định khi lần đầu mở: Tạm khóa trong vòng 24h)

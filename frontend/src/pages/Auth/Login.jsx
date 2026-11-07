@@ -101,6 +101,7 @@ export default function Login() {
       // 2. Nếu tài khoản có trạng thái PENDING hoặc REJECTED -> Chuyển sang /account-status
       if (
         loggedInUser?.status === 'PENDING' ||
+        loggedInUser?.status === 'PENDING_APPROVAL' ||
         loggedInUser?.status === 'REJECTED'
       ) {
         navigate('/account-status', {

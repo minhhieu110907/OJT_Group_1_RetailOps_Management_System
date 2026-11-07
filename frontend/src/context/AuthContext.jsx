@@ -123,7 +123,11 @@ export function AuthProvider({ children }) {
 
       // Nếu tài khoản đang chờ duyệt (PENDING) hoặc bị từ chối (REJECTED):
       // Không cấp Access Token vào phiên, trả về thông tin hồ sơ để Login.jsx điều hướng sang /account-status
-      if (accountStatus === 'PENDING' || accountStatus === 'REJECTED') {
+      if (
+        accountStatus === 'PENDING' ||
+        accountStatus === 'PENDING_APPROVAL' ||
+        accountStatus === 'REJECTED'
+      ) {
         return {
           id: foundUser.id,
           name: foundUser.name,
@@ -166,6 +170,7 @@ export function AuthProvider({ children }) {
 
     if (
       loggedInUser?.status === 'PENDING' ||
+      loggedInUser?.status === 'PENDING_APPROVAL' ||
       loggedInUser?.status === 'REJECTED'
     ) {
       return loggedInUser;
