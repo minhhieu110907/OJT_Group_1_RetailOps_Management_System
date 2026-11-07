@@ -10,6 +10,7 @@ from app.core.exceptions import (
     DuplicateSkuError,
     ResourceNotFoundError,
 )
+from app.modules.categories.models import CategoryStatus
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.products.repository import InventoryRepository, ProductRepository
 from app.modules.products.schemas import (
@@ -20,6 +21,8 @@ from app.modules.products.schemas import (
     ProductUpdateRequest,
 )
 
+MYSQL_DUPLICATE_ENTRY_CODE = 1062
+
 
 def utc_now_naive() -> datetime:
     """Return the current UTC timestamp without timezone info for MySQL DATETIME(6)."""
@@ -27,13 +30,19 @@ def utc_now_naive() -> datetime:
 
 
 def _is_duplicate_sku_integrity_error(error: IntegrityError) -> bool:
-    """Check whether an IntegrityError is caused by a unique SKU violation."""
-    message = str(getattr(error, "orig", error)).lower()
-    return (
-        "uq_products_sku" in message
-        or "products.sku" in message
-        or ("duplicate entry" in message and "sku" in message)
+    """Check whether an IntegrityError is a MySQL 1062 duplicate on uq_products_sku."""
+    orig = getattr(error, "orig", None)
+    args = getattr(orig, "args", ())
+    error_code = args[0] if args and isinstance(args[0], int) else None
+    message = (
+        str(args[1]).lower()
+        if len(args) > 1
+        else str(orig if orig is not None else error).lower()
     )
+    has_sku_constraint = "uq_products_sku" in message or "products.sku" in message
+    if error_code is not None:
+        return error_code == MYSQL_DUPLICATE_ENTRY_CODE and has_sku_constraint
+    return "duplicate entry" in message and has_sku_constraint
 
 
 class ProductService:
@@ -176,7 +185,7 @@ class ProductService:
         if category is None:
             session.rollback()
             raise ResourceNotFoundError("Không tìm thấy danh mục.")
-        if category.status != CatalogStatus.ACTIVE.value:
+        if category.status != CategoryStatus.ACTIVE.value:
             session.rollback()
             raise DomainValidationError(
                 "Danh mục đã ngừng hoạt động, không thể gán cho sản phẩm."

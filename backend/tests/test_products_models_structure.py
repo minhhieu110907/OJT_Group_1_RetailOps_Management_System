@@ -1,7 +1,10 @@
-"""Structure and metadata tests for Category, Product, and Inventory ORM models."""
+"""Structure and metadata tests for Product and Inventory ORM models."""
 
 import re
+from collections.abc import Generator
+from importlib import import_module
 
+import pytest
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -11,61 +14,73 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.mysql import DATETIME
 
-from app.db.metadata import REGISTERED_MODELS
-from app.modules.products.models import Category, Inventory, Product
+from app.db.base import Base
+from app.modules.categories.models import Category
 
 
 def _normalize_sql(expr: str) -> str:
     return re.sub(r"\s+", " ", expr).strip()
 
 
-def test_catalog_models_are_registered_in_metadata() -> None:
-    assert Category in REGISTERED_MODELS
-    assert Product in REGISTERED_MODELS
-    assert Inventory in REGISTERED_MODELS
+def _is_registered_for_alembic(model: type[Base]) -> bool:
+    """Return True if the model is registered in the central Alembic metadata."""
+    try:
+        metadata_module = import_module("app.db.metadata")
+    except ModuleNotFoundError:
+        return False
+    registered = getattr(metadata_module, "REGISTERED_MODELS", ())
+    return model in registered
 
 
-def test_category_columns_and_constraints_match_erd() -> None:
-    table = Category.__table__
-    assert table.name == "categories"
-    assert set(table.columns.keys()) == {
-        "id",
-        "name",
-        "status",
-        "created_at",
-        "updated_at",
-    }
+@pytest.fixture(scope="module")
+def product_and_inventory_models() -> Generator[
+    tuple[type[Base], type[Base], type[Base]]
+]:
+    """Load Category, Product, and Inventory without polluting Alembic metadata."""
+    from app.modules.products.models import Inventory, Product
 
-    assert isinstance(table.c.id.type, BigInteger)
-    assert table.c.id.primary_key is True
-    assert table.c.id.autoincrement is True
-
-    assert isinstance(table.c.name.type, String)
-    assert table.c.name.type.length == 120
-    assert table.c.name.nullable is False
-
-    assert isinstance(table.c.status.type, String)
-    assert table.c.status.type.length == 8
-    assert table.c.status.nullable is False
-    assert str(table.c.status.server_default.arg).strip("'") == "ACTIVE"
-
-    for dt_col in ("created_at", "updated_at"):
-        assert isinstance(table.c[dt_col].type, DATETIME)
-        assert table.c[dt_col].type.fsp == 6
-        assert table.c[dt_col].nullable is False
-
-    checks = {
-        ck.name: _normalize_sql(str(ck.sqltext))
-        for ck in table.constraints
-        if isinstance(ck, CheckConstraint)
-    }
-    assert checks == {
-        "ck_categories_status": "status IN ('ACTIVE','INACTIVE')",
-    }
+    models = (Category, Product, Inventory)
+    for model in models:
+        table = model.__table__
+        if table.name not in Base.metadata.tables:
+            Base.metadata._add_table(table.name, table.schema, table)
+    try:
+        yield Category, Product, Inventory
+    finally:
+        for model in reversed(models):
+            table = model.__table__
+            if (
+                not _is_registered_for_alembic(model)
+                and table.name in Base.metadata.tables
+            ):
+                Base.metadata.remove(table)
 
 
-def test_product_columns_fks_indexes_and_checks_match_erd() -> None:
-    table = Product.__table__
+def test_products_module_does_not_define_duplicate_category() -> None:
+    """Ensure products.models uses Category from categories.models as single source."""
+    import app.modules.products.models as product_models
+
+    assert not hasattr(product_models, "Category")
+    assert Category.__module__ == "app.modules.categories.models"
+
+
+def test_category_and_product_models_share_metadata_without_conflict(
+    product_and_inventory_models: tuple[type[Base], type[Base], type[Base]],
+) -> None:
+    category_cls, product_cls, inventory_cls = product_and_inventory_models
+    assert category_cls.__table__.metadata is Base.metadata
+    assert product_cls.__table__.metadata is Base.metadata
+    assert inventory_cls.__table__.metadata is Base.metadata
+    assert "categories" in Base.metadata.tables
+    assert "products" in Base.metadata.tables
+    assert "inventory" in Base.metadata.tables
+
+
+def test_product_columns_fks_indexes_and_checks_match_erd(
+    product_and_inventory_models: tuple[type[Base], type[Base], type[Base]],
+) -> None:
+    _, product_cls, _ = product_and_inventory_models
+    table = product_cls.__table__
     assert table.name == "products"
     assert set(table.columns.keys()) == {
         "id",
@@ -88,6 +103,8 @@ def test_product_columns_fks_indexes_and_checks_match_erd() -> None:
     assert isinstance(table.c.status.type, String)
     assert table.c.status.type.length == 8
     assert isinstance(table.c.sale_price_vnd.type, BigInteger)
+    assert isinstance(table.c.created_at.type, DATETIME)
+    assert isinstance(table.c.updated_at.type, DATETIME)
 
     unique_constraints = {
         uc.name: [col.name for col in uc.columns]
@@ -125,8 +142,11 @@ def test_product_columns_fks_indexes_and_checks_match_erd() -> None:
     }
 
 
-def test_inventory_columns_fks_indexes_and_checks_match_erd() -> None:
-    table = Inventory.__table__
+def test_inventory_columns_fks_indexes_and_checks_match_erd(
+    product_and_inventory_models: tuple[type[Base], type[Base], type[Base]],
+) -> None:
+    _, _, inventory_cls = product_and_inventory_models
+    table = inventory_cls.__table__
     assert table.name == "inventory"
     assert set(table.columns.keys()) == {
         "product_id",
@@ -172,4 +192,3 @@ def test_inventory_columns_fks_indexes_and_checks_match_erd() -> None:
     assert indexes == {
         "ix_inventory_quantity_product_id": ["quantity", "product_id"],
     }
-

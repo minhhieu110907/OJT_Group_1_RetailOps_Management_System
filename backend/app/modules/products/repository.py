@@ -5,7 +5,8 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.modules.products.models import Category, Inventory, Product
+from app.modules.categories.models import Category
+from app.modules.products.models import Inventory, Product
 
 
 class ProductRepository:

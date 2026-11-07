@@ -17,7 +17,8 @@ from app.db.session import get_db_session
 from app.main import create_app
 from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
 from app.modules.auth.models import User, UserRole, UserStatus
-from app.modules.products.models import CatalogStatus, Category, Inventory, Product
+from app.modules.categories.models import Category, CategoryStatus
+from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.products.repository import InventoryRepository, ProductRepository
 from app.modules.products.router import get_product_service
 from app.modules.products.schemas import (
@@ -25,7 +26,10 @@ from app.modules.products.schemas import (
     ProductStatusUpdateRequest,
     ProductUpdateRequest,
 )
-from app.modules.products.service import ProductService
+from app.modules.products.service import (
+    ProductService,
+    _is_duplicate_sku_integrity_error,
+)
 
 ORIGIN = "http://127.0.0.1:5173"
 
@@ -85,14 +89,14 @@ class InMemoryProductStore:
             1: Category(
                 id=1,
                 name="Đồ uống",
-                status=CatalogStatus.ACTIVE.value,
+                status=CategoryStatus.ACTIVE.value,
                 created_at=now,
                 updated_at=now,
             ),
             2: Category(
                 id=2,
                 name="Danh mục ngừng dùng",
-                status=CatalogStatus.INACTIVE.value,
+                status=CategoryStatus.INACTIVE.value,
                 created_at=now,
                 updated_at=now,
             ),
@@ -565,4 +569,70 @@ async def test_api_admin_crud_and_error_envelopes() -> None:
         missing_prod_resp = await client.get("/api/v1/products/999")
         assert missing_prod_resp.status_code == 404
         assert missing_prod_resp.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_duplicate_sku_integrity_error_classifier_requires_1062_and_sku_key() -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    class FakeMySQLError(Exception):
+        pass
+
+    dup_sku_err = IntegrityError(
+        "INSERT INTO products ...",
+        {},
+        FakeMySQLError(
+            1062,
+            "Duplicate entry 'CF-01' for key 'products.uq_products_sku'",
+        ),
+    )
+    assert _is_duplicate_sku_integrity_error(dup_sku_err) is True
+
+    # Non-1062 error (e.g. 1452 FK constraint on category_id) must NOT match
+    fk_err = IntegrityError(
+        "INSERT INTO products ...",
+        {},
+        FakeMySQLError(
+            1452,
+            "Cannot add or update a child row: a foreign key constraint fails "
+            "(`retailops`.`products`, CONSTRAINT `fk_products_category_id_categories`)",
+        ),
+    )
+    assert _is_duplicate_sku_integrity_error(fk_err) is False
+
+    # 1062 on another unique constraint (e.g. inventory PK) must NOT match
+    other_1062_err = IntegrityError(
+        "INSERT INTO inventory ...",
+        {},
+        FakeMySQLError(1062, "Duplicate entry '1' for key 'inventory.PRIMARY'"),
+    )
+    assert _is_duplicate_sku_integrity_error(other_1062_err) is False
+
+
+@pytest.mark.anyio
+async def test_api_non_active_or_revoked_user_is_rejected_with_401() -> None:
+    from app.core.exceptions import SessionInvalidError
+    from app.modules.auth.dependencies import get_auth_service
+
+    class RevokedAuthService:
+        def live_user(self, _session: object, _token: str) -> tuple[User, object]:
+            raise SessionInvalidError()
+
+    settings = test_settings()
+    service, _store, fake_session = build_fake_service()
+    application = create_app(settings)
+    application.dependency_overrides[get_settings] = lambda: settings
+    application.dependency_overrides[get_db_session] = lambda: fake_session
+    application.dependency_overrides[get_product_service] = lambda: service
+    application.dependency_overrides[get_auth_service] = RevokedAuthService
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/api/v1/products",
+            headers={"Authorization": "Bearer revoked-or-inactive-user-token"},
+        )
+        assert response.status_code == 401
+        assert response.json()["code"] == "SESSION_INVALID"
+
 

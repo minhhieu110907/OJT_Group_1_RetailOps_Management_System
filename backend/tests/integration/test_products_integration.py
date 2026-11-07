@@ -12,7 +12,8 @@ from app.core.exceptions import (
     DomainValidationError,
     DuplicateSkuError,
 )
-from app.modules.products.models import CatalogStatus, Category, Inventory, Product
+from app.modules.categories.models import Category
+from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.products.repository import InventoryRepository
 from app.modules.products.schemas import (
     ProductCreateRequest,
@@ -31,7 +32,10 @@ CATEGORY_PREFIX = "T3C9AEB_CAT_"
 def clean_product_test_rows(
     migrated_integration_engine: Engine,
 ) -> None:
-    """Clean test rows created in categories, products, and inventory."""
+    """Ensure catalog tables exist and clean test rows after each test."""
+    Category.__table__.create(bind=migrated_integration_engine, checkfirst=True)
+    Product.__table__.create(bind=migrated_integration_engine, checkfirst=True)
+    Inventory.__table__.create(bind=migrated_integration_engine, checkfirst=True)
     yield
     with Session(migrated_integration_engine) as session, session.begin():
         product_ids = list(

@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for Category, Product, and Inventory."""
+"""SQLAlchemy ORM models for Product and Inventory."""
 
 from __future__ import annotations
 
@@ -22,49 +22,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
-class CatalogStatus(StrEnum):
-    """Supported lifecycle states for catalog entities."""
+class ProductStatus(StrEnum):
+    """Supported lifecycle states for products."""
 
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
 
 
-class Category(Base):
-    """Product category master data."""
-
-    __tablename__ = "categories"
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name="pk_categories"),
-        CheckConstraint(
-            "status IN ('ACTIVE','INACTIVE')",
-            name="ck_categories_status",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True,
-        nullable=False,
-    )
-    name: Mapped[str] = mapped_column(
-        String(120),
-        nullable=False,
-    )
-    status: Mapped[str] = mapped_column(
-        String(8),
-        nullable=False,
-        default=CatalogStatus.ACTIVE.value,
-        server_default=text("'ACTIVE'"),
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
-        nullable=False,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
-        nullable=False,
-    )
+# Alias preserved for internal module compatibility
+CatalogStatus = ProductStatus
 
 
 class Product(Base):
@@ -121,7 +87,7 @@ class Product(Base):
     status: Mapped[str] = mapped_column(
         String(8),
         nullable=False,
-        default=CatalogStatus.ACTIVE.value,
+        default=ProductStatus.ACTIVE.value,
         server_default=text("'ACTIVE'"),
     )
     sale_price_vnd: Mapped[int] = mapped_column(
@@ -192,4 +158,3 @@ class Inventory(Base):
     )
 
     product: Mapped[Product] = relationship(back_populates="inventory")
-
