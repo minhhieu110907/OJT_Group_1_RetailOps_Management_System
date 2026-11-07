@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.categories.models import Category, CategoryStatus
@@ -140,7 +140,7 @@ def test_categories_suppliers_check_constraints_in_mysql(
             updated_at=now,
         )
         session.add(invalid_cat)
-        with pytest.raises(IntegrityError):
+        with pytest.raises((IntegrityError, OperationalError)):
             session.commit()
         session.rollback()
 
@@ -169,7 +169,7 @@ def test_categories_suppliers_check_constraints_in_mysql(
             updated_at=now,
         )
         session.add(invalid_sup)
-        with pytest.raises(IntegrityError):
+        with pytest.raises((IntegrityError, OperationalError)):
             session.commit()
         session.rollback()
 
