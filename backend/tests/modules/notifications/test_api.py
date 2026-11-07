@@ -104,27 +104,28 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
     repo = FakeNotificationRepository()
     clock = AdvancingClock(datetime(2026, 11, 7, 9, 0, 0, tzinfo=UTC))
     service = NotificationService(repository=repo, clock=clock)
-    fake_session = GuardedFakeSession()
+    seed_session = GuardedFakeSession(allow_commit=False)
+    http_session = GuardedFakeSession(allow_commit=True)
 
     n1 = service.create_for_approval(
-        fake_session,  # type: ignore[arg-type]
+        seed_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=101,
     )
     n2 = service.create_for_approval(
-        fake_session,  # type: ignore[arg-type]
+        seed_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=102,
     )
     other = service.create_for_approval(
-        fake_session,  # type: ignore[arg-type]
+        seed_session,  # type: ignore[arg-type]
         admin_user_id=99,
         approval_request_id=999,
     )
 
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_db_session] = lambda: fake_session
+    app.dependency_overrides[get_db_session] = lambda: http_session
     app.dependency_overrides[get_notification_service] = lambda: service
     app.dependency_overrides[get_current_principal] = lambda: _principal(1, "ADMIN")
 
@@ -151,6 +152,7 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         count_resp = await client.get("/api/v1/admin/notifications/unread-count")
         assert count_resp.status_code == 200
         assert count_resp.json() == {"count": 2}
+        assert http_session.commits == 0
 
         read1 = await client.patch(
             f"/api/v1/admin/notifications/{n1.id}/read",
@@ -164,6 +166,7 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         assert read2.status_code == 200
         assert read1.json()["read_at"] is not None
         assert read2.json()["read_at"] == read1.json()["read_at"]
+        assert http_session.commits == 2
 
         unread_list = await client.get("/api/v1/admin/notifications?unread_only=true")
         assert unread_list.status_code == 200
@@ -171,12 +174,16 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         assert unread_list.json()["total"] == 1
 
         for forbidden_id in (other.id, 999999):
+            commits_before = http_session.commits
+            rollbacks_before = http_session.rollbacks
             not_found = await client.patch(
                 f"/api/v1/admin/notifications/{forbidden_id}/read",
                 json={},
             )
             assert not_found.status_code == 404
             assert not_found.json()["code"] == "RESOURCE_NOT_FOUND"
+            assert http_session.commits == commits_before
+            assert http_session.rollbacks == rollbacks_before + 1
 
         all1 = await client.patch("/api/v1/admin/notifications/read-all", json={})
         all2 = await client.patch("/api/v1/admin/notifications/read-all", json={})
@@ -184,6 +191,7 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         assert all1.json() == {"updated_count": 1}
         assert all2.status_code == 200
         assert all2.json() == {"updated_count": 0}
+        assert http_session.commits == 4
 
         bad_page = await client.get("/api/v1/admin/notifications?page_size=101")
         bad_id = await client.patch("/api/v1/admin/notifications/0/read", json={})
@@ -194,3 +202,4 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         assert bad_page.status_code == 422
         assert bad_id.status_code == 422
         assert bad_body.status_code == 422
+        assert http_session.commits == 4

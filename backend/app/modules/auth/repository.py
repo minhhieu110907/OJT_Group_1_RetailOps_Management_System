@@ -5,45 +5,12 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.auth.models import (
-    ApprovalStatus,
-    AuthSession,
-    RefreshToken,
-    StaffApprovalRequest,
-    User,
-)
+from app.modules.auth.models import AuthSession, RefreshToken, User
 
 
 class AuthRepository:
     def find_user_by_email(self, session: Session, email: str) -> User | None:
         return session.scalar(select(User).where(User.email_normalized == email))
-
-    def find_sole_admin(self, session: Session) -> User | None:
-        return session.scalar(select(User).where(User.admin_slot == 1))
-
-    def find_pending_approval_by_user(
-        self, session: Session, user_id: int
-    ) -> StaffApprovalRequest | None:
-        return session.scalar(
-            select(StaffApprovalRequest)
-            .where(
-                StaffApprovalRequest.user_id == user_id,
-                StaffApprovalRequest.status == ApprovalStatus.PENDING,
-            )
-            .order_by(StaffApprovalRequest.attempt_no.desc())
-        )
-
-    def add_staff_registration(
-        self,
-        session: Session,
-        user: User,
-        approval_request: StaffApprovalRequest,
-    ) -> None:
-        session.add(user)
-        session.flush()
-        approval_request.user_id = user.id
-        session.add(approval_request)
-        session.flush()
 
     def add_session(
         self, session: Session, auth_session: AuthSession, refresh: RefreshToken

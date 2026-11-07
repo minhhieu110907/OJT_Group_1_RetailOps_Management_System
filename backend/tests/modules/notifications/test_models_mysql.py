@@ -1,8 +1,10 @@
-"""MySQL 8 integration tests for AdminNotification schema and transactions."""
+"""MySQL 8 integration tests for AdminNotification schema and HTTP PATCH."""
 
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import delete, inspect, select
@@ -10,9 +12,16 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings
-from app.core.exceptions import AppException
-from app.modules.auth.models import StaffApprovalRequest, User
+from app.core.config import Settings, get_settings
+from app.db.session import get_db_session
+from app.main import create_app
+from app.modules.auth.dependencies import get_auth_service
+from app.modules.auth.models import (
+    AuthSession,
+    RefreshToken,
+    StaffApprovalRequest,
+    User,
+)
 from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import AuthService
 from app.modules.notifications.models import AdminNotification
@@ -49,6 +58,16 @@ def clean_notification_test_rows(
         )
         if not user_ids:
             return
+        session_ids = list(
+            session.scalars(
+                select(AuthSession.id).where(AuthSession.user_id.in_(user_ids))
+            )
+        )
+        if session_ids:
+            session.execute(
+                delete(RefreshToken).where(RefreshToken.session_id.in_(session_ids))
+            )
+        session.execute(delete(AuthSession).where(AuthSession.user_id.in_(user_ids)))
         approval_ids = list(
             session.scalars(
                 select(StaffApprovalRequest.id).where(
@@ -87,7 +106,7 @@ def _seed_admin_and_approval(
     if existing_admin is None:
         admin = User(
             email_normalized=f"{EMAIL_PREFIX}admin_{suffix}@example.com",
-            password_hash="test-only-hash",
+            password_hash=PasswordHasher(work_factor=4).hash("admin-password"),
             role="ADMIN",
             status="ACTIVE",
             admin_slot=1,
@@ -101,7 +120,7 @@ def _seed_admin_and_approval(
 
     staff = User(
         email_normalized=f"{EMAIL_PREFIX}staff_{suffix}@example.com",
-        password_hash="test-only-hash",
+        password_hash=PasswordHasher(work_factor=4).hash("staff-password"),
         role="STAFF",
         status="PENDING_APPROVAL",
         admin_slot=None,
@@ -197,33 +216,27 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
     t1 = t0 + timedelta(minutes=5)
     t2 = t0 + timedelta(minutes=10)
     t3 = t0 + timedelta(minutes=15)
-    calls = [t0, t1, t2, t3]
+    t4 = t0 + timedelta(minutes=20)
+    calls = [t0, t1, t2, t3, t4]
     service = NotificationService(repository=repo, clock=lambda: calls.pop(0))
 
     with Session(migrated_integration_engine) as auth_session:
         admin, _staff, approval = _seed_admin_and_approval(auth_session, "tx_share")
+        admin_id = admin.id
         approval_id = approval.id
 
         first = service.create_for_approval(
             auth_session,
-            admin_user_id=admin.id,
+            admin_user_id=admin_id,
             approval_request_id=approval_id,
-        )
-        # Mark read and call create_for_approval again: timestamps must not change
-        marked = service.mark_read(
-            auth_session,
-            admin_user_id=admin.id,
-            notification_id=first.id,
         )
         second = service.create_for_approval(
             auth_session,
-            admin_user_id=admin.id,
+            admin_user_id=admin_id,
             approval_request_id=approval_id,
         )
         assert first.id == second.id
         assert second.created_at == t0
-        assert second.read_at == t1
-        assert marked.read_at == t1
 
         # Independent connection MUST NOT see uncommitted row before caller commits
         with Session(migrated_integration_engine) as outside_session:
@@ -245,13 +258,29 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
         )
         assert visible_after_commit is not None
         assert visible_after_commit.created_at == t0
-        assert visible_after_commit.read_at == t1
+
+        # Mark read commits t2; repeated create_for_approval preserves timestamps
+        marked = service.mark_read(
+            after_commit_session,
+            admin_user_id=admin_id,
+            notification_id=visible_after_commit.id,
+        )
+        assert marked.read_at == t2
+
+        third = service.create_for_approval(
+            after_commit_session,
+            admin_user_id=admin_id,
+            approval_request_id=approval_id,
+        )
+        assert third.created_at == t0
+        assert third.read_at == t2
+        after_commit_session.commit()
 
         # Invalid FK in create_for_approval must raise IntegrityError untouched
         with pytest.raises(IntegrityError):
             service.create_for_approval(
                 after_commit_session,
-                admin_user_id=visible_after_commit.admin_user_id,
+                admin_user_id=admin_id,
                 approval_request_id=9_999_999_999,
             )
         after_commit_session.rollback()
@@ -341,7 +370,6 @@ def test_concurrent_create_mark_read_and_mark_all_read(
                 admin_user_id=admin_id,
                 notification_id=notif1_id,
             )
-            worker_session.commit()
             return res.read_at
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -361,7 +389,6 @@ def test_concurrent_create_mark_read_and_mark_all_read(
         svc = NotificationService(repository=NotificationRepository())
         with Session(migrated_integration_engine) as worker_session:
             res = svc.mark_all_read(worker_session, admin_user_id=admin_id)
-            worker_session.commit()
             return res.updated_count
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -369,7 +396,8 @@ def test_concurrent_create_mark_read_and_mark_all_read(
     assert sum(counts) == 2
 
 
-def test_auth_register_triggers_single_admin_notification_and_deduplicates_retry(
+@pytest.mark.anyio
+async def test_http_patch_endpoints_persist_in_mysql_and_enforce_permissions(
     migrated_integration_engine: Engine,
 ) -> None:
     settings = Settings(
@@ -379,141 +407,169 @@ def test_auth_register_triggers_single_admin_notification_and_deduplicates_retry
         db_password=SecretStr("unused"),
         jwt_secret=SecretStr("j" * 32),
         csrf_secret=SecretStr("c" * 32),
+        cors_origins="http://127.0.0.1:5173",
     )
     auth_service = AuthService(
         settings,
         password_hasher=PasswordHasher(work_factor=4),
     )
 
-    with Session(migrated_integration_engine) as session:
-        admin, _seed_staff, _seed_approval = _seed_admin_and_approval(
-            session, "reg_admin"
+    def override_get_db_session() -> Generator[Session]:
+        """Mirror app.db.session.get_db_session (no auto-commit on exit)."""
+        with Session(
+            migrated_integration_engine,
+            autoflush=False,
+            expire_on_commit=False,
+        ) as session:
+            try:
+                yield session
+            except Exception:
+                session.rollback()
+                raise
+
+    now = datetime(2026, 11, 7, 11, 0, 0)
+    with Session(migrated_integration_engine) as setup_session:
+        admin, _s1, approval1 = _seed_admin_and_approval(setup_session, "http1")
+        _admin, _s2, approval2 = _seed_admin_and_approval(setup_session, "http2")
+        _admin, _s3, approval3 = _seed_admin_and_approval(setup_session, "http3")
+
+        # Ensure admin has known password for login
+        admin.password_hash = PasswordHasher(work_factor=4).hash("admin-pass")
+
+        active_staff = User(
+            email_normalized=f"{EMAIL_PREFIX}active_staff_http@example.com",
+            password_hash=PasswordHasher(work_factor=4).hash("staff-pass"),
+            role="STAFF",
+            status="ACTIVE",
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=now,
+            updated_at=now,
         )
-        admin_id = admin.id
-        session.commit()
+        setup_session.add(active_staff)
+        setup_session.flush()
 
-        # 1. Invalid registration must fail with 422 and create zero notifications
-        before_count = len(
-            list(
-                session.scalars(
-                    select(AdminNotification).where(
-                        AdminNotification.admin_user_id == admin_id
-                    )
-                )
-            )
+        notif_svc = NotificationService(repository=NotificationRepository())
+        n1 = notif_svc.create_for_approval(
+            setup_session,
+            admin_user_id=admin.id,
+            approval_request_id=approval1.id,
         )
-        with pytest.raises(AppException) as exc_info:
-            auth_service.register(session, "not-an-email", "valid-password")
-        assert exc_info.value.status_code == 422
-        after_invalid_count = len(
-            list(
-                session.scalars(
-                    select(AdminNotification).where(
-                        AdminNotification.admin_user_id == admin_id
-                    )
-                )
-            )
+        n2 = notif_svc.create_for_approval(
+            setup_session,
+            admin_user_id=admin.id,
+            approval_request_id=approval2.id,
         )
-        assert after_invalid_count == before_count
-
-        # 2. Valid registration creates User + Approval + 1 AdminNotification
-        target_email = f"{EMAIL_PREFIX}new_register@example.com"
-        first_res = auth_service.register(
-            session,
-            f"  {target_email.upper()}  ",
-            "valid-password",
+        other_notif = notif_svc.create_for_approval(
+            setup_session,
+            admin_user_id=active_staff.id,
+            approval_request_id=approval3.id,
         )
-        assert first_res.message
+        n1_id = n1.id
+        n2_id = n2.id
+        other_notif_id = other_notif.id
+        admin_email = admin.email_normalized
+        staff_email = active_staff.email_normalized
+        setup_session.commit()
 
-        user = session.scalar(select(User).where(User.email_normalized == target_email))
-        assert user is not None
-        assert user.status == "PENDING_APPROVAL"
+        admin_token = auth_service.login(
+            setup_session, admin_email, "admin-pass"
+        ).response.access_token
+        staff_token = auth_service.login(
+            setup_session, staff_email, "staff-pass"
+        ).response.access_token
 
-        approvals = list(
-            session.scalars(
-                select(StaffApprovalRequest).where(
-                    StaffApprovalRequest.user_id == user.id
-                )
-            )
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_auth_service] = lambda: auth_service
+
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    staff_headers = {"Authorization": f"Bearer {staff_token}"}
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        # 1. Staff receives 403 and does NOT mutate database
+        staff_patch = await client.patch(
+            f"/api/v1/admin/notifications/{n1_id}/read",
+            headers=staff_headers,
+            json={},
         )
-        assert len(approvals) == 1
-
-        notifs = list(
-            session.scalars(
-                select(AdminNotification).where(
-                    AdminNotification.approval_request_id == approvals[0].id
-                )
-            )
+        staff_all = await client.patch(
+            "/api/v1/admin/notifications/read-all",
+            headers=staff_headers,
+            json={},
         )
-        assert len(notifs) == 1
-        assert notifs[0].admin_user_id == admin_id
-        first_notif_id = notifs[0].id
-        first_created_at = notifs[0].created_at
+        assert staff_patch.status_code == 403
+        assert staff_all.status_code == 403
 
-        # 3. Retry / duplicate registration does not create duplicate records
-        second_res = auth_service.register(session, target_email, "valid-password")
-        assert second_res.message == first_res.message
+        with Session(migrated_integration_engine) as verify_session:
+            assert verify_session.get(AdminNotification, n1_id).read_at is None
+            assert verify_session.get(AdminNotification, n2_id).read_at is None
 
-        approvals_after = list(
-            session.scalars(
-                select(StaffApprovalRequest).where(
-                    StaffApprovalRequest.user_id == user.id
-                )
-            )
+        # 2. Resource not owned by Admin returns 404 and does NOT mutate database
+        not_owned = await client.patch(
+            f"/api/v1/admin/notifications/{other_notif_id}/read",
+            headers=admin_headers,
+            json={},
         )
-        notifs_after = list(
-            session.scalars(
-                select(AdminNotification).where(
-                    AdminNotification.approval_request_id == approvals[0].id
-                )
-            )
+        assert not_owned.status_code == 404
+        assert not_owned.json()["code"] == "RESOURCE_NOT_FOUND"
+
+        with Session(migrated_integration_engine) as verify_session:
+            assert verify_session.get(AdminNotification, other_notif_id).read_at is None
+
+        # 3. Admin PATCH /{id}/read returns 200 and persists read_at in MySQL
+        patch1 = await client.patch(
+            f"/api/v1/admin/notifications/{n1_id}/read",
+            headers=admin_headers,
+            json={},
         )
-        assert len(approvals_after) == 1
-        assert len(notifs_after) == 1
-        assert notifs_after[0].id == first_notif_id
-        assert notifs_after[0].created_at == first_created_at
+        assert patch1.status_code == 200
+        assert patch1.json()["read_at"] is not None
 
+        with Session(migrated_integration_engine) as verify_session:
+            persisted_n1 = verify_session.get(AdminNotification, n1_id)
+            assert persisted_n1 is not None
+            assert persisted_n1.read_at is not None
+            first_persisted_read_at = persisted_n1.read_at
 
-def test_auth_register_rolls_back_user_and_approval_when_notification_fails(
-    migrated_integration_engine: Engine,
-) -> None:
-    class FailingNotificationService(NotificationService):
-        def create_for_approval(
-            self,
-            session: Session,
-            admin_user_id: int,
-            approval_request_id: int,
-        ) -> AdminNotification:
-            raise RuntimeError("Simulated notification failure inside same transaction")
-
-    settings = Settings(
-        db_host="unused",
-        db_name="unused",
-        db_user="unused",
-        db_password=SecretStr("unused"),
-        jwt_secret=SecretStr("j" * 32),
-        csrf_secret=SecretStr("c" * 32),
-    )
-    failing_auth = AuthService(
-        settings,
-        password_hasher=PasswordHasher(work_factor=4),
-        notification_service=FailingNotificationService(
-            repository=NotificationRepository()
-        ),
-    )
-
-    rollback_email = f"{EMAIL_PREFIX}rollback_reg@example.com"
-    with Session(migrated_integration_engine) as session:
-        _seed_admin_and_approval(session, "reg_rb_seed")
-        session.commit()
-
-        with pytest.raises(RuntimeError, match="Simulated notification failure"):
-            failing_auth.register(session, rollback_email, "valid-password")
-
-    with Session(migrated_integration_engine) as verify_session:
-        assert (
-            verify_session.scalar(
-                select(User).where(User.email_normalized == rollback_email)
-            )
-            is None
+        # 4. Repeated PATCH /{id}/read does not alter persisted read_at
+        patch2 = await client.patch(
+            f"/api/v1/admin/notifications/{n1_id}/read",
+            headers=admin_headers,
+            json={},
         )
+        assert patch2.status_code == 200
+        assert patch2.json()["read_at"] == patch1.json()["read_at"]
+
+        with Session(migrated_integration_engine) as verify_session:
+            persisted_n1_again = verify_session.get(AdminNotification, n1_id)
+            assert persisted_n1_again is not None
+            assert persisted_n1_again.read_at == first_persisted_read_at
+
+        # 5. Admin PATCH /read-all returns updated_count=1 and persists read_at in MySQL
+        read_all1 = await client.patch(
+            "/api/v1/admin/notifications/read-all",
+            headers=admin_headers,
+            json={},
+        )
+        assert read_all1.status_code == 200
+        assert read_all1.json() == {"updated_count": 1}
+
+        with Session(migrated_integration_engine) as verify_session:
+            persisted_n2 = verify_session.get(AdminNotification, n2_id)
+            assert persisted_n2 is not None
+            assert persisted_n2.read_at is not None
+            # Other user's notification remains unread
+            assert verify_session.get(AdminNotification, other_notif_id).read_at is None
+
+        read_all2 = await client.patch(
+            "/api/v1/admin/notifications/read-all",
+            headers=admin_headers,
+            json={},
+        )
+        assert read_all2.status_code == 200
+        assert read_all2.json() == {"updated_count": 0}

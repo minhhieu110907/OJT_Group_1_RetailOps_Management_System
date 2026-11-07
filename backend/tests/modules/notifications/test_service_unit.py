@@ -11,10 +11,6 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.core.exceptions import AppException
 from app.main import create_app
-from app.modules.auth.models import StaffApprovalRequest, User
-from app.modules.auth.repository import AuthRepository
-from app.modules.auth.security import PasswordHasher
-from app.modules.auth.service import AuthService
 from app.modules.notifications.models import AdminNotification
 from app.modules.notifications.repository import NotificationRepository
 from app.modules.notifications.schemas import (
@@ -29,7 +25,26 @@ FORBIDDEN_SESSION_METHODS = frozenset(
 
 
 class GuardedFakeSession:
-    """Fake Session that fails if any transaction boundary method is called."""
+    """Fake Session that forbids commit/rollback unless explicitly enabled."""
+
+    def __init__(self, *, allow_commit: bool = False) -> None:
+        self.allow_commit = allow_commit
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self) -> None:
+        if not self.allow_commit:
+            raise AssertionError(
+                "Forbidden transaction method called on Session: commit()"
+            )
+        self.commits += 1
+
+    def rollback(self) -> None:
+        if not self.allow_commit:
+            raise AssertionError(
+                "Forbidden transaction method called on Session: rollback()"
+            )
+        self.rollbacks += 1
 
     def __getattr__(self, name: str) -> object:
         if name in FORBIDDEN_SESSION_METHODS:
@@ -163,14 +178,15 @@ class AdvancingClock:
         return value
 
 
-def test_create_for_approval_is_idempotent_and_preserves_owner_and_timestamps() -> None:
+def test_create_for_approval_is_idempotent_and_never_commits() -> None:
     repo = FakeNotificationRepository()
     clock = AdvancingClock(datetime(2026, 11, 7, 9, 0, 0, tzinfo=UTC))
     service = NotificationService(repository=repo, clock=clock)
-    session = GuardedFakeSession()
+    non_committing_session = GuardedFakeSession(allow_commit=False)
+    committing_session = GuardedFakeSession(allow_commit=True)
 
     first = service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        non_committing_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=101,
     )
@@ -179,16 +195,17 @@ def test_create_for_approval_is_idempotent_and_preserves_owner_and_timestamps() 
     assert first.created_at == datetime(2026, 11, 7, 9, 0, 0)
     assert first.read_at is None
 
-    # Mark read, then call create_for_approval again for the same approval_request_id
+    # Mark read (commits once), then call create_for_approval again (never commits)
     read_result = service.mark_read(
-        session,  # type: ignore[arg-type]
+        committing_session,  # type: ignore[arg-type]
         admin_user_id=1,
         notification_id=first.id,
     )
     assert read_result.read_at == datetime(2026, 11, 7, 9, 5, 0)
+    assert committing_session.commits == 1
 
     second = service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        non_committing_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=101,
     )
@@ -199,7 +216,7 @@ def test_create_for_approval_is_idempotent_and_preserves_owner_and_timestamps() 
 
     # Same approval_request_id with different admin_user_id must NOT transfer owner
     third = service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        non_committing_session,  # type: ignore[arg-type]
         admin_user_id=99,
         approval_request_id=101,
     )
@@ -212,7 +229,7 @@ def test_create_for_approval_is_idempotent_and_preserves_owner_and_timestamps() 
 def test_create_for_approval_propagates_fk_integrity_error_untouched() -> None:
     repo = FakeNotificationRepository()
     service = NotificationService(repository=repo)
-    session = GuardedFakeSession()
+    session = GuardedFakeSession(allow_commit=False)
 
     with pytest.raises(IntegrityError):
         service.create_for_approval(
@@ -222,71 +239,81 @@ def test_create_for_approval_propagates_fk_integrity_error_untouched() -> None:
         )
 
 
-def test_mark_read_is_idempotent_and_rejects_other_admin_with_404() -> None:
+def test_mark_read_commits_once_and_rolls_back_on_404_or_error() -> None:
     repo = FakeNotificationRepository()
     clock = AdvancingClock(datetime(2026, 11, 7, 10, 0, 0, tzinfo=UTC))
     service = NotificationService(repository=repo, clock=clock)
-    session = GuardedFakeSession()
+    create_session = GuardedFakeSession(allow_commit=False)
+    patch_session = GuardedFakeSession(allow_commit=True)
 
     created = service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        create_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=202,
     )
 
     first_mark = service.mark_read(
-        session,  # type: ignore[arg-type]
+        patch_session,  # type: ignore[arg-type]
         admin_user_id=1,
         notification_id=created.id,
     )
+    assert patch_session.commits == 1
+    assert patch_session.rollbacks == 0
+
     second_mark = service.mark_read(
-        session,  # type: ignore[arg-type]
+        patch_session,  # type: ignore[arg-type]
         admin_user_id=1,
         notification_id=created.id,
     )
+    assert patch_session.commits == 2
     assert first_mark.read_at == datetime(2026, 11, 7, 10, 5, 0)
     assert second_mark.read_at == first_mark.read_at
 
-    # Other Admin or unknown id must raise 404 RESOURCE_NOT_FOUND
+    # Other Admin or unknown id must roll back and raise 404 RESOURCE_NOT_FOUND
     for admin_id, notif_id in ((2, created.id), (1, 9999)):
+        before_commits = patch_session.commits
+        before_rollbacks = patch_session.rollbacks
         with pytest.raises(AppException) as exc_info:
             service.mark_read(
-                session,  # type: ignore[arg-type]
+                patch_session,  # type: ignore[arg-type]
                 admin_user_id=admin_id,
                 notification_id=notif_id,
             )
         assert exc_info.value.status_code == 404
         assert exc_info.value.code == "RESOURCE_NOT_FOUND"
+        assert patch_session.commits == before_commits
+        assert patch_session.rollbacks == before_rollbacks + 1
 
 
 def test_list_count_and_mark_all_read_are_scoped_to_owning_admin() -> None:
     repo = FakeNotificationRepository()
     clock = AdvancingClock(datetime(2026, 11, 7, 11, 0, 0, tzinfo=UTC))
     service = NotificationService(repository=repo, clock=clock)
-    session = GuardedFakeSession()
+    read_only_session = GuardedFakeSession(allow_commit=False)
+    write_session = GuardedFakeSession(allow_commit=True)
 
     n1 = service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        read_only_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=301,
     )
     n2 = service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        read_only_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=302,
     )
     service.create_for_approval(
-        session,  # type: ignore[arg-type]
+        read_only_session,  # type: ignore[arg-type]
         admin_user_id=2,
         approval_request_id=303,
     )
 
-    assert service.count_unread(session, admin_user_id=1).count == 2  # type: ignore[arg-type]
-    assert service.count_unread(session, admin_user_id=2).count == 1  # type: ignore[arg-type]
+    assert service.count_unread(read_only_session, admin_user_id=1).count == 2  # type: ignore[arg-type]
+    assert service.count_unread(read_only_session, admin_user_id=2).count == 1  # type: ignore[arg-type]
 
     # Stable sort: created_at DESC, id DESC
     listed = service.list_for_admin(
-        session,  # type: ignore[arg-type]
+        read_only_session,  # type: ignore[arg-type]
         admin_user_id=1,
         page=1,
         page_size=20,
@@ -296,9 +323,10 @@ def test_list_count_and_mark_all_read_are_scoped_to_owning_admin() -> None:
     assert listed.total == 2
 
     # Mark first notification read and filter unread_only=True
-    service.mark_read(session, admin_user_id=1, notification_id=n1.id)  # type: ignore[arg-type]
+    service.mark_read(write_session, admin_user_id=1, notification_id=n1.id)  # type: ignore[arg-type]
+    assert write_session.commits == 1
     unread_page = service.list_for_admin(
-        session,  # type: ignore[arg-type]
+        read_only_session,  # type: ignore[arg-type]
         admin_user_id=1,
         page=1,
         page_size=20,
@@ -306,16 +334,17 @@ def test_list_count_and_mark_all_read_are_scoped_to_owning_admin() -> None:
     )
     assert [item.id for item in unread_page.items] == [n2.id]
     assert unread_page.total == 1
-    assert service.count_unread(session, admin_user_id=1).count == 1  # type: ignore[arg-type]
+    assert service.count_unread(read_only_session, admin_user_id=1).count == 1  # type: ignore[arg-type]
 
-    # Mark all read for Admin 1 transitions only the remaining unread row (1)
-    bulk_first = service.mark_all_read(session, admin_user_id=1)  # type: ignore[arg-type]
-    bulk_second = service.mark_all_read(session, admin_user_id=1)  # type: ignore[arg-type]
+    # Mark all read transitions only the remaining unread row (1) and commits
+    bulk_first = service.mark_all_read(write_session, admin_user_id=1)  # type: ignore[arg-type]
+    bulk_second = service.mark_all_read(write_session, admin_user_id=1)  # type: ignore[arg-type]
     assert bulk_first.updated_count == 1
     assert bulk_second.updated_count == 0
-    assert service.count_unread(session, admin_user_id=1).count == 0  # type: ignore[arg-type]
+    assert write_session.commits == 3
+    assert service.count_unread(read_only_session, admin_user_id=1).count == 0  # type: ignore[arg-type]
     # Admin 2's unread notification is untouched
-    assert service.count_unread(session, admin_user_id=2).count == 1  # type: ignore[arg-type]
+    assert service.count_unread(read_only_session, admin_user_id=2).count == 1  # type: ignore[arg-type]
 
 
 def test_notification_schemas_whitelist_fields_and_forbid_extra() -> None:
@@ -336,11 +365,11 @@ def test_notification_schemas_whitelist_fields_and_forbid_extra() -> None:
         EmptyPatchRequest.model_validate({"unexpected": True})
 
 
-def test_notification_module_never_calls_transaction_boundary_methods() -> None:
+def test_repository_and_create_for_approval_never_call_transaction_methods() -> None:
     module_dir = (
         Path(__file__).resolve().parents[3] / "app" / "modules" / "notifications"
     )
-    for filename in ("repository.py", "service.py", "dependencies.py", "router.py"):
+    for filename in ("repository.py", "dependencies.py", "router.py"):
         source = (module_dir / filename).read_text(encoding="utf-8")
         tree = ast.parse(source, filename=filename)
         called_attrs = {
@@ -352,6 +381,24 @@ def test_notification_module_never_calls_transaction_boundary_methods() -> None:
         assert not forbidden_found, (
             f"{filename} must not call transaction methods, found: {forbidden_found}"
         )
+
+    service_source = (module_dir / "service.py").read_text(encoding="utf-8")
+    service_tree = ast.parse(service_source, filename="service.py")
+    for node in ast.walk(service_tree):
+        if isinstance(node, ast.FunctionDef) and node.name in {
+            "create_for_approval",
+            "list_for_admin",
+            "count_unread",
+        }:
+            called_in_method = {
+                call.func.attr
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+            }
+            forbidden_in_method = called_in_method & FORBIDDEN_SESSION_METHODS
+            assert not forbidden_in_method, (
+                f"NotificationService.{node.name} must not call {forbidden_in_method}"
+            )
 
 
 def test_router_registration_in_openapi_without_duplicate_prefixes() -> None:
@@ -381,134 +428,3 @@ def test_router_registration_in_openapi_without_duplicate_prefixes() -> None:
     assert not any(path.startswith("/api/v1/api/v1") for path in paths)
     assert "/api/v1/health" in paths
     assert "/api/v1/auth/login" in paths
-    assert "/api/v1/auth/register" in paths
-
-
-class _FakeAuthSession:
-    def __init__(self) -> None:
-        self.commits = 0
-        self.rollbacks = 0
-
-    def commit(self) -> None:
-        self.commits += 1
-
-    def rollback(self) -> None:
-        self.rollbacks += 1
-
-
-class _FakeAuthRepository(AuthRepository):
-    def __init__(self) -> None:
-        self.admin = User(
-            id=1,
-            email_normalized="admin@example.com",
-            password_hash="h",
-            role="ADMIN",
-            status="ACTIVE",
-            admin_slot=1,
-            last_reapplied_at=None,
-            created_at=datetime(2026, 11, 7, 8, 0, 0),
-            updated_at=datetime(2026, 11, 7, 8, 0, 0),
-        )
-        self.users: dict[str, User] = {}
-        self.approvals: dict[int, StaffApprovalRequest] = {}
-        self._next_user_id = 10
-        self._next_approval_id = 100
-
-    def find_sole_admin(self, _session: object) -> User | None:
-        return self.admin
-
-    def find_user_by_email(self, _session: object, email: str) -> User | None:
-        return self.users.get(email)
-
-    def find_pending_approval_by_user(
-        self, _session: object, user_id: int
-    ) -> StaffApprovalRequest | None:
-        return self.approvals.get(user_id)
-
-    def add_staff_registration(
-        self,
-        _session: object,
-        user: User,
-        approval_request: StaffApprovalRequest,
-    ) -> None:
-        user.id = self._next_user_id
-        self._next_user_id += 1
-        approval_request.id = self._next_approval_id
-        self._next_approval_id += 1
-        approval_request.user_id = user.id
-        self.users[user.email_normalized] = user
-        self.approvals[user.id] = approval_request
-
-
-def test_auth_register_triggers_notification_and_rolls_back_on_failure() -> None:
-    settings = Settings(
-        db_host="unused",
-        db_name="unused",
-        db_user="unused",
-        db_password=SecretStr("unused"),
-        jwt_secret=SecretStr("j" * 32),
-        csrf_secret=SecretStr("c" * 32),
-    )
-    auth_repo = _FakeAuthRepository()
-    notif_repo = FakeNotificationRepository()
-    notif_service = NotificationService(repository=notif_repo)
-    auth_service = AuthService(
-        settings,
-        repository=auth_repo,
-        password_hasher=PasswordHasher(work_factor=4),
-        notification_service=notif_service,
-    )
-    tx_session = _FakeAuthSession()
-
-    # 1. Invalid email fails before DB write and creates 0 notifications
-    with pytest.raises(AppException) as exc_info:
-        auth_service.register(
-            tx_session,  # type: ignore[arg-type]
-            "bad-email",
-            "valid-password",
-        )
-    assert exc_info.value.status_code == 422
-    assert notif_service.count_unread(tx_session, admin_user_id=1).count == 0  # type: ignore[arg-type]
-
-    # 2. Valid registration creates User + Approval + 1 Notification and commits once
-    res1 = auth_service.register(
-        tx_session,  # type: ignore[arg-type]
-        "  Staff.New@Example.COM ",
-        "valid-password",
-    )
-    assert res1.message
-    assert tx_session.commits == 1
-    assert notif_service.count_unread(tx_session, admin_user_id=1).count == 1  # type: ignore[arg-type]
-
-    # 3. Retry with same email does not create a second notification
-    res2 = auth_service.register(
-        tx_session,  # type: ignore[arg-type]
-        "staff.new@example.com",
-        "valid-password",
-    )
-    assert res2.message == res1.message
-    assert notif_service.count_unread(tx_session, admin_user_id=1).count == 1  # type: ignore[arg-type]
-
-    # 4. If notification service fails, AuthService rolls back the transaction
-    class _FailingNotifService(NotificationService):
-        def create_for_approval(
-            self,
-            session: object,
-            admin_user_id: int,
-            approval_request_id: int,
-        ) -> AdminNotification:
-            raise RuntimeError("Notification failure")
-
-    failing_auth = AuthService(
-        settings,
-        repository=auth_repo,
-        password_hasher=PasswordHasher(work_factor=4),
-        notification_service=_FailingNotifService(repository=notif_repo),
-    )
-    with pytest.raises(RuntimeError, match="Notification failure"):
-        failing_auth.register(
-            tx_session,  # type: ignore[arg-type]
-            "fail.staff@example.com",
-            "valid-password",
-        )
-    assert tx_session.rollbacks == 1

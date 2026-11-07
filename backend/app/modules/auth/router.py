@@ -10,31 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
 from app.modules.auth.dependencies import bearer_scheme, get_auth_service
-from app.modules.auth.schemas import (
-    CsrfResponse,
-    LoginRequest,
-    RegisterRequest,
-    RegisterResponse,
-    TokenResponse,
-)
+from app.modules.auth.schemas import CsrfResponse, LoginRequest, TokenResponse
 from app.modules.auth.service import AuthResult, AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-@router.post(
-    "/register",
-    response_model=RegisterResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-def register(
-    payload: RegisterRequest,
-    response: Response,
-    session: Annotated[Session, Depends(get_db_session)],
-    service: Annotated[AuthService, Depends(get_auth_service)],
-) -> RegisterResponse:
-    response.headers["Cache-Control"] = "no-store"
-    return service.register(session, str(payload.email), payload.password)
 
 
 def _set_auth_cookies(

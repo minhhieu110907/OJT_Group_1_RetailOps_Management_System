@@ -4,48 +4,28 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.exceptions import (
-    AppException,
     CsrfRejectedError,
     InvalidCredentialsError,
     SessionInvalidError,
 )
-from app.modules.auth.models import (
-    ApprovalStatus,
-    AuthSession,
-    RefreshToken,
-    StaffApprovalRequest,
-    User,
-    UserRole,
-    UserStatus,
-)
+from app.modules.auth.models import AuthSession, RefreshToken, User, UserStatus
 from app.modules.auth.repository import AuthRepository
-from app.modules.auth.schemas import (
-    AuthenticatedUser,
-    RegisterResponse,
-    TokenResponse,
-)
+from app.modules.auth.schemas import AuthenticatedUser, TokenResponse
 from app.modules.auth.security import (
     CsrfService,
     InvalidEmailError,
-    InvalidPasswordError,
     JwtService,
     PasswordHasher,
     digest_refresh_token,
     generate_refresh_token,
     normalize_email,
 )
-from app.modules.notifications.repository import NotificationRepository
-from app.modules.notifications.service import NotificationService
 
 DUMMY_BCRYPT_HASH = "$2b$12$62o5pXd4lx/yYM9iMtKFKu/oWXJ7GXA1cAhnAs7tQxsjUE4JnvMnG"
-REGISTER_ACCEPTED_MESSAGE = (
-    "If the registration can be processed, an administrator will review it."
-)
 
 
 def utc_now_naive() -> datetime:
@@ -68,114 +48,12 @@ class AuthService:
         settings: Settings,
         repository: AuthRepository | None = None,
         password_hasher: PasswordHasher | None = None,
-        notification_service: NotificationService | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository or AuthRepository()
         self.password_hasher = password_hasher or PasswordHasher()
-        self.notification_service = notification_service or NotificationService(
-            repository=NotificationRepository()
-        )
         self.jwt = JwtService(settings)
         self.csrf = CsrfService(settings)
-
-    def register(
-        self,
-        session: Session,
-        email: str,
-        password: str,
-    ) -> RegisterResponse:
-        """Register a pending Staff account and notify Admin atomically."""
-        try:
-            normalized = normalize_email(email)
-            password_hash = self.password_hasher.hash(password)
-        except (InvalidEmailError, InvalidPasswordError) as error:
-            raise AppException(
-                code="VALIDATION_ERROR",
-                message=str(error),
-                status_code=422,
-            ) from error
-
-        admin = self.repository.find_sole_admin(session)
-        if admin is None:
-            session.rollback()
-            raise AppException(
-                code="DEPENDENCY_UNAVAILABLE",
-                message="Administrator account is not initialized",
-                status_code=503,
-            )
-
-        existing = self.repository.find_user_by_email(session, normalized)
-        if existing is not None:
-            return self._handle_existing_registration(session, existing, admin.id)
-
-        now = utc_now_naive()
-        user = User(
-            email_normalized=normalized,
-            password_hash=password_hash,
-            role=UserRole.STAFF,
-            status=UserStatus.PENDING_APPROVAL,
-            admin_slot=None,
-            last_reapplied_at=None,
-            created_at=now,
-            updated_at=now,
-        )
-        approval_request = StaffApprovalRequest(
-            user_id=0,
-            attempt_no=1,
-            status=ApprovalStatus.PENDING,
-            requested_at=now,
-            decided_by=None,
-            decided_at=None,
-            decision_reason=None,
-        )
-        try:
-            self.repository.add_staff_registration(session, user, approval_request)
-        except IntegrityError:
-            session.rollback()
-            raced_user = self.repository.find_user_by_email(session, normalized)
-            if raced_user is not None:
-                return self._handle_existing_registration(session, raced_user, admin.id)
-            raise
-
-        try:
-            self.notification_service.create_for_approval(
-                session,
-                admin_user_id=admin.id,
-                approval_request_id=approval_request.id,
-            )
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
-
-    def _handle_existing_registration(
-        self,
-        session: Session,
-        existing: User,
-        admin_id: int,
-    ) -> RegisterResponse:
-        if existing.status != UserStatus.PENDING_APPROVAL:
-            session.rollback()
-            return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
-        pending_approval = self.repository.find_pending_approval_by_user(
-            session, existing.id
-        )
-        if pending_approval is None:
-            session.rollback()
-            return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
-        try:
-            self.notification_service.create_for_approval(
-                session,
-                admin_user_id=admin_id,
-                approval_request_id=pending_approval.id,
-            )
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
 
     def login(self, session: Session, email: str, password: str) -> AuthResult:
         try:

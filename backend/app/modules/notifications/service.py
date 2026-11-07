@@ -22,13 +22,14 @@ def utc_now() -> datetime:
 
 
 class NotificationService:
-    """Coordinate Admin notification operations without owning transaction commits.
+    """Coordinate Admin notification use cases and transaction boundaries.
 
-    Transaction invariant:
-    - ``NotificationService`` NEVER calls ``commit()``, ``rollback()``, ``close()``,
-      ``begin()``, or ``begin_nested()``.
-    - In ``create_for_approval``, the calling ``AuthService`` provides ``session``
-      and owns the transaction boundary (commits on success, rolls back on failure).
+    Transaction invariants:
+    - ``create_for_approval`` is a sub-operation called inside ``AuthService``'s
+      registration transaction; it NEVER calls ``commit()``, ``rollback()``,
+      ``close()``, ``begin()``, or ``begin_nested()``.
+    - ``mark_read`` and ``mark_all_read`` are top-level HTTP use cases; each owns
+      its transaction boundary, committing once on success and rolling back on error.
     """
 
     def __init__(
@@ -50,15 +51,14 @@ class NotificationService:
         Transaction & ownership contract:
         - ``session`` is passed from ``AuthService`` during Staff registration.
         - The caller (``AuthService``) is the sole transaction owner.
-        - This service NEVER calls ``commit()``, ``rollback()``, ``close()``,
+        - This method NEVER calls ``commit()``, ``rollback()``, ``close()``,
           ``begin()``, or ``begin_nested()``.
         - Database errors (such as FK constraint violations) propagate untouched
           so ``AuthService`` can roll back ``User``, ``StaffApprovalRequest``, and
           ``AdminNotification`` together.
         - If called again with the same ``approval_request_id`` (including with a
           different ``admin_user_id``), the existing notification is returned without
-          modifying ``admin_user_id``, ``created_at``, or ``read_at`` (no ownership
-          transfer).
+          modifying ``admin_user_id``, ``created_at``, or ``read_at``.
         """
         now = self._normalize_timestamp(self._clock())
         return self._repository.add_if_absent(
@@ -108,40 +108,54 @@ class NotificationService:
         admin_user_id: int,
         notification_id: int,
     ) -> NotificationRead:
-        """Idempotently mark an owned notification as read or raise 404 if not owned."""
+        """Idempotently mark an owned notification as read and commit once."""
         now = self._normalize_timestamp(self._clock())
-        self._repository.mark_read(
-            session,
-            notification_id=notification_id,
-            admin_user_id=admin_user_id,
-            read_at=now,
-        )
-        notification = self._repository.get_owned(
-            session,
-            notification_id=notification_id,
-            admin_user_id=admin_user_id,
-        )
-        if notification is None:
-            raise AppException(
-                code="RESOURCE_NOT_FOUND",
-                message="Notification was not found",
-                status_code=404,
+        try:
+            self._repository.mark_read(
+                session,
+                notification_id=notification_id,
+                admin_user_id=admin_user_id,
+                read_at=now,
             )
-        return NotificationRead.model_validate(notification)
+            notification = self._repository.get_owned(
+                session,
+                notification_id=notification_id,
+                admin_user_id=admin_user_id,
+            )
+            if notification is None:
+                session.rollback()
+                raise AppException(
+                    code="RESOURCE_NOT_FOUND",
+                    message="Notification was not found",
+                    status_code=404,
+                )
+            result = NotificationRead.model_validate(notification)
+            session.commit()
+            return result
+        except AppException:
+            raise
+        except Exception:
+            session.rollback()
+            raise
 
     def mark_all_read(
         self,
         session: Session,
         admin_user_id: int,
     ) -> MarkAllReadResponse:
-        """Mark all unread notifications owned by ``admin_user_id`` as read."""
+        """Mark all unread owned notifications as read and commit once."""
         now = self._normalize_timestamp(self._clock())
-        updated_count = self._repository.mark_all_read(
-            session,
-            admin_user_id=admin_user_id,
-            read_at=now,
-        )
-        return MarkAllReadResponse(updated_count=updated_count)
+        try:
+            updated_count = self._repository.mark_all_read(
+                session,
+                admin_user_id=admin_user_id,
+                read_at=now,
+            )
+            session.commit()
+            return MarkAllReadResponse(updated_count=updated_count)
+        except Exception:
+            session.rollback()
+            raise
 
     @staticmethod
     def _normalize_timestamp(value: datetime) -> datetime:
