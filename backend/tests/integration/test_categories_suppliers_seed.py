@@ -1,0 +1,106 @@
+"""Idempotency tests for Category and Supplier seed scripts."""
+
+from collections.abc import Generator
+
+import pytest
+from sqlalchemy import BigInteger, create_engine, func, select
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import Session
+
+from app.modules.categories.models import Category, CategoryStatus
+from app.modules.categories.seed import DEFAULT_CATEGORIES, seed_categories
+from app.modules.suppliers.models import Supplier, SupplierStatus
+from app.modules.suppliers.seed import DEFAULT_SUPPLIERS, seed_suppliers
+
+
+@compiles(BigInteger, "sqlite")
+def compile_bigint_sqlite(type_, compiler, **kw):
+    """Ensure SQLite maps BigInteger primary keys to INTEGER for autoincrement."""
+    return "INTEGER"
+
+
+@pytest.fixture
+def db_session() -> Generator[Session]:
+    """Provide an isolated in-memory SQLite database session for seed tests."""
+    engine = create_engine("sqlite:///:memory:")
+    Category.__table__.create(engine)
+    Supplier.__table__.create(engine)
+    with Session(engine) as session:
+        yield session
+    engine.dispose()
+
+
+def test_category_seed_is_idempotent(db_session: Session) -> None:
+    """Verify seed_categories creates initial data and is idempotent on repeat."""
+    # First execution: should insert all default categories
+    first_run_created = seed_categories(db_session)
+    assert first_run_created == len(DEFAULT_CATEGORIES)
+
+    categories = db_session.scalars(select(Category)).all()
+    assert len(categories) == len(DEFAULT_CATEGORIES)
+    for cat in categories:
+        assert cat.status == CategoryStatus.ACTIVE
+        assert cat.created_at is not None
+        assert cat.updated_at is not None
+
+    # Second execution: should be a clean no-op
+    second_run_created = seed_categories(db_session)
+    assert second_run_created == 0
+
+    total_count = db_session.scalar(select(func.count(Category.id)))
+    assert total_count == len(DEFAULT_CATEGORIES)
+
+
+def test_category_seed_custom_data_skips_existing(db_session: Session) -> None:
+    """Verify custom seed list correctly skips existing names without error."""
+    seed_categories(db_session, [{"name": "Đồ uống"}])
+    assert db_session.scalar(select(func.count(Category.id))) == 1
+
+    custom_batch = [
+        {"name": "Đồ uống"},  # already exists
+        {"name": "Văn phòng phẩm"},  # new
+        {"name": "Đồ chơi"},  # new
+    ]
+    created = seed_categories(db_session, custom_batch)
+    assert created == 2
+    assert db_session.scalar(select(func.count(Category.id))) == 3
+
+
+def test_supplier_seed_is_idempotent(db_session: Session) -> None:
+    """Verify seed_suppliers creates initial data and is idempotent on repeat."""
+    # First execution: should insert all default suppliers
+    first_run_created = seed_suppliers(db_session)
+    assert first_run_created == len(DEFAULT_SUPPLIERS)
+
+    suppliers = db_session.scalars(select(Supplier)).all()
+    assert len(suppliers) == len(DEFAULT_SUPPLIERS)
+    for sup in suppliers:
+        assert sup.status == SupplierStatus.ACTIVE
+        assert sup.created_at is not None
+        assert sup.updated_at is not None
+
+    # Second execution: should be a clean no-op
+    second_run_created = seed_suppliers(db_session)
+    assert second_run_created == 0
+
+    total_count = db_session.scalar(select(func.count(Supplier.id)))
+    assert total_count == len(DEFAULT_SUPPLIERS)
+
+
+def test_supplier_seed_custom_data_skips_existing(db_session: Session) -> None:
+    """Verify custom seed list correctly skips existing names without error."""
+    initial_name = DEFAULT_SUPPLIERS[0]["name"]
+    seed_suppliers(
+        db_session,
+        [{"name": initial_name, "contact_email": "test@example.com"}],
+    )
+    assert db_session.scalar(select(func.count(Supplier.id))) == 1
+
+    custom_batch = [
+        {"name": initial_name},  # already exists
+        {"name": "Nhà cung cấp Mới 1", "contact_phone": "0123456789"},  # new
+        {"name": "Nhà cung cấp Mới 2"},  # new
+    ]
+    created = seed_suppliers(db_session, custom_batch)
+    assert created == 2
+    assert db_session.scalar(select(func.count(Supplier.id))) == 3

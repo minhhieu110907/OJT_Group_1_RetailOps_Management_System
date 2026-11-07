@@ -1,0 +1,2 @@
+"""Category module tests."""
+

@@ -7,6 +7,15 @@ from app.modules.auth.models import (
     StaffApprovalRequest,
     User,
 )
+from app.modules.categories.models import Category
+from app.modules.suppliers.models import Supplier
 
-REGISTERED_MODELS = (User, StaffApprovalRequest, AuthSession, RefreshToken)
+REGISTERED_MODELS = (
+    User,
+    StaffApprovalRequest,
+    AuthSession,
+    RefreshToken,
+    Category,
+    Supplier,
+)
 metadata = Base.metadata
