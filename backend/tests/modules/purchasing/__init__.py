@@ -1,0 +1,2 @@
+"""Purchasing module structure tests."""
+
