@@ -10,6 +10,8 @@ from app.modules.notifications.models import AdminNotification
 
 
 class NotificationRepository:
+    """Execute owner-scoped SQL queries for Admin notifications without committing."""
+
     def add_if_absent(
         self,
         session: Session,
@@ -17,7 +19,7 @@ class NotificationRepository:
         approval_request_id: int,
         created_at: datetime,
     ) -> AdminNotification:
-
+       
         stmt = (
             mysql_insert(AdminNotification)
             .values(
@@ -42,7 +44,7 @@ class NotificationRepository:
         session: Session,
         approval_request_id: int,
     ) -> AdminNotification | None:
-
+        """Return the notification linked to a staff approval request, if any."""
         stmt = select(AdminNotification).where(
             AdminNotification.approval_request_id == approval_request_id
         )
@@ -54,7 +56,7 @@ class NotificationRepository:
         notification_id: int,
         admin_user_id: int,
     ) -> AdminNotification | None:
-
+        """Return a notification only when owned by ``admin_user_id``."""
         stmt = select(AdminNotification).where(
             AdminNotification.id == notification_id,
             AdminNotification.admin_user_id == admin_user_id,
@@ -70,7 +72,7 @@ class NotificationRepository:
         offset: int = 0,
         limit: int = 20,
     ) -> tuple[list[AdminNotification], int]:
-
+        """List notifications owned by ``admin_user_id`` ordered by newest first."""
         predicates = [AdminNotification.admin_user_id == admin_user_id]
         if unread_only:
             predicates.append(AdminNotification.read_at.is_(None))
@@ -98,7 +100,7 @@ class NotificationRepository:
         session: Session,
         admin_user_id: int,
     ) -> int:
-
+       
         stmt = (
             select(func.count())
             .select_from(AdminNotification)
@@ -116,7 +118,7 @@ class NotificationRepository:
         admin_user_id: int,
         read_at: datetime,
     ) -> int:
-        """Transition a single unread owned notification to read and return rowcount."""
+        
         stmt = (
             update(AdminNotification)
             .where(
@@ -136,7 +138,7 @@ class NotificationRepository:
         admin_user_id: int,
         read_at: datetime,
     ) -> int:
-
+       
         stmt = (
             update(AdminNotification)
             .where(

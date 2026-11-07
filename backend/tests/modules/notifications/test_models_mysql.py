@@ -189,7 +189,9 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
 ) -> None:
     repo = NotificationRepository()
     t0 = datetime(2026, 11, 7, 9, 0, 0)
-    calls = [t0, t0 + timedelta(minutes=10)]
+    t1 = t0 + timedelta(minutes=5)
+    t2 = t0 + timedelta(minutes=10)
+    calls = [t0, t1, t2]
     service = NotificationService(repository=repo, clock=lambda: calls.pop(0))
 
     with Session(migrated_integration_engine) as auth_session:
@@ -201,6 +203,12 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
             admin_user_id=admin.id,
             approval_request_id=approval_id,
         )
+        # Mark read and call create_for_approval again: timestamps must not change
+        marked = service.mark_read(
+            auth_session,
+            admin_user_id=admin.id,
+            notification_id=first.id,
+        )
         second = service.create_for_approval(
             auth_session,
             admin_user_id=admin.id,
@@ -208,8 +216,10 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
         )
         assert first.id == second.id
         assert second.created_at == t0
+        assert second.read_at == t1
+        assert marked.read_at == t1
 
-        # Independent connection MUST NOT see uncommitted row
+        # Independent connection MUST NOT see uncommitted row before caller commits
         with Session(migrated_integration_engine) as outside_session:
             visible_before_commit = outside_session.scalar(
                 select(AdminNotification).where(
@@ -229,6 +239,16 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
         )
         assert visible_after_commit is not None
         assert visible_after_commit.created_at == t0
+        assert visible_after_commit.read_at == t1
+
+        # Invalid FK in create_for_approval must raise IntegrityError untouched
+        with pytest.raises(IntegrityError):
+            service.create_for_approval(
+                after_commit_session,
+                admin_user_id=visible_after_commit.admin_user_id,
+                approval_request_id=9_999_999_999,
+            )
+        after_commit_session.rollback()
 
 
 def test_forced_failure_after_create_for_approval_rolls_back_all_entities(

@@ -17,11 +17,20 @@ from app.modules.notifications.schemas import (
 
 
 def utc_now() -> datetime:
-
+    """Return naive UTC datetime matching MySQL DATETIME(6) storage convention."""
     return datetime.now(UTC).replace(tzinfo=None)
 
 
 class NotificationService:
+    """Coordinate Admin notification operations without owning transaction commits.
+
+    Transaction invariant:
+    - ``NotificationService`` NEVER calls ``commit()``, ``rollback()``, ``close()``,
+      ``begin()``, or ``begin_nested()``.
+    - In ``create_for_approval``, the calling ``AuthService`` provides ``session``
+      and owns the transaction boundary (commits on success, rolls back on failure).
+    """
+
     def __init__(
         self,
         repository: NotificationRepository,
@@ -36,7 +45,21 @@ class NotificationService:
         admin_user_id: int,
         approval_request_id: int,
     ) -> AdminNotification:
+        """Create or return the notification for a staff approval request.
 
+        Transaction & ownership contract:
+        - ``session`` is passed from ``AuthService`` during Staff registration.
+        - The caller (``AuthService``) is the sole transaction owner.
+        - This service NEVER calls ``commit()``, ``rollback()``, ``close()``,
+          ``begin()``, or ``begin_nested()``.
+        - Database errors (such as FK constraint violations) propagate untouched
+          so ``AuthService`` can roll back ``User``, ``StaffApprovalRequest``, and
+          ``AdminNotification`` together.
+        - If called again with the same ``approval_request_id`` (including with a
+          different ``admin_user_id``), the existing notification is returned without
+          modifying ``admin_user_id``, ``created_at``, or ``read_at`` (no ownership
+          transfer).
+        """
         now = self._normalize_timestamp(self._clock())
         return self._repository.add_if_absent(
             session,
@@ -75,7 +98,7 @@ class NotificationService:
         session: Session,
         admin_user_id: int,
     ) -> UnreadCountResponse:
-
+        """Return the unread notification count for ``admin_user_id``."""
         count = self._repository.count_unread(session, admin_user_id)
         return UnreadCountResponse(count=count)
 
@@ -85,7 +108,7 @@ class NotificationService:
         admin_user_id: int,
         notification_id: int,
     ) -> NotificationRead:
-
+        """Idempotently mark an owned notification as read or raise 404 if not owned."""
         now = self._normalize_timestamp(self._clock())
         self._repository.mark_read(
             session,
@@ -111,7 +134,7 @@ class NotificationService:
         session: Session,
         admin_user_id: int,
     ) -> MarkAllReadResponse:
-
+        """Mark all unread notifications owned by ``admin_user_id`` as read."""
         now = self._normalize_timestamp(self._clock())
         updated_count = self._repository.mark_all_read(
             session,

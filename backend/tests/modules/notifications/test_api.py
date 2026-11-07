@@ -12,27 +12,15 @@ from app.db.session import get_db_session
 from app.main import create_app
 from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
 from app.modules.auth.models import User
-from app.modules.notifications.dependencies import (
-    get_notification_service,
-    get_notification_uow_session,
-)
+from app.modules.notifications.dependencies import get_notification_service
 from app.modules.notifications.service import NotificationService
 from tests.modules.notifications.test_service_unit import (
     AdvancingClock,
     FakeNotificationRepository,
+    GuardedFakeSession,
 )
 
 ORIGIN = "http://127.0.0.1:5173"
-
-
-class FakeUoWSession:
-    """Fake session recording commit calls at the HTTP UoW dependency boundary."""
-
-    def __init__(self) -> None:
-        self.commits = 0
-
-    def commit(self) -> None:
-        self.commits += 1
 
 
 def _test_settings() -> Settings:
@@ -70,7 +58,7 @@ async def test_all_four_notification_endpoints_reject_unauthenticated_with_401()
     settings = _test_settings()
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_db_session] = lambda: FakeUoWSession()
+    app.dependency_overrides[get_db_session] = GuardedFakeSession
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
@@ -92,7 +80,7 @@ async def test_all_four_notification_endpoints_reject_staff_with_403() -> None:
     settings = _test_settings()
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_db_session] = lambda: FakeUoWSession()
+    app.dependency_overrides[get_db_session] = GuardedFakeSession
     app.dependency_overrides[get_current_principal] = lambda: _principal(2, "STAFF")
 
     async with httpx.AsyncClient(
@@ -116,29 +104,27 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
     repo = FakeNotificationRepository()
     clock = AdvancingClock(datetime(2026, 11, 7, 9, 0, 0, tzinfo=UTC))
     service = NotificationService(repository=repo, clock=clock)
-    uow_session = FakeUoWSession()
+    fake_session = GuardedFakeSession()
 
-    # Seed 2 notifications for Admin 1 and 1 notification for Admin 99
     n1 = service.create_for_approval(
-        uow_session,  # type: ignore[arg-type]
+        fake_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=101,
     )
     n2 = service.create_for_approval(
-        uow_session,  # type: ignore[arg-type]
+        fake_session,  # type: ignore[arg-type]
         admin_user_id=1,
         approval_request_id=102,
     )
     other = service.create_for_approval(
-        uow_session,  # type: ignore[arg-type]
+        fake_session,  # type: ignore[arg-type]
         admin_user_id=99,
         approval_request_id=999,
     )
 
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_db_session] = lambda: uow_session
-    app.dependency_overrides[get_notification_uow_session] = lambda: uow_session
+    app.dependency_overrides[get_db_session] = lambda: fake_session
     app.dependency_overrides[get_notification_service] = lambda: service
     app.dependency_overrides[get_current_principal] = lambda: _principal(1, "ADMIN")
 
@@ -146,7 +132,6 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        # 1. List notifications (newest first: n2 then n1) and check field whitelist
         list_resp = await client.get("/api/v1/admin/notifications?page=1&page_size=20")
         assert list_resp.status_code == 200
         body = list_resp.json()
@@ -163,12 +148,10 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
                 "read_at",
             }
 
-        # 2. Unread count == 2
         count_resp = await client.get("/api/v1/admin/notifications/unread-count")
         assert count_resp.status_code == 200
         assert count_resp.json() == {"count": 2}
 
-        # 3. Mark n1 as read -> 200, repeated call preserves read_at
         read1 = await client.patch(
             f"/api/v1/admin/notifications/{n1.id}/read",
             json={},
@@ -182,13 +165,11 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         assert read1.json()["read_at"] is not None
         assert read2.json()["read_at"] == read1.json()["read_at"]
 
-        # 4. Filter unread_only=true returns only n2
         unread_list = await client.get("/api/v1/admin/notifications?unread_only=true")
         assert unread_list.status_code == 200
         assert [item["id"] for item in unread_list.json()["items"]] == [n2.id]
         assert unread_list.json()["total"] == 1
 
-        # 5. Other Admin's notification or unknown id returns 404 RESOURCE_NOT_FOUND
         for forbidden_id in (other.id, 999999):
             not_found = await client.patch(
                 f"/api/v1/admin/notifications/{forbidden_id}/read",
@@ -197,7 +178,6 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
             assert not_found.status_code == 404
             assert not_found.json()["code"] == "RESOURCE_NOT_FOUND"
 
-        # 6. Mark all read -> updated_count == 1, second call -> updated_count == 0
         all1 = await client.patch("/api/v1/admin/notifications/read-all", json={})
         all2 = await client.patch("/api/v1/admin/notifications/read-all", json={})
         assert all1.status_code == 200
@@ -205,7 +185,6 @@ async def test_admin_notification_endpoints_full_lifecycle_and_validation() -> N
         assert all2.status_code == 200
         assert all2.json() == {"updated_count": 0}
 
-        # 7. Validation errors: page_size > 100, invalid id, extra field in PATCH body
         bad_page = await client.get("/api/v1/admin/notifications?page_size=101")
         bad_id = await client.patch("/api/v1/admin/notifications/0/read", json={})
         bad_body = await client.patch(

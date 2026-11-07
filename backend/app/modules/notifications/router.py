@@ -9,7 +9,6 @@ from app.db.session import get_db_session
 from app.modules.auth.dependencies import CurrentPrincipal
 from app.modules.notifications.dependencies import (
     get_notification_service,
-    get_notification_uow_session,
     require_active_admin,
 )
 from app.modules.notifications.schemas import (
@@ -37,7 +36,7 @@ def list_admin_notifications(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     unread_only: Annotated[bool, Query()] = False,
 ) -> NotificationListResponse:
-    """List notifications owned by the authenticated Admin ordered newest first."""
+    
     return service.list_for_admin(
         session,
         principal.user.id,
@@ -57,7 +56,7 @@ def get_unread_notification_count(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> UnreadCountResponse:
-    """Return the unread notification count for the authenticated Admin."""
+    
     return service.count_unread(session, principal.user.id)
 
 
@@ -69,10 +68,10 @@ def get_unread_notification_count(
 def mark_all_notifications_read(
     _payload: Annotated[EmptyPatchRequest, Body()],
     principal: Annotated[CurrentPrincipal, Depends(require_active_admin)],
-    session: Annotated[Session, Depends(get_notification_uow_session)],
+    session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> MarkAllReadResponse:
-    """Mark all unread notifications owned by the authenticated Admin as read."""
+  
     return service.mark_all_read(session, principal.user.id)
 
 
@@ -85,8 +84,8 @@ def mark_notification_read(
     id: Annotated[int, Path(ge=1)],
     _payload: Annotated[EmptyPatchRequest, Body()],
     principal: Annotated[CurrentPrincipal, Depends(require_active_admin)],
-    session: Annotated[Session, Depends(get_notification_uow_session)],
+    session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> NotificationRead:
-    """Idempotently mark a single owned notification as read."""
+    
     return service.mark_read(session, principal.user.id, id)
