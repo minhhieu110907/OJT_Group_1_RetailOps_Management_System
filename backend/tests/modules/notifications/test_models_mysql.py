@@ -191,7 +191,8 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
     t0 = datetime(2026, 11, 7, 9, 0, 0)
     t1 = t0 + timedelta(minutes=5)
     t2 = t0 + timedelta(minutes=10)
-    calls = [t0, t1, t2]
+    t3 = t0 + timedelta(minutes=15)
+    calls = [t0, t1, t2, t3]
     service = NotificationService(repository=repo, clock=lambda: calls.pop(0))
 
     with Session(migrated_integration_engine) as auth_session:
@@ -249,6 +250,7 @@ def test_create_for_approval_shares_caller_transaction_without_committing(
                 approval_request_id=9_999_999_999,
             )
         after_commit_session.rollback()
+        assert calls == []
 
 
 def test_forced_failure_after_create_for_approval_rolls_back_all_entities(

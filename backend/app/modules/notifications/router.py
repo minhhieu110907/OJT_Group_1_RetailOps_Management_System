@@ -36,7 +36,7 @@ def list_admin_notifications(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     unread_only: Annotated[bool, Query()] = False,
 ) -> NotificationListResponse:
-    
+
     return service.list_for_admin(
         session,
         principal.user.id,
@@ -56,7 +56,7 @@ def get_unread_notification_count(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> UnreadCountResponse:
-    
+
     return service.count_unread(session, principal.user.id)
 
 
@@ -71,7 +71,7 @@ def mark_all_notifications_read(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> MarkAllReadResponse:
-  
+
     return service.mark_all_read(session, principal.user.id)
 
 
@@ -87,5 +87,5 @@ def mark_notification_read(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> NotificationRead:
-    
+
     return service.mark_read(session, principal.user.id, id)

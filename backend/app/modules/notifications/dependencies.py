@@ -12,14 +12,14 @@ from app.modules.notifications.service import NotificationService
 
 
 def get_notification_service() -> NotificationService:
-    
+
     return NotificationService(repository=NotificationRepository())
 
 
 def require_active_admin(
     principal: Annotated[CurrentPrincipal, Depends(get_current_principal)],
 ) -> CurrentPrincipal:
- 
+
     if principal.user.role != UserRole.ADMIN:
         raise AppException(
             code="FORBIDDEN",

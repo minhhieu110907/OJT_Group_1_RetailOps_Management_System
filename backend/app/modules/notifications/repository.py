@@ -19,7 +19,7 @@ class NotificationRepository:
         approval_request_id: int,
         created_at: datetime,
     ) -> AdminNotification:
-       
+
         stmt = (
             mysql_insert(AdminNotification)
             .values(
@@ -100,7 +100,7 @@ class NotificationRepository:
         session: Session,
         admin_user_id: int,
     ) -> int:
-       
+
         stmt = (
             select(func.count())
             .select_from(AdminNotification)
@@ -118,7 +118,7 @@ class NotificationRepository:
         admin_user_id: int,
         read_at: datetime,
     ) -> int:
-        
+
         stmt = (
             update(AdminNotification)
             .where(
@@ -138,7 +138,7 @@ class NotificationRepository:
         admin_user_id: int,
         read_at: datetime,
     ) -> int:
-       
+
         stmt = (
             update(AdminNotification)
             .where(
