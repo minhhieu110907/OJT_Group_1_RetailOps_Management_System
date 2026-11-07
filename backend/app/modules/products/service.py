@@ -27,7 +27,7 @@ def utc_now_naive() -> datetime:
 
 
 def _is_duplicate_sku_integrity_error(error: IntegrityError) -> bool:
-    """Inspect a database IntegrityError to determine if it is a unique SKU violation."""
+    """Check whether an IntegrityError is caused by a unique SKU violation."""
     message = str(getattr(error, "orig", error)).lower()
     return (
         "uq_products_sku" in message

@@ -28,13 +28,10 @@ CATEGORY_PREFIX = "T3C9AEB_CAT_"
 
 
 @pytest.fixture(autouse=True)
-def ensure_and_clean_product_tables(
+def clean_product_test_rows(
     migrated_integration_engine: Engine,
 ) -> None:
-    """Ensure temporary catalog tables exist on MySQL and clean test rows."""
-    Category.__table__.create(bind=migrated_integration_engine, checkfirst=True)
-    Product.__table__.create(bind=migrated_integration_engine, checkfirst=True)
-    Inventory.__table__.create(bind=migrated_integration_engine, checkfirst=True)
+    """Clean test rows created in categories, products, and inventory."""
     yield
     with Session(migrated_integration_engine) as session, session.begin():
         product_ids = list(

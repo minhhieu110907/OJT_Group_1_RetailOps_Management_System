@@ -36,7 +36,7 @@ def list_products(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ProductListResponse:
-    """List products with current inventory balance (accessible by ACTIVE Admin/Staff)."""
+    """List products with current inventory balance (ACTIVE Admin/Staff)."""
     return service.list_products(session, page=page, page_size=page_size)
 
 
@@ -94,6 +94,6 @@ def update_product_status(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ProductService, Depends(get_product_service)],
 ) -> ProductRead:
-    """Activate or deactivate a product while preserving stock and history (Admin only)."""
+    """Activate or deactivate a product while preserving stock (Admin only)."""
     return service.update_status(session, product_id, payload)
 
