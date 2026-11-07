@@ -2,7 +2,8 @@
 
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -23,7 +24,7 @@ from app.modules.auth.models import (
     User,
 )
 from app.modules.auth.security import PasswordHasher
-from app.modules.auth.service import AuthService
+from app.modules.auth.service import AuthService, utc_now_naive
 from app.modules.notifications.models import AdminNotification
 from app.modules.notifications.repository import NotificationRepository
 from app.modules.notifications.service import NotificationService
@@ -428,13 +429,46 @@ async def test_http_patch_endpoints_persist_in_mysql_and_enforce_permissions(
                 raise
 
     now = datetime(2026, 11, 7, 11, 0, 0)
+    session_now = utc_now_naive()
+    session_expires_at = session_now + timedelta(seconds=settings.session_ttl_seconds)
+    admin_session_id = uuid4()
+
     with Session(migrated_integration_engine) as setup_session:
+        # If no Admin exists yet, seed a sentinel Admin under EMAIL_PREFIX so
+        # _seed_admin_and_approval always takes the shared-Admin reuse branch.
+        if setup_session.scalar(select(User).where(User.admin_slot == 1)) is None:
+            setup_session.add(
+                User(
+                    email_normalized=f"{EMAIL_PREFIX}shared_admin_sentinel@example.com",
+                    password_hash="$2b$04$sentinel.shared.admin.hash.do.not.mutate",
+                    role="ADMIN",
+                    status="ACTIVE",
+                    admin_slot=1,
+                    last_reapplied_at=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            setup_session.flush()
+
         admin, _s1, approval1 = _seed_admin_and_approval(setup_session, "http1")
         _admin, _s2, approval2 = _seed_admin_and_approval(setup_session, "http2")
         _admin, _s3, approval3 = _seed_admin_and_approval(setup_session, "http3")
 
-        # Ensure admin has known password for login
-        admin.password_hash = PasswordHasher(work_factor=4).hash("admin-pass")
+        admin_id = admin.id
+        original_admin_email = admin.email_normalized
+        original_admin_password_hash = admin.password_hash
+
+        # Create an isolated AuthSession for Admin without mutating Admin credentials
+        setup_session.add(
+            AuthSession(
+                id=admin_session_id.bytes,
+                user_id=admin_id,
+                created_at=session_now,
+                expires_at=session_expires_at,
+                revoked_at=None,
+            )
+        )
 
         active_staff = User(
             email_normalized=f"{EMAIL_PREFIX}active_staff_http@example.com",
@@ -452,12 +486,12 @@ async def test_http_patch_endpoints_persist_in_mysql_and_enforce_permissions(
         notif_svc = NotificationService(repository=NotificationRepository())
         n1 = notif_svc.create_for_approval(
             setup_session,
-            admin_user_id=admin.id,
+            admin_user_id=admin_id,
             approval_request_id=approval1.id,
         )
         n2 = notif_svc.create_for_approval(
             setup_session,
-            admin_user_id=admin.id,
+            admin_user_id=admin_id,
             approval_request_id=approval2.id,
         )
         other_notif = notif_svc.create_for_approval(
@@ -468,13 +502,15 @@ async def test_http_patch_endpoints_persist_in_mysql_and_enforce_permissions(
         n1_id = n1.id
         n2_id = n2.id
         other_notif_id = other_notif.id
-        admin_email = admin.email_normalized
         staff_email = active_staff.email_normalized
         setup_session.commit()
 
-        admin_token = auth_service.login(
-            setup_session, admin_email, "admin-pass"
-        ).response.access_token
+        admin_token, _ = auth_service.jwt.issue(
+            user_id=admin_id,
+            session_id=admin_session_id,
+            session_expires_at=session_expires_at,
+            now=session_now.replace(tzinfo=UTC),
+        )
         staff_token = auth_service.login(
             setup_session, staff_email, "staff-pass"
         ).response.access_token
@@ -487,89 +523,111 @@ async def test_http_patch_endpoints_persist_in_mysql_and_enforce_permissions(
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
     staff_headers = {"Authorization": f"Bearer {staff_token}"}
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        # 1. Staff receives 403 and does NOT mutate database
-        staff_patch = await client.patch(
-            f"/api/v1/admin/notifications/{n1_id}/read",
-            headers=staff_headers,
-            json={},
-        )
-        staff_all = await client.patch(
-            "/api/v1/admin/notifications/read-all",
-            headers=staff_headers,
-            json={},
-        )
-        assert staff_patch.status_code == 403
-        assert staff_all.status_code == 403
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            # 1. Staff receives 403 and does NOT mutate database
+            staff_patch = await client.patch(
+                f"/api/v1/admin/notifications/{n1_id}/read",
+                headers=staff_headers,
+                json={},
+            )
+            staff_all = await client.patch(
+                "/api/v1/admin/notifications/read-all",
+                headers=staff_headers,
+                json={},
+            )
+            assert staff_patch.status_code == 403
+            assert staff_all.status_code == 403
 
-        with Session(migrated_integration_engine) as verify_session:
-            assert verify_session.get(AdminNotification, n1_id).read_at is None
-            assert verify_session.get(AdminNotification, n2_id).read_at is None
+            with Session(migrated_integration_engine) as verify_session:
+                assert verify_session.get(AdminNotification, n1_id).read_at is None
+                assert verify_session.get(AdminNotification, n2_id).read_at is None
 
-        # 2. Resource not owned by Admin returns 404 and does NOT mutate database
-        not_owned = await client.patch(
-            f"/api/v1/admin/notifications/{other_notif_id}/read",
-            headers=admin_headers,
-            json={},
-        )
-        assert not_owned.status_code == 404
-        assert not_owned.json()["code"] == "RESOURCE_NOT_FOUND"
+            # 2. Resource not owned by Admin returns 404 and does NOT mutate database
+            not_owned = await client.patch(
+                f"/api/v1/admin/notifications/{other_notif_id}/read",
+                headers=admin_headers,
+                json={},
+            )
+            assert not_owned.status_code == 404
+            assert not_owned.json()["code"] == "RESOURCE_NOT_FOUND"
 
-        with Session(migrated_integration_engine) as verify_session:
-            assert verify_session.get(AdminNotification, other_notif_id).read_at is None
+            with Session(migrated_integration_engine) as verify_session:
+                assert (
+                    verify_session.get(AdminNotification, other_notif_id).read_at
+                    is None
+                )
 
-        # 3. Admin PATCH /{id}/read returns 200 and persists read_at in MySQL
-        patch1 = await client.patch(
-            f"/api/v1/admin/notifications/{n1_id}/read",
-            headers=admin_headers,
-            json={},
-        )
-        assert patch1.status_code == 200
-        assert patch1.json()["read_at"] is not None
+            # 3. Admin PATCH /{id}/read returns 200 and persists read_at in MySQL
+            patch1 = await client.patch(
+                f"/api/v1/admin/notifications/{n1_id}/read",
+                headers=admin_headers,
+                json={},
+            )
+            assert patch1.status_code == 200
+            assert patch1.json()["read_at"] is not None
 
-        with Session(migrated_integration_engine) as verify_session:
-            persisted_n1 = verify_session.get(AdminNotification, n1_id)
-            assert persisted_n1 is not None
-            assert persisted_n1.read_at is not None
-            first_persisted_read_at = persisted_n1.read_at
+            with Session(migrated_integration_engine) as verify_session:
+                persisted_n1 = verify_session.get(AdminNotification, n1_id)
+                assert persisted_n1 is not None
+                assert persisted_n1.read_at is not None
+                first_persisted_read_at = persisted_n1.read_at
 
-        # 4. Repeated PATCH /{id}/read does not alter persisted read_at
-        patch2 = await client.patch(
-            f"/api/v1/admin/notifications/{n1_id}/read",
-            headers=admin_headers,
-            json={},
-        )
-        assert patch2.status_code == 200
-        assert patch2.json()["read_at"] == patch1.json()["read_at"]
+            # 4. Repeated PATCH /{id}/read does not alter persisted read_at
+            patch2 = await client.patch(
+                f"/api/v1/admin/notifications/{n1_id}/read",
+                headers=admin_headers,
+                json={},
+            )
+            assert patch2.status_code == 200
+            assert patch2.json()["read_at"] == patch1.json()["read_at"]
 
-        with Session(migrated_integration_engine) as verify_session:
-            persisted_n1_again = verify_session.get(AdminNotification, n1_id)
-            assert persisted_n1_again is not None
-            assert persisted_n1_again.read_at == first_persisted_read_at
+            with Session(migrated_integration_engine) as verify_session:
+                persisted_n1_again = verify_session.get(AdminNotification, n1_id)
+                assert persisted_n1_again is not None
+                assert persisted_n1_again.read_at == first_persisted_read_at
 
-        # 5. Admin PATCH /read-all returns updated_count=1 and persists read_at in MySQL
-        read_all1 = await client.patch(
-            "/api/v1/admin/notifications/read-all",
-            headers=admin_headers,
-            json={},
-        )
-        assert read_all1.status_code == 200
-        assert read_all1.json() == {"updated_count": 1}
+            # 5. Admin PATCH /read-all returns updated_count=1 and persists read_at
+            read_all1 = await client.patch(
+                "/api/v1/admin/notifications/read-all",
+                headers=admin_headers,
+                json={},
+            )
+            assert read_all1.status_code == 200
+            assert read_all1.json() == {"updated_count": 1}
 
-        with Session(migrated_integration_engine) as verify_session:
-            persisted_n2 = verify_session.get(AdminNotification, n2_id)
-            assert persisted_n2 is not None
-            assert persisted_n2.read_at is not None
-            # Other user's notification remains unread
-            assert verify_session.get(AdminNotification, other_notif_id).read_at is None
+            with Session(migrated_integration_engine) as verify_session:
+                persisted_n2 = verify_session.get(AdminNotification, n2_id)
+                assert persisted_n2 is not None
+                assert persisted_n2.read_at is not None
+                # Other user's notification remains unread
+                assert (
+                    verify_session.get(AdminNotification, other_notif_id).read_at
+                    is None
+                )
 
-        read_all2 = await client.patch(
-            "/api/v1/admin/notifications/read-all",
-            headers=admin_headers,
-            json={},
-        )
-        assert read_all2.status_code == 200
-        assert read_all2.json() == {"updated_count": 0}
+            read_all2 = await client.patch(
+                "/api/v1/admin/notifications/read-all",
+                headers=admin_headers,
+                json={},
+            )
+            assert read_all2.status_code == 200
+            assert read_all2.json() == {"updated_count": 0}
+
+            # 6. Shared Admin credentials remain completely untouched in MySQL
+            with Session(migrated_integration_engine) as verify_session:
+                persisted_admin = verify_session.get(User, admin_id)
+                assert persisted_admin is not None
+                assert persisted_admin.email_normalized == original_admin_email
+                assert persisted_admin.password_hash == original_admin_password_hash
+    finally:
+        with (
+            Session(migrated_integration_engine) as cleanup_session,
+            cleanup_session.begin(),
+        ):
+            cleanup_session.execute(
+                delete(AuthSession).where(AuthSession.id == admin_session_id.bytes)
+            )
