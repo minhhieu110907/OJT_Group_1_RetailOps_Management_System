@@ -40,3 +40,30 @@ class UnauthenticatedError(AppException):
 class CsrfRejectedError(AppException):
     def __init__(self) -> None:
         super().__init__("CSRF_REJECTED", "Yêu cầu không hợp lệ.", 403)
+
+
+class ForbiddenError(AppException):
+    def __init__(
+        self,
+        message: str = "Chỉ quản trị viên mới có quyền thực hiện thao tác.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("FORBIDDEN", message, 403, details)
+
+
+class ResourceNotFoundError(AppException):
+    def __init__(
+        self,
+        message: str = "Không tìm thấy tài nguyên.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("RESOURCE_NOT_FOUND", message, 404, details)
+
+
+class DomainValidationError(AppException):
+    def __init__(
+        self,
+        message: str = "Dữ liệu không hợp lệ.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("VALIDATION_ERROR", message, 422, details)
