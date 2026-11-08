@@ -1,7 +1,7 @@
 """Create categories and suppliers tables.
 
 Revision ID: 20261107_02
-Revises: 20261106_01
+Revises: 20261107_01
 Create Date: 2026-11-07
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import mysql
 
 revision: str = "20261107_02"
-down_revision: str | None = "20261106_01"
+down_revision: str | None = "20261107_01"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
