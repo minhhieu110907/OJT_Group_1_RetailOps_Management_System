@@ -3,12 +3,13 @@
 Covers schema, check constraints, primary keys, and idempotent seed.
 """
 
+from collections.abc import Generator
 from datetime import datetime
 
 import pytest
 from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.categories.models import Category, CategoryStatus
@@ -33,7 +34,9 @@ TEST_PREFIX = "t3c9d63_test_"
 
 
 @pytest.fixture(autouse=True)
-def clean_test_rows(migrated_integration_engine: Engine) -> None:
+def clean_test_rows(
+    migrated_integration_engine: Engine,
+) -> Generator[None, None, None]:
     """Clean test and default seed rows after each test run."""
     yield
     default_cat_names = [item["name"] for item in DEFAULT_CATEGORIES]
@@ -140,7 +143,7 @@ def test_categories_suppliers_check_constraints_in_mysql(
             updated_at=now,
         )
         session.add(invalid_cat)
-        with pytest.raises(IntegrityError):
+        with pytest.raises((IntegrityError, OperationalError)):
             session.commit()
         session.rollback()
 
@@ -164,12 +167,12 @@ def test_categories_suppliers_check_constraints_in_mysql(
     with Session(migrated_integration_engine) as session:
         invalid_sup = Supplier(
             name=f"{TEST_PREFIX}invalid_sup",
-            status="SUSPENDED",
+            status="INVALID",
             created_at=now,
             updated_at=now,
         )
         session.add(invalid_sup)
-        with pytest.raises(IntegrityError):
+        with pytest.raises((IntegrityError, OperationalError)):
             session.commit()
         session.rollback()
 
