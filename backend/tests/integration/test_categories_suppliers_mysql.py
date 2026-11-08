@@ -3,6 +3,7 @@
 Covers schema, check constraints, primary keys, and idempotent seed.
 """
 
+from collections.abc import Generator
 from datetime import datetime
 
 import pytest
@@ -33,7 +34,9 @@ TEST_PREFIX = "t3c9d63_test_"
 
 
 @pytest.fixture(autouse=True)
-def clean_test_rows(migrated_integration_engine: Engine) -> None:
+def clean_test_rows(
+    migrated_integration_engine: Engine,
+) -> Generator[None, None, None]:
     """Clean test and default seed rows after each test run."""
     yield
     default_cat_names = [item["name"] for item in DEFAULT_CATEGORIES]
@@ -164,7 +167,7 @@ def test_categories_suppliers_check_constraints_in_mysql(
     with Session(migrated_integration_engine) as session:
         invalid_sup = Supplier(
             name=f"{TEST_PREFIX}invalid_sup",
-            status="SUSPENDED",
+            status="INVALID",
             created_at=now,
             updated_at=now,
         )
