@@ -33,7 +33,8 @@ def seed_suppliers(
 ) -> int:
     """Seed initial suppliers idempotently using add/flush without committing.
 
-    Checks if a supplier with the same name already exists in the session/database.
+    Checks if a supplier with the same name already exists in the session/database
+    or earlier in the same seed batch (even when session has autoflush=False).
     Returns the number of newly added suppliers.
 
     Note:
@@ -46,9 +47,18 @@ def seed_suppliers(
     items = suppliers_data if suppliers_data is not None else DEFAULT_SUPPLIERS
     created_count = 0
     now = datetime.now(UTC).replace(tzinfo=None)
+    seen_names: set[str] = {
+        obj.name.strip()
+        for obj in session.new
+        if isinstance(obj, Supplier) and getattr(obj, "name", None)
+    }
 
     for item in items:
         name = str(item["name"]).strip()
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+
         existing = session.scalar(select(Supplier).where(Supplier.name == name))
         if existing is not None:
             continue

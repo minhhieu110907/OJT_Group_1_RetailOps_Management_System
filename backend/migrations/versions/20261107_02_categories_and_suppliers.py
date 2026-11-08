@@ -1,7 +1,7 @@
 """Create categories and suppliers tables.
 
 Revision ID: 20261107_02
-Revises: 20261106_01
+Revises: 20261107_01
 Create Date: 2026-11-07
 """
 

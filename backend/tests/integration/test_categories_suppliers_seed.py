@@ -25,7 +25,7 @@ def db_session() -> Generator[Session]:
     engine = create_engine("sqlite:///:memory:")
     Category.__table__.create(engine)
     Supplier.__table__.create(engine)
-    with Session(engine) as session:
+    with Session(engine, autoflush=False) as session:
         yield session
     engine.dispose()
 
@@ -134,3 +134,49 @@ def test_supplier_seed_does_not_commit_and_respects_rollback(
     db_session.rollback()
 
     assert db_session.scalar(select(func.count(Supplier.id))) == 0
+
+
+def test_seed_deduplicates_duplicate_names_in_same_batch_with_autoflush_false() -> None:
+    """Verify duplicate names in one seed batch are deduplicated (autoflush=False)."""
+    engine = create_engine("sqlite:///:memory:")
+    Category.__table__.create(engine)
+    Supplier.__table__.create(engine)
+    try:
+        with Session(engine, autoflush=False) as session:
+            assert session.autoflush is False
+
+            cat_batch = [
+                {"name": "Đồ uống"},
+                {"name": "Đồ uống"},
+                {"name": "  Đồ uống  "},
+                {"name": "Bánh kẹo"},
+            ]
+            created_cats = seed_categories(session, cat_batch)
+            session.commit()
+            assert created_cats == 2
+            persisted_cats = session.scalars(select(Category.name)).all()
+            assert persisted_cats == ["Đồ uống", "Bánh kẹo"]
+
+            sup_batch = [
+                {
+                    "name": "Công ty TNHH Nước Giải Khát",
+                    "contact_email": "first@example.com",
+                },
+                {
+                    "name": "Công ty TNHH Nước Giải Khát",
+                    "contact_email": "duplicate@example.com",
+                },
+                {"name": "  Công ty TNHH Nước Giải Khát  "},
+                {"name": "Công ty Thực Phẩm Sạch"},
+            ]
+            created_sups = seed_suppliers(session, sup_batch)
+            session.commit()
+            assert created_sups == 2
+            persisted_sups = session.scalars(select(Supplier)).all()
+            assert [s.name for s in persisted_sups] == [
+                "Công ty TNHH Nước Giải Khát",
+                "Công ty Thực Phẩm Sạch",
+            ]
+            assert persisted_sups[0].contact_email == "first@example.com"
+    finally:
+        engine.dispose()
