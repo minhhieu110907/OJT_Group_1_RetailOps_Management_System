@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 from app.modules.suppliers.models import SupplierStatus
@@ -74,6 +75,12 @@ class SupplierUpdate(BaseModel):
             trimmed = value.strip()
             return trimmed if trimmed else None
         return None
+
+    @model_validator(mode="after")
+    def reject_explicit_null_name(self) -> "SupplierUpdate":
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Tên nhà cung cấp không được là null.")
+        return self
 
 
 class SupplierStatusUpdate(BaseModel):

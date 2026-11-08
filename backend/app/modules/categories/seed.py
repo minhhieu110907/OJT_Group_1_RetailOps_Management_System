@@ -23,7 +23,8 @@ def seed_categories(
 ) -> int:
     """Seed initial categories idempotently using add/flush without committing.
 
-    Checks if a category with the same name already exists in the session/database.
+    Checks if a category with the same name already exists in the session/database
+    or earlier in the same seed batch (even when session has autoflush=False).
     Returns the number of newly added categories.
 
     Note:
@@ -36,9 +37,18 @@ def seed_categories(
     items = categories_data if categories_data is not None else DEFAULT_CATEGORIES
     created_count = 0
     now = datetime.now(UTC).replace(tzinfo=None)
+    seen_names: set[str] = {
+        obj.name.strip()
+        for obj in session.new
+        if isinstance(obj, Category) and getattr(obj, "name", None)
+    }
 
     for item in items:
         name = str(item["name"]).strip()
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+
         existing = session.scalar(select(Category).where(Category.name == name))
         if existing is not None:
             continue

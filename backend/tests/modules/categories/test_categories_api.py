@@ -1,7 +1,7 @@
 """Integration tests for Categories API."""
 
 from collections.abc import AsyncGenerator, Generator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -15,8 +15,14 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
 from app.main import create_app
-from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
+from app.modules.auth.dependencies import (
+    CurrentPrincipal,
+    get_auth_service,
+    get_current_principal,
+)
 from app.modules.auth.models import User, UserRole, UserStatus
+from app.modules.auth.repository import AuthRepository
+from app.modules.auth.service import AuthService
 from app.modules.categories.models import Category, CategoryStatus
 
 
@@ -319,3 +325,112 @@ async def test_update_category_status_admin(
             f"/api/v1/categories/{cat_id}/status", json={"status": "ACTIVE"}
         )
         assert staff_res.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_category_pagination_bounds_and_no_delete_endpoint(
+    admin_client: httpx.AsyncClient,
+) -> None:
+    """Verify page_size bounds (1..100) and absence of hard DELETE endpoint."""
+    bad_low = await admin_client.get("/api/v1/categories?page_size=0")
+    assert bad_low.status_code == 422
+
+    bad_high = await admin_client.get("/api/v1/categories?page_size=101")
+    assert bad_high.status_code == 422
+
+    delete_res = await admin_client.delete("/api/v1/categories/1")
+    assert delete_res.status_code == 405
+
+
+@pytest.mark.anyio
+async def test_category_security_smoke_with_real_jwt_and_live_session(
+    mock_settings: Settings,
+    db_session: Session,
+) -> None:
+    """Verify Category RBAC through the full unmocked JWT + live AuthSession chain."""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    expires_at = now + timedelta(hours=4)
+
+    admin = User(
+        id=10,
+        email_normalized="live_admin@retailops.test",
+        password_hash="mock_hash",
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+        admin_slot=1,
+        created_at=now,
+        updated_at=now,
+    )
+    staff = User(
+        id=11,
+        email_normalized="live_staff@retailops.test",
+        password_hash="mock_hash",
+        role=UserRole.STAFF,
+        status=UserStatus.ACTIVE,
+        admin_slot=None,
+        created_at=now,
+        updated_at=now,
+    )
+    admin_sid = uuid4()
+    staff_sid = uuid4()
+    live_principals = {
+        (admin_sid.bytes, admin.id): admin,
+        (staff_sid.bytes, staff.id): staff,
+    }
+
+    class LiveSessionAuthRepo(AuthRepository):
+        def find_live_principal(
+            self, _session: Session, session_id: bytes, user_id: int, _now: datetime
+        ) -> User | None:
+            return live_principals.get((session_id, user_id))
+
+    auth_service = AuthService(mock_settings, repository=LiveSessionAuthRepo())
+    admin_jwt, _ = auth_service.jwt.issue(
+        user_id=admin.id,
+        session_id=admin_sid,
+        session_expires_at=expires_at,
+        now=now.replace(tzinfo=UTC),
+    )
+    staff_jwt, _ = auth_service.jwt.issue(
+        user_id=staff.id,
+        session_id=staff_sid,
+        session_expires_at=expires_at,
+        now=now.replace(tzinfo=UTC),
+    )
+
+    app = create_app(mock_settings)
+
+    def override_get_db_session():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_settings] = lambda: mock_settings
+    app.dependency_overrides[get_auth_service] = lambda: auth_service
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        unauth_get = await client.get("/api/v1/categories")
+        assert unauth_get.status_code == 401
+
+        create_res = await client.post(
+            "/api/v1/categories",
+            headers={"Authorization": f"Bearer {admin_jwt}"},
+            json={"name": "Danh Mục Thực Tế"},
+        )
+        assert create_res.status_code == 201
+
+        staff_get = await client.get(
+            "/api/v1/categories",
+            headers={"Authorization": f"Bearer {staff_jwt}"},
+        )
+        assert staff_get.status_code == 200
+        assert staff_get.json()["total"] == 1
+
+        staff_post = await client.post(
+            "/api/v1/categories",
+            headers={"Authorization": f"Bearer {staff_jwt}"},
+            json={"name": "Staff Cố Tạo"},
+        )
+        assert staff_post.status_code == 403
