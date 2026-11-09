@@ -45,7 +45,7 @@ class CsrfRejectedError(AppException):
 class ForbiddenError(AppException):
     def __init__(
         self,
-        message: str = "Bạn không có quyền thực hiện thao tác này.",
+        message: str = "Chỉ quản trị viên mới có quyền thực hiện thao tác.",
         details: Any = None,
     ) -> None:
         super().__init__("FORBIDDEN", message, 403, details)
@@ -95,4 +95,3 @@ class DomainValidationError(AppException):
         details: Any = None,
     ) -> None:
         super().__init__("VALIDATION_ERROR", message, 422, details)
-

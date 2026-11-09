@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
 from app.modules.auth.dependencies import (
-    CurrentPrincipal,
-    get_current_principal,
-    require_admin,
+    get_current_active_user,
+    require_active_admin,
 )
+from app.modules.auth.models import User
 from app.modules.products.schemas import (
     ProductCreateRequest,
     ProductListResponse,
@@ -30,7 +30,7 @@ def get_product_service() -> ProductService:
 
 @router.get("", response_model=ProductListResponse, status_code=status.HTTP_200_OK)
 def list_products(
-    _principal: Annotated[CurrentPrincipal, Depends(get_current_principal)],
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ProductService, Depends(get_product_service)],
     page: Annotated[int, Query(ge=1)] = 1,
@@ -47,7 +47,7 @@ def list_products(
 )
 def get_product(
     product_id: Annotated[int, Path(ge=1)],
-    _principal: Annotated[CurrentPrincipal, Depends(get_current_principal)],
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ProductService, Depends(get_product_service)],
 ) -> ProductRead:
@@ -58,7 +58,7 @@ def get_product(
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreateRequest,
-    _admin: Annotated[CurrentPrincipal, Depends(require_admin)],
+    _admin_user: Annotated[User, Depends(require_active_admin)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ProductService, Depends(get_product_service)],
 ) -> ProductRead:
@@ -74,7 +74,7 @@ def create_product(
 def update_product(
     product_id: Annotated[int, Path(ge=1)],
     payload: ProductUpdateRequest,
-    _admin: Annotated[CurrentPrincipal, Depends(require_admin)],
+    _admin_user: Annotated[User, Depends(require_active_admin)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ProductService, Depends(get_product_service)],
 ) -> ProductRead:
@@ -90,10 +90,9 @@ def update_product(
 def update_product_status(
     product_id: Annotated[int, Path(ge=1)],
     payload: ProductStatusUpdateRequest,
-    _admin: Annotated[CurrentPrincipal, Depends(require_admin)],
+    _admin_user: Annotated[User, Depends(require_active_admin)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ProductService, Depends(get_product_service)],
 ) -> ProductRead:
     """Activate or deactivate a product while preserving stock (Admin only)."""
     return service.update_status(session, product_id, payload)
-

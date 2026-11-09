@@ -1,2 +1,1 @@
 """Purchasing module structure tests."""
-

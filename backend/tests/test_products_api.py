@@ -444,7 +444,7 @@ async def test_api_staff_can_read_but_gets_403_on_mutations() -> None:
         assert post_resp.status_code == 403
         assert post_resp.json() == {
             "code": "FORBIDDEN",
-            "message": "Bạn không có quyền thực hiện thao tác này.",
+            "message": "Chỉ quản trị viên mới có quyền thực hiện thao tác.",
             "details": None,
         }
 
@@ -634,5 +634,28 @@ async def test_api_non_active_or_revoked_user_is_rejected_with_401() -> None:
         )
         assert response.status_code == 401
         assert response.json()["code"] == "SESSION_INVALID"
+
+    # Also verify get_current_active_user blocks a non-ACTIVE principal with 403
+    now = datetime(2026, 11, 7, 10, 0)
+    pending_user = User(
+        id=99,
+        email_normalized="pending@example.com",
+        password_hash="hashed",
+        role=UserRole.STAFF.value,
+        status=UserStatus.PENDING_APPROVAL.value,
+        admin_slot=None,
+        last_reapplied_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    application.dependency_overrides[get_current_principal] = lambda: (
+        CurrentPrincipal(user=pending_user, session_id=uuid4())
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        pending_resp = await client.get("/api/v1/products")
+        assert pending_resp.status_code == 403
+        assert pending_resp.json()["code"] == "FORBIDDEN"
 
 
