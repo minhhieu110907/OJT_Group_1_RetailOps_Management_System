@@ -1,17 +1,26 @@
-"""MySQL 8.4 integration tests for Category and Supplier.
+"""MySQL 8.4 integration tests for Category and Supplier schema, seed, and HTTP APIs.
 
 Covers schema, check constraints, primary keys, idempotent seed, and isolated cleanup.
 """
 
 from collections.abc import Generator
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
+import httpx
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import Connection, delete, event, func, inspect, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
+from app.db.session import get_db_session
+from app.main import create_app
+from app.modules.auth.dependencies import get_auth_service
+from app.modules.auth.models import AuthSession, User, UserRole, UserStatus
+from app.modules.auth.service import AuthService, utc_now_naive
 from app.modules.categories.models import Category, CategoryStatus
 from app.modules.categories.seed import DEFAULT_CATEGORIES, seed_categories
 from app.modules.suppliers.models import Supplier, SupplierStatus
@@ -562,7 +571,6 @@ def test_seed_transaction_boundary_rollback_in_mysql(
         created_sup = seed_suppliers(session, [{"name": sup_name}])
         assert created_sup == 1
 
-        # Caller explicitly rolls back
         session.rollback()
 
     with Session(migrated_integration_engine) as verify_session:
@@ -575,3 +583,204 @@ def test_seed_transaction_boundary_rollback_in_mysql(
             select(Supplier).where(Supplier.name == sup_name)
         )
         assert found_sup is None
+
+
+@pytest.mark.anyio
+async def test_categories_and_suppliers_api_end_to_end_in_mysql(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Verify Category & Supplier HTTP APIs, RBAC, and PATCH semantics in MySQL 8.4."""
+    settings = Settings(
+        db_host="unused",
+        db_name="unused",
+        db_user="unused",
+        db_password=SecretStr("unused"),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+    )
+    auth_service = AuthService(settings)
+
+    def override_get_db_session() -> Generator[Session]:
+        with Session(migrated_integration_engine, expire_on_commit=False) as session:
+            try:
+                yield session
+            except Exception:
+                session.rollback()
+                raise
+
+    session_now = utc_now_naive()
+    session_expires = session_now + timedelta(hours=2)
+    admin_sid = uuid4()
+    staff_sid = uuid4()
+    created_admin_id: int | None = None
+    staff_id: int | None = None
+
+    with Session(migrated_integration_engine) as setup_session:
+        admin = setup_session.scalar(select(User).where(User.admin_slot == 1))
+        if admin is None:
+            admin = User(
+                email_normalized=f"{TEST_PREFIX}admin@example.com",
+                password_hash="$2b$04$sentinel.catalog.admin.hash.do.not.mutate",
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+                admin_slot=1,
+                last_reapplied_at=None,
+                created_at=session_now,
+                updated_at=session_now,
+            )
+            setup_session.add(admin)
+            setup_session.flush()
+            created_admin_id = admin.id
+
+        staff = User(
+            email_normalized=f"{TEST_PREFIX}staff_{uuid4().hex[:8]}@example.com",
+            password_hash="$2b$04$sentinel.catalog.staff.hash",
+            role=UserRole.STAFF,
+            status=UserStatus.ACTIVE,
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=session_now,
+            updated_at=session_now,
+        )
+        setup_session.add(staff)
+        setup_session.flush()
+        admin_id = admin.id
+        staff_id = staff.id
+
+        setup_session.add_all(
+            [
+                AuthSession(
+                    id=admin_sid.bytes,
+                    user_id=admin_id,
+                    created_at=session_now,
+                    expires_at=session_expires,
+                    revoked_at=None,
+                ),
+                AuthSession(
+                    id=staff_sid.bytes,
+                    user_id=staff_id,
+                    created_at=session_now,
+                    expires_at=session_expires,
+                    revoked_at=None,
+                ),
+            ]
+        )
+        setup_session.commit()
+
+    admin_token, _ = auth_service.jwt.issue(
+        user_id=admin_id,
+        session_id=admin_sid,
+        session_expires_at=session_expires,
+        now=session_now.replace(tzinfo=UTC),
+    )
+    staff_token, _ = auth_service.jwt.issue(
+        user_id=staff_id,
+        session_id=staff_sid,
+        session_expires_at=session_expires,
+        now=session_now.replace(tzinfo=UTC),
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    staff_headers = {"Authorization": f"Bearer {staff_token}"}
+
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_auth_service] = lambda: auth_service
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            # 1. Anonymous rejected with 401
+            assert (await client.get("/api/v1/categories")).status_code == 401
+            assert (await client.get("/api/v1/suppliers")).status_code == 401
+
+            # 2. Category RBAC: Admin creates, Staff reads (200) but cannot mutate (403)
+            cat_post = await client.post(
+                "/api/v1/categories",
+                headers=admin_headers,
+                json={"name": f"{TEST_PREFIX}MySQL_Cat"},
+            )
+            assert cat_post.status_code == 201
+            cat_id = cat_post.json()["id"]
+
+            staff_cat_get = await client.get(
+                f"/api/v1/categories/{cat_id}", headers=staff_headers
+            )
+            assert staff_cat_get.status_code == 200
+
+            staff_cat_patch = await client.patch(
+                f"/api/v1/categories/{cat_id}",
+                headers=staff_headers,
+                json={"name": "Forbidden"},
+            )
+            assert staff_cat_patch.status_code == 403
+
+            # 3. Supplier RBAC: Staff gets 403 even on GET; Admin CRUD succeeds
+            assert (
+                await client.get("/api/v1/suppliers", headers=staff_headers)
+            ).status_code == 403
+
+            sup_post = await client.post(
+                "/api/v1/suppliers",
+                headers=admin_headers,
+                json={
+                    "name": f"{TEST_PREFIX}MySQL_Sup",
+                    "contact_email": "mysql-sup@example.com",
+                    "contact_phone": "0905556666",
+                },
+            )
+            assert sup_post.status_code == 201
+            sup_id = sup_post.json()["id"]
+
+            # Omitted fields preserved in MySQL
+            sup_patch_name = await client.patch(
+                f"/api/v1/suppliers/{sup_id}",
+                headers=admin_headers,
+                json={"name": f"{TEST_PREFIX}MySQL_Sup_Renamed"},
+            )
+            assert sup_patch_name.status_code == 200
+            assert sup_patch_name.json()["contact_email"] == "mysql-sup@example.com"
+            assert sup_patch_name.json()["contact_phone"] == "0905556666"
+
+            # Explicit null clears contact_email & contact_phone in MySQL
+            sup_patch_null = await client.patch(
+                f"/api/v1/suppliers/{sup_id}",
+                headers=admin_headers,
+                json={"contact_email": None, "contact_phone": None},
+            )
+            assert sup_patch_null.status_code == 200
+            assert sup_patch_null.json()["contact_email"] is None
+            assert sup_patch_null.json()["contact_phone"] is None
+
+            # Status update persists INACTIVE without deleting the row
+            sup_status = await client.patch(
+                f"/api/v1/suppliers/{sup_id}/status",
+                headers=admin_headers,
+                json={"status": "INACTIVE"},
+            )
+            assert sup_status.status_code == 200
+            assert sup_status.json()["status"] == "INACTIVE"
+
+            with Session(migrated_integration_engine) as verify_session:
+                persisted_sup = verify_session.get(Supplier, sup_id)
+                assert persisted_sup is not None
+                assert persisted_sup.name == f"{TEST_PREFIX}MySQL_Sup_Renamed"
+                assert persisted_sup.contact_email is None
+                assert persisted_sup.contact_phone is None
+                assert persisted_sup.status == SupplierStatus.INACTIVE
+    finally:
+        with (
+            Session(migrated_integration_engine) as cleanup_session,
+            cleanup_session.begin(),
+        ):
+            cleanup_session.execute(
+                delete(AuthSession).where(
+                    AuthSession.id.in_([admin_sid.bytes, staff_sid.bytes])
+                )
+            )
+            if staff_id is not None:
+                cleanup_session.execute(delete(User).where(User.id == staff_id))
+            if created_admin_id is not None:
+                cleanup_session.execute(delete(User).where(User.id == created_admin_id))
