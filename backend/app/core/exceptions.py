@@ -12,12 +12,33 @@ class AppException(Exception):
         message: str,
         status_code: int,
         details: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
         self.details = details
+        self.headers = headers
         super().__init__(message)
+
+
+class RateLimitedError(AppException):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(
+            "RATE_LIMITED",
+            "Too many requests. Please try again later.",
+            429,
+            headers={"Retry-After": str(max(1, retry_after))},
+        )
+
+
+class DependencyUnavailableError(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            "DEPENDENCY_UNAVAILABLE",
+            "Service temporarily unavailable.",
+            503,
+        )
 
 
 class InvalidCredentialsError(AppException):
@@ -58,6 +79,34 @@ class ResourceNotFoundError(AppException):
         details: Any = None,
     ) -> None:
         super().__init__("RESOURCE_NOT_FOUND", message, 404, details)
+
+
+class ConflictError(AppException):
+    def __init__(
+        self,
+        code: str = "CONFLICT",
+        message: str = "Dữ liệu xung đột.",
+        details: Any = None,
+    ) -> None:
+        super().__init__(code, message, 409, details)
+
+
+class DuplicateSkuError(ConflictError):
+    def __init__(
+        self,
+        message: str = "Mã SKU đã tồn tại.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("DUPLICATE_SKU", message, details)
+
+
+class InvalidStateError(ConflictError):
+    def __init__(
+        self,
+        message: str = "Trạng thái không hợp lệ để thực hiện thao tác này.",
+        details: Any = None,
+    ) -> None:
+        super().__init__("INVALID_STATE", message, details)
 
 
 class DomainValidationError(AppException):

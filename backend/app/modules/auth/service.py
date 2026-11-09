@@ -1,31 +1,67 @@
 """Authentication application service and transaction boundaries."""
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from pymysql.constants import ER
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.exceptions import (
+    AppException,
     CsrfRejectedError,
     InvalidCredentialsError,
     SessionInvalidError,
 )
-from app.modules.auth.models import AuthSession, RefreshToken, User, UserStatus
+from app.modules.auth.models import (
+    ApprovalStatus,
+    AuthSession,
+    RefreshToken,
+    StaffApprovalRequest,
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.modules.auth.repository import AuthRepository
-from app.modules.auth.schemas import AuthenticatedUser, TokenResponse
+from app.modules.auth.schemas import AuthenticatedUser, RegisterResponse, TokenResponse
 from app.modules.auth.security import (
     CsrfService,
     InvalidEmailError,
+    InvalidPasswordError,
     JwtService,
     PasswordHasher,
     digest_refresh_token,
     generate_refresh_token,
     normalize_email,
 )
+from app.modules.notifications.repository import NotificationRepository
+from app.modules.notifications.service import NotificationService
 
 DUMMY_BCRYPT_HASH = "$2b$12$62o5pXd4lx/yYM9iMtKFKu/oWXJ7GXA1cAhnAs7tQxsjUE4JnvMnG"
+REGISTER_ACCEPTED_MESSAGE = (
+    "If the registration can be processed, an administrator will review it."
+)
+EMAIL_UNIQUE_CONSTRAINT = "uq_users_email_normalized"
+
+
+def is_duplicate_email_integrity_error(error: IntegrityError) -> bool:
+    """Classify only MySQL duplicate-key errors for the email constraint.
+
+    PyMySQL exposes the numeric server error and message, but no separate
+    constraint attribute. Requiring error 1062 and the exact final quoted key
+    token fails closed if the server format changes.
+    """
+    arguments = getattr(error.orig, "args", ())
+    if len(arguments) < 2 or arguments[0] != ER.DUP_ENTRY:
+        return False
+    quoted_tokens = re.findall(r"['`]([^'`]+)['`]", str(arguments[1]))
+    if not quoted_tokens:
+        return False
+    key_name = quoted_tokens[-1].rsplit(".", 1)[-1]
+    return key_name == EMAIL_UNIQUE_CONSTRAINT
 
 
 def utc_now_naive() -> datetime:
@@ -48,12 +84,84 @@ class AuthService:
         settings: Settings,
         repository: AuthRepository | None = None,
         password_hasher: PasswordHasher | None = None,
+        notification_service: NotificationService | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository or AuthRepository()
         self.password_hasher = password_hasher or PasswordHasher()
+        self.notification_service = notification_service or NotificationService(
+            repository=NotificationRepository()
+        )
         self.jwt = JwtService(settings)
         self.csrf = CsrfService(settings)
+
+    def register(
+        self,
+        session: Session,
+        email: str,
+        password: str,
+    ) -> RegisterResponse:
+        """Create a pending Staff identity, approval request, and notification."""
+        try:
+            normalized = normalize_email(email)
+            password_hash = self.password_hasher.hash(password)
+        except (InvalidEmailError, InvalidPasswordError) as error:
+            raise AppException(
+                code="VALIDATION_ERROR",
+                message=str(error),
+                status_code=422,
+            ) from error
+
+        admin = self.repository.find_sole_admin(session)
+        if admin is None:
+            session.rollback()
+            raise AppException(
+                code="DEPENDENCY_UNAVAILABLE",
+                message="Administrator account is not initialized",
+                status_code=503,
+            )
+
+        if self.repository.find_user_by_email(session, normalized) is not None:
+            session.rollback()
+            return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
+
+        now = utc_now_naive()
+        user = User(
+            email_normalized=normalized,
+            password_hash=password_hash,
+            role=UserRole.STAFF,
+            status=UserStatus.PENDING_APPROVAL,
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        approval_request = StaffApprovalRequest(
+            user_id=0,
+            attempt_no=1,
+            status=ApprovalStatus.PENDING,
+            requested_at=now,
+            decided_by=None,
+            decided_at=None,
+            decision_reason=None,
+        )
+        try:
+            self.repository.add_staff_registration(session, user, approval_request)
+            self.notification_service.create_for_approval(
+                session,
+                admin_user_id=admin.id,
+                approval_request_id=approval_request.id,
+            )
+            session.commit()
+        except IntegrityError as error:
+            session.rollback()
+            if is_duplicate_email_integrity_error(error):
+                return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
+            raise
+        except Exception:
+            session.rollback()
+            raise
+        return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
 
     def login(self, session: Session, email: str, password: str) -> AuthResult:
         try:

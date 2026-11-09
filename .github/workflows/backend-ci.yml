@@ -82,15 +82,20 @@ jobs:
             printf 'MYSQL_ROOT_PASSWORD=%s\n' "$root_password"
             printf 'MYSQL_HOST_PORT=13306\n'
             printf 'BACKEND_HOST_PORT=18000\n'
+            printf 'NGINX_HOST_PORT=18080\n'
+            printf 'REDIS_HOST_PORT=16379\n'
             printf 'RETAILOPS_TEST_DATABASE_URL=mysql+pymysql://retailops_test_runner:%s@127.0.0.1:13306/retailops_test?charset=utf8mb4\n' "$test_password"
+            printf 'RETAILOPS_TEST_REDIS_URL=redis://127.0.0.1:16379/15\n'
+            printf 'RETAILOPS_PROXY_REDIS_URL=redis://127.0.0.1:16379/0\n'
+            printf 'RETAILOPS_PROXY_BASE_URL=http://127.0.0.1:18080\n'
             printf 'RETAILOPS_JWT_SECRET=%s\n' "$jwt_secret"
             printf 'RETAILOPS_CSRF_SECRET=%s\n' "$csrf_secret"
           } > .env
-      - name: Start isolated MySQL 8.4 database
+      - name: Start isolated MySQL 8.4 and Redis
         run: |
           set -euo pipefail
-          docker compose up -d mysql
-          container_id="$(docker compose ps -q mysql)"
+          docker compose -f compose.yaml -f compose.ci.yaml up -d mysql redis
+          container_id="$(docker compose -f compose.yaml -f compose.ci.yaml ps -q mysql)"
           if [[ -z "$container_id" ]]; then
             echo "::error::MySQL container was not created"
             exit 1
@@ -117,9 +122,9 @@ jobs:
         if: failure()
         run: |
           echo "## MySQL startup diagnostics" >> "$GITHUB_STEP_SUMMARY"
-          docker compose ps -a || true
-          docker compose logs --no-color --tail=120 mysql || true
-          container_id="$(docker compose ps -q -a mysql)"
+          docker compose -f compose.yaml -f compose.ci.yaml ps -a || true
+          docker compose -f compose.yaml -f compose.ci.yaml logs --no-color --tail=120 mysql redis || true
+          container_id="$(docker compose -f compose.yaml -f compose.ci.yaml ps -q -a mysql)"
           if [[ -n "$container_id" ]]; then
             docker inspect --format '{{json .State.Health}}' "$container_id" || true
           fi
@@ -130,7 +135,35 @@ jobs:
           set -a
           source ../.env
           set +a
-          uv run --locked pytest -m integration
+          uv run --locked pytest -m "integration and not redis_integration and not proxy_integration"
+      - name: Redis integration tests
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          set -a
+          source ../.env
+          set +a
+          uv run --locked pytest -m redis_integration
+      - name: Start isolated Nginx and backend proxy topology
+        run: |
+          set -euo pipefail
+          docker compose -f compose.yaml -f compose.ci.yaml up -d --build backend nginx
+          deadline=$((SECONDS + 120))
+          until curl --fail --silent http://127.0.0.1:18080/api/v1/health >/dev/null; do
+            if (( SECONDS >= deadline )); then
+              echo "::error::Nginx/backend topology did not become ready"
+              exit 1
+            fi
+            sleep 2
+          done
+      - name: Trusted proxy and HTTP registration integration tests
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          set -a
+          source ../.env
+          set +a
+          uv run --locked pytest -m proxy_integration
       - name: Tear down containers and ephemeral volume
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose -f compose.yaml -f compose.ci.yaml down --volumes --remove-orphans

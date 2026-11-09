@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     csrf_cookie_name: str = "retailops_csrf"
     auth_cookie_path: str = "/api/v1/auth"
     cookie_secure: bool | None = None
+    redis_url: SecretStr = SecretStr("redis://redis:6379/0")
+    redis_pool_size: int = Field(default=10, ge=1, le=100)
+    redis_connect_timeout_seconds: float = Field(default=1.0, gt=0, le=10)
+    redis_socket_timeout_seconds: float = Field(default=1.0, gt=0, le=10)
+    rate_limit_namespace: str = "retailops:rate-limit"
+    register_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    register_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
 
     @field_validator("cors_origins")
     @classmethod
@@ -61,6 +68,25 @@ class Settings(BaseSettings):
             ):
                 raise ValueError("CORS origins must be exact HTTP(S) origins")
         return ",".join(origins)
+
+    @field_validator("redis_url")
+    @classmethod
+    def validate_redis_url(cls, value: SecretStr) -> SecretStr:
+        """Require an explicit Redis URI supported by redis-py."""
+        parsed = urlsplit(value.get_secret_value())
+        if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+            raise ValueError("Redis URL must use redis:// or rediss:// with a host")
+        return value
+
+    @field_validator("rate_limit_namespace")
+    @classmethod
+    def validate_rate_limit_namespace(cls, value: str) -> str:
+        """Keep Redis keys in a non-empty, whitespace-free namespace."""
+        if not value or any(character.isspace() for character in value):
+            raise ValueError(
+                "Rate-limit namespace must be non-empty without whitespace"
+            )
+        return value
 
     @model_validator(mode="after")
     def validate_auth_configuration(self) -> "Settings":
