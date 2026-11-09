@@ -18,6 +18,7 @@ export default function ForgotPassword() {
   const [touched, setTouched] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [resetToken, setResetToken] = useState('');
 
   const handleChange = (e) => {
     const val = e.target.value;
@@ -49,6 +50,7 @@ export default function ForgotPassword() {
     setIsSubmitting(true);
     // Giả lập độ trễ xử lý đồng nhất (tránh Timing Attack dò email)
     await new Promise((resolve) => setTimeout(resolve, 500));
+    setResetToken(`mock-token-${Date.now()}`);
     setIsSubmitting(false);
     setIsSubmitted(true);
   };
@@ -65,20 +67,53 @@ export default function ForgotPassword() {
 
       {/* 2. Thông báo chuẩn OWASP chống dò quét tài khoản */}
       {isSubmitted && (
-        <div className={styles.successAlert} role="status">
-          <span className={styles.successIcon} aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </span>
-          <div className={styles.errorBody}>
-            <h3 className={styles.successTitle}>Đã tiếp nhận yêu cầu</h3>
-            <p className={styles.successDesc}>
-              {OWASP_FORGOT_PASSWORD_MESSAGE}
+        <>
+          <div className={styles.successAlert} role="status">
+            <span className={styles.successIcon} aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+            </span>
+            <div className={styles.errorBody}>
+              <h3 className={styles.successTitle}>Đã tiếp nhận yêu cầu</h3>
+              <p className={styles.successDesc}>
+                {OWASP_FORGOT_PASSWORD_MESSAGE}
+              </p>
+            </div>
+          </div>
+
+          {/* Mô phỏng Hộp thư Email gửi đến người dùng (Phương án 1 - Môi trường Test) */}
+          <div className={styles.emailSimBox}>
+            <div className={styles.emailSimHeader}>
+              <span className={styles.emailSimBadge}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
+                Hộp thư mô phỏng (Test)
+              </span>
+              <span className={styles.emailSimTo}>{email}</span>
+            </div>
+            <p className={styles.emailSimDesc}>
+              Hệ thống đã tạo liên kết đặt lại mật khẩu với mã bảo mật (token). Bạn có thể bấm vào nút bên dưới để mở giao diện Đặt lại mật khẩu:
+            </p>
+            <div>
+              <Link
+                to={`/reset-password?email=${encodeURIComponent(
+                  email
+                )}&token=${resetToken}`}
+                className={styles.emailSimAction}
+              >
+                <span>Mở liên kết đặt lại mật khẩu</span>
+                <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+            <p className={styles.emailSimTip}>
+              * Mẹo test: Tài khoản <code>{email}</code> có mật khẩu mặc định là <code>staff123</code> (dùng để test Trạng thái 4A, 4B, 4C).
             </p>
           </div>
-        </div>
+        </>
       )}
 
       {/* 3. Biểu mẫu nhập Email */}

@@ -167,3 +167,65 @@ export function validateForgotPasswordForm(values = {}) {
   };
 }
 
+/**
+ * Kiểm tra Mật khẩu hiện tại ở Form Đổi/Đặt lại mật khẩu
+ * @param {string} currentPassword
+ * @param {string} actualPassword
+ * @returns {string} Chuỗi lỗi (rỗng nếu hợp lệ)
+ */
+export function validateCurrentPassword(currentPassword, actualPassword) {
+  const val = String(currentPassword || '');
+  if (!val) {
+    return 'Vui lòng nhập mật khẩu hiện tại.';
+  }
+  if (actualPassword && val !== actualPassword) {
+    return 'Mật khẩu hiện tại không đúng.';
+  }
+  return '';
+}
+
+/**
+ * Kiểm tra Mật khẩu mới theo tiêu chuẩn bảo mật:
+ * Tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường và ít nhất một chữ số.
+ * @param {string} password
+ * @returns {string} Chuỗi lỗi (rỗng nếu hợp lệ)
+ */
+export function validateNewPassword(password) {
+  const val = String(password || '');
+  if (!val) {
+    return 'Vui lòng nhập mật khẩu mới.';
+  }
+  if (val.length < 8) {
+    return 'Mật khẩu phải có độ dài tối thiểu 8 ký tự.';
+  }
+  const hasUpper = /[A-Z]/.test(val);
+  const hasLower = /[a-z]/.test(val);
+  const hasNumber = /\d/.test(val);
+  if (!hasUpper || !hasLower || !hasNumber) {
+    return 'Mật khẩu phải bao gồm chữ hoa, chữ thường và ít nhất một chữ số.';
+  }
+  return '';
+}
+
+/**
+ * Validate toàn bộ Form Đổi mật khẩu / Đặt lại mật khẩu (Trạng thái 4A, 4B)
+ * @param {{ currentPassword?: string, newPassword?: string, confirmPassword?: string }} values
+ * @param {string} [actualPassword]
+ */
+export function validateChangePasswordForm(values = {}, actualPassword = '') {
+  const errors = {
+    currentPassword: validateCurrentPassword(values.currentPassword, actualPassword),
+    newPassword: validateNewPassword(values.newPassword),
+    confirmPassword: validateConfirmPassword(
+      values.newPassword,
+      values.confirmPassword
+    ),
+  };
+
+  return {
+    isValid: !errors.currentPassword && !errors.newPassword && !errors.confirmPassword,
+    errors,
+  };
+}
+
+

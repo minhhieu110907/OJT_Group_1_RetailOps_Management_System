@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
+import ResetPassword from '../../pages/Auth/ResetPassword';
 import { MENU_ITEMS } from './Sidebar';
 import styles from './MainLayout.module.css';
 
@@ -12,9 +13,10 @@ export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // State quản lý đóng/mở User Dropdown và Modal xác nhận đăng xuất
+  // State quản lý đóng/mở User Dropdown, Modal Đổi mật khẩu và Modal xác nhận đăng xuất
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const dropdownRef = useRef(null);
 
   // Tự động đóng Dropdown khi bấm ra ngoài hoặc nhấn phím Esc
@@ -193,7 +195,7 @@ export default function Header() {
                     role="menuitem"
                     onClick={() => {
                       setIsDropdownOpen(false);
-                      toast.info('Đang mở hộp thoại Đổi mật khẩu');
+                      setIsChangePasswordOpen(true);
                     }}
                   >
                     <span className={styles.dropdownItemIcon}>
@@ -263,6 +265,14 @@ export default function Header() {
       >
         Bạn có chắc chắn muốn đăng xuất khỏi hệ thống không?
       </Modal>
+
+      {/* MODAL ĐỔI MẬT KHẨU (TRẠNG THÁI 4A, 4B, 4C) KHI BẤM TỪ DROPDOWN HEADER */}
+      {isChangePasswordOpen && (
+        <ResetPassword
+          onClose={() => setIsChangePasswordOpen(false)}
+          defaultEmail={user?.email}
+        />
+      )}
     </>
   );
 }

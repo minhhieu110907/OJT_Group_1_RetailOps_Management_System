@@ -219,6 +219,26 @@ export function AuthProvider({ children }) {
     return newUser;
   };
 
+  // Hàm đặt lại/đổi mật khẩu cho người dùng
+  const resetPassword = (targetEmail, newPassword) => {
+    const normalizedEmail = (targetEmail || '').trim().toLowerCase();
+    setUsersList((prev) =>
+      prev.map((u) => {
+        if (u.email.toLowerCase() === normalizedEmail) {
+          return { ...u, password: newPassword };
+        }
+        return u;
+      })
+    );
+    return true;
+  };
+
+  // Helper lấy thông tin người dùng mẫu theo email
+  const getUserByEmail = (searchEmail) => {
+    const normalizedEmail = (searchEmail || '').trim().toLowerCase();
+    return usersList.find((u) => u.email.toLowerCase() === normalizedEmail) || null;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -228,6 +248,8 @@ export function AuthProvider({ children }) {
         login,
         register,
         logout,
+        resetPassword,
+        getUserByEmail,
       }}
     >
       {children}

@@ -7,6 +7,7 @@ import MainLayout from './layouts/MainLayout/MainLayout';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
 import ForgotPassword from './pages/Auth/ForgotPassword';
+import ResetPassword from './pages/Auth/ResetPassword';
 import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
 import { HealthCheckPage } from './pages/HealthCheckPage';
@@ -41,6 +42,7 @@ export default function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/account-status" element={<AccountStatus />} />
             </Route>
 
