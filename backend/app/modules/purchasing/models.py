@@ -176,4 +176,3 @@ class PurchaseReceiptItem(Base):
             name="ck_purchase_receipt_items_qty_cost_line_total",
         ),
     )
-

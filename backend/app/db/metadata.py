@@ -7,7 +7,9 @@ from app.modules.auth.models import (
     StaffApprovalRequest,
     User,
 )
+from app.modules.categories.models import Category
 from app.modules.notifications.models import AdminNotification
+from app.modules.suppliers.models import Supplier
 
 REGISTERED_MODELS = (
     User,
@@ -15,6 +17,8 @@ REGISTERED_MODELS = (
     AuthSession,
     RefreshToken,
     AdminNotification,
+    Category,
+    Supplier,
 )
 metadata = Base.metadata
 
