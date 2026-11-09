@@ -55,15 +55,10 @@ export default function Header() {
     setIsLogoutModalOpen(true);
   };
 
-  // Khi bấm nút "Đăng xuất" màu đỏ trong Modal xác nhận
+  // Khi bấm nút "Đăng xuất" màu đỏ trong Modal xác nhận (FIX-03)
   const handleConfirmLogout = async () => {
     setIsLogoutModalOpen(false);
-    const logoutResult = await logout();
-    if (logoutResult?.localOnly && !logoutResult?.serverRevoked) {
-      toast.warning(
-        'Đã xóa phiên làm việc trên thiết bị này, nhưng chưa thể xác nhận thu hồi phiên từ máy chủ.'
-      );
-    }
+    await logout();
     navigate('/login', { replace: true });
   };
 

@@ -16,6 +16,7 @@ import axiosClient, {
   getSessionGeneration,
   getUseMock,
   invalidateSession,
+  isLogoutInProgress,
   isMockAllowed,
   normalizeBackendUser,
   runHealthCheck,
@@ -99,11 +100,13 @@ export function AuthProvider({ children }) {
     canUseMock ? getUseMock() : false
   );
   const [authInitializing, setAuthInitializing] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  // Hàm đăng xuất (FIX-04):
+  // Hàm đăng xuất (FIX-04, Hardening FIX-01, FIX-03):
   // - Chụp snapshot token/CSRF trước khi hủy phiên local để gửi request revoke hợp lệ lên Server.
   // - Vô hiệu hóa ngay lập tức phiên ở Client (tăng session generation, chặn mọi request/refresh cũ).
-  // - Phân biệt rõ trường hợp Server xác nhận revoke (204) và trường hợp chỉ đóng được phiên trên thiết bị.
+  // - Bật cờ `isLoggingOut` để ngăn mọi login race trong khi server revoke đang xử lý.
+  // - Chuẩn hóa kết quả trả về `{ serverRevoked, localOnly }` là Single Source of Truth cho toàn bộ ứng dụng.
   const logout = useCallback(
     async (isSessionExpired = false) => {
       const tokenSnapshot = getClientToken();
@@ -116,25 +119,32 @@ export function AuthProvider({ children }) {
 
       if (isSessionExpired === true) {
         toast.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
-        return;
+        return { serverRevoked: false, localOnly: true, sessionExpired: true };
       }
 
       if (wasMock) {
         toast.info('Đã đăng xuất khỏi chế độ mô phỏng (Mock).');
-        return;
+        return { serverRevoked: true, localOnly: false, isMock: true };
       }
 
-      const result = await callLogoutApi({
-        accessToken: tokenSnapshot,
-        csrfToken: csrfSnapshot,
-      });
+      setIsLoggingOut(true);
+      try {
+        const result = await callLogoutApi({
+          accessToken: tokenSnapshot,
+          csrfToken: csrfSnapshot,
+        });
 
-      if (result.revoked) {
-        toast.info('Đã đăng xuất khỏi hệ thống.');
-      } else {
-        toast.warning(
-          'Đã kết thúc phiên trên thiết bị này, nhưng chưa xác nhận được hủy phiên trên máy chủ.'
-        );
+        if (result.revoked) {
+          toast.info('Đã đăng xuất khỏi hệ thống.');
+          return { serverRevoked: true, localOnly: false };
+        } else {
+          toast.warning(
+            'Đã kết thúc phiên trên thiết bị này, nhưng chưa xác nhận được hủy phiên trên máy chủ.'
+          );
+          return { serverRevoked: false, localOnly: true };
+        }
+      } finally {
+        setIsLoggingOut(false);
       }
     },
     [toast]
@@ -264,8 +274,14 @@ export function AuthProvider({ children }) {
     return true;
   }, [checkBackendConnection, toast]);
 
-  // Hàm đăng nhập có bảo vệ Session Generation & Attempt ID (FIX-01)
+  // Hàm đăng nhập có bảo vệ Session Generation, Attempt ID & Logout Race Guard (FIX-01)
   const login = async (email, password) => {
+    if (isLoggingOut || isLogoutInProgress()) {
+      throw new Error(
+        'Đang hoàn tất quá trình đăng xuất. Vui lòng đợi trong giây lát trước khi đăng nhập lại.'
+      );
+    }
+
     const normalizedEmail = (email || '').trim().toLowerCase();
     const loginAttempt = beginLoginAttempt();
 
@@ -536,6 +552,7 @@ export function AuthProvider({ children }) {
         isMockMode: canUseMock && isMockMode,
         canUseMock,
         authInitializing,
+        isLoggingOut,
         checkBackendConnection,
         toggleMockMode,
         login,

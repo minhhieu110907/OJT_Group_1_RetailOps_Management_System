@@ -14,6 +14,10 @@ import axiosClient, {
   canCommitLoginAttempt,
   commitLoginSession,
   isSafeToReplayRequest,
+  isLogoutInProgress,
+  registerVerifiedIdempotentEndpoint,
+  clearVerifiedIdempotentEndpoints,
+  isEndpointVerifiedForIdempotency,
   getClientToken,
   getCsrfToken,
   getSessionGeneration,
@@ -55,15 +59,18 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
 
   beforeEach(() => {
     invalidateSession();
+    clearVerifiedIdempotentEndpoints();
     setAuthTransport(null);
     setupAxiosAuth({
       onTokenRefreshed: null,
       onAuthFailed: null,
+      onSessionInvalidated: null,
     });
   });
 
   afterEach(() => {
     axiosClient.defaults.adapter = originalAdapter;
+    clearVerifiedIdempotentEndpoints();
     setAuthTransport(null);
     invalidateSession();
   });
@@ -1122,18 +1129,20 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
       assert.equal(getClientToken(), 'token-other-user');
     });
 
-    it('blocks automatic replay of non-idempotent mutations (POST/PATCH/DELETE without Idempotency-Key) on 401', async () => {
+    it('blocks automatic replay of non-idempotent mutations and unverified endpoints on 401 even if Idempotency-Key is provided', async () => {
       assert.equal(isSafeToReplayRequest({ method: 'GET', headers: {} }), true);
       assert.equal(isSafeToReplayRequest({ method: 'HEAD', headers: {} }), true);
-      assert.equal(isSafeToReplayRequest({ method: 'POST', headers: {} }), false);
-      assert.equal(isSafeToReplayRequest({ method: 'PATCH', headers: {} }), false);
-      assert.equal(isSafeToReplayRequest({ method: 'DELETE', headers: {} }), false);
+      assert.equal(isSafeToReplayRequest({ method: 'POST', url: '/orders', headers: {} }), false);
+      assert.equal(isSafeToReplayRequest({ method: 'PATCH', url: '/products/1', headers: {} }), false);
+      assert.equal(isSafeToReplayRequest({ method: 'DELETE', url: '/products/1', headers: {} }), false);
+      // Fail-closed: unverified endpoint is blocked even if caller attaches Idempotency-Key
       assert.equal(
         isSafeToReplayRequest({
           method: 'POST',
+          url: '/orders',
           headers: { 'Idempotency-Key': 'idem-123' },
         }),
-        true
+        false
       );
 
       startAuthenticatedSession('expired-token-mut', 'csrf-mut');
@@ -1156,9 +1165,13 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
         return { status: 201, data: { created: true }, headers: {}, config };
       };
 
-      // POST without Idempotency-Key must NOT be replayed automatically after 401
+      // POST to unverified endpoint with Idempotency-Key must NOT be replayed automatically after 401
       await assert.rejects(
-        axiosClient.post('/orders', { items: [{ sku: 'SKU-1', qty: 1 }] }),
+        axiosClient.post(
+          '/orders',
+          { items: [{ sku: 'SKU-1', qty: 1 }] },
+          { headers: { 'Idempotency-Key': 'caller-unverified-key' } }
+        ),
         (err) => err.isReplayBlocked === true
       );
       assert.equal(postAttemptCount, 1);
@@ -1166,7 +1179,11 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
       assert.equal(getClientToken(), 'fresh-token-mut');
     });
 
-    it('allows single replay of POST when caller explicitly provides Idempotency-Key header without mutating the key', async () => {
+    it('allows single replay of mutation ONLY when endpoint is verified AND caller explicitly provides Idempotency-Key', async () => {
+      // Register verified idempotent mutation endpoint
+      registerVerifiedIdempotentEndpoint('/api/v1/checkout');
+      assert.equal(isEndpointVerifiedForIdempotency('/api/v1/checkout'), true);
+
       startAuthenticatedSession('expired-token-idem', 'csrf-idem');
 
       const seenIdempotencyKeys = [];
@@ -1194,7 +1211,7 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
       };
 
       const res = await axiosClient.post(
-        '/orders',
+        '/api/v1/checkout',
         { total: 100000 },
         { headers: { 'Idempotency-Key': 'caller-supplied-key-001' } }
       );
@@ -1204,6 +1221,153 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
         'caller-supplied-key-001',
         'caller-supplied-key-001',
       ]);
+      clearVerifiedIdempotentEndpoints();
+    });
+  });
+
+  // ==========================================================================
+  // 10. FINAL HARDENING — FIX-01 & FIX-03: LOGOUT/LOGIN COOKIE RACE & CONTRACT
+  // ==========================================================================
+  describe('Final Hardening — FIX-01 & FIX-03: Logout/Login Cookie Race & Contract Consistency', () => {
+    it('blocks new login while server logout is pending and allows login after 204 completion', async () => {
+      startAuthenticatedSession('active-session-token', 'active-csrf');
+
+      let logoutPostReceived = false;
+      let loginPostCount = 0;
+
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'active-csrf' }, headers: {} }),
+        post: async (url) => {
+          if (url.includes('/auth/logout')) {
+            logoutPostReceived = true;
+            await new Promise((r) => setTimeout(r, 35));
+            return { status: 204, data: null, headers: {} };
+          }
+          throw new Error(`Unexpected POST ${url}`);
+        },
+      });
+
+      axiosClient.defaults.adapter = async (config) => {
+        if (config.url?.includes('/auth/login')) {
+          loginPostCount += 1;
+          return {
+            status: 200,
+            headers: { 'x-csrf-token': 'new-login-csrf' },
+            config,
+            data: {
+              access_token: 'new-login-token',
+              user: {
+                id: 1,
+                email_normalized: 'admin@retailops.local',
+                role: 'ADMIN',
+                status: 'ACTIVE',
+              },
+            },
+          };
+        }
+        return { status: 200, data: {}, headers: {}, config };
+      };
+
+      // 1. Start server logout
+      const logoutPromise = callLogoutApi({
+        accessToken: 'active-session-token',
+        csrfToken: 'active-csrf',
+      });
+
+      // 2. While logout is in flight: isLogoutInProgress() is true
+      assert.equal(isLogoutInProgress(), true);
+      assert.equal(canCommitLoginAttempt(beginLoginAttempt()), false);
+
+      // 3. Attempting to send login request while logout is pending MUST be rejected immediately
+      await assert.rejects(
+        axiosClient.post('/auth/login', {
+          email: 'admin@retailops.local',
+          password: 'Password123',
+        }),
+        (err) => err.message.includes('đang xử lý đăng xuất')
+      );
+      assert.equal(loginPostCount, 0); // Network request to login was never sent!
+
+      // 4. Wait for logout to complete with 204
+      const logoutResult = await logoutPromise;
+      assert.equal(logoutResult.revoked, true);
+      assert.equal(logoutPostReceived, true);
+      assert.equal(isLogoutInProgress(), false);
+
+      // 5. Now that logout finished, login is permitted and completes cleanly
+      const loginRes = await axiosClient.post('/auth/login', {
+        email: 'admin@retailops.local',
+        password: 'Password123',
+      });
+      assert.equal(loginRes.status, 200);
+      assert.equal(loginPostCount, 1);
+    });
+
+    it('frees pending state and invalidates local session on logout network error or timeout without deadlock', async () => {
+      startAuthenticatedSession('token-to-fail', 'csrf-to-fail');
+      invalidateSession();
+      assert.equal(getClientToken(), null);
+
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf' }, headers: {} }),
+        post: async (url) => {
+          if (url.includes('/auth/logout')) {
+            await new Promise((r) => setTimeout(r, 20));
+            throw new Error('Network timeout during logout');
+          }
+          return { status: 200, data: {} };
+        },
+      });
+
+      const logoutPromise = callLogoutApi({
+        accessToken: 'token-to-fail',
+        csrfToken: 'csrf-to-fail',
+      });
+      assert.equal(isLogoutInProgress(), true);
+
+      const res = await logoutPromise;
+      assert.equal(res.revoked, false);
+      assert.equal(isLogoutInProgress(), false);
+      assert.equal(getClientToken(), null);
+
+      // Session can start a new login without deadlock
+      const attempt = beginLoginAttempt();
+      assert.equal(canCommitLoginAttempt(attempt), true);
+    });
+
+    it('coalesces concurrent logout calls into a single network request', async () => {
+      let serverLogoutCalls = 0;
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf-concurrent' }, headers: {} }),
+        post: async (url) => {
+          if (url.includes('/auth/logout')) {
+            serverLogoutCalls += 1;
+            await new Promise((r) => setTimeout(r, 25));
+            return { status: 204, data: null, headers: {} };
+          }
+          return { status: 200, data: {} };
+        },
+      });
+
+      const [res1, res2] = await Promise.all([
+        callLogoutApi({ accessToken: 'tok-1', csrfToken: 'csrf-1' }),
+        callLogoutApi({ accessToken: 'tok-1', csrfToken: 'csrf-1' }),
+      ]);
+
+      assert.equal(serverLogoutCalls, 1);
+      assert.equal(res1.revoked, true);
+      assert.equal(res2.revoked, true);
+    });
+
+    it('standardizes logout contract and eliminates duplicate consumer handling', async () => {
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf-test' }, headers: {} }),
+        post: async () => ({ status: 204, data: null, headers: {} }),
+      });
+
+      const res = await callLogoutApi({ accessToken: 'tok', csrfToken: 'csrf' });
+      assert.equal(typeof res.revoked, 'boolean');
+      assert.equal(res.revoked, true);
     });
   });
 });

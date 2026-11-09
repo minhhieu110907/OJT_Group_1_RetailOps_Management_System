@@ -124,6 +124,7 @@ let inMemoryToken = null;
 let inMemoryCsrfToken = null;
 let currentSessionGeneration = 0;
 let latestLoginAttemptId = 0;
+let activeLogoutPromise = null;
 let isRefreshing = false;
 let activeRefreshGeneration = -1;
 let failedQueue = [];
@@ -132,10 +133,15 @@ let authTransport = axios;
 
 export function setAuthTransport(customTransport) {
   authTransport = customTransport || axios;
+  activeLogoutPromise = null;
 }
 
 export function getSessionGeneration() {
   return currentSessionGeneration;
+}
+
+export function isLogoutInProgress() {
+  return activeLogoutPromise !== null;
 }
 
 /**
@@ -155,22 +161,66 @@ export function createStaleSessionError(
 }
 
 /**
- * Đánh giá chính sách phát lại (replay policy) sau khi làm mới token (FIX-04):
- * - Chỉ tự động phát lại các phương thức chỉ đọc an toàn (`GET`, `HEAD`, `OPTIONS`)
- *   hoặc các mutation mà caller đã chủ động gắn sẵn `Idempotency-Key` / `X-Idempotency-Key`.
- * - Tuyệt đối không tự sinh khóa idempotency mới và không tự động replay các mutation
- *   không có bảo đảm idempotency để tránh nhân đôi tác dụng phụ (duplicate side effects).
+ * Đánh giá chính sách phát lại (replay policy) sau khi làm mới token (FIX-02 Hardening):
+ * - Giữ automatic retry tối đa một lần cho các request GET/HEAD/OPTIONS phù hợp.
+ * - Với POST/PATCH/PUT/DELETE, mặc định KHÔNG tự động replay (fail-closed).
+ * - Chỉ cho phép replay mutation nếu endpoint đã được xác minh hỗ trợ idempotency contract
+ *   trong `VERIFIED_IDEMPOTENT_MUTATION_ENDPOINTS` VÀ caller đã tự tạo `Idempotency-Key` trước đó.
+ * - Tuyệt đối không tự sinh idempotency key tại response interceptor.
  */
-const SAFE_REPLAY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const SAFE_IDEMPOTENT_READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Danh sách endpoint mutation đã được Backend xác minh hỗ trợ Idempotency contract.
+ * Các endpoint Checkout, Receipt Confirm, Cancel Order và Inventory Adjustment chưa có contract
+ * hoàn chỉnh trong source hiện tại nên mặc định danh sách là fail-closed.
+ */
+export const VERIFIED_IDEMPOTENT_MUTATION_ENDPOINTS = new Set();
+
+export function registerVerifiedIdempotentEndpoint(endpointOrPattern) {
+  if (endpointOrPattern) {
+    VERIFIED_IDEMPOTENT_MUTATION_ENDPOINTS.add(endpointOrPattern);
+  }
+}
+
+export function unregisterVerifiedIdempotentEndpoint(endpointOrPattern) {
+  VERIFIED_IDEMPOTENT_MUTATION_ENDPOINTS.delete(endpointOrPattern);
+}
+
+export function clearVerifiedIdempotentEndpoints() {
+  VERIFIED_IDEMPOTENT_MUTATION_ENDPOINTS.clear();
+}
+
+export function isEndpointVerifiedForIdempotency(url) {
+  if (!url || typeof url !== 'string') return false;
+  const cleanPath = url.split('?')[0];
+  for (const pattern of VERIFIED_IDEMPOTENT_MUTATION_ENDPOINTS) {
+    if (typeof pattern === 'string' && (cleanPath === pattern || cleanPath.endsWith(pattern))) {
+      return true;
+    }
+    if (pattern instanceof RegExp && pattern.test(cleanPath)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function isSafeToReplayRequest(config) {
   if (!config || typeof config !== 'object') {
     return false;
   }
   const method = String(config.method || 'GET').trim().toUpperCase();
-  if (SAFE_REPLAY_METHODS.has(method)) {
+  if (SAFE_IDEMPOTENT_READ_METHODS.has(method)) {
     return true;
   }
+
+  // Fail-closed cho toàn bộ mutation (POST, PUT, PATCH, DELETE):
+  // Chỉ replay nếu endpoint thuộc danh sách được xác minh VÀ caller đã chủ động gắn Idempotency-Key
+  const requestUrl = config.url || '';
+  if (!isEndpointVerifiedForIdempotency(requestUrl)) {
+    return false;
+  }
+
   const headers = config.headers || {};
   const idempotencyKey =
     headers['Idempotency-Key'] ||
@@ -272,6 +322,9 @@ export function beginLoginAttempt(runtimeEnv = import.meta.env) {
  */
 export function canCommitLoginAttempt(attempt, runtimeEnv = import.meta.env) {
   if (!attempt || typeof attempt !== 'object') {
+    return false;
+  }
+  if (isLogoutInProgress()) {
     return false;
   }
   const currentIsMock = Boolean(USE_MOCK && isMockAllowed(runtimeEnv));
@@ -452,6 +505,8 @@ export async function callRefreshTokenApi(
 /**
  * Gửi yêu cầu hủy phiên lên Server (`POST /api/v1/auth/logout`) sử dụng snapshot
  * của phiên vừa đóng, không ghi lại bất kỳ token nào vào RAM.
+ * Đồng thời quản lý khóa `activeLogoutPromise` để ngăn chặn race condition với login mới (FIX-01)
+ * và gom các lệnh logout đồng thời (concurrent logout).
  */
 export async function callLogoutApi({
   accessToken = null,
@@ -461,48 +516,58 @@ export async function callLogoutApi({
     return { revoked: true, isMock: true };
   }
 
-  let csrfToUse = csrfToken;
-  if (!csrfToUse) {
+  if (activeLogoutPromise) {
+    return activeLogoutPromise;
+  }
+
+  activeLogoutPromise = (async () => {
     try {
-      const csrfRes = await authTransport.get(`${BASE_URL}/auth/csrf`, {
-        timeout,
-        withCredentials: true,
-        headers: accessToken
-          ? { Authorization: `Bearer ${accessToken}` }
-          : {},
-      });
-      csrfToUse =
-        csrfRes?.data?.csrf_token ||
-        csrfRes?.headers?.['x-csrf-token'] ||
-        null;
-    } catch {
-      csrfToUse = null;
-    }
-  }
-
-  if (!csrfToUse) {
-    return { revoked: false, reason: 'CSRF_UNAVAILABLE' };
-  }
-
-  try {
-    const response = await authTransport.post(
-      `${BASE_URL}/auth/logout`,
-      {},
-      {
-        timeout,
-        withCredentials: true,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToUse,
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
+      let csrfToUse = csrfToken;
+      if (!csrfToUse) {
+        try {
+          const csrfRes = await authTransport.get(`${BASE_URL}/auth/csrf`, {
+            timeout,
+            withCredentials: true,
+            headers: accessToken
+              ? { Authorization: `Bearer ${accessToken}` }
+              : {},
+          });
+          csrfToUse =
+            csrfRes?.data?.csrf_token ||
+            csrfRes?.headers?.['x-csrf-token'] ||
+            null;
+        } catch {
+          csrfToUse = null;
+        }
       }
-    );
-    const revoked = response?.status === 204 || response?.status === 200;
-    return { revoked };
-  } catch (error) {
-    return { revoked: false, error };
-  }
+
+      if (!csrfToUse) {
+        return { revoked: false, reason: 'CSRF_UNAVAILABLE' };
+      }
+
+      const response = await authTransport.post(
+        `${BASE_URL}/auth/logout`,
+        {},
+        {
+          timeout,
+          withCredentials: true,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToUse,
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+        }
+      );
+      const revoked = response?.status === 204 || response?.status === 200;
+      return { revoked };
+    } catch (error) {
+      return { revoked: false, error };
+    } finally {
+      activeLogoutPromise = null;
+    }
+  })();
+
+  return activeLogoutPromise;
 }
 
 /**
@@ -600,6 +665,15 @@ axiosClient.interceptors.request.use(
       requestUrl.includes('/auth/register') ||
       requestUrl.includes('/auth/logout') ||
       requestUrl.includes('/health');
+
+    // FIX-01: Ngăn login mới trong khi server logout đang pending để chống race condition xóa refresh cookie
+    if (requestUrl.includes('/auth/login') && isLogoutInProgress()) {
+      return Promise.reject(
+        new Error(
+          'Không thể gửi yêu cầu đăng nhập trong khi đang xử lý đăng xuất máy chủ.'
+        )
+      );
+    }
 
     // Nếu là request retry: kiểm tra chặt thế hệ phiên và chính sách replay an toàn (FIX-03, FIX-04)
     if (config._retry) {
