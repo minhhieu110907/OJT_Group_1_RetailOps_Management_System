@@ -185,7 +185,8 @@ export function AuthProvider({ children }) {
           timeout: 2500,
         });
         const isHealthy =
-          res.status === 200 && res.data?.status === 'healthy';
+          res.status === 200 &&
+          (res.data?.status === 'ok' || res.data?.status === 'healthy');
 
         if (isHealthy) {
           setBackendOnline(true);
