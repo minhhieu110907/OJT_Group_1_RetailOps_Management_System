@@ -30,16 +30,53 @@ export function setUseMock(value, runtimeEnv = import.meta.env) {
   if (!isMockAllowed(runtimeEnv)) {
     if (USE_MOCK) {
       USE_MOCK = false;
-      invalidateSession();
+      const generation = invalidateSession();
+      if (authCallbacks.onSessionInvalidated) {
+        authCallbacks.onSessionInvalidated({
+          isMockMode: false,
+          generation,
+        });
+      }
     }
     return false;
   }
   const next = Boolean(value);
   if (USE_MOCK !== next) {
     USE_MOCK = next;
-    invalidateSession();
+    const generation = invalidateSession();
+    if (authCallbacks.onSessionInvalidated) {
+      authCallbacks.onSessionInvalidated({
+        isMockMode: USE_MOCK,
+        generation,
+      });
+    }
   }
   return USE_MOCK;
+}
+
+/**
+ * Chuyển đổi chế độ xác thực (Mock <-> Real) qua một điểm điều phối duy nhất (FIX-02).
+ * Luôn hủy phiên hiện hành, xóa token/CSRF và đồng bộ trạng thái với AuthContext.
+ */
+export function transitionAuthMode(
+  targetMockMode,
+  runtimeEnv = import.meta.env
+) {
+  const allowed = isMockAllowed(runtimeEnv);
+  const nextMock = allowed ? Boolean(targetMockMode) : false;
+  USE_MOCK = nextMock;
+  const generation = invalidateSession();
+  if (authCallbacks.onSessionInvalidated) {
+    authCallbacks.onSessionInvalidated({
+      isMockMode: USE_MOCK,
+      generation,
+    });
+  }
+  return {
+    isMockMode: USE_MOCK,
+    allowed,
+    generation,
+  };
 }
 
 export function getUseMock() {
@@ -86,6 +123,7 @@ export function getApiErrorMessage(error) {
 let inMemoryToken = null;
 let inMemoryCsrfToken = null;
 let currentSessionGeneration = 0;
+let latestLoginAttemptId = 0;
 let isRefreshing = false;
 let activeRefreshGeneration = -1;
 let failedQueue = [];
@@ -98,6 +136,51 @@ export function setAuthTransport(customTransport) {
 
 export function getSessionGeneration() {
   return currentSessionGeneration;
+}
+
+/**
+ * Tạo đối tượng lỗi chuẩn khi phát hiện request/response thuộc phiên làm việc cũ (FIX-03).
+ */
+export function createStaleSessionError(
+  config = null,
+  message = 'Yêu cầu hoặc phản hồi thuộc phiên làm việc cũ đã bị từ chối.'
+) {
+  const err = new Error(message);
+  err.code = 'ERR_STALE_SESSION';
+  err.isStaleSession = true;
+  if (config) {
+    err.config = config;
+  }
+  return err;
+}
+
+/**
+ * Đánh giá chính sách phát lại (replay policy) sau khi làm mới token (FIX-04):
+ * - Chỉ tự động phát lại các phương thức chỉ đọc an toàn (`GET`, `HEAD`, `OPTIONS`)
+ *   hoặc các mutation mà caller đã chủ động gắn sẵn `Idempotency-Key` / `X-Idempotency-Key`.
+ * - Tuyệt đối không tự sinh khóa idempotency mới và không tự động replay các mutation
+ *   không có bảo đảm idempotency để tránh nhân đôi tác dụng phụ (duplicate side effects).
+ */
+const SAFE_REPLAY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export function isSafeToReplayRequest(config) {
+  if (!config || typeof config !== 'object') {
+    return false;
+  }
+  const method = String(config.method || 'GET').trim().toUpperCase();
+  if (SAFE_REPLAY_METHODS.has(method)) {
+    return true;
+  }
+  const headers = config.headers || {};
+  const idempotencyKey =
+    headers['Idempotency-Key'] ||
+    headers['idempotency-key'] ||
+    headers['X-Idempotency-Key'] ||
+    headers['x-idempotency-key'];
+  if (typeof idempotencyKey === 'string' && idempotencyKey.trim().length > 0) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -118,7 +201,10 @@ function processQueue(
       expectedGeneration !== currentSessionGeneration
     ) {
       entry.reject(
-        new Error('Yêu cầu thuộc phiên làm việc cũ đã bị hủy bỏ.')
+        createStaleSessionError(
+          null,
+          'Yêu cầu thuộc phiên làm việc cũ đã bị hủy bỏ.'
+        )
       );
     } else {
       entry.resolve(token);
@@ -128,16 +214,20 @@ function processQueue(
 
 /**
  * Hủy bỏ phiên hiện tại, tăng generation và giải phóng hàng đợi chờ refresh.
- * Ngăn mọi request hoặc refresh cũ hồi sinh phiên hoặc ghi đè phiên mới.
+ * Ngăn mọi request, login attempt hoặc refresh cũ hồi sinh phiên hoặc ghi đè phiên mới.
  */
 export function invalidateSession() {
   currentSessionGeneration += 1;
+  latestLoginAttemptId += 1;
   inMemoryToken = null;
   inMemoryCsrfToken = null;
   isRefreshing = false;
   activeRefreshGeneration = -1;
   processQueue(
-    new Error('Phiên làm việc đã bị hủy hoặc người dùng đã đăng xuất.'),
+    createStaleSessionError(
+      null,
+      'Phiên làm việc đã bị hủy hoặc người dùng đã đăng xuất.'
+    ),
     null,
     -1
   );
@@ -149,16 +239,68 @@ export function invalidateSession() {
  */
 export function startAuthenticatedSession(accessToken, csrfToken = null) {
   currentSessionGeneration += 1;
+  latestLoginAttemptId += 1;
   inMemoryToken = accessToken || null;
   inMemoryCsrfToken = csrfToken || null;
   isRefreshing = false;
   activeRefreshGeneration = -1;
   processQueue(
-    new Error('Phiên làm việc đã chuyển sang phiên xác thực mới.'),
+    createStaleSessionError(
+      null,
+      'Phiên làm việc đã chuyển sang phiên xác thực mới.'
+    ),
     null,
     -1
   );
   return currentSessionGeneration;
+}
+
+/**
+ * Ghi nhận ngữ cảnh tại thời điểm bắt đầu một yêu cầu đăng nhập (FIX-01).
+ */
+export function beginLoginAttempt(runtimeEnv = import.meta.env) {
+  latestLoginAttemptId += 1;
+  return {
+    attemptId: latestLoginAttemptId,
+    generation: currentSessionGeneration,
+    isMock: Boolean(USE_MOCK && isMockAllowed(runtimeEnv)),
+  };
+}
+
+/**
+ * Kiểm tra xem một yêu cầu đăng nhập đang chờ còn hợp lệ để ghi nhận trạng thái hay không (FIX-01).
+ */
+export function canCommitLoginAttempt(attempt, runtimeEnv = import.meta.env) {
+  if (!attempt || typeof attempt !== 'object') {
+    return false;
+  }
+  const currentIsMock = Boolean(USE_MOCK && isMockAllowed(runtimeEnv));
+  return (
+    attempt.attemptId === latestLoginAttemptId &&
+    attempt.generation === currentSessionGeneration &&
+    attempt.isMock === currentIsMock
+  );
+}
+
+/**
+ * Xác nhận và khởi tạo phiên đăng nhập nếu và chỉ nếu login attempt vẫn còn hợp lệ (FIX-01).
+ */
+export function commitLoginSession(
+  attempt,
+  { accessToken, csrfToken = null, user = null } = {},
+  runtimeEnv = import.meta.env
+) {
+  if (!canCommitLoginAttempt(attempt, runtimeEnv)) {
+    return { committed: false, reason: 'STALE_LOGIN_ATTEMPT' };
+  }
+  const generation = startAuthenticatedSession(accessToken, csrfToken);
+  return {
+    committed: true,
+    generation,
+    accessToken: inMemoryToken,
+    csrfToken: inMemoryCsrfToken,
+    user,
+  };
 }
 
 export function setClientToken(token) {
@@ -221,13 +363,20 @@ export async function ensureCsrfToken(
 let authCallbacks = {
   onTokenRefreshed: null,
   onAuthFailed: null,
+  onSessionInvalidated: null,
 };
 
-export function setupAxiosAuth({ onTokenRefreshed, onAuthFailed } = {}) {
+export function setupAxiosAuth({
+  onTokenRefreshed,
+  onAuthFailed,
+  onSessionInvalidated,
+} = {}) {
   authCallbacks = {
     onTokenRefreshed:
       typeof onTokenRefreshed === 'function' ? onTokenRefreshed : null,
     onAuthFailed: typeof onAuthFailed === 'function' ? onAuthFailed : null,
+    onSessionInvalidated:
+      typeof onSessionInvalidated === 'function' ? onSessionInvalidated : null,
   };
 }
 
@@ -356,6 +505,88 @@ export async function callLogoutApi({
   }
 }
 
+/**
+ * Kiểm tra kết nối tới FastAPI Backend (`/api/v1/health`) và tùy chọn khôi phục phiên từ Cookie (FIX-02):
+ * - TUYỆT ĐỐI KHÔNG tự ý thay đổi chế độ Mock <-> Real khi thực hiện health check.
+ * - Chỉ khôi phục phiên từ cookie khi `allowSessionRestore === true`, đang ở Real API mode,
+ *   chưa có accessToken trong RAM và thế hệ phiên chưa thay đổi.
+ */
+export async function runHealthCheck({
+  allowSessionRestore = false,
+  onRestoredSession = null,
+} = {}) {
+  const startGeneration = currentSessionGeneration;
+  const startIsMock = Boolean(USE_MOCK && isMockAllowed());
+
+  try {
+    const res = await authTransport.get(`${BASE_URL}/health`, {
+      timeout: 2500,
+    });
+    const isHealthy =
+      res?.status === 200 &&
+      (res?.data?.status === 'ok' || res?.data?.status === 'healthy');
+
+    if (!isHealthy) {
+      return { online: false, restored: false };
+    }
+
+    // Chỉ thử khôi phục phiên từ HttpOnly Refresh Cookie khi được phép (lúc khởi động app)
+    // và khi mode/session generation không hề thay đổi trong lúc chờ /health.
+    if (
+      allowSessionRestore &&
+      !startIsMock &&
+      !getUseMock() &&
+      !inMemoryToken &&
+      startGeneration === currentSessionGeneration
+    ) {
+      try {
+        const refreshRes = await callRefreshTokenApi(startGeneration);
+        if (
+          startGeneration !== currentSessionGeneration ||
+          getUseMock() ||
+          inMemoryToken
+        ) {
+          return { online: true, restored: false, stale: true };
+        }
+
+        const restoredToken =
+          refreshRes?.data?.access_token || refreshRes?.data?.accessToken;
+        const restoredCsrf = refreshRes?.headers?.['x-csrf-token'] || null;
+        const restoredUser = normalizeBackendUser(refreshRes?.data?.user);
+
+        if (
+          restoredToken &&
+          typeof restoredToken === 'string' &&
+          restoredUser &&
+          restoredUser.status === 'APPROVED'
+        ) {
+          const newGen = startAuthenticatedSession(restoredToken, restoredCsrf);
+          if (typeof onRestoredSession === 'function') {
+            onRestoredSession({
+              accessToken: restoredToken,
+              csrfToken: restoredCsrf,
+              user: restoredUser,
+              generation: newGen,
+            });
+          }
+          return {
+            online: true,
+            restored: true,
+            user: restoredUser,
+            accessToken: restoredToken,
+          };
+        }
+      } catch {
+        // Không có cookie phiên cũ hoặc phiên đã hết hạn -> giữ nguyên trạng thái chưa đăng nhập
+      }
+    }
+
+    return { online: true, restored: false };
+  } catch {
+    return { online: false, restored: false };
+  }
+}
+
 // ============================================================================
 // 5. REQUEST INTERCEPTOR: GẮN SESSION GENERATION, BEARER TOKEN & X-CSRF-TOKEN
 // ============================================================================
@@ -363,25 +594,50 @@ axiosClient.interceptors.request.use(
   (config) => {
     config.headers = config.headers || {};
 
-    // Nếu là request retry nhưng phiên đã thay đổi -> chặn ngay trước khi gửi
-    if (
-      config._retry &&
-      typeof config._sessionGeneration === 'number' &&
-      config._sessionGeneration !== currentSessionGeneration
-    ) {
-      return Promise.reject(
-        new Error('Hủy retry request do phiên làm việc đã thay đổi.')
-      );
+    const requestUrl = config.url || '';
+    const isPublicOrAuthBootstrapRoute =
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/register') ||
+      requestUrl.includes('/auth/logout') ||
+      requestUrl.includes('/health');
+
+    // Nếu là request retry: kiểm tra chặt thế hệ phiên và chính sách replay an toàn (FIX-03, FIX-04)
+    if (config._retry) {
+      if (
+        typeof config._sessionGeneration !== 'number' ||
+        config._sessionGeneration !== currentSessionGeneration ||
+        !inMemoryToken
+      ) {
+        return Promise.reject(
+          createStaleSessionError(
+            config,
+            'Hủy retry request do phiên làm việc đã thay đổi.'
+          )
+        );
+      }
+      if (!isSafeToReplayRequest(config)) {
+        const replayErr = new Error(
+          'Chặn tự động phát lại (replay) cho request thay đổi dữ liệu không có bảo đảm idempotency.'
+        );
+        replayErr.config = config;
+        replayErr.isReplayBlocked = true;
+        replayErr.code = 'ERR_UNSAFE_MUTATION_REPLAY';
+        return Promise.reject(replayErr);
+      }
+    } else {
+      if (typeof config._sessionGeneration !== 'number') {
+        config._sessionGeneration = currentSessionGeneration;
+      }
+      const isAuthenticatedRequest =
+        Boolean(inMemoryToken) && !isPublicOrAuthBootstrapRoute;
+      config._hadAuthToken = isAuthenticatedRequest;
+      config._isSessionBound = isAuthenticatedRequest;
+      config._sentWithToken = isAuthenticatedRequest ? inMemoryToken : null;
     }
 
-    if (typeof config._sessionGeneration !== 'number') {
-      config._sessionGeneration = currentSessionGeneration;
-    }
-    config._hadAuthToken = Boolean(inMemoryToken);
-
-    if (inMemoryToken) {
+    if (inMemoryToken && !isPublicOrAuthBootstrapRoute) {
       config.headers.Authorization = `Bearer ${inMemoryToken}`;
-    } else if (config.headers.Authorization) {
+    } else if (config.headers.Authorization && !isPublicOrAuthBootstrapRoute) {
       delete config.headers.Authorization;
     }
 
@@ -394,14 +650,35 @@ axiosClient.interceptors.request.use(
 );
 
 // ============================================================================
-// 6. RESPONSE INTERCEPTOR & HÀNG ĐỢI SINGLE-FLIGHT REFRESH KHI GẶP 401
+// 6. RESPONSE INTERCEPTOR, STALE RESPONSE ISOLATION & SINGLE-FLIGHT REFRESH
 // ============================================================================
 axiosClient.interceptors.response.use(
   (response) => {
-    const reqGen = response?.config?._sessionGeneration;
+    const cfg = response?.config;
+    const reqGen = cfg?._sessionGeneration;
+    const requestUrl = cfg?.url || '';
+    const isSessionBound = Boolean(cfg?._isSessionBound || cfg?._hadAuthToken);
+
+    // FIX-03: Nếu là request gắn với phiên xác thực nhưng thế hệ phiên đã thay đổi
+    // hoặc phiên hiện tại đã bị hủy -> Từ chối trả dữ liệu của phiên cũ cho caller.
+    if (
+      isSessionBound &&
+      (typeof reqGen !== 'number' ||
+        reqGen !== currentSessionGeneration ||
+        !inMemoryToken)
+    ) {
+      return Promise.reject(
+        createStaleSessionError(
+          cfg,
+          'Phản hồi thành công thuộc phiên làm việc cũ đã bị từ chối.'
+        )
+      );
+    }
+
     const csrfHeader = response?.headers?.['x-csrf-token'];
     if (
       csrfHeader &&
+      !requestUrl.includes('/auth/login') &&
       (typeof reqGen !== 'number' || reqGen === currentSessionGeneration)
     ) {
       setCsrfToken(csrfHeader);
@@ -411,6 +688,18 @@ axiosClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const status = error.response?.status;
+
+    // FIX-03: Đánh dấu rõ lỗi thuộc phiên cũ nếu generation đã thay đổi
+    if (
+      originalRequest &&
+      (originalRequest._isSessionBound || originalRequest._hadAuthToken) &&
+      typeof originalRequest._sessionGeneration === 'number' &&
+      originalRequest._sessionGeneration !== currentSessionGeneration
+    ) {
+      error.isStaleSession = true;
+      error.code = error.code || 'ERR_STALE_SESSION';
+      return Promise.reject(error);
+    }
 
     // 1. Phân biệt rạch ròi lỗi 403 Forbidden:
     // Người dùng đã đăng nhập nhưng không đủ quyền -> Trả lỗi ngay, KHÔNG đăng xuất
@@ -422,7 +711,7 @@ axiosClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // 2. Bỏ qua logic refresh cho các route xác thực hoặc request đã retry
+    // 2. Bỏ qua logic refresh cho các route xác thực hoặc request đã retry (tối đa 1 lần)
     const requestUrl = originalRequest.url || '';
     const isAuthLifecycleRoute =
       requestUrl.includes('/auth/login') ||
@@ -448,7 +737,31 @@ axiosClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // 4. Xử lý đồng thời (Single-Flight Concurrency) trong cùng một thế hệ phiên:
+    // 4. FIX-04: Ngăn chặn gọi refresh dư thừa khi response 401 đến muộn sau khi token đã được rotate
+    const sentToken = originalRequest._sentWithToken;
+    if (sentToken && inMemoryToken && sentToken !== inMemoryToken) {
+      if (!isSafeToReplayRequest(originalRequest)) {
+        error.isReplayBlocked = true;
+        error.code = error.code || 'ERR_UNSAFE_MUTATION_REPLAY';
+        return Promise.reject(error);
+      }
+      if (requestGeneration !== currentSessionGeneration || !inMemoryToken) {
+        return Promise.reject(
+          createStaleSessionError(
+            originalRequest,
+            'Phiên làm việc đã thay đổi trước khi retry request.'
+          )
+        );
+      }
+      originalRequest._retry = true;
+      originalRequest._sessionGeneration = currentSessionGeneration;
+      originalRequest._sentWithToken = inMemoryToken;
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers.Authorization = `Bearer ${inMemoryToken}`;
+      return axiosClient(originalRequest);
+    }
+
+    // 5. Xử lý đồng thời (Single-Flight Concurrency) trong cùng một thế hệ phiên:
     if (isRefreshing && activeRefreshGeneration === requestGeneration) {
       return new Promise((resolve, reject) => {
         failedQueue.push({
@@ -458,13 +771,22 @@ axiosClient.interceptors.response.use(
         });
       })
         .then((newToken) => {
-          if (requestGeneration !== currentSessionGeneration) {
+          if (requestGeneration !== currentSessionGeneration || !inMemoryToken) {
             return Promise.reject(
-              new Error('Phiên làm việc đã thay đổi, hủy retry request cũ.')
+              createStaleSessionError(
+                originalRequest,
+                'Phiên làm việc đã thay đổi, hủy retry request cũ.'
+              )
             );
+          }
+          if (!isSafeToReplayRequest(originalRequest)) {
+            error.isReplayBlocked = true;
+            error.code = error.code || 'ERR_UNSAFE_MUTATION_REPLAY';
+            return Promise.reject(error);
           }
           originalRequest._retry = true;
           originalRequest._sessionGeneration = currentSessionGeneration;
+          originalRequest._sentWithToken = newToken;
           originalRequest.headers = originalRequest.headers || {};
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return axiosClient(originalRequest);
@@ -481,7 +803,8 @@ axiosClient.interceptors.response.use(
       const response = await callRefreshTokenApi(requestGeneration);
 
       if (requestGeneration !== currentSessionGeneration) {
-        throw new Error(
+        throw createStaleSessionError(
+          originalRequest,
           'Phiên làm việc đã bị hủy hoặc thay đổi trong khi đang làm mới token.'
         );
       }
@@ -505,14 +828,23 @@ axiosClient.interceptors.response.use(
 
       // Nếu callback phát hiện thông tin user vi phạm contract và đã hủy phiên:
       if (requestGeneration !== currentSessionGeneration) {
-        throw new Error(
+        throw createStaleSessionError(
+          originalRequest,
           'Phiên làm việc bị đóng do dữ liệu xác thực trả về không hợp lệ.'
         );
       }
 
       processQueue(null, newAccessToken, requestGeneration);
 
+      // FIX-04: Kiểm tra chính sách replay an toàn trước khi phát lại request gốc
+      if (!isSafeToReplayRequest(originalRequest)) {
+        error.isReplayBlocked = true;
+        error.code = error.code || 'ERR_UNSAFE_MUTATION_REPLAY';
+        return Promise.reject(error);
+      }
+
       originalRequest._sessionGeneration = currentSessionGeneration;
+      originalRequest._sentWithToken = newAccessToken;
       originalRequest.headers = originalRequest.headers || {};
       originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
       return axiosClient(originalRequest);

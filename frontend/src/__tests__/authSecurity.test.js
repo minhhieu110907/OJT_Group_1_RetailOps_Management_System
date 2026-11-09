@@ -8,6 +8,12 @@ import axiosClient, {
   isMockAllowed,
   getUseMock,
   setUseMock,
+  transitionAuthMode,
+  runHealthCheck,
+  beginLoginAttempt,
+  canCommitLoginAttempt,
+  commitLoginSession,
+  isSafeToReplayRequest,
   getClientToken,
   getCsrfToken,
   getSessionGeneration,
@@ -651,6 +657,553 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
         true,
         'ProductList.jsx must use page_size pagination contract'
       );
+    });
+  });
+
+  // ==========================================================================
+  // 6. ROUND 3 — FIX-01: LOGIN SESSION GENERATION & ATTEMPT GUARD
+  // ==========================================================================
+  describe('Round 3 — FIX-01: Login Session Generation Guard', () => {
+    it('blocks stale Real login response arriving after switching Real -> Mock', () => {
+      const devMockEnv = { DEV: true, PROD: false, VITE_USE_MOCK: 'true' };
+      setUseMock(false, devMockEnv);
+
+      // Start Login A in Real mode
+      const attemptA = beginLoginAttempt(devMockEnv);
+      assert.equal(attemptA.isMock, false);
+      assert.equal(canCommitLoginAttempt(attemptA, devMockEnv), true);
+
+      // User switches to Mock mode while Login A request is still in flight
+      transitionAuthMode(true, devMockEnv);
+      assert.equal(getUseMock(), true);
+
+      // Login A response arrives late
+      assert.equal(canCommitLoginAttempt(attemptA, devMockEnv), false);
+      const commitRes = commitLoginSession(
+        attemptA,
+        {
+          accessToken: 'stale-real-token-A',
+          csrfToken: 'stale-csrf-A',
+          user: { id: 1, role: 'ADMIN' },
+        },
+        devMockEnv
+      );
+      assert.equal(commitRes.committed, false);
+      assert.equal(getClientToken(), null);
+      assert.equal(getCsrfToken(), null);
+      setUseMock(false, devMockEnv);
+    });
+
+    it('blocks stale login response arriving after logout / invalidateSession', () => {
+      const attempt = beginLoginAttempt();
+      assert.equal(canCommitLoginAttempt(attempt), true);
+
+      // Session invalidated / logged out while login response is in flight
+      invalidateSession();
+
+      assert.equal(canCommitLoginAttempt(attempt), false);
+      const commitRes = commitLoginSession(attempt, {
+        accessToken: 'stale-token-after-logout',
+        csrfToken: 'stale-csrf-after-logout',
+      });
+      assert.equal(commitRes.committed, false);
+      assert.equal(getClientToken(), null);
+      assert.equal(getCsrfToken(), null);
+    });
+
+    it('blocks Login A arriving after Login B has already succeeded', () => {
+      // User starts Login A
+      const attemptA = beginLoginAttempt();
+
+      // User starts Login B and Login B succeeds first
+      const attemptB = beginLoginAttempt();
+      const commitB = commitLoginSession(attemptB, {
+        accessToken: 'token-user-B',
+        csrfToken: 'csrf-user-B',
+        user: { id: 2, email: 'userb@retailops.local', role: 'STAFF' },
+      });
+      assert.equal(commitB.committed, true);
+      assert.equal(getClientToken(), 'token-user-B');
+
+      // Login A response finally arrives late -> must NOT overwrite User B's session
+      assert.equal(canCommitLoginAttempt(attemptA), false);
+      const commitA = commitLoginSession(attemptA, {
+        accessToken: 'token-user-A-stale',
+        csrfToken: 'csrf-user-A-stale',
+        user: { id: 1, email: 'usera@retailops.local', role: 'ADMIN' },
+      });
+      assert.equal(commitA.committed, false);
+      assert.equal(getClientToken(), 'token-user-B');
+      assert.equal(getCsrfToken(), 'csrf-user-B');
+    });
+
+    it('allows valid undisturbed login attempt to commit normally', () => {
+      const attempt = beginLoginAttempt();
+      assert.equal(canCommitLoginAttempt(attempt), true);
+
+      const commitRes = commitLoginSession(attempt, {
+        accessToken: 'valid-login-token',
+        csrfToken: 'valid-login-csrf',
+        user: { id: 10, role: 'ADMIN', status: 'APPROVED' },
+      });
+      assert.equal(commitRes.committed, true);
+      assert.equal(getClientToken(), 'valid-login-token');
+      assert.equal(getCsrfToken(), 'valid-login-csrf');
+    });
+  });
+
+  // ==========================================================================
+  // 7. ROUND 3 — FIX-02: SINGLE AUTH MODE TRANSITION & HEALTH CHECK ISOLATION
+  // ==========================================================================
+  describe('Round 3 — FIX-02: Single Auth Mode Transition & Health Check Isolation', () => {
+    it('keeps Mock session consistent when clicking Backend health check (never auto-switches mode)', async () => {
+      const devMockEnv = { DEV: true, PROD: false, VITE_USE_MOCK: 'true' };
+      transitionAuthMode(true, devMockEnv);
+      startAuthenticatedSession('mock-admin-token', null);
+
+      setAuthTransport({
+        get: async (url) => {
+          if (url.includes('/health')) {
+            return { status: 200, data: { status: 'ok' }, headers: {} };
+          }
+          throw new Error(`Unexpected GET ${url}`);
+        },
+        post: async () => ({ status: 200, data: {} }),
+      });
+
+      const healthResult = await runHealthCheck({ allowSessionRestore: false });
+      assert.equal(healthResult.online, true);
+      // Mode and mock session remain intact and synchronized (not silently flipped to Real mode)
+      assert.equal(getUseMock(), true);
+      assert.equal(getClientToken(), 'mock-admin-token');
+
+      transitionAuthMode(false, devMockEnv);
+    });
+
+    it('does NOT alter valid Real session during routine health check', async () => {
+      startAuthenticatedSession('real-active-token', 'real-active-csrf');
+      const genBefore = getSessionGeneration();
+
+      setAuthTransport({
+        get: async (url) => {
+          assert.ok(url.includes('/health'));
+          return { status: 200, data: { status: 'ok' }, headers: {} };
+        },
+        post: async () => {
+          throw new Error('Refresh should not be called when token is already active');
+        },
+      });
+
+      const res = await runHealthCheck({ allowSessionRestore: true });
+      assert.equal(res.online, true);
+      assert.equal(res.restored, false);
+      assert.equal(getClientToken(), 'real-active-token');
+      assert.equal(getCsrfToken(), 'real-active-csrf');
+      assert.equal(getSessionGeneration(), genBefore);
+    });
+
+    it('synchronizes React/caller state and clears user/tokens across Real -> Mock -> Real transitions', () => {
+      const devMockEnv = { DEV: true, PROD: false, VITE_USE_MOCK: 'true' };
+      let syncedState = {
+        user: { id: 1, role: 'ADMIN' },
+        accessToken: 'real-token-1',
+        isMockMode: false,
+      };
+
+      setupAxiosAuth({
+        onTokenRefreshed: null,
+        onAuthFailed: null,
+        onSessionInvalidated: ({ isMockMode }) => {
+          syncedState = {
+            user: null,
+            accessToken: null,
+            isMockMode,
+          };
+        },
+      });
+
+      startAuthenticatedSession('real-token-1', 'real-csrf-1');
+
+      // Transition Real -> Mock
+      const toMock = transitionAuthMode(true, devMockEnv);
+      assert.equal(toMock.isMockMode, true);
+      assert.equal(getClientToken(), null);
+      assert.equal(getCsrfToken(), null);
+      assert.equal(syncedState.user, null);
+      assert.equal(syncedState.accessToken, null);
+      assert.equal(syncedState.isMockMode, true);
+
+      // Login in Mock mode, then transition Mock -> Real
+      startAuthenticatedSession('mock-token-2', null);
+      syncedState.user = { id: 'usr_admin_demo', role: 'ADMIN', isMock: true };
+      syncedState.accessToken = 'mock-token-2';
+
+      const toReal = transitionAuthMode(false, devMockEnv);
+      assert.equal(toReal.isMockMode, false);
+      assert.equal(getClientToken(), null);
+      assert.equal(getCsrfToken(), null);
+      assert.equal(syncedState.user, null);
+      assert.equal(syncedState.accessToken, null);
+      assert.equal(syncedState.isMockMode, false);
+    });
+
+    it('blocks late health-check cookie restoration after mode has changed', async () => {
+      const devMockEnv = { DEV: true, PROD: false, VITE_USE_MOCK: 'true' };
+      transitionAuthMode(false, devMockEnv);
+
+      let restoredCallbackInvoked = false;
+      setAuthTransport({
+        get: async (url) => {
+          if (url.includes('/health')) {
+            await new Promise((r) => setTimeout(r, 20));
+            // Mode changes to Mock while health check is finishing
+            transitionAuthMode(true, devMockEnv);
+            return { status: 200, data: { status: 'ok' }, headers: {} };
+          }
+          return { status: 200, data: { csrf_token: 'csrf' }, headers: {} };
+        },
+        post: async () => ({
+          status: 200,
+          data: {
+            access_token: 'should-not-restore',
+            user: {
+              id: 1,
+              email_normalized: 'admin@retailops.local',
+              role: 'ADMIN',
+              status: 'ACTIVE',
+            },
+          },
+          headers: {},
+        }),
+      });
+
+      const res = await runHealthCheck({
+        allowSessionRestore: true,
+        onRestoredSession: () => {
+          restoredCallbackInvoked = true;
+        },
+      });
+
+      assert.equal(res.restored, false);
+      assert.equal(restoredCallbackInvoked, false);
+      assert.equal(getClientToken(), null);
+      transitionAuthMode(false, devMockEnv);
+    });
+
+    it('never activates Mock mode when Backend health check fails (offline)', async () => {
+      setAuthTransport({
+        get: async () => {
+          throw new Error('ECONNREFUSED');
+        },
+        post: async () => ({ status: 500 }),
+      });
+
+      const res = await runHealthCheck({ allowSessionRestore: true });
+      assert.equal(res.online, false);
+      assert.equal(getUseMock(), false);
+    });
+  });
+
+  // ==========================================================================
+  // 8. ROUND 3 — FIX-03: STALE SUCCESSFUL RESPONSE ISOLATION
+  // ==========================================================================
+  describe('Round 3 — FIX-03: Stale Successful Response Isolation', () => {
+    it('rejects late 200 OK response from User A after User A logs out and User B logs in', async () => {
+      startAuthenticatedSession('token-user-A', 'csrf-user-A');
+
+      axiosClient.defaults.adapter = async (config) => {
+        if (config.url === '/orders?owner=userA') {
+          await new Promise((r) => setTimeout(r, 25));
+          // User A logs out and User B logs in while User A's GET is in flight
+          invalidateSession();
+          startAuthenticatedSession('token-user-B', 'csrf-user-B');
+          return {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'x-csrf-token': 'stale-csrf-from-user-A' },
+            config,
+            data: { orders: ['secret-order-of-user-A'] },
+          };
+        }
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+          data: { orders: ['order-of-user-B'] },
+        };
+      };
+
+      await assert.rejects(axiosClient.get('/orders?owner=userA'), (err) => {
+        return err.isStaleSession === true && err.code === 'ERR_STALE_SESSION';
+      });
+
+      // User B's CSRF and token must not be overwritten by User A's stale 200 response
+      assert.equal(getClientToken(), 'token-user-B');
+      assert.equal(getCsrfToken(), 'csrf-user-B');
+
+      // User B's own request succeeds normally
+      const userBRes = await axiosClient.get('/orders?owner=userB');
+      assert.deepEqual(userBRes.data, { orders: ['order-of-user-B'] });
+    });
+
+    it('rejects late 200 OK response when session is invalidated while request is in flight', async () => {
+      startAuthenticatedSession('token-user-A', 'csrf-user-A');
+
+      axiosClient.defaults.adapter = async (config) => {
+        await new Promise((r) => setTimeout(r, 20));
+        invalidateSession();
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+          data: { items: ['stale-data'] },
+        };
+      };
+
+      await assert.rejects(axiosClient.get('/products'), (err) => {
+        return err.isStaleSession === true;
+      });
+    });
+
+    it('does NOT reject public requests (/auth/register, /health, unauthenticated requests) when generation changes', async () => {
+      // Unauthenticated state
+      invalidateSession();
+
+      axiosClient.defaults.adapter = async (config) => {
+        await new Promise((r) => setTimeout(r, 15));
+        // Generation changes while public request is in flight
+        invalidateSession();
+        return {
+          status: 202,
+          statusText: 'Accepted',
+          headers: {},
+          config,
+          data: { message: 'If the registration can be processed...' },
+        };
+      };
+
+      const res = await axiosClient.post('/auth/register', {
+        email: 'newstaff@retailops.local',
+        password: 'ValidPassword123',
+      });
+      assert.equal(res.status, 202);
+    });
+  });
+
+  // ==========================================================================
+  // 9. ROUND 3 — FIX-04: PREVENT REDUNDANT REFRESH AFTER LATE 401 & REPLAY POLICY
+  // ==========================================================================
+  describe('Round 3 — FIX-04: Prevent Redundant Refresh on Late 401 & Safe Replay Policy', () => {
+    it('prevents refresh storm when 3 requests receive 401 at staggered times (late 401 after refresh completed)', async () => {
+      startAuthenticatedSession('token-v1', 'csrf-v1');
+
+      let refreshCount = 0;
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf-v1' }, headers: {} }),
+        post: async (url) => {
+          if (url.includes('/auth/refresh')) {
+            refreshCount += 1;
+            await new Promise((r) => setTimeout(r, 20));
+            return {
+              status: 200,
+              data: { access_token: 'token-v2' },
+              headers: { 'x-csrf-token': 'csrf-v2' },
+            };
+          }
+          throw new Error(`Unexpected POST ${url}`);
+        },
+      });
+
+      axiosClient.defaults.adapter = async (config) => {
+        const auth = config.headers?.Authorization;
+        if (auth === 'Bearer token-v2') {
+          return {
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            config,
+            data: { url: config.url, tokenUsed: 'token-v2' },
+          };
+        }
+
+        // Simulate staggered 401 responses:
+        // req1 fails at 5ms, req2 fails at 10ms (during refresh), req3 fails at 45ms (AFTER refresh finished!)
+        if (config.url === '/req-1') {
+          await new Promise((r) => setTimeout(r, 5));
+        } else if (config.url === '/req-2') {
+          await new Promise((r) => setTimeout(r, 10));
+        } else if (config.url === '/req-3-late') {
+          await new Promise((r) => setTimeout(r, 45));
+        }
+        throw createHttpError(401, config);
+      };
+
+      const [r1, r2, r3] = await Promise.all([
+        axiosClient.get('/req-1'),
+        axiosClient.get('/req-2'),
+        axiosClient.get('/req-3-late'),
+      ]);
+
+      // Only 1 refresh call must have been made! req-3-late reused token-v2 directly!
+      assert.equal(refreshCount, 1);
+      assert.equal(r1.data.tokenUsed, 'token-v2');
+      assert.equal(r2.data.tokenUsed, 'token-v2');
+      assert.equal(r3.data.tokenUsed, 'token-v2');
+    });
+
+    it('retries at most once on late 401 and does not loop if the retried request also returns 401', async () => {
+      startAuthenticatedSession('token-v1', 'csrf-v1');
+
+      let refreshCalls = 0;
+      let lateReqAttempts = 0;
+
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf-v1' }, headers: {} }),
+        post: async () => {
+          refreshCalls += 1;
+          return {
+            status: 200,
+            data: { access_token: 'token-v2' },
+            headers: {},
+          };
+        },
+      });
+
+      axiosClient.defaults.adapter = async (config) => {
+        if (config.url === '/first-req') {
+          if (config.headers?.Authorization === 'Bearer token-v2') {
+            return { status: 200, data: { ok: true }, headers: {}, config };
+          }
+          throw createHttpError(401, config);
+        }
+
+        if (config.url === '/late-still-401') {
+          lateReqAttempts += 1;
+          if (lateReqAttempts === 1) {
+            await new Promise((r) => setTimeout(r, 25));
+          }
+          // Even when retried with token-v2, server returns 401
+          throw createHttpError(401, config);
+        }
+
+        throw createHttpError(401, config);
+      };
+
+      const [firstRes, lateRes] = await Promise.allSettled([
+        axiosClient.get('/first-req'),
+        axiosClient.get('/late-still-401'),
+      ]);
+
+      assert.equal(firstRes.status, 'fulfilled');
+      assert.equal(lateRes.status, 'rejected');
+      assert.equal(refreshCalls, 1);
+      assert.equal(lateReqAttempts, 2); // 1 initial + 1 retry max
+    });
+
+    it('rejects late-401 retry when session changes between initial send and retry execution', async () => {
+      startAuthenticatedSession('token-v1', 'csrf-v1');
+
+      axiosClient.defaults.adapter = async (config) => {
+        if (config.url === '/req-session-switch') {
+          await new Promise((r) => setTimeout(r, 15));
+          // Another user session starts before 401 is processed
+          startAuthenticatedSession('token-other-user', 'csrf-other-user');
+          throw createHttpError(401, config);
+        }
+        return { status: 200, data: {}, headers: {}, config };
+      };
+
+      await assert.rejects(
+        axiosClient.get('/req-session-switch'),
+        (err) => err.isStaleSession === true
+      );
+      assert.equal(getClientToken(), 'token-other-user');
+    });
+
+    it('blocks automatic replay of non-idempotent mutations (POST/PATCH/DELETE without Idempotency-Key) on 401', async () => {
+      assert.equal(isSafeToReplayRequest({ method: 'GET', headers: {} }), true);
+      assert.equal(isSafeToReplayRequest({ method: 'HEAD', headers: {} }), true);
+      assert.equal(isSafeToReplayRequest({ method: 'POST', headers: {} }), false);
+      assert.equal(isSafeToReplayRequest({ method: 'PATCH', headers: {} }), false);
+      assert.equal(isSafeToReplayRequest({ method: 'DELETE', headers: {} }), false);
+      assert.equal(
+        isSafeToReplayRequest({
+          method: 'POST',
+          headers: { 'Idempotency-Key': 'idem-123' },
+        }),
+        true
+      );
+
+      startAuthenticatedSession('expired-token-mut', 'csrf-mut');
+
+      let postAttemptCount = 0;
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf-mut' }, headers: {} }),
+        post: async () => ({
+          status: 200,
+          data: { access_token: 'fresh-token-mut' },
+          headers: {},
+        }),
+      });
+
+      axiosClient.defaults.adapter = async (config) => {
+        postAttemptCount += 1;
+        if (config.headers?.Authorization === 'Bearer expired-token-mut') {
+          throw createHttpError(401, config);
+        }
+        return { status: 201, data: { created: true }, headers: {}, config };
+      };
+
+      // POST without Idempotency-Key must NOT be replayed automatically after 401
+      await assert.rejects(
+        axiosClient.post('/orders', { items: [{ sku: 'SKU-1', qty: 1 }] }),
+        (err) => err.isReplayBlocked === true
+      );
+      assert.equal(postAttemptCount, 1);
+      // Session token was refreshed for subsequent user-initiated actions
+      assert.equal(getClientToken(), 'fresh-token-mut');
+    });
+
+    it('allows single replay of POST when caller explicitly provides Idempotency-Key header without mutating the key', async () => {
+      startAuthenticatedSession('expired-token-idem', 'csrf-idem');
+
+      const seenIdempotencyKeys = [];
+      setAuthTransport({
+        get: async () => ({ data: { csrf_token: 'csrf-idem' }, headers: {} }),
+        post: async () => ({
+          status: 200,
+          data: { access_token: 'fresh-token-idem' },
+          headers: {},
+        }),
+      });
+
+      axiosClient.defaults.adapter = async (config) => {
+        seenIdempotencyKeys.push(config.headers?.['Idempotency-Key']);
+        if (config.headers?.Authorization === 'Bearer expired-token-idem') {
+          throw createHttpError(401, config);
+        }
+        return {
+          status: 201,
+          statusText: 'Created',
+          headers: {},
+          config,
+          data: { orderId: 999 },
+        };
+      };
+
+      const res = await axiosClient.post(
+        '/orders',
+        { total: 100000 },
+        { headers: { 'Idempotency-Key': 'caller-supplied-key-001' } }
+      );
+
+      assert.equal(res.status, 201);
+      assert.deepEqual(seenIdempotencyKeys, [
+        'caller-supplied-key-001',
+        'caller-supplied-key-001',
+      ]);
     });
   });
 });

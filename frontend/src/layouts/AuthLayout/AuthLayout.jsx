@@ -84,9 +84,7 @@ export default function AuthLayout() {
           <button
             type="button"
             className={styles.pingBtn}
-            onClick={() =>
-              checkBackendConnection({ notify: true, forceRealIfOnline: true })
-            }
+            onClick={() => checkBackendConnection({ notify: true })}
             disabled={isCheckingBackend}
             title="Kiểm tra lại kết nối tới FastAPI Backend (/api/v1/health)"
             aria-label="Kiểm tra kết nối Backend"

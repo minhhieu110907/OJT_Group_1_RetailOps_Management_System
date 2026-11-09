@@ -5,11 +5,11 @@ import {
   useEffect,
   useState,
 } from 'react';
-import axios from 'axios';
 import axiosClient, {
-  BASE_URL,
+  beginLoginAttempt,
   callLogoutApi,
-  callRefreshTokenApi,
+  canCommitLoginAttempt,
+  commitLoginSession,
   getApiErrorMessage,
   getClientToken,
   getCsrfToken,
@@ -18,9 +18,9 @@ import axiosClient, {
   invalidateSession,
   isMockAllowed,
   normalizeBackendUser,
-  setUseMock,
+  runHealthCheck,
   setupAxiosAuth,
-  startAuthenticatedSession,
+  transitionAuthMode,
 } from '../api/axiosClient';
 import { useToast } from '../components/common';
 
@@ -160,75 +160,49 @@ export function AuthProvider({ children }) {
         setAccessToken(newToken);
       },
       onAuthFailed: () => logout(true),
+      onSessionInvalidated: ({ isMockMode: nextMockMode }) => {
+        setAccessToken(null);
+        setUser(null);
+        setIsMockMode(Boolean(nextMockMode && isMockAllowed()));
+      },
     });
   }, [logout]);
 
-  // Kiểm tra kết nối tới FastAPI Backend (`/api/v1/health`) và tự động khôi phục phiên nếu có Cookie
+  // Kiểm tra kết nối tới FastAPI Backend (`/api/v1/health`) và tùy chọn khôi phục phiên lúc khởi động (FIX-02):
+  // - Health check chỉ xác nhận trạng thái kết nối, TUYỆT ĐỐI KHÔNG tự ý đổi chế độ Mock <-> Real.
+  // - Không ghi đè phiên hợp lệ hiện có và không khôi phục cookie trong một callback đã lỗi thời.
   const checkBackendConnection = useCallback(
-    async ({ notify = false, forceRealIfOnline = false } = {}) => {
+    async ({ notify = false, allowSessionRestore = false } = {}) => {
       await Promise.resolve();
       setIsCheckingBackend(true);
       try {
-        const res = await axios.get(`${BASE_URL}/health`, {
-          timeout: 2500,
+        const result = await runHealthCheck({
+          allowSessionRestore,
+          onRestoredSession: ({
+            accessToken: restoredToken,
+            user: restoredUser,
+            generation,
+          }) => {
+            if (generation === getSessionGeneration() && !getUseMock()) {
+              setAccessToken(restoredToken);
+              setUser(restoredUser);
+            }
+          },
         });
-        const isHealthy =
-          res.status === 200 &&
-          (res.data?.status === 'ok' || res.data?.status === 'healthy');
 
-        if (isHealthy) {
-          setBackendOnline(true);
-          if (forceRealIfOnline) {
-            setUseMock(false);
-            setIsMockMode(false);
-          }
+        setBackendOnline(Boolean(result.online));
+
+        if (result.online) {
           if (notify) {
             toast.success(
-              'Đã kết nối thành công với FastAPI Backend! Hệ thống đang dùng API thật (/api/v1).'
+              getUseMock() && isMockAllowed()
+                ? 'FastAPI Backend đang trực tuyến (Hệ thống hiện giữ chế độ Mock Demo).'
+                : 'Đã kết nối thành công với FastAPI Backend! Hệ thống đang dùng API thật (/api/v1).'
             );
-          }
-
-          // Thử khôi phục phiên đăng nhập từ HttpOnly Refresh Cookie (nếu người dùng vừa bấm F5)
-          if (!getUseMock() && !getClientToken()) {
-            const restoreGen = getSessionGeneration();
-            try {
-              const refreshRes = await callRefreshTokenApi(restoreGen);
-              if (restoreGen !== getSessionGeneration()) {
-                return true;
-              }
-              const restoredToken =
-                refreshRes?.data?.access_token ||
-                refreshRes?.data?.accessToken;
-              const restoredCsrf =
-                refreshRes?.headers?.['x-csrf-token'] || null;
-              const restoredUser = normalizeBackendUser(
-                refreshRes?.data?.user
-              );
-
-              if (
-                restoredToken &&
-                typeof restoredToken === 'string' &&
-                restoredUser &&
-                restoredUser.status === 'APPROVED'
-              ) {
-                startAuthenticatedSession(restoredToken, restoredCsrf);
-                setAccessToken(restoredToken);
-                setUser(restoredUser);
-              } else {
-                invalidateSession();
-                setAccessToken(null);
-                setUser(null);
-              }
-            } catch {
-              // Không có cookie phiên cũ hoặc phiên đã hết hạn -> giữ trạng thái chưa đăng nhập
-            }
           }
           return true;
         }
-        throw new Error('Unhealthy');
-      } catch {
-        setBackendOnline(false);
-        // TUYỆT ĐỐI KHÔNG tự động chuyển USE_MOCK sang true khi kiểm tra thất bại!
+
         if (notify) {
           toast.warning(
             'Không thể kết nối tới FastAPI Backend. Vui lòng kiểm tra lại dịch vụ Backend.'
@@ -243,37 +217,38 @@ export function AuthProvider({ children }) {
     [toast]
   );
 
-  // Tự động kiểm tra kết nối Backend ngay khi mở ứng dụng
+  // Tự động kiểm tra kết nối Backend và thử khôi phục phiên từ Cookie ngay khi mở ứng dụng
   useEffect(() => {
     const timer = setTimeout(() => {
-      checkBackendConnection({ notify: false });
+      checkBackendConnection({ notify: false, allowSessionRestore: true });
     }, 0);
     return () => clearTimeout(timer);
   }, [checkBackendConnection]);
 
-  // Chuyển đổi thủ công giữa chế độ API thật và Mock Data:
+  // Chuyển đổi thủ công giữa chế độ API thật và Mock Data qua cơ chế transition duy nhất (FIX-02):
   // Chỉ được phép khi isMockAllowed() === true (Development + VITE_USE_MOCK=true)
   const toggleMockMode = useCallback(async () => {
     if (!isMockAllowed()) {
-      setUseMock(false);
+      transitionAuthMode(false);
       setIsMockMode(false);
+      setUser(null);
+      setAccessToken(null);
       toast.warning(
         'Chế độ Mock đã bị khóa trong môi trường hiện tại. Hệ thống bắt buộc sử dụng API thật.'
       );
       return false;
     }
 
-    // Luôn hủy phiên hiện tại khi chuyển đổi chế độ để không mang theo user/token cũ
-    invalidateSession();
+    const targetMock = !getUseMock();
+    const transition = transitionAuthMode(targetMock);
     setUser(null);
     setAccessToken(null);
+    setIsMockMode(transition.isMockMode);
 
-    if (isMockMode) {
-      setUseMock(false);
-      setIsMockMode(false);
+    if (!transition.isMockMode) {
       const online = await checkBackendConnection({
         notify: false,
-        forceRealIfOnline: true,
+        allowSessionRestore: false,
       });
       if (online) {
         toast.success('Đã chuyển sang chế độ API thật (FastAPI Backend).');
@@ -285,19 +260,16 @@ export function AuthProvider({ children }) {
       return false;
     }
 
-    const enabled = setUseMock(true);
-    setIsMockMode(enabled);
-    if (enabled) {
-      toast.info('Đã chuyển sang chế độ Mock Demo (Dữ liệu mẫu phát triển).');
-    }
-    return enabled;
-  }, [isMockMode, checkBackendConnection, toast]);
+    toast.info('Đã chuyển sang chế độ Mock Demo (Dữ liệu mẫu phát triển).');
+    return true;
+  }, [checkBackendConnection, toast]);
 
-  // Hàm đăng nhập
+  // Hàm đăng nhập có bảo vệ Session Generation & Attempt ID (FIX-01)
   const login = async (email, password) => {
     const normalizedEmail = (email || '').trim().toLowerCase();
+    const loginAttempt = beginLoginAttempt();
 
-    if (getUseMock() && isMockAllowed()) {
+    if (loginAttempt.isMock) {
       const foundUser = usersList.find(
         (u) =>
           u.email.toLowerCase() === normalizedEmail && u.password === password
@@ -305,6 +277,12 @@ export function AuthProvider({ children }) {
 
       if (!foundUser) {
         throw new Error('Thông tin đăng nhập không hợp lệ');
+      }
+
+      if (!canCommitLoginAttempt(loginAttempt)) {
+        throw new Error(
+          'Phiên đăng nhập hoặc chế độ xác thực đã thay đổi. Vui lòng thử lại.'
+        );
       }
 
       const accountStatus = foundUser.status || 'PENDING';
@@ -340,8 +318,18 @@ export function AuthProvider({ children }) {
       };
 
       const token = `mock-access-token-${foundUser.role.toLowerCase()}-${Date.now()}`;
+      const commitResult = commitLoginSession(loginAttempt, {
+        accessToken: token,
+        csrfToken: null,
+        user: sessionUser,
+      });
 
-      startAuthenticatedSession(token, null);
+      if (!commitResult.committed) {
+        throw new Error(
+          'Phiên đăng nhập hoặc chế độ xác thực đã thay đổi. Vui lòng thử lại.'
+        );
+      }
+
       setAccessToken(token);
       setUser(sessionUser);
 
@@ -358,15 +346,25 @@ export function AuthProvider({ children }) {
         password,
       });
 
+      // FIX-01: Nếu trong lúc chờ phản hồi, người dùng đã đổi mode, logout hoặc có lần login mới hơn ->
+      // Từ chối ngay, TUYỆT ĐỐI KHÔNG ghi đè phiên mới hoặc hiển thị thông báo thành công.
+      if (!canCommitLoginAttempt(loginAttempt)) {
+        throw new Error(
+          'Phiên đăng nhập hoặc chế độ xác thực đã thay đổi. Vui lòng thử lại.'
+        );
+      }
+
       const token =
         response?.data?.access_token || response?.data?.accessToken;
       const csrfHeader = response?.headers?.['x-csrf-token'] || null;
       const loggedInUser = normalizeBackendUser(response?.data?.user);
 
       if (!loggedInUser) {
-        invalidateSession();
-        setAccessToken(null);
-        setUser(null);
+        if (canCommitLoginAttempt(loginAttempt)) {
+          invalidateSession();
+          setAccessToken(null);
+          setUser(null);
+        }
         throw new Error(
           'Dữ liệu người dùng từ máy chủ không hợp lệ hoặc thiếu trường bắt buộc.'
         );
@@ -377,6 +375,11 @@ export function AuthProvider({ children }) {
         loggedInUser.status === 'PENDING_APPROVAL' ||
         loggedInUser.status === 'REJECTED'
       ) {
+        if (!canCommitLoginAttempt(loginAttempt)) {
+          throw new Error(
+            'Phiên đăng nhập hoặc chế độ xác thực đã thay đổi. Vui lòng thử lại.'
+          );
+        }
         invalidateSession();
         setAccessToken(null);
         setUser(null);
@@ -388,13 +391,26 @@ export function AuthProvider({ children }) {
         !token ||
         typeof token !== 'string'
       ) {
-        invalidateSession();
-        setAccessToken(null);
-        setUser(null);
+        if (canCommitLoginAttempt(loginAttempt)) {
+          invalidateSession();
+          setAccessToken(null);
+          setUser(null);
+        }
         throw new Error('Máy chủ không cấp phiên xác thực hợp lệ.');
       }
 
-      startAuthenticatedSession(token, csrfHeader);
+      const commitResult = commitLoginSession(loginAttempt, {
+        accessToken: token,
+        csrfToken: csrfHeader,
+        user: loggedInUser,
+      });
+
+      if (!commitResult.committed) {
+        throw new Error(
+          'Phiên đăng nhập hoặc chế độ xác thực đã thay đổi. Vui lòng thử lại.'
+        );
+      }
+
       setAccessToken(token);
       setUser(loggedInUser);
 
@@ -404,7 +420,7 @@ export function AuthProvider({ children }) {
       return loggedInUser;
     } catch (error) {
       // TUYỆT ĐỐI KHÔNG can thiệp hoặc fallback sang mock usersList khi ở Real API mode
-      const msg = getApiErrorMessage(error);
+      const msg = getApiErrorMessage(error) || error?.message;
       throw new Error(
         msg ||
           'Thông tin đăng nhập không chính xác hoặc tài khoản chưa sẵn sàng.'
