@@ -4,7 +4,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
 import {
   validateChangePasswordForm,
-  validateCurrentPassword,
   validateNewPassword,
   validateConfirmPassword,
 } from '../../utils/validation';
@@ -56,23 +55,22 @@ export default function ResetPassword({ onClose, defaultEmail }) {
     confirmPassword: false,
   });
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmittedSuccess, setIsSubmittedSuccess] = useState(false);
-
   // Trạng thái 4A: Form sạch (chưa nhập ký tự nào) -> Vô hiệu hóa nút Cập nhật
   const isFormClean =
     !currentPassword.trim() &&
     !newPassword.trim() &&
     !confirmPassword.trim();
 
-  // Xử lý thay đổi Mật khẩu hiện tại
+  // Xử lý thay đổi Mật khẩu hiện tại:
+  // Chỉ xóa thông báo lỗi cũ khi người dùng gõ lại; việc đối chiếu mật khẩu hiện tại đúng hay sai
+  // chỉ thực hiện khi người dùng bấm nút Cập nhật mật khẩu hoặc nhấn Enter.
   const handleCurrentPasswordChange = (e) => {
     const val = e.target.value;
     setCurrentPassword(val);
-    if (touched.currentPassword) {
+    if (errors.currentPassword) {
       setErrors((prev) => ({
         ...prev,
-        currentPassword: validateCurrentPassword(val, actualPassword),
+        currentPassword: '',
       }));
     }
   };
@@ -112,12 +110,12 @@ export default function ResetPassword({ onClose, defaultEmail }) {
     if (onClose) {
       onClose();
     } else {
-      navigate('/login');
+      navigate('/login', { replace: true });
     }
   };
 
-  // Xử lý nộp biểu mẫu cập nhật mật khẩu
-  const handleSubmit = async (e) => {
+  // Xử lý nộp biểu mẫu cập nhật mật khẩu (Khi bấm nút Cập nhật mật khẩu hoặc nhấn Enter)
+  const handleSubmit = (e) => {
     e.preventDefault();
 
     setTouched({
@@ -126,7 +124,7 @@ export default function ResetPassword({ onClose, defaultEmail }) {
       confirmPassword: true,
     });
 
-    // Thực hiện kiểm tra lỗi toàn diện
+    // Thực hiện kiểm tra lỗi toàn diện (bao gồm kiểm tra Mật khẩu hiện tại đúng hay không)
     const validationResult = validateChangePasswordForm(
       {
         currentPassword,
@@ -143,27 +141,13 @@ export default function ResetPassword({ onClose, defaultEmail }) {
       return;
     }
 
-    setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-
     // Cập nhật mật khẩu mới vào AuthContext
     resetPassword(targetEmail, newPassword);
 
-    setIsSubmitting(false);
-    // Trạng thái 4C: Đóng form hoàn toàn và kích hoạt thông báo Toast thành công
-    setIsSubmittedSuccess(true);
+    // Trạng thái 4C: Đóng form ngay lập tức, kích hoạt thông báo Toast thành công và chuyển về trang Đăng nhập
     toast.success('Mật khẩu đã được cập nhật.');
-
-    // Chuyển hướng về trang Đăng nhập để người dùng trải nghiệm mật khẩu mới
-    setTimeout(() => {
-      handleClose();
-    }, 1200);
+    handleClose();
   };
-
-  // Trạng thái 4C: Form đã đóng, chỉ còn hiển thị thông báo Toast trên màn hình
-  if (isSubmittedSuccess) {
-    return null;
-  }
 
   return (
     <div className={styles.backdrop} role="dialog" aria-modal="true">
@@ -207,16 +191,6 @@ export default function ResetPassword({ onClose, defaultEmail }) {
                 placeholder="Nhập mật khẩu hiện tại"
                 value={currentPassword}
                 onChange={handleCurrentPasswordChange}
-                onBlur={() => {
-                  setTouched((t) => ({ ...t, currentPassword: true }));
-                  setErrors((prev) => ({
-                    ...prev,
-                    currentPassword: validateCurrentPassword(
-                      currentPassword,
-                      actualPassword
-                    ),
-                  }));
-                }}
                 className={`${styles.input} ${
                   errors.currentPassword ? styles.inputError : ''
                 }`}
@@ -396,17 +370,13 @@ export default function ResetPassword({ onClose, defaultEmail }) {
             <button
               type="submit"
               className={styles.submitBtn}
-              disabled={isFormClean || isSubmitting}
+              disabled={isFormClean}
             >
-              {isSubmitting ? (
-                <span className={styles.spinner} aria-hidden="true" />
-              ) : (
-                /* Icon xoay cập nhật tròn theo đúng thiết kế 4A, 4B */
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-              )}
+              {/* Icon xoay cập nhật tròn theo đúng thiết kế 4A, 4B */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
               <span>Cập nhật mật khẩu</span>
             </button>
           </div>
