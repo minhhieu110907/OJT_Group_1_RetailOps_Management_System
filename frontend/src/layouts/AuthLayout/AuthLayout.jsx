@@ -7,6 +7,7 @@ export default function AuthLayout() {
     backendOnline,
     isCheckingBackend,
     isMockMode,
+    canUseMock,
     checkBackendConnection,
     toggleMockMode,
   } = useAuth();
@@ -24,10 +25,10 @@ export default function AuthLayout() {
     statusLabel = 'Backend: Mất kết nối (Cần bật BE)';
     dotClass = styles.statusDotMock;
   } else if (backendOnline && isMockMode) {
-    statusLabel = 'Chế độ: Mock (BE sẵn sàng)';
+    statusLabel = 'Chế độ: Mock Demo (BE sẵn sàng)';
     dotClass = styles.statusDotReady;
   } else {
-    statusLabel = 'Chế độ: Mock (BE ngoại tuyến)';
+    statusLabel = 'Chế độ: Mock Demo (BE ngoại tuyến)';
     dotClass = styles.statusDotMock;
   }
 
@@ -57,17 +58,28 @@ export default function AuthLayout() {
           </div>
         </div>
 
-        {/* Bên phải: Nút kiểm tra kết nối FE - BE & chuyển đổi chế độ API thật / Mock */}
+        {/* Bên phải: Trạng thái kết nối FE - BE (Chỉ cho phép bật/tắt Mock khi môi trường DEV cho phép) */}
         <div className={styles.onlineStatusGroup}>
-          <button
-            type="button"
-            className={styles.onlineStatus}
-            onClick={toggleMockMode}
-            title="Bấm để chuyển đổi giữa chế độ API thật (Backend Docker) và Mock Data"
-          >
-            <span className={dotClass} aria-hidden="true" />
-            <span>{statusLabel}</span>
-          </button>
+          {canUseMock ? (
+            <button
+              type="button"
+              className={styles.onlineStatus}
+              onClick={toggleMockMode}
+              title="Môi trường DEV: Bấm để chuyển đổi giữa API thật và Mock Demo"
+            >
+              <span className={dotClass} aria-hidden="true" />
+              <span>{statusLabel}</span>
+            </button>
+          ) : (
+            <div
+              className={styles.onlineStatus}
+              role="status"
+              title="Trạng thái kết nối tới FastAPI Backend (/api/v1/health)"
+            >
+              <span className={dotClass} aria-hidden="true" />
+              <span>{statusLabel}</span>
+            </div>
+          )}
 
           <button
             type="button"

@@ -39,18 +39,20 @@ function ActiveStatusBadge({ activeStatus }) {
 }
 
 /**
- * Trang Danh sách Sản phẩm chính thức (Khung chuẩn bàn giao cho Tân tích hợp API)
- * - Phân quyền hiển thị theo vai trò:
- *   + ADMIN: Xem đầy đủ cột "Giá vốn", nút "Sửa" (icon bút chì), nút "Xóa" (icon thùng rác) và nút "+ Thêm sản phẩm".
- *   + STAFF: Ẩn hoàn toàn cột "Giá vốn" và ẩn nút "Sửa" sản phẩm.
+ * Trang Danh sách Sản phẩm chính thức (Khung chuẩn bàn giao cho Tân tích hợp API - Task T3C9C86)
+ * - Phân quyền hiển thị theo vai trò & chuẩn hợp đồng dữ liệu ProductRead:
+ *   + Không hiển thị cột "Giá vốn" vì ProductRead không trả trường này và STAFF bị cấm xem giá vốn.
+ *   + ADMIN: Hiển thị cột "THAO TÁC" (Sửa / Ngừng bán) và nút "+ Thêm sản phẩm".
+ *   + STAFF: Chỉ có quyền xem tra cứu tồn kho & giá bán; ẩn hoàn toàn cột "THAO TÁC" và mọi nút chỉnh sửa / đổi trạng thái.
  */
 export default function ProductList() {
-  const { user } = useAuth();
+  const { user, isMockMode, canUseMock } = useAuth();
   const toast = useToast();
 
-  const isStaff = user?.role === 'STAFF';
+  const isStaff = user?.role !== 'ADMIN';
+  const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
-  // 1. Cấu trúc State chuẩn để Tân tiếp quản gọi API thật qua axiosClient
+  // 1. Cấu trúc State chuẩn theo hợp đồng phân trang Backend: { items, total, page, page_size }
   const [searchParams, setSearchParams] = useState({
     keyword: '',
     categoryId: '',
@@ -60,36 +62,41 @@ export default function ProductList() {
   const [data, setData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState({
-    currentPage: 1,
-    pageSize: 10,
+    page: 1,
+    page_size: 10,
+    total: 0,
     totalPages: 1,
-    totalItems: 0,
   });
 
-  // State quản lý Modal xác nhận xóa sản phẩm
-  const [productToDelete, setProductToDelete] = useState(null);
+  // State quản lý Modal xác nhận ngừng bán sản phẩm (Admin-only)
+  const [productToDeactivate, setProductToDeactivate] = useState(null);
 
-  // TODO (Tân - T3C9C86): Gọi API lấy danh sách sản phẩm từ Backend khi searchParams hoặc currentPage thay đổi
+  // TODO (Tân - T3C9C86): Gọi API lấy danh sách sản phẩm từ Backend khi searchParams hoặc page thay đổi
   useEffect(() => {
     let isMounted = true;
 
     const fetchProducts = async () => {
       setIsLoading(true);
       try {
-        // Chuẩn API Contract Backend:
+        // Chuẩn API Contract Backend (GET /api/v1/products):
         // const res = await axiosClient.get('/products', {
         //   params: {
         //     ...searchParams,
-        //     page: pagination.currentPage,
-        //     page_size: pagination.pageSize,
+        //     page: pagination.page,
+        //     page_size: pagination.page_size,
         //   },
         // });
         // if (isMounted) {
-        //   setData(res.data.items || []);
+        //   const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        //   const total = Number(res.data?.total) || 0;
+        //   const pageSize = Number(res.data?.page_size) || pagination.page_size;
+        //   setData(items);
         //   setPagination((prev) => ({
         //     ...prev,
-        //     totalPages: Math.ceil((res.data.total || 0) / (res.data.page_size || 10)),
-        //     totalItems: res.data.total || 0,
+        //     page: Number(res.data?.page) || prev.page,
+        //     page_size: pageSize,
+        //     total,
+        //     totalPages: Math.max(1, Math.ceil(total / pageSize)),
         //   }));
         // }
       } catch {
@@ -108,7 +115,7 @@ export default function ProductList() {
     return () => {
       isMounted = false;
     };
-  }, [searchParams, pagination.currentPage, pagination.pageSize, toast]);
+  }, [searchParams, pagination.page, pagination.page_size, toast]);
 
   // Xử lý thay đổi bộ lọc tìm kiếm
   const handleFilterChange = (e) => {
@@ -119,7 +126,7 @@ export default function ProductList() {
     }));
     setPagination((prev) => ({
       ...prev,
-      currentPage: 1,
+      page: 1,
     }));
   };
 
@@ -127,28 +134,45 @@ export default function ProductList() {
   const handlePageChange = (nextPage) => {
     setPagination((prev) => ({
       ...prev,
-      currentPage: nextPage,
+      page: nextPage,
     }));
   };
 
-  // Xử lý xác nhận xóa sản phẩm trong Modal
-  const handleConfirmDelete = async () => {
-    if (!productToDelete) return;
+  // Xử lý xác nhận chuyển trạng thái Ngừng bán (INACTIVE) trong Modal (Chỉ dành cho ADMIN)
+  const handleConfirmDeactivate = async () => {
+    if (!productToDeactivate || isStaff) {
+      setProductToDeactivate(null);
+      return;
+    }
 
     try {
-      // TODO (Tân - T3C9C86): Gọi API chuyển trạng thái INACTIVE hoặc xóa theo chính sách SRS
-      setData((prev) => prev.filter((item) => item.id !== productToDelete.id));
+      // Trong chế độ Real API khi chưa nối endpoint PATCH /api/v1/products/{id}/status (Task T3C9C86):
+      // Không tự ý xóa hoặc sửa dòng dữ liệu trong state như thể đã cập nhật thành công trên Backend.
+      if (!isMockDemoActive) {
+        toast.info(
+          `Chức năng cập nhật trạng thái sản phẩm "${productToDeactivate.name}" thuộc phạm vi tích hợp API (Task T3C9C86). Chưa có thay đổi nào được ghi nhận.`
+        );
+        return;
+      }
+
+      setData((prev) =>
+        prev.map((item) =>
+          item.id === productToDeactivate.id
+            ? { ...item, status: 'INACTIVE', activeStatus: 'INACTIVE' }
+            : item
+        )
+      );
       toast.info(
-        `Thao tác mô phỏng: Đã xóa tạm "${productToDelete.name}" trên giao diện (Task T3C9C86).`
+        `Chế độ Mock Demo: Đã chuyển "${productToDeactivate.name}" sang trạng thái Ngừng bán.`
       );
     } catch {
-      toast.error('Xóa sản phẩm thất bại. Vui lòng thử lại.');
+      toast.error('Cập nhật trạng thái sản phẩm thất bại. Vui lòng thử lại.');
     } finally {
-      setProductToDelete(null);
+      setProductToDeactivate(null);
     }
   };
 
-  // 2. Cấu hình cột động theo vai trò (Ẩn cột "Giá vốn" và nút "Sửa" nếu user.role === 'STAFF')
+  // 2. Cấu hình cột theo đúng ProductRead schema và RBAC (STAFF chỉ xem, không có cột Giá vốn và không có cột Thao tác)
   const columns = useMemo(() => {
     const baseColumns = [
       {
@@ -165,96 +189,94 @@ export default function ProductList() {
       {
         key: 'category',
         title: 'DANH MỤC',
+        render: (row) => <span>{row.category || row.category_id || '—'}</span>,
       },
-      // Cột GIÁ VỐN: Chỉ hiển thị khi KHÔNG phải là STAFF (tức là ADMIN)
-      ...(!isStaff
-        ? [
-          {
-            key: 'costPrice',
-            title: 'GIÁ VỐN (VND)',
-            align: 'right',
-            width: '140px',
-            render: (row) => (
-              <span className={styles.costPriceText}>
-                {formatVND(row.costPrice)}
-              </span>
-            ),
-          },
-        ]
-        : []),
       {
-        key: 'price',
+        key: 'sale_price_vnd',
         title: 'GIÁ BÁN (VND)',
         align: 'right',
         width: '140px',
         render: (row) => (
-          <span className={styles.priceText}>{formatVND(row.price)}</span>
+          <span className={styles.priceText}>
+            {formatVND(row.sale_price_vnd ?? row.price)}
+          </span>
         ),
       },
       {
-        key: 'stock',
+        key: 'quantity',
         title: 'TỒN KHO',
         align: 'center',
         width: '110px',
-        render: (row) => <span className={styles.stockBadge}>{row.stock}</span>,
+        render: (row) => (
+          <span className={styles.stockBadge}>
+            {row.quantity ?? row.stock ?? 0}
+          </span>
+        ),
       },
       {
-        key: 'status',
+        key: 'stockStatus',
         title: 'TRẠNG THÁI TỒN KHO',
         align: 'center',
         width: '160px',
-        render: (row) => <StockStatusBadge status={row.status} />,
+        render: (row) => (
+          <StockStatusBadge status={row.stockStatus || row.stock_status} />
+        ),
       },
       {
-        key: 'activeStatus',
+        key: 'status',
         title: 'TRẠNG THÁI HOẠT ĐỘNG',
         align: 'center',
         width: '170px',
-        render: (row) => <ActiveStatusBadge activeStatus={row.activeStatus} />,
-      },
-      {
-        key: 'actions',
-        title: 'THAO TÁC',
-        align: 'center',
-        width: '110px',
         render: (row) => (
-          <div className={styles.actionGroup}>
-            {/* Nút Sửa (Icon bút chì): Ẩn hoàn toàn nếu user.role === 'STAFF' */}
-            {!isStaff && (
-              <button
-                type="button"
-                className={`${styles.iconActionBtn} ${styles.editBtn}`}
-                onClick={() =>
-                  toast.info(`Chỉnh sửa sản phẩm: ${row.name}`)
-                }
-                title="Sửa sản phẩm"
-                aria-label="Sửa sản phẩm"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                  <path d="m15 5 4 4" />
-                </svg>
-              </button>
-            )}
-
-            {/* Nút Xóa (Icon thùng rác): Mở Modal xác nhận xóa */}
-            <button
-              type="button"
-              className={`${styles.iconActionBtn} ${styles.deleteBtn}`}
-              onClick={() => setProductToDelete(row)}
-              title="Xóa sản phẩm"
-              aria-label="Xóa sản phẩm"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                <line x1="10" y1="11" x2="10" y2="17" />
-                <line x1="14" y1="11" x2="14" y2="17" />
-              </svg>
-            </button>
-          </div>
+          <ActiveStatusBadge activeStatus={row.activeStatus || row.status} />
         ),
       },
+      // Cột THAO TÁC: Ẩn hoàn toàn đối với STAFF theo quy tắc RBAC
+      ...(!isStaff
+        ? [
+            {
+              key: 'actions',
+              title: 'THAO TÁC',
+              align: 'center',
+              width: '110px',
+              render: (row) => (
+                <div className={styles.actionGroup}>
+                  <button
+                    type="button"
+                    className={`${styles.iconActionBtn} ${styles.editBtn}`}
+                    onClick={() =>
+                      toast.info(
+                        `Chức năng chỉnh sửa sản phẩm "${row.name}" thuộc Task T3C9C86.`
+                      )
+                    }
+                    title="Sửa sản phẩm"
+                    aria-label="Sửa sản phẩm"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      <path d="m15 5 4 4" />
+                    </svg>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`${styles.iconActionBtn} ${styles.deleteBtn}`}
+                    onClick={() => setProductToDeactivate(row)}
+                    title="Ngừng bán sản phẩm"
+                    aria-label="Ngừng bán sản phẩm"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <line x1="10" y1="11" x2="10" y2="17" />
+                      <line x1="14" y1="11" x2="14" y2="17" />
+                    </svg>
+                  </button>
+                </div>
+              ),
+            },
+          ]
+        : []),
     ];
 
     return baseColumns;
@@ -352,43 +374,45 @@ export default function ProductList() {
       {/* 4. Phân trang */}
       <div className={styles.paginationRow}>
         <Pagination
-          currentPage={pagination.currentPage}
+          currentPage={pagination.page}
           totalPages={pagination.totalPages}
           onPageChange={handlePageChange}
         />
       </div>
 
-      {/* 5. Modal xác nhận xóa sản phẩm */}
-      <Modal
-        isOpen={Boolean(productToDelete)}
-        onClose={() => setProductToDelete(null)}
-        title="Xác nhận xóa sản phẩm"
-        maxWidth="420px"
-        footer={
-          <>
-            <button
-              type="button"
-              className={modalStyles.cancelBtn}
-              onClick={() => setProductToDelete(null)}
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              className={modalStyles.dangerBtn}
-              onClick={handleConfirmDelete}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span>Xóa sản phẩm</span>
-            </button>
-          </>
-        }
-      >
-        Bạn muốn xóa sản phẩm này?
-      </Modal>
+      {/* 5. Modal xác nhận ngừng bán sản phẩm (Chỉ hiển thị cho ADMIN) */}
+      {!isStaff && (
+        <Modal
+          isOpen={Boolean(productToDeactivate)}
+          onClose={() => setProductToDeactivate(null)}
+          title="Xác nhận ngừng bán sản phẩm"
+          maxWidth="420px"
+          footer={
+            <>
+              <button
+                type="button"
+                className={modalStyles.cancelBtn}
+                onClick={() => setProductToDeactivate(null)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className={modalStyles.dangerBtn}
+                onClick={handleConfirmDeactivate}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                <span>Ngừng bán</span>
+              </button>
+            </>
+          }
+        >
+          Bạn có chắc chắn muốn chuyển sản phẩm này sang trạng thái ngừng bán (INACTIVE)?
+        </Modal>
+      )}
     </div>
   );
 }

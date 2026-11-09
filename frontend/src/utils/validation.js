@@ -178,7 +178,7 @@ export function validateCurrentPassword(currentPassword, actualPassword) {
   if (!val) {
     return 'Vui lòng nhập mật khẩu hiện tại.';
   }
-  if (actualPassword && val !== actualPassword) {
+  if (!actualPassword || val !== actualPassword) {
     return 'Mật khẩu hiện tại không đúng.';
   }
   return '';
@@ -208,13 +208,19 @@ export function validateNewPassword(password) {
 }
 
 /**
- * Validate toàn bộ Form Đổi mật khẩu / Đặt lại mật khẩu (Trạng thái 4A, 4B)
+ * Validate toàn bộ Form Đổi mật khẩu của người dùng đang đăng nhập (Change Password)
  * @param {{ currentPassword?: string, newPassword?: string, confirmPassword?: string }} values
- * @param {string} [actualPassword]
+ * @param {string | null} [expectedMockPassword] - Chỉ truyền khi ở chế độ Mock Demo
  */
-export function validateChangePasswordForm(values = {}, actualPassword = '') {
+export function validateChangePasswordForm(
+  values = {},
+  expectedMockPassword = null
+) {
   const errors = {
-    currentPassword: validateCurrentPassword(values.currentPassword, actualPassword),
+    currentPassword: validateCurrentPassword(
+      values.currentPassword,
+      expectedMockPassword
+    ),
     newPassword: validateNewPassword(values.newPassword),
     confirmPassword: validateConfirmPassword(
       values.newPassword,
@@ -223,7 +229,32 @@ export function validateChangePasswordForm(values = {}, actualPassword = '') {
   };
 
   return {
-    isValid: !errors.currentPassword && !errors.newPassword && !errors.confirmPassword,
+    isValid:
+      !errors.currentPassword && !errors.newPassword && !errors.confirmPassword,
+    errors,
+  };
+}
+
+/**
+ * Validate Form Đặt lại mật khẩu qua Email Token (Reset Password via One-Time Token)
+ * Tách biệt hoàn toàn với nghiệp vụ Change Password của người dùng đang đăng nhập.
+ * @param {{ token?: string, newPassword?: string, confirmPassword?: string }} values
+ */
+export function validateResetPasswordByTokenForm(values = {}) {
+  const tokenVal = String(values.token || '').trim();
+  const errors = {
+    token: tokenVal
+      ? ''
+      : 'Mã xác thực đặt lại mật khẩu (token) không hợp lệ hoặc đã thiếu.',
+    newPassword: validateNewPassword(values.newPassword),
+    confirmPassword: validateConfirmPassword(
+      values.newPassword,
+      values.confirmPassword
+    ),
+  };
+
+  return {
+    isValid: !errors.token && !errors.newPassword && !errors.confirmPassword,
     errors,
   };
 }

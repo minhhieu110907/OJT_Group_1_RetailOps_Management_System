@@ -4,15 +4,42 @@ import axios from 'axios';
  * ============================================================================
  * CẤU HÌNH TRUNG TÂM MẠNG & BẢO MẬT PHIÊN (RetailOps v1.0)
  * ============================================================================
- * - USE_MOCK = false: Gọi trực tiếp các endpoint thật của FastAPI Backend (`/api/v1/auth/*`).
- * - USE_MOCK = true: Chế độ giả lập tại Client khi chưa bật Docker Backend.
- *   Hệ thống tự động phát hiện trạng thái Backend qua `/api/v1/health` và cho phép
- *   chuyển đổi trực tiếp trên giao diện.
+ * Bảo mật Mock Isolation (FIX-01):
+ * - Production build BẮT BUỘC dùng Real API (`isMockAllowed() === false`).
+ * - Development mặc định dùng Real API; chỉ cho phép bật Mock khi chạy ở
+ *   môi trường DEV và cấu hình tường minh `VITE_USE_MOCK=true`.
  */
-export let USE_MOCK = import.meta.env?.VITE_USE_MOCK === 'true';
+export function isMockAllowed(runtimeEnv = import.meta.env) {
+  if (!runtimeEnv || typeof runtimeEnv !== 'object') {
+    return false;
+  }
+  const isDevEnvironment =
+    runtimeEnv.DEV === true &&
+    runtimeEnv.PROD !== true &&
+    runtimeEnv.MODE !== 'production';
+  const isExplicitlyEnabled =
+    String(runtimeEnv.VITE_USE_MOCK || '')
+      .trim()
+      .toLowerCase() === 'true';
+  return Boolean(isDevEnvironment && isExplicitlyEnabled);
+}
 
-export function setUseMock(value) {
-  USE_MOCK = Boolean(value);
+export let USE_MOCK = isMockAllowed();
+
+export function setUseMock(value, runtimeEnv = import.meta.env) {
+  if (!isMockAllowed(runtimeEnv)) {
+    if (USE_MOCK) {
+      USE_MOCK = false;
+      invalidateSession();
+    }
+    return false;
+  }
+  const next = Boolean(value);
+  if (USE_MOCK !== next) {
+    USE_MOCK = next;
+    invalidateSession();
+  }
+  return USE_MOCK;
 }
 
 export function getUseMock() {
@@ -39,12 +66,12 @@ export function getApiErrorMessage(error) {
 
   if (error?.response) {
     const status = error.response.status;
-    const detail = error.response.data?.detail || error.response.data?.message;
+    const detail = error.response.data?.message || error.response.data?.detail;
     if (typeof detail === 'string' && detail.trim().length > 0) {
       return detail;
     }
     if (status >= 500) {
-      return 'Máy chủ FastAPI phản hồi lỗi kết nối hoặc dịch vụ tạm thời chưa sẵn sàng. Hãy đảm bảo Backend đang chạy tại cổng đã cấu hình.';
+      return 'Máy chủ FastAPI phản hồi lỗi kết nối hoặc dịch vụ tạm thời chưa sẵn sàng.';
     }
     return `Máy chủ trả về trạng thái không mong đợi (HTTP ${status}).`;
   }
@@ -53,19 +80,85 @@ export function getApiErrorMessage(error) {
 }
 
 // ============================================================================
-// 1. QUẢN LÝ ACCESS TOKEN & CSRF TOKEN TRONG BỘ NHỚ RAM (IN-MEMORY)
+// 1. QUẢN LÝ ACCESS TOKEN, CSRF TOKEN & SESSION GENERATION TRONG BỘ NHỚ RAM
 // Tuyệt đối KHÔNG lưu vào localStorage hay sessionStorage để chống tấn công XSS
 // ============================================================================
 let inMemoryToken = null;
 let inMemoryCsrfToken = null;
 let currentSessionGeneration = 0;
+let isRefreshing = false;
+let activeRefreshGeneration = -1;
+let failedQueue = [];
 
+let authTransport = axios;
+
+export function setAuthTransport(customTransport) {
+  authTransport = customTransport || axios;
+}
+
+export function getSessionGeneration() {
+  return currentSessionGeneration;
+}
+
+/**
+ * Giải phóng hoặc từ chối các request đang chờ trong hàng đợi của đúng phiên chỉ định
+ */
+function processQueue(
+  error,
+  token = null,
+  expectedGeneration = currentSessionGeneration
+) {
+  const queueSnapshot = failedQueue;
+  failedQueue = [];
+  queueSnapshot.forEach((entry) => {
+    if (error) {
+      entry.reject(error);
+    } else if (
+      entry.generation !== expectedGeneration ||
+      expectedGeneration !== currentSessionGeneration
+    ) {
+      entry.reject(
+        new Error('Yêu cầu thuộc phiên làm việc cũ đã bị hủy bỏ.')
+      );
+    } else {
+      entry.resolve(token);
+    }
+  });
+}
+
+/**
+ * Hủy bỏ phiên hiện tại, tăng generation và giải phóng hàng đợi chờ refresh.
+ * Ngăn mọi request hoặc refresh cũ hồi sinh phiên hoặc ghi đè phiên mới.
+ */
 export function invalidateSession() {
   currentSessionGeneration += 1;
   inMemoryToken = null;
   inMemoryCsrfToken = null;
-  processQueue(new Error('Phiên làm việc đã bị hủy hoặc người dùng đã đăng xuất.'), null);
   isRefreshing = false;
+  activeRefreshGeneration = -1;
+  processQueue(
+    new Error('Phiên làm việc đã bị hủy hoặc người dùng đã đăng xuất.'),
+    null,
+    -1
+  );
+  return currentSessionGeneration;
+}
+
+/**
+ * Tạo ranh giới phiên xác thực mới khi đăng nhập hoặc khôi phục phiên thành công.
+ */
+export function startAuthenticatedSession(accessToken, csrfToken = null) {
+  currentSessionGeneration += 1;
+  inMemoryToken = accessToken || null;
+  inMemoryCsrfToken = csrfToken || null;
+  isRefreshing = false;
+  activeRefreshGeneration = -1;
+  processQueue(
+    new Error('Phiên làm việc đã chuyển sang phiên xác thực mới.'),
+    null,
+    -1
+  );
+  return currentSessionGeneration;
 }
 
 export function setClientToken(token) {
@@ -86,22 +179,34 @@ export function getCsrfToken() {
 
 /**
  * Lấy CSRF Token từ Backend (`GET /api/v1/auth/csrf`) nếu trong RAM chưa có.
- * Phục vụ các mutation yêu cầu bảo vệ CSRF (`POST /auth/refresh`, `POST /auth/logout`).
+ * Có kiểm tra session generation để không ghi đè trạng thái của phiên khác.
  */
-export async function ensureCsrfToken() {
+export async function ensureCsrfToken(
+  expectedGeneration = currentSessionGeneration
+) {
+  if (expectedGeneration !== currentSessionGeneration) {
+    return null;
+  }
   if (inMemoryCsrfToken) {
     return inMemoryCsrfToken;
   }
+  const tokenSnapshot = inMemoryToken;
   try {
-    const response = await axios.get(`${BASE_URL}/auth/csrf`, {
+    const response = await authTransport.get(`${BASE_URL}/auth/csrf`, {
+      timeout,
       withCredentials: true,
-      headers: inMemoryToken
-        ? { Authorization: `Bearer ${inMemoryToken}` }
+      headers: tokenSnapshot
+        ? { Authorization: `Bearer ${tokenSnapshot}` }
         : {},
     });
+    if (expectedGeneration !== currentSessionGeneration) {
+      return null;
+    }
     const token =
-      response?.data?.csrf_token || response?.headers?.['x-csrf-token'] || null;
-    if (token) {
+      response?.data?.csrf_token ||
+      response?.headers?.['x-csrf-token'] ||
+      null;
+    if (token && typeof token === 'string') {
       inMemoryCsrfToken = token;
     }
     return inMemoryCsrfToken;
@@ -136,36 +241,45 @@ const axiosClient = axios.create({
     'Content-Type': 'application/json',
     Accept: 'application/json',
   },
-  withCredentials: true, // Tự động đính kèm HttpOnly Refresh Cookie & CSRF Cookie
+  withCredentials: true,
 });
 
 export const apiClient = axiosClient;
 
 // ============================================================================
-// 4. HÀM GỌI REFRESH TOKEN ĐỘC LẬP (TRÁNH INFINITE LOOP)
-// Sử dụng `axios.post` gốc (KHÔNG đi qua axiosClient) để nếu /auth/refresh
-// trả về 401 thì không bị Response Interceptor bắt lại gây vòng lặp vô tận.
+// 4. HÀM GỌI REFRESH TOKEN & LOGOUT ĐỘC LẬP (TRÁNH INFINITE LOOP)
 // ============================================================================
-export async function callRefreshTokenApi() {
-  if (USE_MOCK) {
-    return new Promise((resolve) => {
+export async function callRefreshTokenApi(
+  expectedGeneration = currentSessionGeneration
+) {
+  if (USE_MOCK && isMockAllowed()) {
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
+        if (expectedGeneration !== currentSessionGeneration) {
+          reject(new Error('Phiên làm việc đã thay đổi trong lúc refresh.'));
+          return;
+        }
         resolve({
           data: {
             access_token: `mock-refreshed-token-${Date.now()}`,
           },
         });
-      }, 600);
+      }, 100);
     });
   }
 
-  // Đảm bảo có X-CSRF-Token theo đúng yêu cầu của Backend (/api/v1/auth/refresh)
-  const csrfToken = inMemoryCsrfToken || (await ensureCsrfToken());
+  const csrfToken =
+    inMemoryCsrfToken || (await ensureCsrfToken(expectedGeneration));
 
-  const response = await axios.post(
+  if (expectedGeneration !== currentSessionGeneration) {
+    throw new Error('Phiên làm việc đã thay đổi trước khi gọi refresh.');
+  }
+
+  const response = await authTransport.post(
     `${BASE_URL}/auth/refresh`,
     {},
     {
+      timeout,
       headers: {
         'Content-Type': 'application/json',
         ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
@@ -174,23 +288,103 @@ export async function callRefreshTokenApi() {
     }
   );
 
+  if (expectedGeneration !== currentSessionGeneration) {
+    throw new Error('Phiên làm việc đã thay đổi sau khi gọi refresh.');
+  }
+
   const nextCsrf = response?.headers?.['x-csrf-token'];
-  if (nextCsrf) {
+  if (nextCsrf && expectedGeneration === currentSessionGeneration) {
     setCsrfToken(nextCsrf);
   }
 
   return response;
 }
 
+/**
+ * Gửi yêu cầu hủy phiên lên Server (`POST /api/v1/auth/logout`) sử dụng snapshot
+ * của phiên vừa đóng, không ghi lại bất kỳ token nào vào RAM.
+ */
+export async function callLogoutApi({
+  accessToken = null,
+  csrfToken = null,
+} = {}) {
+  if (USE_MOCK && isMockAllowed()) {
+    return { revoked: true, isMock: true };
+  }
+
+  let csrfToUse = csrfToken;
+  if (!csrfToUse) {
+    try {
+      const csrfRes = await authTransport.get(`${BASE_URL}/auth/csrf`, {
+        timeout,
+        withCredentials: true,
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : {},
+      });
+      csrfToUse =
+        csrfRes?.data?.csrf_token ||
+        csrfRes?.headers?.['x-csrf-token'] ||
+        null;
+    } catch {
+      csrfToUse = null;
+    }
+  }
+
+  if (!csrfToUse) {
+    return { revoked: false, reason: 'CSRF_UNAVAILABLE' };
+  }
+
+  try {
+    const response = await authTransport.post(
+      `${BASE_URL}/auth/logout`,
+      {},
+      {
+        timeout,
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToUse,
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+      }
+    );
+    const revoked = response?.status === 204 || response?.status === 200;
+    return { revoked };
+  } catch (error) {
+    return { revoked: false, error };
+  }
+}
+
 // ============================================================================
-// 5. REQUEST INTERCEPTOR: ĐÍNH KÈM BEARER TOKEN & X-CSRF-TOKEN VÀO HEADER
+// 5. REQUEST INTERCEPTOR: GẮN SESSION GENERATION, BEARER TOKEN & X-CSRF-TOKEN
 // ============================================================================
 axiosClient.interceptors.request.use(
   (config) => {
     config.headers = config.headers || {};
+
+    // Nếu là request retry nhưng phiên đã thay đổi -> chặn ngay trước khi gửi
+    if (
+      config._retry &&
+      typeof config._sessionGeneration === 'number' &&
+      config._sessionGeneration !== currentSessionGeneration
+    ) {
+      return Promise.reject(
+        new Error('Hủy retry request do phiên làm việc đã thay đổi.')
+      );
+    }
+
+    if (typeof config._sessionGeneration !== 'number') {
+      config._sessionGeneration = currentSessionGeneration;
+    }
+    config._hadAuthToken = Boolean(inMemoryToken);
+
     if (inMemoryToken) {
       config.headers.Authorization = `Bearer ${inMemoryToken}`;
+    } else if (config.headers.Authorization) {
+      delete config.headers.Authorization;
     }
+
     if (inMemoryCsrfToken) {
       config.headers['X-CSRF-Token'] = inMemoryCsrfToken;
     }
@@ -200,30 +394,16 @@ axiosClient.interceptors.request.use(
 );
 
 // ============================================================================
-// 6. RESPONSE INTERCEPTOR & HÀNG ĐỢI MUTEX (SINGLE-FLIGHT REFRESH KHI GẶP 401)
+// 6. RESPONSE INTERCEPTOR & HÀNG ĐỢI SINGLE-FLIGHT REFRESH KHI GẶP 401
 // ============================================================================
-let isRefreshing = false;
-let failedQueue = [];
-
-/**
- * Giải phóng hoặc từ chối toàn bộ các request đang nằm chờ trong failedQueue
- */
-function processQueue(error, token = null) {
-  failedQueue.forEach((promise) => {
-    if (error) {
-      promise.reject(error);
-    } else {
-      promise.resolve(token);
-    }
-  });
-  failedQueue = [];
-}
-
 axiosClient.interceptors.response.use(
   (response) => {
-    // Tự động lưu X-CSRF-Token nếu Backend trả về trong response header (ví dụ sau /auth/login)
+    const reqGen = response?.config?._sessionGeneration;
     const csrfHeader = response?.headers?.['x-csrf-token'];
-    if (csrfHeader) {
+    if (
+      csrfHeader &&
+      (typeof reqGen !== 'number' || reqGen === currentSessionGeneration)
+    ) {
       setCsrfToken(csrfHeader);
     }
     return response;
@@ -238,30 +418,53 @@ axiosClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Nếu không có config của request gốc hoặc không phải lỗi 401 -> Trả lỗi ngay
     if (!originalRequest || status !== 401) {
       return Promise.reject(error);
     }
 
-    // 2. Bỏ qua logic refresh cho các route xác thực ban đầu
+    // 2. Bỏ qua logic refresh cho các route xác thực hoặc request đã retry
     const requestUrl = originalRequest.url || '';
-    const isInitialAuthRoute =
+    const isAuthLifecycleRoute =
       requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/register') ||
       requestUrl.includes('/auth/refresh') ||
-      requestUrl.includes('/auth/csrf');
+      requestUrl.includes('/auth/csrf') ||
+      requestUrl.includes('/auth/logout');
 
-    if (isInitialAuthRoute || originalRequest._retry) {
+    if (isAuthLifecycleRoute || originalRequest._retry) {
       return Promise.reject(error);
     }
 
-    // 3. Xử lý đồng thời (Single-Flight Concurrency):
-    // Nếu đang có 1 tiến trình refresh chạy, đẩy các request 401 đến sau vào failedQueue
-    if (isRefreshing) {
+    // 3. Kiểm tra cô lập thế hệ phiên (Session Generation Isolation):
+    // Nếu request được gửi từ phiên cũ hoặc khi chưa đăng nhập -> Từ chối ngay,
+    // TUYỆT ĐỐI KHÔNG refresh hoặc retry bằng token của phiên mới.
+    const requestGeneration = originalRequest._sessionGeneration;
+    if (
+      typeof requestGeneration !== 'number' ||
+      requestGeneration !== currentSessionGeneration ||
+      !originalRequest._hadAuthToken ||
+      !inMemoryToken
+    ) {
+      return Promise.reject(error);
+    }
+
+    // 4. Xử lý đồng thời (Single-Flight Concurrency) trong cùng một thế hệ phiên:
+    if (isRefreshing && activeRefreshGeneration === requestGeneration) {
       return new Promise((resolve, reject) => {
-        failedQueue.push({ resolve, reject });
+        failedQueue.push({
+          resolve,
+          reject,
+          generation: requestGeneration,
+        });
       })
         .then((newToken) => {
+          if (requestGeneration !== currentSessionGeneration) {
+            return Promise.reject(
+              new Error('Phiên làm việc đã thay đổi, hủy retry request cũ.')
+            );
+          }
+          originalRequest._retry = true;
+          originalRequest._sessionGeneration = currentSessionGeneration;
           originalRequest.headers = originalRequest.headers || {};
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return axiosClient(originalRequest);
@@ -269,62 +472,201 @@ axiosClient.interceptors.response.use(
         .catch((queueError) => Promise.reject(queueError));
     }
 
-    // Đánh dấu request đầu tiên kích hoạt luồng làm mới token
+    // Đánh dấu request đầu tiên của phiên hiện hành kích hoạt luồng làm mới token
     originalRequest._retry = true;
     isRefreshing = true;
-    const sessionAtRefreshStart = currentSessionGeneration;
+    activeRefreshGeneration = requestGeneration;
 
     try {
-      const response = await callRefreshTokenApi();
+      const response = await callRefreshTokenApi(requestGeneration);
 
-      // Nếu trong lúc refresh mà user đã bấm logout hoặc phiên bị hủy -> Hủy bỏ ngay, không hồi sinh phiên
-      if (sessionAtRefreshStart !== currentSessionGeneration) {
-        throw new Error('Phiên làm việc đã bị hủy trong khi đang làm mới token.');
+      if (requestGeneration !== currentSessionGeneration) {
+        throw new Error(
+          'Phiên làm việc đã bị hủy hoặc thay đổi trong khi đang làm mới token.'
+        );
       }
 
       const newAccessToken =
         response?.data?.access_token || response?.data?.accessToken;
 
-      if (!newAccessToken) {
-        throw new Error('Không nhận được access_token mới từ API refresh');
+      if (!newAccessToken || typeof newAccessToken !== 'string') {
+        throw new Error('Không nhận được access_token hợp lệ từ API refresh');
       }
 
-      // Kịch bản Refresh THÀNH CÔNG:
-      // a) Lưu token mới vào biến cục bộ inMemoryToken
       setClientToken(newAccessToken);
 
-      // b) Báo cho AuthContext cập nhật state accessToken (và user nếu có)
       if (authCallbacks.onTokenRefreshed) {
-        authCallbacks.onTokenRefreshed(newAccessToken, response?.data?.user);
+        authCallbacks.onTokenRefreshed(
+          newAccessToken,
+          response?.data?.user,
+          requestGeneration
+        );
       }
 
-      // c) Giải phóng toàn bộ các request đang chờ trong hàng đợi
-      processQueue(null, newAccessToken);
+      // Nếu callback phát hiện thông tin user vi phạm contract và đã hủy phiên:
+      if (requestGeneration !== currentSessionGeneration) {
+        throw new Error(
+          'Phiên làm việc bị đóng do dữ liệu xác thực trả về không hợp lệ.'
+        );
+      }
 
-      // d) Gắn token mới vào request gốc và thực hiện gọi lại (retry)
+      processQueue(null, newAccessToken, requestGeneration);
+
+      originalRequest._sessionGeneration = currentSessionGeneration;
       originalRequest.headers = originalRequest.headers || {};
       originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
       return axiosClient(originalRequest);
     } catch (refreshError) {
-      // Kịch bản Refresh THẤT BẠI (Phiên hết hạn hoàn toàn):
-      // a) Hủy toàn bộ hàng đợi đang chờ
-      processQueue(refreshError, null);
+      processQueue(refreshError, null, requestGeneration);
 
-      // b) Xóa sạch token trong RAM
-      setClientToken(null);
-      setCsrfToken(null);
-
-      // c) Gọi callback để AuthContext thực hiện logout() và điều hướng về /login
-      // Chỉ kích hoạt callback nếu phiên chưa bị hủy bởi logout chủ động trước đó
-      if (authCallbacks.onAuthFailed && sessionAtRefreshStart === currentSessionGeneration) {
-        authCallbacks.onAuthFailed();
+      // Chỉ xóa trạng thái và gọi onAuthFailed nếu vẫn đang ở đúng thế hệ phiên của refresh này
+      if (requestGeneration === currentSessionGeneration) {
+        invalidateSession();
+        if (authCallbacks.onAuthFailed) {
+          authCallbacks.onAuthFailed();
+        }
       }
 
       return Promise.reject(refreshError);
     } finally {
-      isRefreshing = false;
+      if (activeRefreshGeneration === requestGeneration) {
+        isRefreshing = false;
+        activeRefreshGeneration = -1;
+      }
     }
   }
 );
+
+// ============================================================================
+// 7. DEFENSIVE USER NORMALIZATION & ROUTE ACCESS EVALUATION (FAIL-CLOSED)
+// ============================================================================
+const VALID_ROLES = new Set(['ADMIN', 'STAFF']);
+const VALID_BACKEND_STATUSES = new Set([
+  'ACTIVE',
+  'APPROVED',
+  'PENDING_APPROVAL',
+  'PENDING',
+  'REJECTED',
+]);
+
+/**
+ * Chuẩn hóa đối tượng user trả về từ FastAPI Backend (`AuthenticatedUser`)
+ * theo cơ chế Fail-Closed (FIX-07):
+ * - Bắt buộc có `id`, `email_normalized`/`email`, `role` hợp lệ và `status` hợp lệ.
+ * - Tuyệt đối KHÔNG mặc định `status = ACTIVE` hay `role = STAFF` khi thiếu dữ liệu.
+ * - Không trộn dữ liệu từ `usersList` của Mock vào đối tượng xác thực của Backend.
+ */
+export function normalizeBackendUser(rawUser) {
+  if (!rawUser || typeof rawUser !== 'object') {
+    return null;
+  }
+
+  const rawId = rawUser.id;
+  const hasValidId =
+    (typeof rawId === 'number' && Number.isInteger(rawId) && rawId > 0) ||
+    (typeof rawId === 'string' && rawId.trim().length > 0);
+  if (!hasValidId) {
+    return null;
+  }
+
+  const email = String(rawUser.email_normalized || rawUser.email || '')
+    .trim()
+    .toLowerCase();
+  if (!email || !email.includes('@')) {
+    return null;
+  }
+
+  const role =
+    typeof rawUser.role === 'string' ? rawUser.role.trim().toUpperCase() : '';
+  if (!VALID_ROLES.has(role)) {
+    return null;
+  }
+
+  const rawStatus =
+    typeof rawUser.status === 'string'
+      ? rawUser.status.trim().toUpperCase()
+      : '';
+  if (!VALID_BACKEND_STATUSES.has(rawStatus)) {
+    return null;
+  }
+
+  const mappedStatus =
+    rawStatus === 'ACTIVE'
+      ? 'APPROVED'
+      : rawStatus === 'PENDING_APPROVAL'
+        ? 'PENDING'
+        : rawStatus;
+
+  const fallbackName =
+    role === 'ADMIN'
+      ? 'Quản trị viên (Admin)'
+      : email.split('@')[0] || 'Nhân viên RetailOps';
+
+  return {
+    id: rawId,
+    name:
+      typeof rawUser.name === 'string' && rawUser.name.trim()
+        ? rawUser.name.trim()
+        : fallbackName,
+    email,
+    role,
+    status: mappedStatus,
+    rawStatus,
+    submittedAt: rawUser.submittedAt || null,
+    rejectReason: rawUser.rejectReason || null,
+    rejectSubState: rawUser.rejectSubState || 'LOCKED_24H',
+  };
+}
+
+/**
+ * Đánh giá quyền truy cập route theo nguyên tắc Fail-Closed (FIX-07).
+ */
+export function evaluateRouteAccess({
+  user,
+  accessToken,
+  authInitializing,
+  allowedRoles = [],
+}) {
+  if (authInitializing) {
+    return { action: 'WAIT' };
+  }
+
+  if (!user || typeof user !== 'object') {
+    return { action: 'REDIRECT_LOGIN' };
+  }
+
+  if (
+    user.status === 'PENDING' ||
+    user.status === 'PENDING_APPROVAL' ||
+    user.status === 'REJECTED'
+  ) {
+    return { action: 'REDIRECT_ACCOUNT_STATUS' };
+  }
+
+  const isApproved =
+    user.status === 'APPROVED' || user.status === 'ACTIVE';
+  const hasValidRole = VALID_ROLES.has(user.role);
+  const hasValidToken =
+    typeof accessToken === 'string' && accessToken.trim().length > 0;
+
+  if (!isApproved || !hasValidRole || !hasValidToken) {
+    return { action: 'REDIRECT_LOGIN' };
+  }
+
+  if (
+    Array.isArray(allowedRoles) &&
+    allowedRoles.length > 0 &&
+    !allowedRoles.includes(user.role)
+  ) {
+    const fallbackPath = user.role === 'STAFF' ? '/pos' : '/dashboard';
+    return {
+      action: 'REDIRECT_ROLE_HOME',
+      to: fallbackPath,
+      target: fallbackPath,
+    };
+  }
+
+  return { action: 'ALLOW' };
+}
 
 export default axiosClient;

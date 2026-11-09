@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Modal } from '../../components/common';
+import { Modal, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import styles from './MainLayout.module.css';
 
@@ -132,6 +132,7 @@ export const MENU_ITEMS = [
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
@@ -147,7 +148,12 @@ export default function Sidebar() {
   // Xác nhận đăng xuất thực sự khi bấm nút "Đăng xuất" màu đỏ trong Modal
   const handleConfirmLogout = async () => {
     setIsLogoutModalOpen(false);
-    await logout();
+    const logoutResult = await logout();
+    if (logoutResult?.localOnly && !logoutResult?.serverRevoked) {
+      toast.warning(
+        'Đã xóa phiên làm việc trên thiết bị này, nhưng chưa thể xác nhận thu hồi phiên từ máy chủ.'
+      );
+    }
     navigate('/login', { replace: true });
   };
 

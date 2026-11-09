@@ -131,20 +131,38 @@ export default function Register() {
 
     setIsSubmitting(true);
     try {
-      // Lưu tài khoản mới vào AuthContext (hoặc gọi POST /api/v1/auth/register khi nối BE)
-      const newAccount = await register(formData);
-      toast.success('Gửi yêu cầu đăng ký thành công! Hồ sơ đang chờ phê duyệt.');
+      const registrationResult = await register(formData);
 
-      // Tự động điều hướng sang /account-status ở trạng thái PENDING kèm thông tin hồ sơ
-      navigate('/account-status', {
-        replace: true,
-        state: {
-          status: 'PENDING',
-          fullName: newAccount.name,
-          email: newAccount.email,
-          submittedAt: newAccount.submittedAt,
-        },
-      });
+      if (registrationResult?.isMock) {
+        toast.success(
+          'Gửi yêu cầu đăng ký thành công (Chế độ Mock Demo)! Hồ sơ đang chờ phê duyệt.'
+        );
+        navigate('/account-status', {
+          replace: true,
+          state: {
+            status: 'PENDING',
+            isUnverifiedSubmission: false,
+            fullName: registrationResult.name,
+            email: registrationResult.email,
+            submittedAt: registrationResult.submittedAt,
+          },
+        });
+      } else {
+        toast.info(
+          'Yêu cầu đăng ký đã được tiếp nhận. Nếu thông tin hợp lệ, Quản trị viên sẽ xem xét hồ sơ.'
+        );
+        navigate('/account-status', {
+          replace: true,
+          state: {
+            status: 'SUBMITTED',
+            isUnverifiedSubmission: true,
+            fullName: registrationResult.fullName,
+            email: registrationResult.email,
+            submittedAt: registrationResult.submittedAt,
+            serverMessage: registrationResult.message,
+          },
+        });
+      }
     } catch (error) {
       setErrorMsg(
         error?.message || 'Không thể gửi yêu cầu đăng ký. Vui lòng thử lại.'

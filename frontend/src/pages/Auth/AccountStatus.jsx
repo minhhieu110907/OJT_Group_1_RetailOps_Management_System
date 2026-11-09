@@ -14,23 +14,30 @@ function getHaNoiCurrentTime() {
   }).format(new Date());
 }
 
-// Dữ liệu hồ sơ mẫu mặc định khi truy cập trực tiếp /account-status
+// Dữ liệu hồ sơ mẫu không nhạy cảm khi truy cập trực tiếp /account-status
 const FALLBACK_PROFILE = {
-  fullName: 'Nguyễn Văn An',
-  email: 'an.nguyen@retailops.vn',
+  fullName: 'Nhân viên Mẫu (Chưa xác thực)',
+  email: 'nhanvien.demo@retailops.local',
   submittedAt: '09:30 - 07/11/2026 (Asia/Ha_Noi)',
   rejectReason:
-    'Email đăng ký chưa nằm trong danh sách phân ca nhân sự tháng 11/2026 tại cửa hàng. Vui lòng xác nhận lại với Cửa hàng trưởng trước khi gửi lại yêu cầu.',
+    'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
 };
 
 export default function AccountStatus() {
   const location = useLocation();
   const navigate = useNavigate();
   const toast = useToast();
-  const { isMockMode, checkBackendConnection } = useAuth();
+  const { isMockMode, canUseMock, checkBackendConnection } = useAuth();
+  const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
   // Lấy dữ liệu truyền từ Register.jsx / Login.jsx qua location.state hoặc dùng fallback
   const incomingState = location.state || {};
+  const isUnverifiedSubmission =
+    !isMockDemoActive &&
+    (incomingState.isUnverifiedSubmission !== false ||
+      incomingState.status === 'SUBMITTED' ||
+      !incomingState.status);
+
   const profile = {
     fullName: incomingState.fullName || FALLBACK_PROFILE.fullName,
     email: incomingState.email || FALLBACK_PROFILE.email,
@@ -39,10 +46,10 @@ export default function AccountStatus() {
   };
 
   // Trạng thái chính của hồ sơ: 'PENDING' | 'APPROVED' | 'REJECTED'
-  // Chuẩn hóa tương thích với Backend enum (PENDING_APPROVAL -> PENDING, ACTIVE -> APPROVED)
+  // Chuẩn hóa tương thích với Backend enum (PENDING_APPROVAL / SUBMITTED -> PENDING, ACTIVE -> APPROVED)
   const rawStatus = incomingState.status;
   const initialStatus =
-    rawStatus === 'PENDING_APPROVAL'
+    rawStatus === 'PENDING_APPROVAL' || rawStatus === 'SUBMITTED'
       ? 'PENDING'
       : rawStatus === 'ACTIVE'
       ? 'APPROVED'
@@ -60,7 +67,7 @@ export default function AccountStatus() {
   // Thời gian cập nhật lần cuối (HH:mm Asia/Ha_Noi)
   const [lastUpdated, setLastUpdated] = useState(() => getHaNoiCurrentTime());
 
-  // Hiệu ứng loading khi bấm kiểm tra trạng thái (300ms - 500ms)
+  // Hiệu ứng loading khi bấm kiểm tra trạng thái
   const [isChecking, setIsChecking] = useState(false);
 
   // Khối lỗi kết nối máy chủ (Ẩn ở chế độ bình thường, chỉ hiện khi gặp lỗi mạng/máy chủ)
@@ -68,8 +75,16 @@ export default function AccountStatus() {
     Boolean(incomingState.hasConnectionError)
   );
 
-  // Xử lý bấm nút "Kiểm tra lại trạng thái" (Loading 400ms)
+  // Xử lý bấm nút kiểm tra trạng thái phê duyệt
   const handleCheckStatus = async () => {
+    // Chế độ Real API: Không giả lập kiểm tra trạng thái phê duyệt từ Backend vì không có public endpoint
+    if (!isMockDemoActive) {
+      toast.info(
+        'Hệ thống bảo mật không công khai trạng thái tài khoản khi chưa xác thực. Vui lòng thử đăng nhập tại trang Đăng nhập hoặc liên hệ Quản trị viên.'
+      );
+      return;
+    }
+
     setIsChecking(true);
     await new Promise((resolve) => setTimeout(resolve, 400));
     setIsChecking(false);
@@ -78,15 +93,15 @@ export default function AccountStatus() {
 
     if (status === 'PENDING') {
       toast.info(
-        'Hồ sơ của bạn vẫn đang chờ Quản trị viên xét duyệt. Vui lòng kiểm tra lại sau.'
+        'Chế độ Mock Demo: Hồ sơ mẫu vẫn đang ở trạng thái chờ Quản trị viên xét duyệt.'
       );
     }
   };
 
-  // Xử lý bấm nút "Thử lại kết nối" trên Error Banner
+  // Xử lý bấm nút "Thử lại kết nối" trên Error Banner (Chỉ kiểm tra kết nối /api/v1/health, tách biệt với trạng thái phê duyệt)
   const handleRetryConnection = async () => {
     setIsChecking(true);
-    if (!isMockMode) {
+    if (!isMockDemoActive) {
       const isOnline = await checkBackendConnection();
       setIsChecking(false);
       setLastUpdated(getHaNoiCurrentTime());
@@ -104,7 +119,7 @@ export default function AccountStatus() {
     setIsChecking(false);
     setLastUpdated(getHaNoiCurrentTime());
     setHasConnectionError(false);
-    toast.success('Đã khôi phục kết nối máy chủ thành công.');
+    toast.success('Đã khôi phục kết nối máy chủ thành công (Chế độ Mock Demo).');
   };
 
   // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Đủ điều kiện)
@@ -116,9 +131,9 @@ export default function AccountStatus() {
       return;
     }
 
-    if (!isMockMode) {
+    if (!isMockDemoActive) {
       toast.info(
-        'Chức năng gửi lại yêu cầu tự động đang phát triển theo Sprint 2. Vui lòng liên hệ Quản trị viên để được mở lại hồ sơ.'
+        'Chức năng gửi lại yêu cầu tự động thuộc phạm vi phát triển tiếp theo. Vui lòng liên hệ Quản trị viên để được mở lại hồ sơ.'
       );
       return;
     }
@@ -128,7 +143,7 @@ export default function AccountStatus() {
     setIsChecking(false);
     setLastUpdated(getHaNoiCurrentTime());
     setStatus('PENDING');
-    toast.success('Đã gửi lại yêu cầu xét duyệt hồ sơ thành công (Chế độ Mock)!');
+    toast.success('Đã gửi lại yêu cầu xét duyệt hồ sơ thành công (Chế độ Mock Demo)!');
   };
 
   // Xác định class viền cho thẻ Card duy nhất
@@ -181,22 +196,31 @@ export default function AccountStatus() {
       {/* 3. DUY NHẤT 1 THẺ CARD TRUNG TÂM ĐẠI DIỆN TRẠNG THÁI HIỆN TẠI */}
       <div className={`${styles.statusCard} ${cardVariantClass}`}>
         {/* ===================================================================
-         * BIẾN THỂ 1: ĐANG CHỜ PHÊ DUYỆT (PENDING - Card viền vàng cam)
+         * BIẾN THỂ 1: ĐANG CHỜ PHÊ DUYỆT / ĐÃ TIẾP NHẬN YÊU CẦU (PENDING - Card viền vàng cam)
          * =================================================================== */}
         {status === 'PENDING' && (
           <>
             <div className={styles.badgeRow}>
               <span className={`${styles.statusBadge} ${styles.badgePending}`}>
                 <span className={`${styles.dot} ${styles.dotAmber}`} />
-                <span>Đang chờ phê duyệt</span>
+                <span>
+                  {isUnverifiedSubmission
+                    ? 'Đã tiếp nhận yêu cầu'
+                    : 'Đang chờ phê duyệt'}
+                </span>
               </span>
             </div>
 
             <div className={styles.headerBlock}>
-              <h1 className={styles.stateTitle}>Hồ sơ đã được tiếp nhận</h1>
+              <h1 className={styles.stateTitle}>
+                {isUnverifiedSubmission
+                  ? 'Yêu cầu đăng ký đã được ghi nhận'
+                  : 'Hồ sơ đã được tiếp nhận'}
+              </h1>
               <p className={styles.stateDesc}>
-                Tài khoản chưa được kích hoạt quyền truy cập vào các tính năng bán
-                hàng hoặc kho. Quản trị viên đang xem xét hồ sơ của bạn.
+                {isUnverifiedSubmission
+                  ? 'Nếu thông tin đăng ký hợp lệ và email chưa tồn tại trên hệ thống, Quản trị viên sẽ xem xét phê duyệt tài khoản của bạn trước khi cấp quyền truy cập POS.'
+                  : 'Tài khoản chưa được kích hoạt quyền truy cập vào các tính năng bán hàng hoặc kho. Quản trị viên đang xem xét hồ sơ của bạn.'}
               </p>
             </div>
 
@@ -227,33 +251,44 @@ export default function AccountStatus() {
                 </svg>
               </span>
               <span>
-                Hệ thống sẽ gửi email thông báo tự động ngay khi có quyết định từ
-                Quản trị viên.
+                {isMockDemoActive
+                  ? 'Chế độ Mock Demo: Hệ thống mô phỏng thông báo khi có quyết định từ Quản trị viên.'
+                  : 'Vì lý do bảo mật chống dò tìm tài khoản, hệ thống không công khai trạng thái phê duyệt khi chưa đăng nhập. Vui lòng chờ thông báo từ Quản trị viên hoặc thử đăng nhập lại sau.'}
               </span>
             </div>
 
             <div className={styles.actionButtons}>
-              <button
-                type="button"
-                className={styles.primaryActionBtn}
-                onClick={handleCheckStatus}
-                disabled={isChecking}
-              >
-                {isChecking ? (
-                  <>
-                    <span className={styles.spinner} aria-hidden="true" />
-                    <span>Đang kiểm tra trạng thái...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10" />
-                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                    </svg>
-                    <span>Kiểm tra lại trạng thái</span>
-                  </>
-                )}
-              </button>
+              {isMockDemoActive ? (
+                <button
+                  type="button"
+                  className={styles.primaryActionBtn}
+                  onClick={handleCheckStatus}
+                  disabled={isChecking}
+                >
+                  {isChecking ? (
+                    <>
+                      <span className={styles.spinner} aria-hidden="true" />
+                      <span>Đang kiểm tra trạng thái (Mock)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                      </svg>
+                      <span>Kiểm tra lại trạng thái (Mock)</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.primaryActionBtn}
+                  onClick={() => navigate('/login')}
+                >
+                  <span>Thử đăng nhập tại quầy POS</span>
+                </button>
+              )}
 
               <button
                 type="button"

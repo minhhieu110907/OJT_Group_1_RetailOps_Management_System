@@ -58,7 +58,12 @@ export default function Header() {
   // Khi bấm nút "Đăng xuất" màu đỏ trong Modal xác nhận
   const handleConfirmLogout = async () => {
     setIsLogoutModalOpen(false);
-    await logout();
+    const logoutResult = await logout();
+    if (logoutResult?.localOnly && !logoutResult?.serverRevoked) {
+      toast.warning(
+        'Đã xóa phiên làm việc trên thiết bị này, nhưng chưa thể xác nhận thu hồi phiên từ máy chủ.'
+      );
+    }
     navigate('/login', { replace: true });
   };
 

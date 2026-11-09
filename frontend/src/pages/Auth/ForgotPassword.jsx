@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import {
   OWASP_FORGOT_PASSWORD_MESSAGE,
   validateEmail,
@@ -8,11 +9,14 @@ import {
 import styles from './Login.module.css';
 
 /**
- * Trang Quên mật khẩu (ForgotPassword)
- * Tuân thủ chuẩn bảo mật OWASP chống dò quét tài khoản (User Enumeration Defense):
- * Dù email có tồn tại trong hệ thống hay không, luôn trả về cùng một thông báo chung.
+ * Trang Quên mật khẩu (ForgotPassword - FIX-03):
+ * - Real API mode: Không tự tạo reset token giả và không báo đã gửi email khi Backend Sprint 1 chưa có endpoint.
+ * - Mock Demo mode: Cho phép mô phỏng luồng đặt lại mật khẩu phục vụ demo UI.
  */
 export default function ForgotPassword() {
+  const { isMockMode, canUseMock } = useAuth();
+  const isMockActive = Boolean(isMockMode && canUseMock);
+
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [touched, setTouched] = useState(false);
@@ -25,6 +29,7 @@ export default function ForgotPassword() {
     setEmail(val);
     if (isSubmitted) {
       setIsSubmitted(false);
+      setResetToken('');
     }
     if (touched) {
       setEmailError(validateEmail(val));
@@ -48,9 +53,14 @@ export default function ForgotPassword() {
     }
 
     setIsSubmitting(true);
-    // Giả lập độ trễ xử lý đồng nhất (tránh Timing Attack dò email)
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setResetToken(`mock-token-${Date.now()}`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    if (isMockActive) {
+      setResetToken(`mock-token-${Date.now()}`);
+    } else {
+      setResetToken('');
+    }
+
     setIsSubmitting(false);
     setIsSubmitted(true);
   };
@@ -61,12 +71,32 @@ export default function ForgotPassword() {
       <div className={styles.headerSection}>
         <h1 className={styles.title}>Khôi phục mật khẩu</h1>
         <p className={styles.subtitle}>
-          Nhập địa chỉ email nhân sự của bạn để nhận hướng dẫn đặt lại mật khẩu.
+          Nhập địa chỉ email nhân sự của bạn để yêu cầu đặt lại mật khẩu.
         </p>
       </div>
 
-      {/* 2. Thông báo chuẩn OWASP chống dò quét tài khoản */}
-      {isSubmitted && (
+      {/* 2. Kết quả xử lý: Phân tách rõ Real API Placeholder (Sprint 2) và Mock Demo */}
+      {isSubmitted && !isMockActive && (
+        <div className={styles.errorAlert} role="status">
+          <span className={styles.errorIcon} aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </span>
+          <div className={styles.errorBody}>
+            <h3 className={styles.errorTitle}>
+              Chức năng đang phát triển (Sprint 2 Placeholder)
+            </h3>
+            <p className={styles.errorDesc}>
+              Dịch vụ gửi email khôi phục mật khẩu tự động thuộc phạm vi Sprint 2 và hiện chưa được kích hoạt trên máy chủ. Chưa có email hay mã khôi phục nào được gửi đi. Vui lòng liên hệ Quản trị viên cửa hàng để được hỗ trợ trực tiếp.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isSubmitted && isMockActive && (
         <>
           <div className={styles.successAlert} role="status">
             <span className={styles.successIcon} aria-hidden="true">
@@ -76,14 +106,16 @@ export default function ForgotPassword() {
               </svg>
             </span>
             <div className={styles.errorBody}>
-              <h3 className={styles.successTitle}>Đã tiếp nhận yêu cầu</h3>
+              <h3 className={styles.successTitle}>
+                Đã tiếp nhận yêu cầu (Mô phỏng Mock Demo)
+              </h3>
               <p className={styles.successDesc}>
                 {OWASP_FORGOT_PASSWORD_MESSAGE}
               </p>
             </div>
           </div>
 
-          {/* Mô phỏng Hộp thư Email gửi đến người dùng (Phương án 1 - Môi trường Test) */}
+          {/* Mô phỏng Hộp thư Email chỉ hiển thị khi ở chế độ Mock Demo được phép */}
           <div className={styles.emailSimBox}>
             <div className={styles.emailSimHeader}>
               <span className={styles.emailSimBadge}>
@@ -91,26 +123,26 @@ export default function ForgotPassword() {
                   <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                   <polyline points="22,6 12,13 2,6" />
                 </svg>
-                Hộp thư mô phỏng (Test)
+                Hộp thư mô phỏng (Mock Demo - Sprint 2)
               </span>
               <span className={styles.emailSimTo}>{email}</span>
             </div>
             <p className={styles.emailSimDesc}>
-              Hệ thống đã tạo liên kết đặt lại mật khẩu với mã bảo mật (token). Bạn có thể bấm vào nút bên dưới để mở giao diện Đặt lại mật khẩu:
+              Chế độ Mock Demo đã tạo liên kết đặt lại mật khẩu mẫu. Bấm vào nút bên dưới để mở giao diện Đặt lại mật khẩu qua Email Token:
             </p>
             <div>
               <Link
                 to={`/reset-password?email=${encodeURIComponent(
                   email
-                )}&token=${resetToken}`}
+                )}&token=${encodeURIComponent(resetToken)}`}
                 className={styles.emailSimAction}
               >
-                <span>Mở liên kết đặt lại mật khẩu</span>
+                <span>Mở liên kết đặt lại mật khẩu (Demo)</span>
                 <span aria-hidden="true">→</span>
               </Link>
             </div>
             <p className={styles.emailSimTip}>
-              * Mẹo test: Tài khoản <code>{email}</code> có mật khẩu mặc định là <code>staff123</code> (dùng để test Trạng thái 4A, 4B, 4C).
+              * Lưu ý: Đây là luồng mô phỏng UI tại Client, không tác động tới cơ sở dữ liệu Backend.
             </p>
           </div>
         </>
