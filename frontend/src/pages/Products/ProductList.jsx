@@ -69,27 +69,27 @@ export default function ProductList() {
   // State quản lý Modal xác nhận xóa sản phẩm
   const [productToDelete, setProductToDelete] = useState(null);
 
-  // TODO (Tân): Gọi API lấy danh sách sản phẩm từ Backend khi searchParams hoặc currentPage thay đổi
+  // TODO (Tân - T3C9C86): Gọi API lấy danh sách sản phẩm từ Backend khi searchParams hoặc currentPage thay đổi
   useEffect(() => {
     let isMounted = true;
 
     const fetchProducts = async () => {
       setIsLoading(true);
       try {
-        // Ví dụ khi ghép API thật:
+        // Chuẩn API Contract Backend:
         // const res = await axiosClient.get('/products', {
         //   params: {
         //     ...searchParams,
         //     page: pagination.currentPage,
-        //     limit: pagination.pageSize,
+        //     page_size: pagination.pageSize,
         //   },
         // });
         // if (isMounted) {
         //   setData(res.data.items || []);
         //   setPagination((prev) => ({
         //     ...prev,
-        //     totalPages: res.data.totalPages || 1,
-        //     totalItems: res.data.totalItems || 0,
+        //     totalPages: Math.ceil((res.data.total || 0) / (res.data.page_size || 10)),
+        //     totalItems: res.data.total || 0,
         //   }));
         // }
       } catch {
@@ -136,9 +136,11 @@ export default function ProductList() {
     if (!productToDelete) return;
 
     try {
-      // TODO (Tân): Gọi await axiosClient.delete(`/products/${productToDelete.id}`)
+      // TODO (Tân - T3C9C86): Gọi API chuyển trạng thái INACTIVE hoặc xóa theo chính sách SRS
       setData((prev) => prev.filter((item) => item.id !== productToDelete.id));
-      toast.success(`Đã xóa sản phẩm "${productToDelete.name}"`);
+      toast.info(
+        `Thao tác mô phỏng: Đã xóa tạm "${productToDelete.name}" trên giao diện (Task T3C9C86).`
+      );
     } catch {
       toast.error('Xóa sản phẩm thất bại. Vui lòng thử lại.');
     } finally {

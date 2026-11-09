@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
 import styles from './AccountStatus.module.css';
 
@@ -26,6 +27,7 @@ export default function AccountStatus() {
   const location = useLocation();
   const navigate = useNavigate();
   const toast = useToast();
+  const { isMockMode, checkBackendConnection } = useAuth();
 
   // Lấy dữ liệu truyền từ Register.jsx / Login.jsx qua location.state hoặc dùng fallback
   const incomingState = location.state || {};
@@ -84,6 +86,20 @@ export default function AccountStatus() {
   // Xử lý bấm nút "Thử lại kết nối" trên Error Banner
   const handleRetryConnection = async () => {
     setIsChecking(true);
+    if (!isMockMode) {
+      const isOnline = await checkBackendConnection();
+      setIsChecking(false);
+      setLastUpdated(getHaNoiCurrentTime());
+      if (isOnline) {
+        setHasConnectionError(false);
+        toast.success('Đã khôi phục kết nối máy chủ thành công.');
+      } else {
+        setHasConnectionError(true);
+        toast.error('Chưa thể kết nối lại máy chủ FastAPI. Vui lòng kiểm tra dịch vụ Backend.');
+      }
+      return;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 400));
     setIsChecking(false);
     setLastUpdated(getHaNoiCurrentTime());
@@ -100,12 +116,19 @@ export default function AccountStatus() {
       return;
     }
 
+    if (!isMockMode) {
+      toast.info(
+        'Chức năng gửi lại yêu cầu tự động đang phát triển theo Sprint 2. Vui lòng liên hệ Quản trị viên để được mở lại hồ sơ.'
+      );
+      return;
+    }
+
     setIsChecking(true);
     await new Promise((resolve) => setTimeout(resolve, 400));
     setIsChecking(false);
     setLastUpdated(getHaNoiCurrentTime());
     setStatus('PENDING');
-    toast.success('Đã gửi lại yêu cầu xét duyệt hồ sơ thành công!');
+    toast.success('Đã gửi lại yêu cầu xét duyệt hồ sơ thành công (Chế độ Mock)!');
   };
 
   // Xác định class viền cho thẻ Card duy nhất

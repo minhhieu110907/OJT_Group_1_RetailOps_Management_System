@@ -13,6 +13,7 @@ import axiosClient, {
   getApiErrorMessage,
   getClientToken,
   getUseMock,
+  invalidateSession,
   setClientToken,
   setCsrfToken,
   setUseMock,
@@ -132,11 +133,18 @@ export function AuthProvider({ children }) {
   // Trạng thái kết nối với FastAPI Backend (Docker) & chế độ Mock/Real API
   const [backendOnline, setBackendOnline] = useState(false);
   const [isCheckingBackend, setIsCheckingBackend] = useState(true);
-  const [isMockMode, setIsMockMode] = useState(true);
+  const [isMockMode, setIsMockMode] = useState(getUseMock());
+  const [authInitializing, setAuthInitializing] = useState(true);
 
-  // Hàm đăng xuất: xóa sạch user, xóa token trong Context + axiosClient và thông báo Toast
+  // Hàm đăng xuất: xóa sạch user, vô hiệu hóa session và token trong Context + axiosClient và thông báo Toast
   const logout = useCallback(
     async (isSessionExpired = false) => {
+      invalidateSession();
+      setAccessToken(null);
+      setClientToken(null);
+      setCsrfToken(null);
+      setUser(null);
+
       if (!getUseMock()) {
         try {
           await ensureCsrfToken();
@@ -145,11 +153,6 @@ export function AuthProvider({ children }) {
           // Bỏ qua lỗi mạng khi gọi logout để luôn dọn sạch trạng thái ở Client
         }
       }
-
-      setAccessToken(null);
-      setClientToken(null);
-      setCsrfToken(null);
-      setUser(null);
 
       if (isSessionExpired === true) {
         toast.error('Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
@@ -177,7 +180,7 @@ export function AuthProvider({ children }) {
 
   // Kiểm tra kết nối tới FastAPI Backend (`/api/v1/health`) và tự động khôi phục phiên nếu có Cookie
   const checkBackendConnection = useCallback(
-    async ({ notify = false, forceRealIfOnline = true } = {}) => {
+    async ({ notify = false, forceRealIfOnline = false } = {}) => {
       await Promise.resolve();
       setIsCheckingBackend(true);
       try {
@@ -201,7 +204,7 @@ export function AuthProvider({ children }) {
           }
 
           // Thử khôi phục phiên đăng nhập từ HttpOnly Refresh Cookie (nếu người dùng vừa bấm F5)
-          if (!getClientToken()) {
+          if (!getUseMock() && !getClientToken()) {
             try {
               const refreshRes = await callRefreshTokenApi();
               const restoredToken =
@@ -222,16 +225,17 @@ export function AuthProvider({ children }) {
         throw new Error('Unhealthy');
       } catch {
         setBackendOnline(false);
-        setUseMock(true);
-        setIsMockMode(true);
+        // TUYỆT ĐỐI KHÔNG tự động chuyển USE_MOCK sang true khi kiểm tra thất bại!
+        // Giữ vững nguyên tắc Fail-Closed và bảo mật môi trường.
         if (notify) {
           toast.warning(
-            'Chưa phát hiện FastAPI Backend (Docker cổng 8000). Hệ thống đang dùng chế độ Mock để bạn tiếp tục thao tác.'
+            'Không thể kết nối tới FastAPI Backend. Vui lòng kiểm tra lại dịch vụ Backend.'
           );
         }
         return false;
       } finally {
         setIsCheckingBackend(false);
+        setAuthInitializing(false);
       }
     },
     [toast]
@@ -240,13 +244,18 @@ export function AuthProvider({ children }) {
   // Tự động kiểm tra kết nối Backend ngay khi mở ứng dụng
   useEffect(() => {
     const timer = setTimeout(() => {
-      checkBackendConnection({ notify: false, forceRealIfOnline: true });
+      checkBackendConnection({ notify: false });
     }, 0);
     return () => clearTimeout(timer);
   }, [checkBackendConnection]);
 
   // Cho phép chuyển đổi thủ công giữa chế độ API thật (Backend) và Mock Data trên thanh Header
   const toggleMockMode = useCallback(async () => {
+    // Luôn dọn sạch phiên hiện tại khi chuyển đổi chế độ để tránh rò rỉ phiên
+    invalidateSession();
+    setUser(null);
+    setAccessToken(null);
+
     if (isMockMode) {
       const online = await checkBackendConnection({
         notify: false,
@@ -258,7 +267,7 @@ export function AuthProvider({ children }) {
         toast.success('Đã chuyển sang chế độ API thật (FastAPI Backend).');
       } else {
         toast.warning(
-          'Không thể bật API thật vì Docker Backend (cổng 8000) chưa chạy. Đang giữ chế độ Mock.'
+          'Không thể bật API thật vì Backend chưa phản hồi. Đang giữ chế độ Mock.'
         );
       }
     } else {
@@ -335,7 +344,7 @@ export function AuthProvider({ children }) {
 
       const loggedInUser = normalizeBackendUser(
         response?.data?.user,
-        usersList
+        []
       );
 
       if (
@@ -355,31 +364,9 @@ export function AuthProvider({ children }) {
       );
       return loggedInUser;
     } catch (error) {
-      // Trong Backend S1, tài khoản PENDING_APPROVAL khi gọi /auth/login cũng bị trả 401.
-      // Nếu người dùng vừa đăng ký tài khoản trên FE (hoặc dùng tài khoản test trạng thái),
-      // cho phép hiển thị đúng màn hình /account-status tương ứng.
-      const localPendingOrRejected = usersList.find(
-        (u) =>
-          u.email.toLowerCase() === normalizedEmail &&
-          u.password === password &&
-          (u.status === 'PENDING' ||
-            u.status === 'PENDING_APPROVAL' ||
-            u.status === 'REJECTED')
-      );
-      if (localPendingOrRejected) {
-        return {
-          id: localPendingOrRejected.id,
-          name: localPendingOrRejected.name,
-          email: localPendingOrRejected.email,
-          role: localPendingOrRejected.role,
-          status: localPendingOrRejected.status,
-          submittedAt: localPendingOrRejected.submittedAt,
-          rejectReason: localPendingOrRejected.rejectReason,
-          rejectSubState:
-            localPendingOrRejected.rejectSubState || 'LOCKED_24H',
-        };
-      }
-      throw error;
+      // TUYỆT ĐỐI KHÔNG can thiệp hoặc fallback sang mock usersList khi ở Real API mode
+      const msg = getApiErrorMessage(error);
+      throw new Error(msg || 'Thông tin đăng nhập không chính xác hoặc tài khoản chưa sẵn sàng.');
     }
   };
 
@@ -395,43 +382,55 @@ export function AuthProvider({ children }) {
       year: 'numeric',
     }).format(new Date());
 
-    // Nếu đang kết nối Backend thật -> Gọi POST /api/v1/auth/register
-    // Lưu ý: RegisterRequest của Backend có extra="forbid", chỉ nhận đúng { email, password }
-    if (!getUseMock()) {
-      try {
-        await axiosClient.post('/auth/register', {
-          email: normalizedEmail,
-          password: userData.password,
-        });
-      } catch (error) {
-        const msg = getApiErrorMessage(error);
-        throw new Error(msg || 'Không thể gửi yêu cầu đăng ký tới máy chủ.');
-      }
+    if (getUseMock()) {
+      const newUser = {
+        id: `usr_staff_${Date.now()}`,
+        name: (userData.fullName || 'Nhân viên mới').trim(),
+        email: normalizedEmail,
+        password: userData.password,
+        role: 'STAFF',
+        status: userData.status || 'PENDING',
+        submittedAt: `${nowFormatted} (Asia/Ha_Noi)`,
+      };
+
+      setUsersList((prev) => {
+        const exists = prev.some(
+          (u) => u.email.toLowerCase() === normalizedEmail
+        );
+        if (exists) {
+          return prev.map((u) =>
+            u.email.toLowerCase() === normalizedEmail ? newUser : u
+          );
+        }
+        return [...prev, newUser];
+      });
+
+      return newUser;
     }
 
-    const newUser = {
-      id: `usr_staff_${Date.now()}`,
-      name: (userData.fullName || 'Nhân viên mới').trim(),
-      email: normalizedEmail,
-      password: userData.password,
-      role: 'STAFF',
-      status: userData.status || 'PENDING',
-      submittedAt: `${nowFormatted} (Asia/Ha_Noi)`,
-    };
+    // Khi USE_MOCK = false -> Gọi API POST /api/v1/auth/register thật lên FastAPI Backend
+    // Backend RegisterRequest có extra="forbid", chỉ nhận { email, password }
+    try {
+      const res = await axiosClient.post('/auth/register', {
+        email: normalizedEmail,
+        password: userData.password,
+      });
 
-    setUsersList((prev) => {
-      const exists = prev.some(
-        (u) => u.email.toLowerCase() === normalizedEmail
-      );
-      if (exists) {
-        return prev.map((u) =>
-          u.email.toLowerCase() === normalizedEmail ? newUser : u
-        );
-      }
-      return [...prev, newUser];
-    });
-
-    return newUser;
+      // Trả thông tin trạng thái để chuyển sang /account-status (PENDING)
+      // TUYỆT ĐỐI KHÔNG lưu mật khẩu hoặc tạo user giả trong usersList
+      return {
+        id: `pending_${Date.now()}`,
+        name: (userData.fullName || 'Nhân viên mới').trim(),
+        email: normalizedEmail,
+        role: 'STAFF',
+        status: 'PENDING',
+        submittedAt: `${nowFormatted} (Asia/Ha_Noi)`,
+        message: res.data?.message,
+      };
+    } catch (error) {
+      const msg = getApiErrorMessage(error);
+      throw new Error(msg || 'Không thể gửi yêu cầu đăng ký tới máy chủ.');
+    }
   };
 
   // Hàm đặt lại/đổi mật khẩu cho người dùng
@@ -465,6 +464,7 @@ export function AuthProvider({ children }) {
         backendOnline,
         isCheckingBackend,
         isMockMode,
+        authInitializing,
         checkBackendConnection,
         toggleMockMode,
         login,

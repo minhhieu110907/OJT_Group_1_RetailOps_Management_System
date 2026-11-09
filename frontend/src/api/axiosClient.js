@@ -9,7 +9,7 @@ import axios from 'axios';
  *   Hệ thống tự động phát hiện trạng thái Backend qua `/api/v1/health` và cho phép
  *   chuyển đổi trực tiếp trên giao diện.
  */
-export let USE_MOCK = true;
+export let USE_MOCK = import.meta.env?.VITE_USE_MOCK === 'true';
 
 export function setUseMock(value) {
   USE_MOCK = Boolean(value);
@@ -58,6 +58,15 @@ export function getApiErrorMessage(error) {
 // ============================================================================
 let inMemoryToken = null;
 let inMemoryCsrfToken = null;
+let currentSessionGeneration = 0;
+
+export function invalidateSession() {
+  currentSessionGeneration += 1;
+  inMemoryToken = null;
+  inMemoryCsrfToken = null;
+  processQueue(new Error('Phiên làm việc đã bị hủy hoặc người dùng đã đăng xuất.'), null);
+  isRefreshing = false;
+}
 
 export function setClientToken(token) {
   inMemoryToken = token || null;
@@ -263,9 +272,16 @@ axiosClient.interceptors.response.use(
     // Đánh dấu request đầu tiên kích hoạt luồng làm mới token
     originalRequest._retry = true;
     isRefreshing = true;
+    const sessionAtRefreshStart = currentSessionGeneration;
 
     try {
       const response = await callRefreshTokenApi();
+
+      // Nếu trong lúc refresh mà user đã bấm logout hoặc phiên bị hủy -> Hủy bỏ ngay, không hồi sinh phiên
+      if (sessionAtRefreshStart !== currentSessionGeneration) {
+        throw new Error('Phiên làm việc đã bị hủy trong khi đang làm mới token.');
+      }
+
       const newAccessToken =
         response?.data?.access_token || response?.data?.accessToken;
 
@@ -299,7 +315,8 @@ axiosClient.interceptors.response.use(
       setCsrfToken(null);
 
       // c) Gọi callback để AuthContext thực hiện logout() và điều hướng về /login
-      if (authCallbacks.onAuthFailed) {
+      // Chỉ kích hoạt callback nếu phiên chưa bị hủy bởi logout chủ động trước đó
+      if (authCallbacks.onAuthFailed && sessionAtRefreshStart === currentSessionGeneration) {
         authCallbacks.onAuthFailed();
       }
 

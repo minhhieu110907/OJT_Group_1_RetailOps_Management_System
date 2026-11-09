@@ -9,7 +9,7 @@ import {
 import styles from './Login.module.css';
 
 export default function Login() {
-  const { user, login } = useAuth();
+  const { user, login, authInitializing } = useAuth();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -27,6 +27,11 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Đang khôi phục phiên từ Cookie -> Không flash màn hình đăng nhập
+  if (authInitializing) {
+    return null;
+  }
 
   // Nếu người dùng đã đăng nhập sẵn (APPROVED) thì tự động điều hướng theo vai trò
   if (user) {

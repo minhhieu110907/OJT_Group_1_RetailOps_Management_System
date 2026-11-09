@@ -19,7 +19,7 @@ export default function ResetPassword({ onClose, defaultEmail }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user, resetPassword, getUserByEmail } = useAuth();
+  const { user, resetPassword, getUserByEmail, isMockMode } = useAuth();
 
   // Xác định email tài khoản cần đặt lại: Ưu tiên URL params -> defaultEmail -> User hiện tại -> fallback mẫu
   const targetEmail =
@@ -153,7 +153,13 @@ export default function ResetPassword({ onClose, defaultEmail }) {
     setIsSubmitting(false);
 
     // Trạng thái 4C: Kích hoạt thông báo Toast thành công và đóng Modal / chuyển thẳng về trang Đăng nhập
-    toast.success('Mật khẩu đã được cập nhật.');
+    if (isMockMode) {
+      toast.success('Mật khẩu đã được cập nhật (Chế độ Mock).');
+    } else {
+      toast.info(
+        'Giao diện mẫu Sprint 2: Mật khẩu đã cập nhật bộ nhớ tạm (Backend API thuộc Sprint 2).'
+      );
+    }
     handleClose();
   };
 

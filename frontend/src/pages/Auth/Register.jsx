@@ -13,7 +13,7 @@ import {
 import styles from './Register.module.css';
 
 export default function Register() {
-  const { user, register } = useAuth();
+  const { user, register, authInitializing } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -39,6 +39,11 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Đang khôi phục phiên từ Cookie -> Không flash màn hình đăng ký
+  if (authInitializing) {
+    return null;
+  }
 
   // Nếu đã đăng nhập sẵn (APPROVED) thì điều hướng vào không gian làm việc
   if (user) {

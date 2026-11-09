@@ -20,6 +20,9 @@ export default function AuthLayout() {
   } else if (backendOnline && !isMockMode) {
     statusLabel = 'Backend: Đã kết nối (API thật)';
     dotClass = styles.statusDot;
+  } else if (!backendOnline && !isMockMode) {
+    statusLabel = 'Backend: Mất kết nối (Cần bật BE)';
+    dotClass = styles.statusDotMock;
   } else if (backendOnline && isMockMode) {
     statusLabel = 'Chế độ: Mock (BE sẵn sàng)';
     dotClass = styles.statusDotReady;
