@@ -29,4 +29,4 @@ COPY --chown=retailops:retailops migrations ./migrations
 USER retailops
 EXPOSE 8000
 
-CMD ["uvicorn", "--factory", "app.main:create_app"]
+CMD ["uvicorn", "--factory", "app.main:create_app", "--proxy-headers"]

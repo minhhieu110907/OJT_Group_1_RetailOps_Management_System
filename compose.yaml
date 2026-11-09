@@ -1,4 +1,19 @@
+
 services:
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HOST_PORT:-80}:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      proxy:
+        ipv4_address: 172.30.10.2
+
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -26,6 +41,20 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+    networks:
+      - application
+
+  redis:
+    image: redis:8.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - application
 
   backend:
     build:
@@ -41,11 +70,31 @@ services:
       RETAILOPS_CORS_ORIGINS: ${RETAILOPS_CORS_ORIGINS:-}
       RETAILOPS_JWT_SECRET: ${RETAILOPS_JWT_SECRET:?Set RETAILOPS_JWT_SECRET in .env}
       RETAILOPS_CSRF_SECRET: ${RETAILOPS_CSRF_SECRET:?Set RETAILOPS_CSRF_SECRET in .env}
-    ports:
-      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+      RETAILOPS_REDIS_URL: redis://redis:6379/0
+      RETAILOPS_REDIS_POOL_SIZE: ${RETAILOPS_REDIS_POOL_SIZE:-10}
+      RETAILOPS_REDIS_CONNECT_TIMEOUT_SECONDS: ${RETAILOPS_REDIS_CONNECT_TIMEOUT_SECONDS:-1}
+      RETAILOPS_REDIS_SOCKET_TIMEOUT_SECONDS: ${RETAILOPS_REDIS_SOCKET_TIMEOUT_SECONDS:-1}
+      RETAILOPS_REGISTER_RATE_LIMIT: ${RETAILOPS_REGISTER_RATE_LIMIT:-5}
+      RETAILOPS_REGISTER_RATE_WINDOW_SECONDS: ${RETAILOPS_REGISTER_RATE_WINDOW_SECONDS:-60}
+      FORWARDED_ALLOW_IPS: 172.30.10.2
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      application:
+      proxy:
+        ipv4_address: 172.30.10.3
 
 volumes:
   mysql_data:
+
+networks:
+  application:
+    internal: true
+  proxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.10.0/29

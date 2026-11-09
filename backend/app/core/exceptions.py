@@ -12,12 +12,33 @@ class AppException(Exception):
         message: str,
         status_code: int,
         details: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
         self.details = details
+        self.headers = headers
         super().__init__(message)
+
+
+class RateLimitedError(AppException):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(
+            "RATE_LIMITED",
+            "Too many requests. Please try again later.",
+            429,
+            headers={"Retry-After": str(max(1, retry_after))},
+        )
+
+
+class DependencyUnavailableError(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            "DEPENDENCY_UNAVAILABLE",
+            "Service temporarily unavailable.",
+            503,
+        )
 
 
 class InvalidCredentialsError(AppException):
