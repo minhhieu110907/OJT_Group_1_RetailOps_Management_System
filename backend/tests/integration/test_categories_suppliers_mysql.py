@@ -1,4 +1,7 @@
-"""MySQL 8.4 integration tests for Category and Supplier schema, seed, and HTTP APIs."""
+"""MySQL 8.4 integration tests for Category and Supplier schema, seed, and HTTP APIs.
+
+Covers schema, check constraints, primary keys, idempotent seed, and isolated cleanup.
+"""
 
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
@@ -351,6 +354,7 @@ def test_seed_preserves_preexisting_default_records_and_is_idempotent_in_mysql(
     # does NOT delete or alter the preexisting records with default seed names.
     with CatalogRowTracker(migrated_integration_engine) as inner_tracker:
         with Session(migrated_integration_engine, autoflush=False) as session:
+            # First seed run: skips the preexisting default-named records
             cat_run_1 = seed_categories(session)
             sup_run_1 = seed_suppliers(session)
             session.commit()
@@ -360,6 +364,7 @@ def test_seed_preserves_preexisting_default_records_and_is_idempotent_in_mysql(
             assert cat_run_1 == len(inner_tracker.category_ids)
             assert sup_run_1 == len(inner_tracker.supplier_ids)
 
+            # Verify preexisting records were not modified after first seed run
             persisted_cat = session.get(Category, pre_cat_id)
             assert persisted_cat is not None
             assert persisted_cat.name == default_cat_name
@@ -376,6 +381,7 @@ def test_seed_preserves_preexisting_default_records_and_is_idempotent_in_mysql(
             assert persisted_sup.created_at == pre_sup_created_at
             assert persisted_sup.updated_at == pre_sup_updated_at
 
+            # Second seed run: idempotent no-op
             cat_run_2 = seed_categories(session)
             sup_run_2 = seed_suppliers(session)
             session.commit()
@@ -386,6 +392,9 @@ def test_seed_preserves_preexisting_default_records_and_is_idempotent_in_mysql(
         inner_created_cat_ids = set(inner_tracker.category_ids)
         inner_created_sup_ids = set(inner_tracker.supplier_ids)
 
+    # After inner_tracker cleanup finishes:
+    # 1) All records created inside inner_tracker were removed
+    # 2) Preexisting records with default seed names remain completely intact
     with Session(migrated_integration_engine) as verify_session:
         if inner_created_cat_ids:
             remaining_inner_cats = verify_session.scalars(
@@ -421,6 +430,7 @@ def test_forced_failure_still_cleans_up_committed_rows_safely_in_mysql(
     """Verify forced failure after commits cleans up only test-created rows."""
     now = datetime(2026, 11, 7, 11, 0, 0)
 
+    # Preexisting records outside the failing test scope
     with Session(migrated_integration_engine) as pre_session:
         pre_cat = Category(
             name=f"{TEST_PREFIX}preexisting_before_failure_cat",
@@ -446,6 +456,7 @@ def test_forced_failure_still_cleans_up_committed_rows_safely_in_mysql(
         pytest.raises(RuntimeError, match="forced failure after commit"),
         CatalogRowTracker(migrated_integration_engine),
     ):
+        # Session 1 commits records
         with Session(migrated_integration_engine) as session_1:
             c1 = Category(
                 name=f"{TEST_PREFIX}failed_scope_cat_1",
@@ -464,6 +475,7 @@ def test_forced_failure_still_cleans_up_committed_rows_safely_in_mysql(
             committed_cat_ids.append(c1.id)
             committed_sup_ids.append(s1.id)
 
+        # Session 2 commits additional records, then raises a forced error
         with Session(migrated_integration_engine) as session_2:
             c2 = Category(
                 name=f"{TEST_PREFIX}failed_scope_cat_2",
@@ -485,6 +497,7 @@ def test_forced_failure_still_cleans_up_committed_rows_safely_in_mysql(
             raise RuntimeError("forced failure after commit")
 
     with Session(migrated_integration_engine) as verify_session:
+        # Committed rows inside the failed scope must be cleaned up
         leaked_cats = verify_session.scalars(
             select(Category.id).where(Category.id.in_(committed_cat_ids))
         ).all()
@@ -494,6 +507,7 @@ def test_forced_failure_still_cleans_up_committed_rows_safely_in_mysql(
         assert leaked_cats == []
         assert leaked_sups == []
 
+        # Preexisting rows outside the failed scope must remain untouched
         assert verify_session.get(Category, pre_cat_id) is not None
         assert verify_session.get(Supplier, pre_sup_id) is not None
 
