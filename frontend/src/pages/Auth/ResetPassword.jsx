@@ -55,6 +55,8 @@ export default function ResetPassword({ onClose, defaultEmail }) {
     confirmPassword: false,
   });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Trạng thái 4A: Form sạch (chưa nhập ký tự nào) -> Vô hiệu hóa nút Cập nhật
   const isFormClean =
     !currentPassword.trim() &&
@@ -114,8 +116,8 @@ export default function ResetPassword({ onClose, defaultEmail }) {
     }
   };
 
-  // Xử lý nộp biểu mẫu cập nhật mật khẩu (Khi bấm nút Cập nhật mật khẩu hoặc nhấn Enter)
-  const handleSubmit = (e) => {
+  // Xử lý nộp biểu mẫu cập nhật mật khẩu (Giữ Modal trên màn hình kèm trạng thái Loading giống Đăng nhập / Đăng ký)
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     setTouched({
@@ -123,6 +125,10 @@ export default function ResetPassword({ onClose, defaultEmail }) {
       newPassword: true,
       confirmPassword: true,
     });
+
+    // Giữ nguyên Modal và hiển thị trạng thái Loading trên nút bấm giống Đăng nhập / Đăng ký
+    setIsSubmitting(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
     // Thực hiện kiểm tra lỗi toàn diện (bao gồm kiểm tra Mật khẩu hiện tại đúng hay không)
     const validationResult = validateChangePasswordForm(
@@ -136,15 +142,17 @@ export default function ResetPassword({ onClose, defaultEmail }) {
 
     setErrors(validationResult.errors);
 
-    // Trạng thái 4B: Nếu có lỗi validation -> Giữ nguyên form, hiển thị lỗi viền đỏ và text cảnh báo
+    // Trạng thái 4B: Nếu có lỗi validation -> Tắt loading, giữ nguyên form, hiển thị lỗi viền đỏ và text cảnh báo
     if (!validationResult.isValid) {
+      setIsSubmitting(false);
       return;
     }
 
     // Cập nhật mật khẩu mới vào AuthContext
     resetPassword(targetEmail, newPassword);
+    setIsSubmitting(false);
 
-    // Trạng thái 4C: Đóng form ngay lập tức, kích hoạt thông báo Toast thành công và chuyển về trang Đăng nhập
+    // Trạng thái 4C: Kích hoạt thông báo Toast thành công và đóng Modal / chuyển thẳng về trang Đăng nhập
     toast.success('Mật khẩu đã được cập nhật.');
     handleClose();
   };
@@ -364,20 +372,32 @@ export default function ResetPassword({ onClose, defaultEmail }) {
               type="button"
               className={styles.cancelBtn}
               onClick={handleClose}
+              disabled={isSubmitting}
             >
               Hủy
             </button>
             <button
               type="submit"
-              className={styles.submitBtn}
-              disabled={isFormClean}
+              className={`${styles.submitBtn} ${
+                isSubmitting ? styles.submitBtnLoading : ''
+              }`}
+              disabled={isFormClean || isSubmitting}
             >
-              {/* Icon xoay cập nhật tròn theo đúng thiết kế 4A, 4B */}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-              <span>Cập nhật mật khẩu</span>
+              {isSubmitting ? (
+                <>
+                  <span className={styles.spinner} aria-hidden="true" />
+                  <span>Đang cập nhật mật khẩu...</span>
+                </>
+              ) : (
+                <>
+                  {/* Icon xoay cập nhật tròn theo đúng thiết kế 4A, 4B */}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                  <span>Cập nhật mật khẩu</span>
+                </>
+              )}
             </button>
           </div>
         </form>
