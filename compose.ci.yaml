@@ -1,0 +1,14 @@
+services:
+  backend:
+    environment:
+      RETAILOPS_DB_NAME: ${MYSQL_TEST_DATABASE:?Set MYSQL_TEST_DATABASE in CI env}
+      RETAILOPS_DB_USER: ${MYSQL_TEST_USER:?Set MYSQL_TEST_USER in CI env}
+      RETAILOPS_DB_PASSWORD: ${MYSQL_TEST_PASSWORD:?Set MYSQL_TEST_PASSWORD in CI env}
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"
+
+networks:
+  application:
+    internal: false
