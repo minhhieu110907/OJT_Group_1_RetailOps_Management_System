@@ -65,18 +65,66 @@
   margin-top: 2px;
 }
 
-/* Cụm trạng thái Hệ thống trực tuyến bên phải Header */
+/* Cụm trạng thái kết nối FE - BE bên phải Header */
+.onlineStatusGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .onlineStatus {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--color-secondary, #586574);
   background-color: #F8FAFC;
   border: 1px solid var(--color-border, #E2E8F0);
   padding: 6px 12px;
   border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onlineStatus:hover {
+  background-color: #F1F5F9;
+  border-color: #CBD5E1;
+}
+
+.pingBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #E2E8F0);
+  background-color: #FFFFFF;
+  color: var(--color-secondary, #586574);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pingBtn:hover:not(:disabled) {
+  background-color: #E7F4ED;
+  color: var(--color-primary, #087F5B);
+  border-color: #A7F3D0;
+}
+
+.pingBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.spinIcon {
+  animation: spinPing 0.8s linear infinite;
+}
+
+@keyframes spinPing {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .statusDot {
@@ -86,6 +134,22 @@
   background-color: var(--color-primary, #087F5B);
   box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.2);
   animation: pulseDot 2s infinite ease-in-out;
+}
+
+.statusDotMock {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #D97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2);
+}
+
+.statusDotReady {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #0284C7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
 }
 
 @keyframes pulseDot {

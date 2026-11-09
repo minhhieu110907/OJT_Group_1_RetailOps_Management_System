@@ -38,6 +38,7 @@ export default function Register() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Nếu đã đăng nhập sẵn (APPROVED) thì điều hướng vào không gian làm việc
   if (user) {
@@ -105,7 +106,7 @@ export default function Register() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -123,20 +124,29 @@ export default function Register() {
       return;
     }
 
-    // Lưu tài khoản mới vào AuthContext với role: 'STAFF' và status: 'PENDING'
-    const newAccount = register(formData);
-    toast.success('Gửi yêu cầu đăng ký thành công! Hồ sơ đang chờ phê duyệt.');
+    setIsSubmitting(true);
+    try {
+      // Lưu tài khoản mới vào AuthContext (hoặc gọi POST /api/v1/auth/register khi nối BE)
+      const newAccount = await register(formData);
+      toast.success('Gửi yêu cầu đăng ký thành công! Hồ sơ đang chờ phê duyệt.');
 
-    // Tự động điều hướng sang /account-status ở trạng thái PENDING kèm thông tin hồ sơ
-    navigate('/account-status', {
-      replace: true,
-      state: {
-        status: 'PENDING',
-        fullName: newAccount.name,
-        email: newAccount.email,
-        submittedAt: newAccount.submittedAt,
-      },
-    });
+      // Tự động điều hướng sang /account-status ở trạng thái PENDING kèm thông tin hồ sơ
+      navigate('/account-status', {
+        replace: true,
+        state: {
+          status: 'PENDING',
+          fullName: newAccount.name,
+          email: newAccount.email,
+          submittedAt: newAccount.submittedAt,
+        },
+      });
+    } catch (error) {
+      setErrorMsg(
+        error?.message || 'Không thể gửi yêu cầu đăng ký. Vui lòng thử lại.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -397,13 +407,19 @@ export default function Register() {
         </div>
 
         {/* Nút gửi yêu cầu */}
-        <button type="submit" className={styles.submitBtn}>
+        <button
+          type="submit"
+          className={styles.submitBtn}
+          disabled={isSubmitting}
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
             <circle cx="8.5" cy="7" r="4" />
             <polyline points="17 11 19 13 23 9" />
           </svg>
-          <span>Gửi yêu cầu đăng ký</span>
+          <span>
+            {isSubmitting ? 'Đang khởi tạo hồ sơ...' : 'Gửi yêu cầu đăng ký'}
+          </span>
         </button>
       </form>
 

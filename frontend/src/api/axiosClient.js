@@ -4,11 +4,20 @@ import axios from 'axios';
  * ============================================================================
  * CẤU HÌNH TRUNG TÂM MẠNG & BẢO MẬT PHIÊN (RetailOps v1.0)
  * ============================================================================
- * - USE_MOCK = true: Giả lập làm mới token (/auth/refresh) bằng setTimeout(600ms)
- *   khi chưa có endpoint refresh thật từ Backend.
- * - USE_MOCK = false: Gọi trực tiếp endpoint thật `${BASE_URL}/auth/refresh`.
+ * - USE_MOCK = false: Gọi trực tiếp các endpoint thật của FastAPI Backend (`/api/v1/auth/*`).
+ * - USE_MOCK = true: Chế độ giả lập tại Client khi chưa bật Docker Backend.
+ *   Hệ thống tự động phát hiện trạng thái Backend qua `/api/v1/health` và cho phép
+ *   chuyển đổi trực tiếp trên giao diện.
  */
-export const USE_MOCK = true;
+export let USE_MOCK = true;
+
+export function setUseMock(value) {
+  USE_MOCK = Boolean(value);
+}
+
+export function getUseMock() {
+  return USE_MOCK;
+}
 
 export const BASE_URL = import.meta.env?.VITE_API_BASE_URL || '/api/v1';
 
@@ -44,10 +53,11 @@ export function getApiErrorMessage(error) {
 }
 
 // ============================================================================
-// 1. QUẢN LÝ ACCESS TOKEN TRONG BỘ NHỚ RAM (IN-MEMORY TOKEN)
+// 1. QUẢN LÝ ACCESS TOKEN & CSRF TOKEN TRONG BỘ NHỚ RAM (IN-MEMORY)
 // Tuyệt đối KHÔNG lưu vào localStorage hay sessionStorage để chống tấn công XSS
 // ============================================================================
 let inMemoryToken = null;
+let inMemoryCsrfToken = null;
 
 export function setClientToken(token) {
   inMemoryToken = token || null;
@@ -55,6 +65,40 @@ export function setClientToken(token) {
 
 export function getClientToken() {
   return inMemoryToken;
+}
+
+export function setCsrfToken(token) {
+  inMemoryCsrfToken = token || null;
+}
+
+export function getCsrfToken() {
+  return inMemoryCsrfToken;
+}
+
+/**
+ * Lấy CSRF Token từ Backend (`GET /api/v1/auth/csrf`) nếu trong RAM chưa có.
+ * Phục vụ các mutation yêu cầu bảo vệ CSRF (`POST /auth/refresh`, `POST /auth/logout`).
+ */
+export async function ensureCsrfToken() {
+  if (inMemoryCsrfToken) {
+    return inMemoryCsrfToken;
+  }
+  try {
+    const response = await axios.get(`${BASE_URL}/auth/csrf`, {
+      withCredentials: true,
+      headers: inMemoryToken
+        ? { Authorization: `Bearer ${inMemoryToken}` }
+        : {},
+    });
+    const token =
+      response?.data?.csrf_token || response?.headers?.['x-csrf-token'] || null;
+    if (token) {
+      inMemoryCsrfToken = token;
+    }
+    return inMemoryCsrfToken;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
@@ -83,7 +127,7 @@ const axiosClient = axios.create({
     'Content-Type': 'application/json',
     Accept: 'application/json',
   },
-  withCredentials: true, // Tự động đính kèm HttpOnly Refresh Cookie
+  withCredentials: true, // Tự động đính kèm HttpOnly Refresh Cookie & CSRF Cookie
 });
 
 export const apiClient = axiosClient;
@@ -93,38 +137,53 @@ export const apiClient = axiosClient;
 // Sử dụng `axios.post` gốc (KHÔNG đi qua axiosClient) để nếu /auth/refresh
 // trả về 401 thì không bị Response Interceptor bắt lại gây vòng lặp vô tận.
 // ============================================================================
-function callRefreshTokenApi() {
+export async function callRefreshTokenApi() {
   if (USE_MOCK) {
     return new Promise((resolve) => {
       setTimeout(() => {
         resolve({
           data: {
-            accessToken: `mock-refreshed-token-${Date.now()}`,
+            access_token: `mock-refreshed-token-${Date.now()}`,
           },
         });
       }, 600);
     });
   }
 
-  // Gọi bằng axios gốc riêng biệt kèm withCredentials: true
-  return axios.post(
+  // Đảm bảo có X-CSRF-Token theo đúng yêu cầu của Backend (/api/v1/auth/refresh)
+  const csrfToken = inMemoryCsrfToken || (await ensureCsrfToken());
+
+  const response = await axios.post(
     `${BASE_URL}/auth/refresh`,
     {},
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+      },
       withCredentials: true,
     }
   );
+
+  const nextCsrf = response?.headers?.['x-csrf-token'];
+  if (nextCsrf) {
+    setCsrfToken(nextCsrf);
+  }
+
+  return response;
 }
 
 // ============================================================================
-// 5. REQUEST INTERCEPTOR: TỰ ĐỘNG ĐÍNH KÈM BEARER TOKEN VÀO HEADER
+// 5. REQUEST INTERCEPTOR: ĐÍNH KÈM BEARER TOKEN & X-CSRF-TOKEN VÀO HEADER
 // ============================================================================
 axiosClient.interceptors.request.use(
   (config) => {
+    config.headers = config.headers || {};
     if (inMemoryToken) {
-      config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${inMemoryToken}`;
+    }
+    if (inMemoryCsrfToken) {
+      config.headers['X-CSRF-Token'] = inMemoryCsrfToken;
     }
     return config;
   },
@@ -132,13 +191,13 @@ axiosClient.interceptors.request.use(
 );
 
 // ============================================================================
-// 6. RESPONSE INTERCEPTOR & HÀNG ĐỢI MUTEX (CONCURRENCY QUEUE KHI GẶP 401)
+// 6. RESPONSE INTERCEPTOR & HÀNG ĐỢI MUTEX (SINGLE-FLIGHT REFRESH KHI GẶP 401)
 // ============================================================================
 let isRefreshing = false;
 let failedQueue = [];
 
 /**
- * Xử lý giải phóng hoặc từ chối toàn bộ các request đang nằm chờ trong failedQueue
+ * Giải phóng hoặc từ chối toàn bộ các request đang nằm chờ trong failedQueue
  */
 function processQueue(error, token = null) {
   failedQueue.forEach((promise) => {
@@ -152,7 +211,14 @@ function processQueue(error, token = null) {
 }
 
 axiosClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Tự động lưu X-CSRF-Token nếu Backend trả về trong response header (ví dụ sau /auth/login)
+    const csrfHeader = response?.headers?.['x-csrf-token'];
+    if (csrfHeader) {
+      setCsrfToken(csrfHeader);
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
     const status = error.response?.status;
@@ -168,19 +234,19 @@ axiosClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // 2. Bỏ qua logic refresh cho các route xác thực ban đầu (/auth/login, /auth/register, /auth/refresh)
-    // Nếu người dùng nhập sai email/mật khẩu bị 401 thì trả lỗi ngay cho form xử lý
+    // 2. Bỏ qua logic refresh cho các route xác thực ban đầu
     const requestUrl = originalRequest.url || '';
     const isInitialAuthRoute =
       requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/register') ||
-      requestUrl.includes('/auth/refresh');
+      requestUrl.includes('/auth/refresh') ||
+      requestUrl.includes('/auth/csrf');
 
     if (isInitialAuthRoute || originalRequest._retry) {
       return Promise.reject(error);
     }
 
-    // 3. Xử lý đồng thời (Concurrency):
+    // 3. Xử lý đồng thời (Single-Flight Concurrency):
     // Nếu đang có 1 tiến trình refresh chạy, đẩy các request 401 đến sau vào failedQueue
     if (isRefreshing) {
       return new Promise((resolve, reject) => {
@@ -201,19 +267,19 @@ axiosClient.interceptors.response.use(
     try {
       const response = await callRefreshTokenApi();
       const newAccessToken =
-        response?.data?.accessToken || response?.data?.access_token;
+        response?.data?.access_token || response?.data?.accessToken;
 
       if (!newAccessToken) {
-        throw new Error('Không nhận được accessToken mới từ API refresh');
+        throw new Error('Không nhận được access_token mới từ API refresh');
       }
 
       // Kịch bản Refresh THÀNH CÔNG:
       // a) Lưu token mới vào biến cục bộ inMemoryToken
       setClientToken(newAccessToken);
 
-      // b) Báo cho AuthContext cập nhật state accessToken
+      // b) Báo cho AuthContext cập nhật state accessToken (và user nếu có)
       if (authCallbacks.onTokenRefreshed) {
-        authCallbacks.onTokenRefreshed(newAccessToken);
+        authCallbacks.onTokenRefreshed(newAccessToken, response?.data?.user);
       }
 
       // c) Giải phóng toàn bộ các request đang chờ trong hàng đợi
@@ -230,6 +296,7 @@ axiosClient.interceptors.response.use(
 
       // b) Xóa sạch token trong RAM
       setClientToken(null);
+      setCsrfToken(null);
 
       // c) Gọi callback để AuthContext thực hiện logout() và điều hướng về /login
       if (authCallbacks.onAuthFailed) {
