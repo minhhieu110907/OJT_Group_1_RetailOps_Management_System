@@ -349,22 +349,24 @@ def test_mysql_cleanup_preserves_preexisting_category_and_product(
         preexisting_category_id = preexisting_category.id
         preexisting_product_id = preexisting_product.id
 
-    with ProductRowTracker(migrated_integration_engine):
-        with Session(migrated_integration_engine) as inner_session:
-            inner_category = add_category(
-                inner_session, "INNER_CAT", status="ACTIVE"
-            )
-            inner_product = service.create(
-                inner_session,
-                ProductCreateRequest(
-                    sku=f"{SKU_PREFIX}{unique_token('INNER_PROD')}",
-                    name="Sản phẩm tạo trong phạm vi test",
-                    category_id=inner_category.id,
-                    sale_price_vnd=18_000,
-                ),
-            )
-            inner_category_id = inner_category.id
-            inner_product_id = inner_product.id
+    with (
+        ProductRowTracker(migrated_integration_engine),
+        Session(migrated_integration_engine) as inner_session,
+    ):
+        inner_category = add_category(
+            inner_session, "INNER_CAT", status="ACTIVE"
+        )
+        inner_product = service.create(
+            inner_session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{unique_token('INNER_PROD')}",
+                name="Sản phẩm tạo trong phạm vi test",
+                category_id=inner_category.id,
+                sale_price_vnd=18_000,
+            ),
+        )
+        inner_category_id = inner_category.id
+        inner_product_id = inner_product.id
 
     with Session(migrated_integration_engine) as verify_session:
         assert verify_session.get(Category, inner_category_id) is None
@@ -402,27 +404,29 @@ def test_mysql_cleanup_deletes_committed_rows_when_test_fails(
     committed_category_id: int | None = None
     committed_product_id: int | None = None
 
-    with pytest.raises(RuntimeError, match="Simulated mid-test failure"):
-        with ProductRowTracker(migrated_integration_engine):
-            with Session(migrated_integration_engine) as first_session:
-                inner_category = add_category(
-                    first_session, "FAIL_INNER_CAT", status="ACTIVE"
-                )
-                committed_category_id = inner_category.id
+    with (
+        pytest.raises(RuntimeError, match="Simulated mid-test failure"),
+        ProductRowTracker(migrated_integration_engine),
+    ):
+        with Session(migrated_integration_engine) as first_session:
+            inner_category = add_category(
+                first_session, "FAIL_INNER_CAT", status="ACTIVE"
+            )
+            committed_category_id = inner_category.id
 
-            with Session(migrated_integration_engine) as second_session:
-                inner_product = service.create(
-                    second_session,
-                    ProductCreateRequest(
-                        sku=f"{SKU_PREFIX}{unique_token('FAIL_INNER_PROD')}",
-                        name="Sản phẩm đã commit trước khi test lỗi",
-                        category_id=committed_category_id,
-                        sale_price_vnd=22_000,
-                    ),
-                )
-                committed_product_id = inner_product.id
+        with Session(migrated_integration_engine) as second_session:
+            inner_product = service.create(
+                second_session,
+                ProductCreateRequest(
+                    sku=f"{SKU_PREFIX}{unique_token('FAIL_INNER_PROD')}",
+                    name="Sản phẩm đã commit trước khi test lỗi",
+                    category_id=committed_category_id,
+                    sale_price_vnd=22_000,
+                ),
+            )
+            committed_product_id = inner_product.id
 
-            raise RuntimeError("Simulated mid-test failure")
+        raise RuntimeError("Simulated mid-test failure")
 
     assert committed_category_id is not None
     assert committed_product_id is not None
