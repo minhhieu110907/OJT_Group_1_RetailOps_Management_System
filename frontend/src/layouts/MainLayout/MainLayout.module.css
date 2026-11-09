@@ -1,0 +1,574 @@
+/* =========================================================
+   1. BỐ CỤC TỔNG THỂ (MAIN LAYOUT)
+   ========================================================= */
+.layoutContainer {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--color-bg-page);
+}
+
+.mainWrapper {
+  flex: 1;
+  margin-left: 250px; /* Chừa khoảng trống đúng bằng chiều rộng Sidebar cố định */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pageContent {
+  flex: 1;
+  padding: 24px 32px;
+}
+
+/* =========================================================
+   2. THANH SIDEBAR BÊN TRÁI (250px, 3 PHẦN ĐỒNG NHẤT)
+   ========================================================= */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 250px;
+  background-color: #FFFFFF;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  z-index: 100;
+  user-select: none;
+}
+
+/* --- Phần Đầu: Thương hiệu RetailOps v1.0 --- */
+.brandSection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.logoBox {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: var(--color-primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brandTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brandName {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-neutral);
+  letter-spacing: -0.02em;
+}
+
+.versionBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-secondary);
+  background-color: #F1F5F9;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+/* --- Phần Giữa: Danh sách Menu điều hướng --- */
+.navSection {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-secondary);
+  background-color: transparent;
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.navItem:hover {
+  background-color: #F1F5F9;
+  color: var(--color-neutral);
+}
+
+.navItemActive {
+  background-color: var(--color-tertiary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.navItemActive:hover {
+  background-color: var(--color-tertiary);
+  color: var(--color-primary);
+}
+
+.navIcon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+/* --- Phần Cuối: Thẻ thông tin tài khoản & Đăng xuất nhanh --- */
+.accountFooter {
+  padding: 12px;
+  border-top: 1px solid var(--color-border);
+  background-color: #FFFFFF;
+  flex-shrink: 0;
+}
+
+.accountCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background-color: #FFFFFF;
+}
+
+.avatarCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Avatar ở Sidebar cho ADMIN: chữ A, nền #E7F4ED, chữ #087F5B */
+.avatarAdmin {
+  background-color: var(--color-tertiary);
+  color: var(--color-primary);
+}
+
+/* Avatar ở Sidebar cho STAFF: chữ NV, nền #F1F5F9, chữ #586574 */
+.avatarStaff {
+  background-color: #F1F5F9;
+  color: var(--color-secondary);
+}
+
+.accountInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.accountName {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-neutral);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.accountRole {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-secondary);
+}
+
+.logoutButton {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background-color: transparent;
+  color: var(--color-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.logoutButton:hover {
+  background-color: #FEE2E2;
+  color: #DC2626;
+}
+
+/* =========================================================
+   3. THANH HEADER & USER DROPDOWN MENU
+   ========================================================= */
+.header {
+  height: 64px;
+  background-color: #FFFFFF;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.breadcrumbRoot {
+  color: var(--color-secondary);
+  font-weight: 500;
+}
+
+.breadcrumbSeparator {
+  color: var(--color-border);
+}
+
+.breadcrumbCurrent {
+  color: var(--color-neutral);
+  font-weight: 600;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Nút tiện ích (?) và Chuông thông báo (🔔) */
+.iconBtn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background-color: transparent;
+  color: var(--color-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.iconBtn:hover {
+  background-color: #F1F5F9;
+  color: var(--color-neutral);
+}
+
+.notificationDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-danger, #B91C1C);
+  border: 1.5px solid #FFFFFF;
+}
+
+.headerDivider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--color-border);
+  margin: 0 6px;
+}
+
+/* --- Cụm Nút Kích Hoạt User Dropdown trên Header --- */
+.userDropdownWrapper {
+  position: relative;
+}
+
+.userDropdownTrigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 12px 5px 8px;
+  border-radius: 10px;
+  border: 1.5px solid var(--color-border);
+  background-color: #FFFFFF;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.userDropdownTrigger:hover {
+  background-color: #F8FAFC;
+}
+
+/* Khi Dropdown đang mở (Active): Viền màu xanh lá chủ đạo */
+.userDropdownTriggerActive {
+  border-color: var(--color-primary);
+  background-color: #F5FBF8;
+  box-shadow: 0 0 0 2px rgba(8, 127, 91, 0.12);
+}
+
+/* Avatar tròn xanh lá #087F5B chữ trắng trên nút Header */
+.headerUserAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background-color: var(--color-primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.headerUserText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.headerUserName {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-neutral);
+}
+
+.headerUserRoleBadge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.chevronIcon {
+  color: var(--color-secondary);
+  margin-left: 4px;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.chevronIconActive {
+  color: var(--color-primary);
+  transform: rotate(180deg);
+}
+
+/* --- Khung Menu Thả Xuống (User Dropdown Menu) --- */
+.dropdownMenu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 310px;
+  background-color: #FFFFFF;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.1),
+    0 4px 10px -2px rgba(15, 23, 42, 0.05);
+  z-index: 200;
+  overflow: hidden;
+  animation: dropdownFadeIn 0.16s ease-out;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Phần Đầu Dropdown (Padding 16px 20px) */
+.dropdownHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dropdownAvatarLarge {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background-color: var(--color-primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.dropdownUserInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dropdownNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dropdownUserName {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-neutral);
+}
+
+.dropdownRoleBadge {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background-color: var(--color-tertiary);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.dropdownUserEmail {
+  font-size: 13.5px;
+  color: var(--color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Phần Giữa Dropdown (Menu thao tác - Padding 8px 0) */
+.dropdownSection {
+  padding: 8px 0;
+}
+
+.dropdownItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 20px;
+  border: none;
+  background-color: transparent;
+  color: var(--color-neutral);
+  font-size: 14.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.dropdownItem:hover {
+  background-color: #F8FAFC;
+}
+
+.dropdownItemIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dropdownDivider {
+  height: 1px;
+  background-color: var(--color-border);
+  margin: 0 16px;
+}
+
+/* Phần Cuối Dropdown (Đăng xuất - Padding 12px 20px) */
+.dropdownLogoutItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border: none;
+  background-color: transparent;
+  color: var(--color-danger, #B91C1C);
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.dropdownLogoutItem:hover {
+  background-color: #FEF2F2;
+}
+
+.dropdownLogoutIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-danger, #B91C1C);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   4. CARD NỘI DUNG DEMO CHO CÁC TRANG TRONG <Outlet />
+   ========================================================= */
+.demoCard {
+  background-color: #FFFFFF;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.demoHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.demoTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-neutral);
+}
+
+.demoRoleTag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: var(--color-tertiary);
+  color: var(--color-primary);
+}
+
+.demoDesc {
+  font-size: 14.5px;
+  color: var(--color-secondary);
+  line-height: 1.6;
+}

@@ -1,0 +1,195 @@
+/* Khung tổng thể của AuthLayout (dùng chung cho /login và /register) */
+.authLayout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-bg-page, #F8FAFC);
+  color: var(--color-neutral, #242A30);
+}
+
+/* 1. Phần Header trên cùng */
+.header {
+  background-color: #FFFFFF;
+  border-bottom: 1px solid var(--color-border, #E2E8F0);
+  padding: 14px 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.brandGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logoBox {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brandTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brandName {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-neutral, #242A30);
+  letter-spacing: -0.02em;
+}
+
+.versionBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-secondary, #586574);
+  background-color: #F1F5F9;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.brandSubtitle {
+  font-size: 12.5px;
+  color: var(--color-secondary, #586574);
+  margin-top: 2px;
+}
+
+/* Cụm trạng thái kết nối FE - BE bên phải Header */
+.onlineStatusGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onlineStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-secondary, #586574);
+  background-color: #F8FAFC;
+  border: 1px solid var(--color-border, #E2E8F0);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.onlineStatus:hover {
+  background-color: #F1F5F9;
+  border-color: #CBD5E1;
+}
+
+.pingBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #E2E8F0);
+  background-color: #FFFFFF;
+  color: var(--color-secondary, #586574);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pingBtn:hover:not(:disabled) {
+  background-color: #E7F4ED;
+  color: var(--color-primary, #087F5B);
+  border-color: #A7F3D0;
+}
+
+.pingBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.spinIcon {
+  animation: spinPing 0.8s linear infinite;
+}
+
+@keyframes spinPing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.2);
+  animation: pulseDot 2s infinite ease-in-out;
+}
+
+.statusDotMock {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #D97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2);
+}
+
+.statusDotReady {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #0284C7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+}
+
+@keyframes pulseDot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.75;
+  }
+}
+
+/* 2. Phần Thân giữa màn hình (Căn giữa tuyệt đối khung Card 460px) */
+.mainContent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 16px;
+}
+
+.authCard {
+  width: 100%;
+  max-width: 460px;
+  background-color: #FFFFFF;
+  border: 1px solid var(--color-border, #E2E8F0);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05),
+    0 4px 10px -6px rgba(15, 23, 42, 0.03);
+}
+
+/* 3. Phần Footer dưới đáy màn hình */
+.footer {
+  background-color: #FFFFFF;
+  border-top: 1px solid var(--color-border, #E2E8F0);
+  padding: 14px 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-secondary, #586574);
+}
+

@@ -63,5 +63,7 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Run auth security tests
+        run: npm test
       - name: Production build
         run: npm run build
