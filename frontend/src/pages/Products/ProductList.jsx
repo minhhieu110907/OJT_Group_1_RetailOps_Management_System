@@ -24,11 +24,11 @@ const INITIAL_PRODUCT_FORM = {
 };
 
 export default function ProductList() {
-  const { user, isMockMode, canUseMock } = useAuth();
+  const { user } = useAuth();
   const toast = useToast();
 
   const isStaff = user?.role !== 'ADMIN';
-  const isMockDemoActive = Boolean(isMockMode && canUseMock);
+  const isMockDemoActive = true;
 
   // 1. State tìm kiếm, lọc & phân trang
   const [searchParams, setSearchParams] = useState({
