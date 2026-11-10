@@ -60,6 +60,8 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     environment:
       RETAILOPS_ENVIRONMENT: development
       RETAILOPS_DB_HOST: mysql

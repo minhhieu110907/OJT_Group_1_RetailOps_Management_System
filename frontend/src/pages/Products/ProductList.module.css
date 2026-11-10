@@ -1,11 +1,13 @@
-.pageContainer {
+/* Container chính của trang Quản lý Sản phẩm */
+.container {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  width: 100%;
 }
 
-/* Thanh tiêu đề trang & Nút hành động chính */
-.pageHeader {
+/* Header trang: Tiêu đề bên trái, nút Thêm sản phẩm bên phải */
+.header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -13,16 +15,24 @@
   gap: 12px;
 }
 
-.pageTitle {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--color-neutral, #242A30);
-  margin-bottom: 4px;
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.pageSubtitle {
+.title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
   font-size: 14px;
-  color: var(--color-secondary, #586574);
+  color: #6B7280;
+  margin: 0;
 }
 
 .headerActions {
@@ -35,12 +45,12 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 16px;
-  border-radius: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
   border: none;
   background-color: var(--color-primary, #087F5B);
   color: #FFFFFF;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -50,24 +60,44 @@
   background-color: #066649;
 }
 
-/* Thanh bộ lọc & Tìm kiếm (Filter Bar) */
-.filterCard {
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #D1D5DB;
   background-color: #FFFFFF;
-  border: 1px solid var(--color-border, #E2E8F0);
-  border-radius: 12px;
-  padding: 14px 18px;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.secondaryBtn:hover {
+  background-color: #F9FAFB;
+  border-color: #9CA3AF;
+}
+
+/* Thanh bộ lọc & Tìm kiếm (Khung trắng viền mảnh bo góc) */
+.filterBar {
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
 }
 
-.searchWrap {
+.searchBox {
   position: relative;
   flex: 1;
-  min-width: 240px;
-  max-width: 360px;
+  min-width: 220px;
+  max-width: 340px;
 }
 
 .searchIcon {
@@ -75,124 +105,176 @@
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--color-secondary, #586574);
+  color: #9CA3AF;
+  pointer-events: none;
   display: flex;
   align-items: center;
-  pointer-events: none;
 }
 
 .searchInput {
   width: 100%;
-  padding: 9px 12px 9px 36px;
-  border: 1px solid var(--color-border, #E2E8F0);
-  border-radius: 8px;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
   font-size: 13.5px;
-  color: var(--color-neutral, #242A30);
+  color: #1F2937;
+  background-color: #FFFFFF;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .searchInput:focus {
   border-color: var(--color-primary, #087F5B);
-  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.12);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1);
 }
 
-.filterGroup {
+.filterControls {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
+}
+
+.filterItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filterLabel {
+  font-size: 13.5px;
+  color: #4B5563;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .filterSelect {
-  padding: 8px 12px;
-  border: 1px solid var(--color-border, #E2E8F0);
-  border-radius: 8px;
+  padding: 7px 12px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
   background-color: #FFFFFF;
-  color: var(--color-neutral, #242A30);
+  color: #1F2937;
   font-size: 13.5px;
   outline: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
 }
 
 .filterSelect:focus {
   border-color: var(--color-primary, #087F5B);
 }
 
-/* Định dạng các ô bên trong Bảng */
-.skuText {
-  font-weight: 600;
-  color: var(--color-secondary, #586574);
+.filterResetBtn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  background-color: #FFFFFF;
+  color: #6B7280;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.productName {
+.filterResetBtn:hover {
+  background-color: #F3F4F6;
+  color: #111827;
+}
+
+/* Định dạng cột bên trong Bảng */
+.skuText {
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--color-neutral, #242A30);
+  color: #374151;
+}
+
+.productNameText {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.categoryText {
+  font-size: 13.5px;
+  color: #4B5563;
 }
 
 .priceText {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+/* Cột Tồn kho kèm icon ổ khóa */
+.stockCell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.stockNumber {
+  font-size: 14px;
   font-weight: 600;
-  color: var(--color-neutral, #242A30);
+  color: #111827;
 }
 
-.costPriceText {
-  font-weight: 500;
-  color: var(--color-secondary, #586574);
-}
-
-.stockBadge {
+.stockTagWarning {
   display: inline-block;
-  min-width: 36px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background-color: #F8FAFC;
-  border: 1px solid var(--color-border, #E2E8F0);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11.5px;
   font-weight: 600;
-}
-
-/* Badge trạng thái bo tròn dùng chung */
-.pillBadge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.badgeSuccess {
-  background-color: var(--color-tertiary, #E7F4ED);
-  color: var(--color-primary, #087F5B);
-}
-
-.badgeWarning {
   background-color: #FEF3C7;
   color: #B45309;
 }
 
-.badgeDanger {
+.stockTagDanger {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
   background-color: #FEE2E2;
-  color: var(--color-danger, #B91C1C);
+  color: #DC2626;
+}
+
+/* Badge trạng thái hoạt động bo tròn (Đang bán / Ngừng bán) */
+.pillBadge {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.badgeSuccess {
+  background-color: #ECFDF5;
+  color: #059669;
 }
 
 .badgeNeutral {
-  background-color: #F1F5F9;
-  color: var(--color-secondary, #586574);
+  background-color: #F3F4F6;
+  color: #6B7280;
 }
 
-/* Cụm nút thao tác Sửa / Xóa */
+/* Cụm 2 nút Thao tác icon-only (Sửa và Ngừng / Bật kích hoạt) */
 .actionGroup {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
 }
 
-.iconActionBtn {
+.iconBtn {
   width: 32px;
   height: 32px;
   border-radius: 6px;
   border: none;
   background-color: transparent;
-  color: var(--color-secondary, #586574);
+  color: #6B7280;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -201,19 +283,192 @@
 }
 
 .editBtn:hover {
-  background-color: #F1F5F9;
-  color: var(--color-neutral, #242A30);
+  background-color: #F3F4F6;
+  color: #111827;
 }
 
-.deleteBtn:hover {
+.deactivateBtn:hover {
   background-color: #FEE2E2;
-  color: var(--color-danger, #B91C1C);
+  color: #DC2626;
 }
 
-/* Khu vực chân bảng chứa Pagination */
+.activateBtn:hover {
+  background-color: #ECFDF5;
+  color: #059669;
+}
+
+/* Phân trang */
 .paginationRow {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  margin-top: 8px;
 }
 
+/* Modal form gọn gàng, không có text quy tắc dài dòng */
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.formRowTwoCols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.02em;
+}
+
+.requiredMark {
+  color: #DC2626;
+}
+
+.formInput {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  background-color: #FFFFFF;
+  color: #111827;
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.formInput:focus {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1);
+}
+
+.formInput:disabled {
+  background-color: #F3F4F6;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.formErrorBox {
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #DC2626;
+}
+
+/* Quản lý danh mục Modal styles (PROD-02) */
+.categoryAddRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.categoryListContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  padding: 8px;
+  background-color: #FAFAFA;
+}
+
+.categoryItemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+}
+
+.categoryItemName {
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.categoryItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.categoryNoteBox {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #166534;
+  line-height: 1.5;
+}
+
+/* F02: Mock Mode Warning Banner */
+.mockWarningBanner {
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background-color: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: 8px;
+  color: #92400E;
+}
+
+.mockWarningTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.mockWarningBanner p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* F03: Category Retry Button & Status */
+.retryCategoryBtn {
+  background: none;
+  border: none;
+  color: #2563EB;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0 4px;
+}
+
+.retryCategoryBtn:hover {
+  color: #1D4ED8;
+}
+
+.categoryStatusHint {
+  font-size: 12px;
+  color: #DC2626;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
