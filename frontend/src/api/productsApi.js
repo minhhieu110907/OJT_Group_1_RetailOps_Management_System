@@ -1,4 +1,15 @@
-import axiosClient from './axiosClient.js';
+import axiosClient, { getUseMock, isMockAllowed } from './axiosClient.js';
+
+/**
+ * Determine whether Mock mode is active under strict environment isolation (FIX-01).
+ * Production build MUST ALWAYS use Real API.
+ */
+function shouldRunMock(explicitFlag) {
+  if (typeof explicitFlag === 'boolean') {
+    return explicitFlag;
+  }
+  return Boolean(isMockAllowed() && getUseMock());
+}
 
 /**
  * Initial mock data for Category and Product catalog.
@@ -108,8 +119,8 @@ export const productsApi = {
    * In Mock mode: filters ENTIRE dataset before paginating.
    * In Real mode: calls backend API with validation.
    */
-  async getProducts({ isMockMode = false, page = 1, pageSize = 20, keyword = '', categoryId = '', status = '', stockStatus = '' } = {}) {
-    if (isMockMode) {
+  async getProducts({ isMockMode, page = 1, pageSize = 20, keyword = '', categoryId = '', status = '', stockStatus = '' } = {}) {
+    if (shouldRunMock(isMockMode)) {
       // Filter ENTIRE dataset first
       let filtered = [...mockProducts];
 
@@ -174,8 +185,8 @@ export const productsApi = {
    * Create a new product.
    * Initial quantity is always 0.
    */
-  async createProduct({ isMockMode = false, data }) {
-    if (isMockMode) {
+  async createProduct({ isMockMode, data }) {
+    if (shouldRunMock(isMockMode)) {
       const existingSku = mockProducts.find((p) => p.sku.toUpperCase() === data.sku.toUpperCase());
       if (existingSku) {
         const err = new Error(`Mã SKU "${data.sku}" đã tồn tại trong hệ thống.`);
@@ -206,8 +217,8 @@ export const productsApi = {
   /**
    * Update an existing product.
    */
-  async updateProduct({ isMockMode = false, id, data }) {
-    if (isMockMode) {
+  async updateProduct({ isMockMode, id, data }) {
+    if (shouldRunMock(isMockMode)) {
       const idx = mockProducts.findIndex((p) => p.id === id);
       if (idx === -1) {
         const err = new Error('Không tìm thấy sản phẩm.');
@@ -241,8 +252,8 @@ export const productsApi = {
   /**
    * Toggle product active/inactive status.
    */
-  async updateProductStatus({ isMockMode = false, id, status }) {
-    if (isMockMode) {
+  async updateProductStatus({ isMockMode, id, status }) {
+    if (shouldRunMock(isMockMode)) {
       const idx = mockProducts.findIndex((p) => p.id === id);
       if (idx === -1) {
         const err = new Error('Không tìm thấy sản phẩm.');
@@ -264,8 +275,8 @@ export const productsApi = {
   /**
    * Fetch categories list.
    */
-  async getCategories({ isMockMode = false, page = 1, pageSize = 100 } = {}) {
-    if (isMockMode) {
+  async getCategories({ isMockMode, page = 1, pageSize = 100 } = {}) {
+    if (shouldRunMock(isMockMode)) {
       return {
         items: mockCategories.map(validateCategoryRead),
         total: mockCategories.length,
@@ -290,8 +301,8 @@ export const productsApi = {
   /**
    * Create a new category (Admin only).
    */
-  async createCategory({ isMockMode = false, name }) {
-    if (isMockMode) {
+  async createCategory({ isMockMode, name }) {
+    if (shouldRunMock(isMockMode)) {
       const newCategory = {
         id: Date.now(),
         name: name.trim(),
@@ -310,8 +321,8 @@ export const productsApi = {
   /**
    * Update category name (Admin only - PROD-02).
    */
-  async updateCategory({ isMockMode = false, id, name }) {
-    if (isMockMode) {
+  async updateCategory({ isMockMode, id, name }) {
+    if (shouldRunMock(isMockMode)) {
       const idx = mockCategories.findIndex((c) => c.id === id);
       if (idx === -1) throw new Error('Không tìm thấy danh mục.');
       mockCategories[idx] = {
@@ -329,8 +340,8 @@ export const productsApi = {
   /**
    * Toggle category status ACTIVE / INACTIVE (Admin only - PROD-02).
    */
-  async updateCategoryStatus({ isMockMode = false, id, status }) {
-    if (isMockMode) {
+  async updateCategoryStatus({ isMockMode, id, status }) {
+    if (shouldRunMock(isMockMode)) {
       const idx = mockCategories.findIndex((c) => c.id === id);
       if (idx === -1) throw new Error('Không tìm thấy danh mục.');
       mockCategories[idx] = {
