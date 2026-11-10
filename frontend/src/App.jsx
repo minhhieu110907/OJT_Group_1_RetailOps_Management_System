@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './components/common';
 import AuthLayout from './layouts/AuthLayout/AuthLayout';
 import MainLayout from './layouts/MainLayout/MainLayout';
@@ -14,6 +14,30 @@ import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
 
+// Component điều hướng thông minh cho route gốc "/"
+function IndexRedirect() {
+  const { user, authInitializing } = useAuth();
+  if (authInitializing) {
+    return null;
+  }
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (
+    user.status === 'PENDING' ||
+    user.status === 'PENDING_APPROVAL' ||
+    user.status === 'REJECTED'
+  ) {
+    return <Navigate to="/account-status" replace />;
+  }
+  return (
+    <Navigate
+      to={user.role === 'ADMIN' ? '/dashboard' : '/pos'}
+      replace
+    />
+  );
+}
+
 // Component giữ chỗ cho các tính năng đang phát triển theo lộ trình Sprint
 function PlaceholderPage({ title }) {
   return (
@@ -22,7 +46,7 @@ function PlaceholderPage({ title }) {
         <h1 className={styles.demoTitle}>{title}</h1>
       </div>
       <p className={styles.demoDesc}>
-        Tính năng đang được phát triển theo lộ trình Sprint
+        Tính năng đang được phát triển theo lộ trình Sprint (RetailOps v1.0)
       </p>
     </div>
   );
@@ -87,10 +111,6 @@ export default function App() {
                     element={<PlaceholderPage title="Quản lý Nhập hàng" />}
                   />
                   <Route
-                    path="/customers"
-                    element={<PlaceholderPage title="Quản lý Khách hàng" />}
-                  />
-                  <Route
                     path="/analytics"
                     element={
                       <PlaceholderPage title="Báo cáo & Phân tích Doanh thu" />
@@ -98,7 +118,7 @@ export default function App() {
                   />
                   <Route
                     path="/staff"
-                    element={<PlaceholderPage title="Quản lý Nhân viên" />}
+                    element={<PlaceholderPage title="Quản lý & Xét duyệt Nhân viên" />}
                   />
                   <Route
                     path="/ai-assistant"
@@ -108,8 +128,8 @@ export default function App() {
               </Route>
             </Route>
 
-            {/* 3. Điều hướng mặc định: "/" hoặc "*" đều chuyển hướng an toàn về "/login" */}
-            <Route path="/" element={<Navigate to="/login" replace />} />
+            {/* 3. Điều hướng mặc định: "/" điều hướng thông minh theo phiên, "*" về "/login" */}
+            <Route path="/" element={<IndexRedirect />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>

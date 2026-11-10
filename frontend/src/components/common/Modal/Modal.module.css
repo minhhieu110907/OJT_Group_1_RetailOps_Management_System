@@ -121,6 +121,32 @@
   border-color: #991B1B;
 }
 
+.confirmBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--color-primary, #087F5B);
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.confirmBtn:hover {
+  background-color: #066649;
+  border-color: #066649;
+}
+
+.confirmBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
