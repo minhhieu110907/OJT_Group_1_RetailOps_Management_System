@@ -20,6 +20,7 @@ from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.products.repository import InventoryRepository
 from app.modules.products.schemas import (
     ProductCreateRequest,
+    ProductSortOrder,
     ProductStatusUpdateRequest,
     ProductUpdateRequest,
 )
@@ -90,14 +91,10 @@ class ProductRowTracker:
         with Session(self.engine) as session, session.begin():
             if inventory_ids:
                 session.execute(
-                    delete(Inventory).where(
-                        Inventory.product_id.in_(inventory_ids)
-                    )
+                    delete(Inventory).where(Inventory.product_id.in_(inventory_ids))
                 )
             if self.product_ids:
-                session.execute(
-                    delete(Product).where(Product.id.in_(self.product_ids))
-                )
+                session.execute(delete(Product).where(Product.id.in_(self.product_ids)))
             if self.category_ids:
                 session.execute(
                     delete(Category).where(Category.id.in_(self.category_ids))
@@ -259,26 +256,17 @@ def test_mysql_concurrent_duplicate_sku_allows_only_one_product(
         assert sorted(outcomes) == ["created", "duplicate"]
         with Session(migrated_integration_engine) as verify_session:
             products = list(
-                verify_session.scalars(
-                    select(Product).where(Product.sku == race_sku)
-                )
+                verify_session.scalars(select(Product).where(Product.sku == race_sku))
             )
             assert len(products) == 1
 
     with Session(migrated_integration_engine) as after_cleanup_session:
         assert (
-            after_cleanup_session.scalar(
-                select(Product).where(Product.sku == race_sku)
-            )
+            after_cleanup_session.scalar(select(Product).where(Product.sku == race_sku))
             is None
         )
-        assert (
-            after_cleanup_session.get(Product, preexisting_product_id) is not None
-        )
-        assert (
-            after_cleanup_session.get(Category, preexisting_category_id)
-            is not None
-        )
+        assert after_cleanup_session.get(Product, preexisting_product_id) is not None
+        assert after_cleanup_session.get(Category, preexisting_category_id) is not None
 
 
 def test_mysql_inactive_category_and_update_status_flow(
@@ -353,9 +341,7 @@ def test_mysql_cleanup_preserves_preexisting_category_and_product(
         ProductRowTracker(migrated_integration_engine),
         Session(migrated_integration_engine) as inner_session,
     ):
-        inner_category = add_category(
-            inner_session, "INNER_CAT", status="ACTIVE"
-        )
+        inner_category = add_category(inner_session, "INNER_CAT", status="ACTIVE")
         inner_product = service.create(
             inner_session,
             ProductCreateRequest(
@@ -381,9 +367,7 @@ def test_mysql_cleanup_preserves_preexisting_category_and_product(
         kept_category = verify_session.get(Category, preexisting_category_id)
         kept_product = verify_session.get(Product, preexisting_product_id)
         kept_inventory = verify_session.scalar(
-            select(Inventory).where(
-                Inventory.product_id == preexisting_product_id
-            )
+            select(Inventory).where(Inventory.product_id == preexisting_product_id)
         )
         assert kept_category is not None
         assert kept_product is not None
@@ -436,10 +420,126 @@ def test_mysql_cleanup_deletes_committed_rows_when_test_fails(
         assert verify_session.get(Product, committed_product_id) is None
         assert (
             verify_session.scalar(
-                select(Inventory).where(
-                    Inventory.product_id == committed_product_id
-                )
+                select(Inventory).where(Inventory.product_id == committed_product_id)
             )
             is None
         )
         assert verify_session.get(Category, preexisting_category_id) is not None
+
+
+def test_mysql_product_search_filter_sort_and_pagination_stability(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Verify MySQL 8 query behavior: search, filters, sorts, and tie-breakers."""
+    service = ProductService()
+    run_tag = unique_token("QRY")
+
+    with Session(migrated_integration_engine) as session:
+        cat_a = add_category(session, f"{run_tag}_CAT_A", status="ACTIVE")
+        cat_b = add_category(session, f"{run_tag}_CAT_B", status="ACTIVE")
+
+        # Create products in cat_a and cat_b, with duplicate names for tie-breaker
+        p1 = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-ALPHA",
+                name=f"{run_tag} Cà phê rang xay",
+                category_id=cat_a.id,
+                sale_price_vnd=40_000,
+            ),
+        )
+        p2 = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-BETA",
+                name=f"{run_tag} Cà phê rang xay",
+                category_id=cat_a.id,
+                sale_price_vnd=42_000,
+            ),
+        )
+        p3 = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-GAMMA",
+                name=f"{run_tag} Trà Ô Long",
+                category_id=cat_b.id,
+                sale_price_vnd=28_000,
+            ),
+        )
+        service.update_status(
+            session,
+            p3.id,
+            ProductStatusUpdateRequest(status=CatalogStatus.INACTIVE),
+        )
+
+        # 1. Case-insensitive search on ascii_bin SKU in MySQL
+        lower_sku_query = f"{run_tag}-alpha".lower()
+        sku_res = service.list_products(session, search=lower_sku_query)
+        assert sku_res.total == 1
+        assert sku_res.items[0].id == p1.id
+
+        # 2. Case-insensitive search on Vietnamese product name
+        name_res = service.list_products(
+            session,
+            search=f"{run_tag} cà PHÊ",
+            sort=ProductSortOrder.NAME_ASC,
+        )
+        assert name_res.total == 2
+        assert [item.id for item in name_res.items] == [p1.id, p2.id]
+
+        # 3. name_desc uses id DESC tie-breaker when names are identical
+        name_desc_res = service.list_products(
+            session,
+            search=f"{run_tag} Cà phê",
+            sort=ProductSortOrder.NAME_DESC,
+        )
+        assert [item.id for item in name_desc_res.items] == [p2.id, p1.id]
+
+        # 4. sku_asc and sku_desc
+        sku_asc_res = service.list_products(
+            session,
+            search=run_tag,
+            sort=ProductSortOrder.SKU_ASC,
+        )
+        assert [item.id for item in sku_asc_res.items] == [p1.id, p2.id, p3.id]
+
+        sku_desc_res = service.list_products(
+            session,
+            search=run_tag,
+            sort=ProductSortOrder.SKU_DESC,
+        )
+        assert [item.id for item in sku_desc_res.items] == [p3.id, p2.id, p1.id]
+
+        # 5. Filter by category_id and status
+        cat_a_active = service.list_products(
+            session,
+            search=run_tag,
+            category_id=cat_a.id,
+            status=CatalogStatus.ACTIVE,
+            sort=ProductSortOrder.CREATED_DESC,
+        )
+        assert cat_a_active.total == 2
+        assert [item.id for item in cat_a_active.items] == [p2.id, p1.id]
+
+        inactive_only = service.list_products(
+            session,
+            search=run_tag,
+            status=CatalogStatus.INACTIVE,
+        )
+        assert inactive_only.total == 1
+        assert inactive_only.items[0].id == p3.id
+
+        # 6. Multi-page pagination stability (page_size=1 across 3 items)
+        paged_ids: list[int] = []
+        for page_num in (1, 2, 3):
+            page_res = service.list_products(
+                session,
+                page=page_num,
+                page_size=1,
+                search=run_tag,
+                sort=ProductSortOrder.NAME_ASC,
+            )
+            assert page_res.total == 3
+            assert len(page_res.items) == 1
+            paged_ids.append(page_res.items[0].id)
+        assert paged_ids == [p1.id, p2.id, p3.id]
