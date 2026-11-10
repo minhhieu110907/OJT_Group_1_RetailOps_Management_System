@@ -143,6 +143,20 @@ describe('T3C9C86 Product Management & API Strategy Test Suite', () => {
         status: 'INACTIVE',
       });
       assert.equal(toggled.status, 'INACTIVE');
+
+      // Update product master fields (PROD-01: does not alter stock)
+      const updated = await productsApi.updateProduct({
+        isMockMode: true,
+        id: created.id,
+        data: {
+          name: 'Nước ép cam tươi nguyên chất',
+          category_id: 1,
+          sale_price_vnd: 28000,
+        },
+      });
+      assert.equal(updated.name, 'Nước ép cam tươi nguyên chất');
+      assert.equal(updated.sale_price_vnd, 28000);
+      assert.equal(updated.quantity, 0, 'PROD-01: Product update must never alter stock quantity');
     });
 
     test('Mock Mode prevents duplicate SKU creation with 409 error', async () => {

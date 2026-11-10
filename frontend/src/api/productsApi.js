@@ -264,7 +264,14 @@ export const productsApi = {
       return validateProductRead(updated);
     }
 
-    const response = await axiosClient.patch(`/products/${id}`, data);
+    // Defensive payload sanitization: Send only whitelisted ProductUpdateRequest fields
+    const cleanPayload = {};
+    if (data.name !== undefined) cleanPayload.name = String(data.name).trim();
+    if (data.category_id !== undefined) cleanPayload.category_id = Number(data.category_id);
+    if (data.sale_price_vnd !== undefined) cleanPayload.sale_price_vnd = Number(data.sale_price_vnd);
+    if (data.sku !== undefined) cleanPayload.sku = String(data.sku).trim();
+
+    const response = await axiosClient.patch(`/products/${id}`, cleanPayload);
     return validateProductRead(response.data);
   },
 

@@ -215,10 +215,17 @@ export default function ProductList() {
     const sku = productForm.sku.trim().toUpperCase();
     const name = productForm.name.trim();
     const categoryId = Number(productForm.category_id);
-    const salePriceVnd = Number(productForm.sale_price_vnd);
+    // Chuẩn hóa loại bỏ dấu chấm, phẩy, khoảng trắng khỏi giá bán
+    const rawPriceStr = String(productForm.sale_price_vnd || '').replace(/[.,\s]/g, '');
+    const salePriceVnd = Number(rawPriceStr);
 
-    if (!sku || !name || !categoryId) {
-      setFormError('Vui lòng nhập đầy đủ Mã SKU, Tên sản phẩm và Danh mục.');
+    if (formMode === 'create' && !sku) {
+      setFormError('Vui lòng nhập Mã SKU cho sản phẩm mới.');
+      return;
+    }
+
+    if (!name || !categoryId) {
+      setFormError('Vui lòng nhập đầy đủ Tên sản phẩm và Danh mục.');
       return;
     }
 
@@ -241,15 +248,16 @@ export default function ProductList() {
         });
         toast.success(`Đã thêm sản phẩm "${name}" thành công!`);
       } else {
+        // PROD-01 & Backend contract:
+        // Cập nhật thông tin sản phẩm KHÔNG gửi status (status dùng PATCH /products/{id}/status)
+        // và KHÔNG sửa mã SKU khi đang cập nhật.
         await productsApi.updateProduct({
           isMockMode: isMockDemoActive,
           id: productForm.id,
           data: {
-            sku,
             name,
             category_id: categoryId,
             sale_price_vnd: salePriceVnd,
-            status: productForm.status,
           },
         });
         toast.success(`Đã lưu thay đổi cho "${name}"!`);
@@ -656,7 +664,7 @@ export default function ProductList() {
             <div className={styles.formRowTwoCols}>
               <div className={styles.formField}>
                 <label className={styles.formLabel}>
-                  MÃ SKU <span className={styles.requiredMark}>*</span>
+                  MÃ SKU {formMode === 'create' && <span className={styles.requiredMark}>*</span>}
                 </label>
                 <input
                   type="text"
@@ -669,9 +677,16 @@ export default function ProductList() {
                   }
                   placeholder="VD: SP0001"
                   className={styles.formInput}
-                  disabled={isSubmittingForm}
+                  disabled={formMode === 'edit' || isSubmittingForm}
+                  readOnly={formMode === 'edit'}
                   maxLength={64}
+                  title={formMode === 'edit' ? 'Mã SKU cố định, không thể chỉnh sửa' : ''}
                 />
+                {formMode === 'edit' && (
+                  <span style={{ fontSize: '11px', color: '#6B7280', marginTop: '2px' }}>
+                    Mã SKU cố định sau khi tạo
+                  </span>
+                )}
               </div>
 
               <div className={styles.formField}>
@@ -691,10 +706,15 @@ export default function ProductList() {
                 >
                   <option value="">-- Chọn danh mục --</option>
                   {categories
-                    .filter((c) => c.status === 'ACTIVE')
+                    .filter(
+                      (c) =>
+                        c.status === 'ACTIVE' ||
+                        String(c.id) === String(productForm.category_id)
+                    )
                     .map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.name}
+                        {cat.status === 'INACTIVE' ? ' (Ngừng hoạt động)' : ''}
                       </option>
                     ))}
                 </select>
@@ -721,46 +741,23 @@ export default function ProductList() {
               />
             </div>
 
-            <div className={styles.formRowTwoCols}>
-              <div className={styles.formField}>
-                <label className={styles.formLabel}>
-                  GIÁ BÁN (VND) <span className={styles.requiredMark}>*</span>
-                </label>
-                <input
-                  type="number"
-                  value={productForm.sale_price_vnd}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({
-                      ...prev,
-                      sale_price_vnd: e.target.value,
-                    }))
-                  }
-                  placeholder="VD: 28000"
-                  className={styles.formInput}
-                  disabled={isSubmittingForm}
-                  min={1}
-                />
-              </div>
-
-              {formMode === 'edit' && (
-                <div className={styles.formField}>
-                  <label className={styles.formLabel}>TRẠNG THÁI</label>
-                  <select
-                    value={productForm.status}
-                    onChange={(e) =>
-                      setProductForm((prev) => ({
-                        ...prev,
-                        status: e.target.value,
-                      }))
-                    }
-                    className={styles.formInput}
-                    disabled={isSubmittingForm}
-                  >
-                    <option value="ACTIVE">Đang bán</option>
-                    <option value="INACTIVE">Ngừng bán</option>
-                  </select>
-                </div>
-              )}
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>
+                GIÁ BÁN (VND) <span className={styles.requiredMark}>*</span>
+              </label>
+              <input
+                type="text"
+                value={productForm.sale_price_vnd}
+                onChange={(e) =>
+                  setProductForm((prev) => ({
+                    ...prev,
+                    sale_price_vnd: e.target.value,
+                  }))
+                }
+                placeholder="VD: 28000"
+                className={styles.formInput}
+                disabled={isSubmittingForm}
+              />
             </div>
           </form>
         </Modal>
