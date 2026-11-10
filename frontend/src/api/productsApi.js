@@ -171,11 +171,30 @@ export const productsApi = {
 
     const response = await axiosClient.get('/products', { params });
     const payload = response.data || {};
-    const items = Array.isArray(payload.items) ? payload.items.map(validateProductRead) : [];
+    let items = Array.isArray(payload.items) ? payload.items.map(validateProductRead) : [];
+    let total = Number(payload.total) || items.length;
+
+    // Fallback: If backend does not support query filtering yet, apply filter on returned items
+    const hasFilter = Boolean(keyword.trim() || categoryId || status);
+    if (hasFilter) {
+      if (keyword.trim()) {
+        const kw = keyword.trim().toLowerCase();
+        items = items.filter(
+          (p) => p.sku.toLowerCase().includes(kw) || p.name.toLowerCase().includes(kw)
+        );
+      }
+      if (categoryId) {
+        items = items.filter((p) => String(p.category_id) === String(categoryId));
+      }
+      if (status) {
+        items = items.filter((p) => p.status === status);
+      }
+      total = items.length;
+    }
 
     return {
       items,
-      total: Number(payload.total) || items.length,
+      total,
       page: Number(payload.page) || page,
       page_size: Number(payload.page_size) || pageSize,
     };

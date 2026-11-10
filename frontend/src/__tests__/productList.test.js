@@ -163,6 +163,61 @@ describe('T3C9C86 Product Management & API Strategy Test Suite', () => {
         (err) => err.status === 409
       );
     });
+
+    test('Filter Bar: filters accurately by keyword, category, status, and reset', async () => {
+      resetMockCatalogStore();
+
+      // 1. Keyword search (case-insensitive and trimmed)
+      const keywordRes = await productsApi.getProducts({
+        isMockMode: true,
+        keyword: '  pepsi  ',
+      });
+      assert.equal(keywordRes.total, 1);
+      assert.equal(keywordRes.items[0].sku, 'PEPSI-330ML');
+
+      // 2. Filter by Category (Category 1: Đồ uống)
+      const catRes = await productsApi.getProducts({
+        isMockMode: true,
+        categoryId: 1,
+      });
+      assert.equal(catRes.total, 3);
+      assert.ok(catRes.items.every((p) => p.category_id === 1));
+
+      // 3. Filter by Status INACTIVE
+      const inactiveRes = await productsApi.getProducts({
+        isMockMode: true,
+        status: 'INACTIVE',
+      });
+      assert.equal(inactiveRes.total, 1);
+      assert.equal(inactiveRes.items[0].sku, 'CHINSU-CHAI-500G');
+
+      // 4. Combined Filter: Category 1 + Status ACTIVE
+      const combinedRes = await productsApi.getProducts({
+        isMockMode: true,
+        categoryId: 1,
+        status: 'ACTIVE',
+      });
+      assert.equal(combinedRes.total, 3);
+      assert.ok(combinedRes.items.every((p) => p.category_id === 1 && p.status === 'ACTIVE'));
+
+      // 5. Keyword search with no matches
+      const noMatchRes = await productsApi.getProducts({
+        isMockMode: true,
+        keyword: 'NON_EXISTENT_PRODUCT_XYZ',
+      });
+      assert.equal(noMatchRes.total, 0);
+      assert.equal(noMatchRes.items.length, 0);
+
+      // 6. Reset filters (all empty) returns all default products
+      const resetRes = await productsApi.getProducts({
+        isMockMode: true,
+        keyword: '',
+        categoryId: '',
+        status: '',
+      });
+      assert.equal(resetRes.total, 8);
+      assert.equal(resetRes.items.length, 8);
+    });
   });
 
   describe('FIX-03: PROD-02 Category Management in Adapter', () => {
