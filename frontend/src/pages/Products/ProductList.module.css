@@ -60,6 +60,26 @@
   background-color: #066649;
 }
 
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #D1D5DB;
+  background-color: #FFFFFF;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.secondaryBtn:hover {
+  background-color: #F9FAFB;
+  border-color: #9CA3AF;
+}
+
 /* Thanh bộ lọc & Tìm kiếm (Khung trắng viền mảnh bo góc) */
 .filterBar {
   background-color: #FFFFFF;
@@ -347,4 +367,59 @@
   font-size: 13px;
   font-weight: 600;
   color: #DC2626;
+}
+
+/* Quản lý danh mục Modal styles (PROD-02) */
+.categoryAddRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.categoryListContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  padding: 8px;
+  background-color: #FAFAFA;
+}
+
+.categoryItemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+}
+
+.categoryItemName {
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.categoryItemActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.categoryNoteBox {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #166534;
+  line-height: 1.5;
 }
