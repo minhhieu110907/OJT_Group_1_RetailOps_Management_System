@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
-import { productsApi } from '../../api/productsApi';
+import { parseAndValidateSalePriceVnd, productsApi } from '../../api/productsApi';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import styles from './ProductList.module.css';
 
@@ -11,8 +11,6 @@ const formatVND = (amount) => {
   const num = Number(amount) || 0;
   return `${num.toLocaleString('vi-VN')} đ`;
 };
-
-
 
 const INITIAL_PRODUCT_FORM = {
   id: null,
@@ -24,18 +22,24 @@ const INITIAL_PRODUCT_FORM = {
 };
 
 export default function ProductList() {
-  const { user } = useAuth();
+  const { user, isMockMode, canUseMock } = useAuth();
   const toast = useToast();
 
   const isStaff = user?.role !== 'ADMIN';
-  const isMockDemoActive = true;
+  // FIX CRITICAL (PR #27 Corrective Pass):
+  // Mock mode CHỈ được bật khi môi trường cho phép (canUseMock) VÀ người dùng chọn Mock (isMockMode).
+  // Production luôn chạy Real API (canUseMock === false).
+  // Tuyệt đối không hardcode true và không tự động fallback khi backend lỗi.
+  const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
-  // 1. State tìm kiếm, lọc & phân trang
+  // 1. State tìm kiếm, lọc, sắp xếp & phân trang
   const [searchParams, setSearchParams] = useState({
     keyword: '',
     categoryId: '',
     status: '',
+    sort: '',
   });
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [data, setData] = useState([]);
   const [categories, setCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +50,18 @@ export default function ProductList() {
     total: 0,
     totalPages: 1,
   });
+
+  // Chống race condition / stale response khi gõ nhanh hoặc chuyển trang
+  const requestIdRef = useRef(0);
+  const categoryRequestIdRef = useRef(0);
+
+  // Debounce tìm kiếm từ khóa 300ms tránh spam API liên tục
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedKeyword(searchParams.keyword.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchParams.keyword]);
 
   // 2. State Modal Thêm / Sửa sản phẩm
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -59,7 +75,7 @@ export default function ProductList() {
 
   // Lấy danh sách Danh mục
   useEffect(() => {
-    let isMounted = true;
+    const currentId = ++categoryRequestIdRef.current;
     const loadCategories = async () => {
       try {
         const res = await productsApi.getCategories({
@@ -67,7 +83,7 @@ export default function ProductList() {
           page: 1,
           pageSize: 100,
         });
-        if (isMounted) {
+        if (currentId === categoryRequestIdRef.current) {
           setCategories(res.items || []);
         }
       } catch {
@@ -77,7 +93,7 @@ export default function ProductList() {
 
     loadCategories();
     return () => {
-      isMounted = false;
+      categoryRequestIdRef.current += 1;
     };
   }, [isMockDemoActive]);
 
@@ -90,9 +106,9 @@ export default function ProductList() {
     return map;
   }, [categories]);
 
-  // Lấy danh sách sản phẩm
+  // Lấy danh sách sản phẩm (chống stale response và race condition qua requestIdRef)
   useEffect(() => {
-    let isMounted = true;
+    const currentRequestId = ++requestIdRef.current;
 
     const loadProducts = async () => {
       setIsLoading(true);
@@ -101,12 +117,13 @@ export default function ProductList() {
           isMockMode: isMockDemoActive,
           page: pagination.page,
           pageSize: pagination.page_size,
-          keyword: searchParams.keyword,
+          keyword: debouncedKeyword,
           categoryId: searchParams.categoryId,
           status: searchParams.status,
+          sort: searchParams.sort,
         });
 
-        if (isMounted) {
+        if (currentRequestId === requestIdRef.current) {
           setData(res.items || []);
           setPagination((prev) => ({
             ...prev,
@@ -117,13 +134,13 @@ export default function ProductList() {
           }));
         }
       } catch (error) {
-        if (isMounted) {
+        if (currentRequestId === requestIdRef.current) {
           toast.error(
             getApiErrorMessage(error) || 'Không thể tải danh sách sản phẩm.'
           );
         }
       } finally {
-        if (isMounted) {
+        if (currentRequestId === requestIdRef.current) {
           setIsLoading(false);
         }
       }
@@ -132,14 +149,16 @@ export default function ProductList() {
     loadProducts();
 
     return () => {
-      isMounted = false;
+      // Hủy hiệu lực của request đang gửi nếu dependency thay đổi hoặc unmount
+      requestIdRef.current += 1;
     };
   }, [
     pagination.page,
     pagination.page_size,
-    searchParams.keyword,
+    debouncedKeyword,
     searchParams.categoryId,
     searchParams.status,
+    searchParams.sort,
     refreshTrigger,
     isMockDemoActive,
     toast,
@@ -164,6 +183,7 @@ export default function ProductList() {
       keyword: '',
       categoryId: '',
       status: '',
+      sort: '',
     });
     setPagination((prev) => ({
       ...prev,
@@ -215,9 +235,15 @@ export default function ProductList() {
     const sku = productForm.sku.trim().toUpperCase();
     const name = productForm.name.trim();
     const categoryId = Number(productForm.category_id);
-    // Chuẩn hóa loại bỏ dấu chấm, phẩy, khoảng trắng khỏi giá bán
-    const rawPriceStr = String(productForm.sale_price_vnd || '').replace(/[.,\s]/g, '');
-    const salePriceVnd = Number(rawPriceStr);
+
+    // Chặt chẽ: Validate giá bán VND qua validator chuyên dụng (FIX-04)
+    // Ngăn chặn 10,5 biến thành 105; chỉ chấp nhận số nguyên dương lớn hơn 0
+    const priceValidation = parseAndValidateSalePriceVnd(productForm.sale_price_vnd);
+    if (!priceValidation.isValid) {
+      setFormError(priceValidation.error);
+      return;
+    }
+    const salePriceVnd = priceValidation.value;
 
     if (formMode === 'create' && !sku) {
       setFormError('Vui lòng nhập Mã SKU cho sản phẩm mới.');
@@ -226,11 +252,6 @@ export default function ProductList() {
 
     if (!name || !categoryId) {
       setFormError('Vui lòng nhập đầy đủ Tên sản phẩm và Danh mục.');
-      return;
-    }
-
-    if (!Number.isInteger(salePriceVnd) || salePriceVnd <= 0) {
-      setFormError('Giá bán phải là số nguyên dương VND lớn hơn 0.');
       return;
     }
 
@@ -579,6 +600,23 @@ export default function ProductList() {
               <option value="">Tất cả trạng thái</option>
               <option value="ACTIVE">Đang bán</option>
               <option value="INACTIVE">Ngừng bán</option>
+            </select>
+          </div>
+
+          <div className={styles.filterItem}>
+            <span className={styles.filterLabel}>Sắp xếp:</span>
+            <select
+              name="sort"
+              value={searchParams.sort}
+              onChange={handleFilterChange}
+              className={styles.filterSelect}
+            >
+              <option value="">Mặc định</option>
+              <option value="name_asc">Tên (A-Z)</option>
+              <option value="name_desc">Tên (Z-A)</option>
+              <option value="sku_asc">Mã SKU (A-Z)</option>
+              <option value="sku_desc">Mã SKU (Z-A)</option>
+              <option value="created_desc">Mới nhất</option>
             </select>
           </div>
 

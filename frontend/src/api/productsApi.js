@@ -1,14 +1,107 @@
 import axiosClient, { getUseMock, isMockAllowed } from './axiosClient.js';
 
 /**
+ * Whitelist các kiểu sắp xếp hợp lệ cho API Product (phối hợp với backend T3C9D97).
+ */
+export const ALLOWED_PRODUCT_SORTS = new Set([
+  'name_asc',
+  'name_desc',
+  'sku_asc',
+  'sku_desc',
+  'created_desc',
+]);
+
+/**
+ * Strict validation and parsing for Sale Price in VND (VND Positive Integer).
+ *
+ * Rules:
+ * - Accepts only positive integers (> 0).
+ * - Accepts clean plain digits (e.g. "28000").
+ * - Accepts standard dot-thousands (e.g. "28.000", "1.000.000").
+ * - Accepts standard comma-thousands (e.g. "28,000", "1,000,000").
+ * - Rejects any decimal fractional amounts (e.g. "10,5", "1.2", "28.5").
+ * - Rejects zero ("0") and negative amounts ("-1000").
+ * - Rejects empty string, whitespace, non-numeric strings ("abc", "28k").
+ * - Rejects values exceeding Number.MAX_SAFE_INTEGER or MySQL INT limit (2,147,483,647).
+ * - Never converts an invalid fractional or malformed input into a distorted number.
+ */
+export function parseAndValidateSalePriceVnd(rawInput) {
+  if (rawInput === null || rawInput === undefined) {
+    return { isValid: false, value: null, error: 'Vui lòng nhập giá bán.' };
+  }
+  const str = String(rawInput).trim();
+  if (!str) {
+    return { isValid: false, value: null, error: 'Vui lòng nhập giá bán.' };
+  }
+
+  // Chặn số âm rõ ràng
+  if (str.startsWith('-')) {
+    return {
+      isValid: false,
+      value: null,
+      error: 'Giá bán phải là số nguyên dương lớn hơn 0 VND.',
+    };
+  }
+
+  // Định dạng hợp lệ:
+  // 1. Số nguyên thuần không phân cách: vd "28000"
+  const isPlainDigits = /^\d+$/.test(str);
+  // 2. Phân cách hàng nghìn bằng dấu chấm: vd "28.000", "1.000.000"
+  const isDotThousands = /^\d{1,3}(\.\d{3})+$/.test(str);
+  // 3. Phân cách hàng nghìn bằng dấu phẩy: vd "28,000", "1,000,000"
+  const isCommaThousands = /^\d{1,3}(,\d{3})+$/.test(str);
+
+  if (!isPlainDigits && !isDotThousands && !isCommaThousands) {
+    if (str.includes(',') || str.includes('.')) {
+      return {
+        isValid: false,
+        value: null,
+        error:
+          'Giá bán phải là số nguyên VND, không được chứa số lẻ thập phân (ví dụ 10,5 hoặc 1.2) hoặc dấu phân cách sai quy cách.',
+      };
+    }
+    return {
+      isValid: false,
+      value: null,
+      error: 'Giá bán không hợp lệ. Vui lòng chỉ nhập số nguyên VND.',
+    };
+  }
+
+  const cleanedStr = str.replace(/[.,]/g, '');
+  const num = Number(cleanedStr);
+
+  if (!Number.isFinite(num) || !Number.isSafeInteger(num) || num > 2147483647) {
+    return {
+      isValid: false,
+      value: null,
+      error: 'Giá bán vượt quá giới hạn số nguyên cho phép (tối đa 2.147.483.647 VND).',
+    };
+  }
+
+  if (num <= 0) {
+    return {
+      isValid: false,
+      value: null,
+      error: 'Giá bán phải là số nguyên dương lớn hơn 0 VND.',
+    };
+  }
+
+  return { isValid: true, value: num, error: null };
+}
+
+/**
  * Determine whether Mock mode is active under strict environment isolation (FIX-01).
  * Production build MUST ALWAYS use Real API.
+ * An explicitFlag=true MUST NEVER bypass the environment guard (isMockAllowed).
  */
-function shouldRunMock(explicitFlag) {
+export function shouldRunMock(explicitFlag, runtimeEnv = import.meta.env) {
+  if (!isMockAllowed(runtimeEnv)) {
+    return false;
+  }
   if (typeof explicitFlag === 'boolean') {
     return explicitFlag;
   }
-  return Boolean(isMockAllowed() && getUseMock());
+  return Boolean(getUseMock());
 }
 
 /**
@@ -115,17 +208,26 @@ export function validateCategoryRead(item) {
  */
 export const productsApi = {
   /**
-   * Fetch products with pagination and filters.
-   * In Mock mode: filters ENTIRE dataset before paginating.
-   * In Real mode: calls backend API with validation.
+   * Fetch products with pagination, filters, and sorting.
+   * In Mock mode: filters and sorts ENTIRE dataset before paginating.
+   * In Real mode: calls backend API with query parameters.
    */
-  async getProducts({ isMockMode, page = 1, pageSize = 20, keyword = '', categoryId = '', status = '', stockStatus = '' } = {}) {
-    if (shouldRunMock(isMockMode)) {
+  async getProducts({
+    isMockMode,
+    runtimeEnv,
+    page = 1,
+    pageSize = 20,
+    keyword = '',
+    categoryId = '',
+    status = '',
+    sort = '',
+  } = {}) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       // Filter ENTIRE dataset first
       let filtered = [...mockProducts];
 
-      if (keyword.trim()) {
-        const kw = keyword.trim().toLowerCase();
+      if (keyword && String(keyword).trim()) {
+        const kw = String(keyword).trim().toLowerCase();
         filtered = filtered.filter(
           (p) => p.sku.toLowerCase().includes(kw) || p.name.toLowerCase().includes(kw)
         );
@@ -139,12 +241,14 @@ export const productsApi = {
         filtered = filtered.filter((p) => p.status === status);
       }
 
-      if (stockStatus) {
-        filtered = filtered.filter((p) => {
-          if (stockStatus === 'OUT_OF_STOCK') return p.quantity <= 0;
-          if (stockStatus === 'LOW_STOCK') return p.quantity > 0 && p.quantity <= 5;
-          if (stockStatus === 'IN_STOCK') return p.quantity > 5;
-          return true;
+      if (sort && ALLOWED_PRODUCT_SORTS.has(sort)) {
+        filtered.sort((a, b) => {
+          if (sort === 'name_asc') return a.name.localeCompare(b.name, 'vi');
+          if (sort === 'name_desc') return b.name.localeCompare(a.name, 'vi');
+          if (sort === 'sku_asc') return a.sku.localeCompare(b.sku);
+          if (sort === 'sku_desc') return b.sku.localeCompare(a.sku);
+          if (sort === 'created_desc') return new Date(b.created_at) - new Date(a.created_at);
+          return 0;
         });
       }
 
@@ -160,41 +264,23 @@ export const productsApi = {
       };
     }
 
-    // Real API mode
+    // Real API mode - Hoàn toàn dựa vào Backend, không tự ý can thiệp lọc client-side
     const params = {
       page,
       page_size: pageSize,
     };
-    if (keyword.trim()) params.search = keyword.trim();
+    if (keyword && String(keyword).trim()) params.search = String(keyword).trim();
     if (categoryId) params.category_id = Number(categoryId);
     if (status) params.status = status;
+    if (sort && ALLOWED_PRODUCT_SORTS.has(sort)) params.sort = sort;
 
     const response = await axiosClient.get('/products', { params });
     const payload = response.data || {};
-    let items = Array.isArray(payload.items) ? payload.items.map(validateProductRead) : [];
-    let total = Number(payload.total) || items.length;
-
-    // Fallback: If backend does not support query filtering yet, apply filter on returned items
-    const hasFilter = Boolean(keyword.trim() || categoryId || status);
-    if (hasFilter) {
-      if (keyword.trim()) {
-        const kw = keyword.trim().toLowerCase();
-        items = items.filter(
-          (p) => p.sku.toLowerCase().includes(kw) || p.name.toLowerCase().includes(kw)
-        );
-      }
-      if (categoryId) {
-        items = items.filter((p) => String(p.category_id) === String(categoryId));
-      }
-      if (status) {
-        items = items.filter((p) => p.status === status);
-      }
-      total = items.length;
-    }
+    const items = Array.isArray(payload.items) ? payload.items.map(validateProductRead) : [];
 
     return {
       items,
-      total,
+      total: Number(payload.total) || items.length,
       page: Number(payload.page) || page,
       page_size: Number(payload.page_size) || pageSize,
     };
@@ -204,8 +290,8 @@ export const productsApi = {
    * Create a new product.
    * Initial quantity is always 0.
    */
-  async createProduct({ isMockMode, data }) {
-    if (shouldRunMock(isMockMode)) {
+  async createProduct({ isMockMode, runtimeEnv, data }) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       const existingSku = mockProducts.find((p) => p.sku.toUpperCase() === data.sku.toUpperCase());
       if (existingSku) {
         const err = new Error(`Mã SKU "${data.sku}" đã tồn tại trong hệ thống.`);
@@ -213,8 +299,9 @@ export const productsApi = {
         err.response = { status: 409, data: { message: `Mã SKU "${data.sku}" đã tồn tại.` } };
         throw err;
       }
+      const nextId = mockProducts.length > 0 ? Math.max(...mockProducts.map((p) => p.id)) + 1 : 101;
       const newProduct = {
-        id: Date.now(),
+        id: nextId,
         sku: data.sku.trim().toUpperCase(),
         name: data.name.trim(),
         category_id: Number(data.category_id),
@@ -234,27 +321,19 @@ export const productsApi = {
   },
 
   /**
-   * Update an existing product.
+   * Update an existing product master fields (PROD-01).
+   * Note: SKU is strictly immutable in edit mode.
    */
-  async updateProduct({ isMockMode, id, data }) {
-    if (shouldRunMock(isMockMode)) {
+  async updateProduct({ isMockMode, runtimeEnv, id, data }) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       const idx = mockProducts.findIndex((p) => p.id === id);
       if (idx === -1) {
         const err = new Error('Không tìm thấy sản phẩm.');
         err.status = 404;
         throw err;
       }
-      if (data.sku) {
-        const duplicate = mockProducts.find((p) => p.sku.toUpperCase() === data.sku.toUpperCase() && p.id !== id);
-        if (duplicate) {
-          const err = new Error(`Mã SKU "${data.sku}" đã tồn tại.`);
-          err.status = 409;
-          throw err;
-        }
-      }
       const updated = {
         ...mockProducts[idx],
-        ...(data.sku ? { sku: data.sku.trim().toUpperCase() } : {}),
         ...(data.name ? { name: data.name.trim() } : {}),
         ...(data.category_id ? { category_id: Number(data.category_id) } : {}),
         ...(data.sale_price_vnd ? { sale_price_vnd: Number(data.sale_price_vnd) } : {}),
@@ -264,12 +343,12 @@ export const productsApi = {
       return validateProductRead(updated);
     }
 
-    // Defensive payload sanitization: Send only whitelisted ProductUpdateRequest fields
+    // Defensive payload sanitization: Send only whitelisted ProductUpdateRequest fields (name, category_id, sale_price_vnd)
+    // Never send 'sku', 'status', 'quantity', 'stock_version'
     const cleanPayload = {};
     if (data.name !== undefined) cleanPayload.name = String(data.name).trim();
     if (data.category_id !== undefined) cleanPayload.category_id = Number(data.category_id);
     if (data.sale_price_vnd !== undefined) cleanPayload.sale_price_vnd = Number(data.sale_price_vnd);
-    if (data.sku !== undefined) cleanPayload.sku = String(data.sku).trim();
 
     const response = await axiosClient.patch(`/products/${id}`, cleanPayload);
     return validateProductRead(response.data);
@@ -278,8 +357,8 @@ export const productsApi = {
   /**
    * Toggle product active/inactive status.
    */
-  async updateProductStatus({ isMockMode, id, status }) {
-    if (shouldRunMock(isMockMode)) {
+  async updateProductStatus({ isMockMode, runtimeEnv, id, status }) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       const idx = mockProducts.findIndex((p) => p.id === id);
       if (idx === -1) {
         const err = new Error('Không tìm thấy sản phẩm.');
@@ -301,8 +380,8 @@ export const productsApi = {
   /**
    * Fetch categories list.
    */
-  async getCategories({ isMockMode, page = 1, pageSize = 100 } = {}) {
-    if (shouldRunMock(isMockMode)) {
+  async getCategories({ isMockMode, runtimeEnv, page = 1, pageSize = 100 } = {}) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       return {
         items: mockCategories.map(validateCategoryRead),
         total: mockCategories.length,
@@ -327,10 +406,11 @@ export const productsApi = {
   /**
    * Create a new category (Admin only).
    */
-  async createCategory({ isMockMode, name }) {
-    if (shouldRunMock(isMockMode)) {
+  async createCategory({ isMockMode, runtimeEnv, name }) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
+      const nextId = mockCategories.length > 0 ? Math.max(...mockCategories.map((c) => c.id)) + 1 : 1;
       const newCategory = {
-        id: Date.now(),
+        id: nextId,
         name: name.trim(),
         status: 'ACTIVE',
         created_at: new Date().toISOString(),
@@ -347,8 +427,8 @@ export const productsApi = {
   /**
    * Update category name (Admin only - PROD-02).
    */
-  async updateCategory({ isMockMode, id, name }) {
-    if (shouldRunMock(isMockMode)) {
+  async updateCategory({ isMockMode, runtimeEnv, id, name }) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       const idx = mockCategories.findIndex((c) => c.id === id);
       if (idx === -1) throw new Error('Không tìm thấy danh mục.');
       mockCategories[idx] = {
@@ -366,8 +446,8 @@ export const productsApi = {
   /**
    * Toggle category status ACTIVE / INACTIVE (Admin only - PROD-02).
    */
-  async updateCategoryStatus({ isMockMode, id, status }) {
-    if (shouldRunMock(isMockMode)) {
+  async updateCategoryStatus({ isMockMode, runtimeEnv, id, status }) {
+    if (shouldRunMock(isMockMode, runtimeEnv)) {
       const idx = mockCategories.findIndex((c) => c.id === id);
       if (idx === -1) throw new Error('Không tìm thấy danh mục.');
       mockCategories[idx] = {
