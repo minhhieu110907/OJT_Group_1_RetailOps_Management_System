@@ -1,0 +1,20 @@
+{
+  "id": 51,
+  "status": "COMPLETED",
+  "total_vnd": 130000,
+  "created_by": 7,
+  "sold_at": "2026-11-10T07:00:00Z",
+  "cancelled_by": null,
+  "cancelled_at": null,
+  "cancel_reason": null,
+  "items": [
+    {
+      "product_id": 12,
+      "sku_snapshot": "SKU12",
+      "product_name_snapshot": "San pham demo",
+      "quantity": 2,
+      "unit_price_vnd": 65000,
+      "line_total_vnd": 130000
+    }
+  ]
+}

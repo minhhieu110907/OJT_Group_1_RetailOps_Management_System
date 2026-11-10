@@ -1,0 +1,3210 @@
+openapi: 3.0.3
+info:
+  title: RetailOps V1 — Sprint 2–3 CF-2.0 Contract Design Baseline
+  version: 2.0.0-design-review
+  description: SRS V1.3 / ERD V1.0 aligned design baseline. Existing API vs proposed new endpoints are marked
+    with x-implementation-status. User/consumer PR acknowledgement required before calling new interfaces
+    team-approved. No paths here prove runtime existence.
+servers:
+- url: /api/v1
+tags:
+- name: auth
+- name: staff-approvals
+- name: products
+- name: inventory
+- name: receipts
+- name: orders
+- name: analytics
+- name: dashboard
+- name: ai
+paths:
+  /staff-approvals:
+    get:
+      tags:
+      - staff-approvals
+      operationId: listStaffApprovals
+      summary: listStaffApprovals
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Approval list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /staff-approvals/{id}/approve:
+    post:
+      tags:
+      - staff-approvals
+      operationId: approveStaff
+      summary: approveStaff
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Approved staff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /staff-approvals/{id}/reject:
+    post:
+      tags:
+      - staff-approvals
+      operationId: rejectStaff
+      summary: rejectStaff
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Rejected staff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /products:
+    get:
+      tags:
+      - products
+      operationId: listProductsV2
+      summary: EXISTING /products, proposed additive search extension
+      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Paged product list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: category_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+      x-implementation-status: EXISTS_ON_DEVELOP_BASIC_LIST; FILTERS_PENDING
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory:
+    get:
+      tags:
+      - inventory
+      operationId: listInventory
+      summary: listInventory
+      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Paged inventory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: category_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory/{product_id}:
+    get:
+      tags:
+      - inventory
+      operationId: getInventory
+      summary: getInventory
+      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current inventory row
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: product_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory/{product_id}/adjustments:
+    post:
+      tags:
+      - inventory
+      operationId: adjustInventory
+      summary: adjustInventory
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Count adjustment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustResponse'
+              example:
+                product_id: 12
+                quantity: 7
+                stock_version: 5
+                audit_id: 33
+                movement_created: false
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustRequest'
+            example:
+              counted_quantity: 7
+              expected_stock_version: 5
+              reason: Kiểm kê thực tế
+      parameters:
+      - in: path
+        name: product_id
+        required: true
+        schema:
+          type: integer
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory/low-stock:
+    get:
+      tags:
+      - inventory
+      operationId: getLowStock
+      summary: getLowStock
+      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Inventory below the shared threshold P0=5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowStockPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /stock-movements:
+    get:
+      tags:
+      - inventory
+      operationId: listStockMovements
+      summary: listStockMovements
+      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Safe movement history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockMovementPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: product_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts:
+    get:
+      tags:
+      - receipts
+      operationId: listReceipts
+      summary: listReceipts
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Receipt list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - DRAFT
+          - CONFIRMED
+          - CANCELLED
+      - in: query
+        name: supplier_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+    post:
+      tags:
+      - receipts
+      operationId: createReceiptDraft
+      summary: createReceiptDraft
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Created DRAFT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptCreateRequest'
+            example:
+              supplier_id: 4
+              items:
+              - product_id: 12
+                quantity: 2
+                unit_cost_vnd: 47000
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts/{receipt_id}:
+    get:
+      tags:
+      - receipts
+      operationId: getReceipt
+      summary: getReceipt
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Receipt detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+    patch:
+      tags:
+      - receipts
+      operationId: updateReceiptDraft
+      summary: updateReceiptDraft
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Updated DRAFT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptUpdateRequest'
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts/{receipt_id}/cancel:
+    post:
+      tags:
+      - receipts
+      operationId: cancelReceiptDraft
+      summary: cancelReceiptDraft
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Cancelled DRAFT without stock change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptVersionRequest'
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts/{receipt_id}/confirm:
+    post:
+      tags:
+      - receipts
+      operationId: confirmReceipt
+      summary: confirmReceipt
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Confirmed receipt and stock in single transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+              example:
+                id: 9
+                supplier_id: 4
+                supplier_name_snapshot: NCC demo
+                status: CONFIRMED
+                draft_version: 3
+                total_vnd: 94000
+                created_by: 1
+                closed_by: 1
+                created_at: '2026-11-10T01:00:00Z'
+                updated_at: '2026-11-10T02:00:00Z'
+                closed_at: '2026-11-10T02:00:00Z'
+                items:
+                - product_id: 12
+                  sku_snapshot: SKU12
+                  product_name_snapshot: San pham demo
+                  quantity: 2
+                  unit_cost_vnd: 47000
+                  line_total_vnd: 94000
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: RECEIPT_VERSION_CONFLICT
+                message: Phiếu nhập đã được thay đổi. Vui lòng tải lại.
+                details:
+                  current_draft_version: 4
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptVersionRequest'
+            example:
+              expected_draft_version: 3
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders/checkout:
+    post:
+      tags:
+      - orders
+      operationId: checkout
+      summary: checkout
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Created COMPLETED order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderRead'
+              example:
+                id: 51
+                status: COMPLETED
+                total_vnd: 130000
+                created_by: 7
+                sold_at: '2026-11-10T07:00:00Z'
+                cancelled_by: null
+                cancelled_at: null
+                cancel_reason: null
+                items:
+                - product_id: 12
+                  sku_snapshot: SKU12
+                  product_name_snapshot: San pham demo
+                  quantity: 2
+                  unit_price_vnd: 65000
+                  line_total_vnd: 130000
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: PRICE_CHANGED, idempotency fingerprint mismatch, or other business conflict; no checkout
+            mutation on PRICE_CHANGED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                price_changed:
+                  summary: New price must be accepted with a new intent key
+                  value:
+                    code: PRICE_CHANGED
+                    message: Giá bán đã thay đổi. Vui lòng xác nhận lại.
+                    details:
+                      changed_items:
+                      - product_id: 12
+                        viewed_unit_price_vnd: 65000
+                        current_unit_price_vnd: 68000
+                key_reused:
+                  summary: Same key with a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Khóa yêu cầu đã được sử dụng cho dữ liệu khác.
+                    details: null
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+            example:
+              items:
+              - product_id: 12
+                quantity: 2
+                viewed_unit_price_vnd: 65000
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders:
+    get:
+      tags:
+      - orders
+      operationId: listOrders
+      summary: listOrders
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Order list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - COMPLETED
+          - CANCELLED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders/{order_id}:
+    get:
+      tags:
+      - orders
+      operationId: getOrder
+      summary: getOrder
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: order_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders/{order_id}/cancel:
+    post:
+      tags:
+      - orders
+      operationId: cancelOrder
+      summary: cancelOrder
+      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
+        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF, policy role/owner/time enforced server-side
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Order CANCELLED and stock restored once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      parameters:
+      - in: path
+        name: order_id
+        required: true
+        schema:
+          type: integer
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /analytics/sales:
+    get:
+      tags:
+      - analytics
+      operationId: getSalesAnalytics
+      summary: getSalesAnalytics
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Aggregates computed on committed orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesSummary'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /analytics/products/top:
+    get:
+      tags:
+      - analytics
+      operationId: getTopProducts
+      summary: getTopProducts
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Top selling products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductAnalyticsPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: days
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 366
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /analytics/products/slow:
+    get:
+      tags:
+      - analytics
+      operationId: getSlowProducts
+      summary: getSlowProducts
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Slow moving products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductAnalyticsPage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /dashboard:
+    get:
+      tags:
+      - dashboard
+      operationId: getDashboard
+      summary: getDashboard
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Sales and inventory read-side summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardRead'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /ai/query:
+    post:
+      tags:
+      - ai
+      operationId: askAI
+      summary: askAI
+      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Answer with evidence only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAskResponse'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Error 404 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Error 409 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAskRequest'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/forgot-password:
+    post:
+      tags:
+      - auth
+      operationId: forgotPassword
+      summary: forgotPassword
+      description: CF-2.0 design candidate; PUBLIC. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: PUBLIC
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security: []
+      responses:
+        '202':
+          description: Generic acceptance response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericMessage'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/reset-password:
+    post:
+      tags:
+      - auth
+      operationId: resetPassword
+      summary: resetPassword
+      description: CF-2.0 design candidate; PUBLIC. Owner and consumer ACK required before implementation
+        on shared branch.
+      x-retailops-role: PUBLIC
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security: []
+      responses:
+        '200':
+          description: Password updated and existing sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericMessage'
+        '401':
+          description: Error 401 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Error 403 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error 422 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Error 429 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Error 503 when applicable; not all error codes occur on every input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/reapply/request-proof:
+    post:
+      operationId: requestStaffReapplyProof
+      tags:
+      - auth
+      summary: requestStaffReapplyProof
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      description: 'AUTH-01 reapply: proof-of-control, idempotent prevention, account enumeration safe.
+        Requires Hiếu/Lâm owner-consumer ACK.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReapplyRequest'
+      responses:
+        '202':
+          description: Generic acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReapplyAccepted'
+        '400':
+          description: Invalid/expired/consumed one-time proof or policy violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/reapply/confirm:
+    post:
+      operationId: confirmStaffReapplyProof
+      tags:
+      - auth
+      summary: confirmStaffReapplyProof
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      description: 'AUTH-01 reapply: proof-of-control, idempotent prevention, account enumeration safe.
+        Requires Hiếu/Lâm owner-consumer ACK.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReapplyConfirmRequest'
+      responses:
+        '202':
+          description: Generic acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReapplyAccepted'
+        '400':
+          description: Invalid/expired/consumed one-time proof or policy violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /products/{product_id}:
+    get:
+      operationId: getProduct
+      tags:
+      - products
+      summary: Get Product with current Inventory
+      x-contract-status: EXISTING_CODE
+      x-implementation-status: EXISTS_ON_DEVELOP
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: product_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: ProductRead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductRead'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          nullable: true
+          description: Safe, bounded error-specific details; schema per endpoint in docs/shared/API_HANDOFF.md
+      required:
+      - code
+      - message
+      - details
+    GenericMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+      required:
+      - message
+    ProductRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        category_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 160
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+        sale_price_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        updated_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+      required:
+      - id
+      - category_id
+      - sku
+      - name
+      - status
+      - sale_price_vnd
+      - quantity
+      - stock_version
+      - created_at
+      - updated_at
+    ProductPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    ApprovalRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        user_id:
+          type: integer
+          format: int64
+          minimum: 1
+        attempt_no:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+        requested_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        decided_by:
+          type: integer
+          nullable: true
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+        decision_reason:
+          type: string
+          nullable: true
+      required:
+      - id
+      - user_id
+      - attempt_no
+      - status
+      - requested_at
+      - decided_by
+      - decided_at
+      - decision_reason
+    ApprovalPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    RejectRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - reason
+    InventoryRead:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        name:
+          type: string
+        category_id:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        first_stocked_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - product_id
+      - sku
+      - name
+      - category_id
+      - status
+      - quantity
+      - stock_version
+      - first_stocked_at
+    InventoryPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    AdjustRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        counted_quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        expected_stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - counted_quantity
+      - expected_stock_version
+      - reason
+    AdjustResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        audit_id:
+          type: integer
+          format: int64
+          minimum: 1
+        movement_created:
+          type: boolean
+      required:
+      - product_id
+      - quantity
+      - stock_version
+      - audit_id
+      - movement_created
+    StockMovementRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PURCHASE_CONFIRM
+          - SALE
+          - ORDER_CANCEL
+          - ADJUSTMENT
+        quantity_before:
+          type: integer
+          format: int64
+          minimum: 0
+        quantity_after:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version_after:
+          type: integer
+          format: int64
+          minimum: 0
+        reference_id:
+          type: integer
+          format: int64
+          minimum: 1
+        occurred_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+      required:
+      - id
+      - product_id
+      - sku
+      - kind
+      - quantity_before
+      - quantity_after
+      - stock_version_after
+      - reference_id
+      - occurred_at
+      description: Safe STAFF whitelist; admin additions require separate role-specific schema review.
+    StockMovementPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockMovementRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    LowStockItem:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        threshold:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - product_id
+      - sku
+      - name
+      - quantity
+      - threshold
+    LowStockPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LowStockItem'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    ReceiptLineWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_cost_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - product_id
+      - quantity
+      - unit_cost_vnd
+    ReceiptLineRead:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku_snapshot:
+          type: string
+        product_name_snapshot:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_cost_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        line_total_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - product_id
+      - sku_snapshot
+      - product_name_snapshot
+      - quantity
+      - unit_cost_vnd
+      - line_total_vnd
+    ReceiptCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        supplier_id:
+          type: integer
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReceiptLineWrite'
+      required:
+      - supplier_id
+      - items
+    ReceiptUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expected_draft_version:
+          type: integer
+          format: int64
+          minimum: 1
+        supplier_id:
+          type: integer
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReceiptLineWrite'
+      required:
+      - expected_draft_version
+      description: 'Partial update: supply supplier_id and/or items; omitted field unchanged. Empty patch
+        forbidden at service validation.'
+    ReceiptVersionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expected_draft_version:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - expected_draft_version
+    ReceiptRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        supplier_id:
+          type: integer
+          format: int64
+          minimum: 1
+        supplier_name_snapshot:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - CONFIRMED
+          - CANCELLED
+        draft_version:
+          type: integer
+          format: int64
+          minimum: 1
+        total_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        closed_by:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        updated_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceiptLineRead'
+      required:
+      - id
+      - supplier_id
+      - supplier_name_snapshot
+      - status
+      - draft_version
+      - total_vnd
+      - created_by
+      - closed_by
+      - created_at
+      - updated_at
+      - closed_at
+      - items
+    ReceiptPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceiptRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    CheckoutLine:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        viewed_unit_price_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - product_id
+      - quantity
+      - viewed_unit_price_vnd
+    CheckoutRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CheckoutLine'
+      required:
+      - items
+      description: No VAT, discounts, payment method, refunds; backend rechecks prices and stock.
+    OrderLineRead:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku_snapshot:
+          type: string
+        product_name_snapshot:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_price_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+        line_total_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - product_id
+      - sku_snapshot
+      - product_name_snapshot
+      - quantity
+      - unit_price_vnd
+      - line_total_vnd
+    OrderRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - COMPLETED
+          - CANCELLED
+        total_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        sold_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        cancelled_by:
+          type: integer
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_reason:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLineRead'
+      required:
+      - id
+      - status
+      - total_vnd
+      - created_by
+      - sold_at
+      - cancelled_by
+      - cancelled_at
+      - cancel_reason
+      - items
+    OrderPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    CancelRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - reason
+    SalesSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        period_start:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        period_end_exclusive:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, offsets explicit
+        revenue_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        completed_orders:
+          type: integer
+          format: int64
+          minimum: 0
+        cancelled_orders:
+          type: integer
+          format: int64
+          minimum: 0
+        aov_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - period_start
+      - period_end_exclusive
+      - revenue_vnd
+      - completed_orders
+      - cancelled_orders
+      - aov_vnd
+    ProductAnalyticsItem:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        name:
+          type: string
+        sold_units:
+          type: integer
+          format: int64
+          minimum: 0
+        revenue_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        quantity:
+          type: integer
+          minimum: 0
+          description: Used in slow-mover analysis; may be omitted by top-sellers API.
+        first_stocked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Use first inventory stock time, NOT product.created_at. Required when analyzing slow-moving
+            products.
+      required:
+      - product_id
+      - sku
+      - name
+      - sold_units
+      - revenue_vnd
+    ProductAnalyticsPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductAnalyticsItem'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    DashboardRead:
+      type: object
+      additionalProperties: false
+      properties:
+        sales:
+          $ref: '#/components/schemas/SalesSummary'
+        low_stock_count:
+          type: integer
+          format: int64
+          minimum: 0
+        top_products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductAnalyticsItem'
+      required:
+      - sales
+      - low_stock_count
+      - top_products
+    AIAskRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required:
+      - message
+    AIEvidence:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+        period:
+          type: string
+          nullable: true
+        summary:
+          type: string
+      required:
+      - source
+      - period
+      - summary
+    AIAskResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        answer:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIEvidence'
+        insufficient_data:
+          type: boolean
+      required:
+      - answer
+      - evidence
+      - insufficient_data
+      description: AI advisory only. Does not expose tool internals, SQL, model keys or write permissions.
+    ForgotPasswordRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 1
+          maxLength: 72
+      required:
+      - token
+      - new_password
+    PriceChangedDetails:
+      type: object
+      additionalProperties: false
+      required:
+      - changed_items
+      properties:
+        changed_items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - product_id
+            - viewed_unit_price_vnd
+            - current_unit_price_vnd
+            properties:
+              product_id:
+                type: integer
+                format: int64
+                minimum: 1
+              viewed_unit_price_vnd:
+                type: integer
+                format: int64
+                minimum: 1
+              current_unit_price_vnd:
+                type: integer
+                format: int64
+                minimum: 1
+    ReapplyRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+    ReapplyConfirmRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 2048
+    ReapplyAccepted:
+      type: object
+      additionalProperties: false
+      required:
+      - message
+      properties:
+        message:
+          type: string
+x-source-commit-reviewed: f227164afa02c2ca164ef019db6410f87f43e0d9

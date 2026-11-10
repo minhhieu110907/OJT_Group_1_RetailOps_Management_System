@@ -1,0 +1,7 @@
+{
+  "code": "RECEIPT_VERSION_CONFLICT",
+  "message": "Phiếu nhập đã được thay đổi. Vui lòng tải lại.",
+  "details": {
+    "current_draft_version": 4
+  }
+}

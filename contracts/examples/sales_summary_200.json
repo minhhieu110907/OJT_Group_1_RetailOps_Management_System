@@ -1,0 +1,8 @@
+{
+  "period_start": "2026-11-17T17:00:00Z",
+  "period_end_exclusive": "2026-11-18T17:00:00Z",
+  "revenue_vnd": 130000,
+  "completed_orders": 1,
+  "cancelled_orders": 1,
+  "aov_vnd": 130000
+}

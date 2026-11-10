@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "id": 10,
+      "user_id": 25,
+      "attempt_no": 1,
+      "status": "PENDING",
+      "requested_at": "2026-11-10T07:00:00Z",
+      "decided_by": null,
+      "decided_at": null,
+      "decision_reason": null
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20
+}

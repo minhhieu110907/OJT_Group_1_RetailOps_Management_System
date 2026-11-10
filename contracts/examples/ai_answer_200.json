@@ -1,0 +1,11 @@
+{
+  "answer": "Doanh thu trong kỳ là 130.000 VND theo báo cáo bán hàng.",
+  "evidence": [
+    {
+      "source": "sales_analytics",
+      "period": "2026-11-18",
+      "summary": "Một đơn COMPLETED, một đơn CANCELLED đã loại khỏi doanh thu"
+    }
+  ],
+  "insufficient_data": false
+}

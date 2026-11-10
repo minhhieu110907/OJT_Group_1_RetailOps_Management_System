@@ -1,0 +1,13 @@
+{
+  "code": "PRICE_CHANGED",
+  "message": "Giá bán đã thay đổi. Vui lòng xác nhận lại.",
+  "details": {
+    "changed_items": [
+      {
+        "product_id": 12,
+        "viewed_unit_price_vnd": 65000,
+        "current_unit_price_vnd": 68000
+      }
+    ]
+  }
+}

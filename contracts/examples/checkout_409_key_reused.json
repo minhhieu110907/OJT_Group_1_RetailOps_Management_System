@@ -1,0 +1,5 @@
+{
+  "code": "IDEMPOTENCY_KEY_REUSED",
+  "message": "Khóa yêu cầu đã được sử dụng cho dữ liệu khác.",
+  "details": null
+}

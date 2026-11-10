@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "product_id": 12,
+      "sku": "SKU12",
+      "name": "Sản phẩm mẫu",
+      "quantity": 3,
+      "threshold": 5
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20
+}
