@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
-import axiosClient, { getApiErrorMessage } from '../../api/axiosClient';
+import { getApiErrorMessage } from '../../api/axiosClient';
+import { productsApi } from '../../api/productsApi';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import styles from './ProductList.module.css';
 
-// Hàm định dạng tiền tệ VND chuẩn
+// Định dạng tiền tệ VND chuẩn
 const formatVND = (amount) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(
     Number(amount) || 0
@@ -53,10 +54,13 @@ const INITIAL_PRODUCT_FORM = {
  * Trang Quản lý Sản phẩm chính thức (RetailOps v1.0 — PROD-01 đến PROD-04)
  * - Tích hợp đầy đủ tính năng Quản lý sản phẩm:
  *   + Xem danh sách sản phẩm & tồn kho hiện tại (GET /api/v1/products).
- *   + Thêm sản phẩm mới (POST /api/v1/products) — Tồn kho ban đầu luôn bằng 0.
+ *   + Thêm sản phẩm mới (POST /api/v1/products) — Tồn kho ban đầu luôn bằng 0 (PROD-01).
  *   + Chỉnh sửa thông tin sản phẩm (PATCH /api/v1/products/{id}).
  *   + Đổi trạng thái Đang bán <-> Ngừng bán (PATCH /api/v1/products/{id}/status).
- *   + Quản lý danh mục sản phẩm (GET/POST/PATCH /api/v1/categories).
+ *   + Quản lý danh mục sản phẩm (GET/POST/PATCH /api/v1/categories - PROD-02).
+ * - Real / Mock Strategy:
+ *   + Trong Mock mode: xử lý dữ liệu qua adapter, lọc trên toàn bộ dataset trước khi phân trang.
+ *   + Trong Real mode: kết nối trực tiếp FastAPI Backend và xác thực schema ProductRead nghiêm ngặt.
  * - Phân quyền RBAC nghiêm ngặt:
  *   + ADMIN: Toàn quyền thao tác tạo, sửa, đổi trạng thái, quản lý danh mục.
  *   + STAFF: Chỉ xem (Read-only), ẩn hoàn toàn các nút thao tác và không hiển thị giá vốn.
@@ -68,7 +72,7 @@ export default function ProductList() {
   const isStaff = user?.role !== 'ADMIN';
   const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
-  // 1. State tìm kiếm, lọc & phân trang (page_size theo API contract)
+  // 1. State tìm kiếm, lọc & phân trang
   const [searchParams, setSearchParams] = useState({
     keyword: '',
     categoryId: '',
@@ -97,26 +101,29 @@ export default function ProductList() {
   // 3. State Modal Quản lý Danh mục (PROD-02)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
   const [categoryError, setCategoryError] = useState('');
   const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
 
   // 4. State Modal xác nhận đổi trạng thái Ngừng bán / Kích hoạt lại
   const [productToDeactivate, setProductToDeactivate] = useState(null);
 
-  // Lấy danh sách Danh mục từ Backend (GET /api/v1/categories)
+  // Lấy danh sách Danh mục qua adapter
   useEffect(() => {
     let isMounted = true;
     const loadCategories = async () => {
       try {
-        const res = await axiosClient.get('/categories', {
-          params: { page: 1, page_size: 100 },
+        const res = await productsApi.getCategories({
+          isMockMode: isMockDemoActive,
+          page: 1,
+          pageSize: 100,
         });
         if (isMounted) {
-          const items = Array.isArray(res.data?.items) ? res.data.items : [];
-          setCategories(items);
+          setCategories(res.items || []);
         }
       } catch {
-        // Giữ danh sách danh mục hiện tại nếu lỗi
+        // Giữ danh sách danh mục hiện tại nếu xảy ra lỗi
       }
     };
 
@@ -124,7 +131,7 @@ export default function ProductList() {
     return () => {
       isMounted = false;
     };
-  }, [categoryRefreshTrigger]);
+  }, [categoryRefreshTrigger, isMockDemoActive]);
 
   // Map tra cứu nhanh tên danh mục theo category_id
   const categoriesMap = useMemo(() => {
@@ -135,30 +142,31 @@ export default function ProductList() {
     return map;
   }, [categories]);
 
-  // Gọi API lấy danh sách sản phẩm từ Backend (GET /api/v1/products)
+  // Lấy danh sách sản phẩm qua adapter (lọc & phân trang đồng bộ)
   useEffect(() => {
     let isMounted = true;
 
     const loadProducts = async () => {
       setIsLoading(true);
       try {
-        const res = await axiosClient.get('/products', {
-          params: {
-            page: pagination.page,
-            page_size: pagination.page_size,
-          },
+        const res = await productsApi.getProducts({
+          isMockMode: isMockDemoActive,
+          page: pagination.page,
+          pageSize: pagination.page_size,
+          keyword: searchParams.keyword,
+          categoryId: searchParams.categoryId,
+          status: searchParams.status,
+          stockStatus: searchParams.stockStatus,
         });
+
         if (isMounted) {
-          const items = Array.isArray(res.data?.items) ? res.data.items : [];
-          const total = Number(res.data?.total) || 0;
-          const pageSize = Number(res.data?.page_size) || pagination.page_size;
-          setData(items);
+          setData(res.items || []);
           setPagination((prev) => ({
             ...prev,
-            page: Number(res.data?.page) || prev.page,
-            page_size: pageSize,
-            total,
-            totalPages: Math.max(1, Math.ceil(total / pageSize)),
+            page: res.page,
+            page_size: res.page_size,
+            total: res.total,
+            totalPages: Math.max(1, Math.ceil(res.total / res.page_size)),
           }));
         }
       } catch (error) {
@@ -179,7 +187,17 @@ export default function ProductList() {
     return () => {
       isMounted = false;
     };
-  }, [pagination.page, pagination.page_size, refreshTrigger, toast]);
+  }, [
+    pagination.page,
+    pagination.page_size,
+    searchParams.keyword,
+    searchParams.categoryId,
+    searchParams.status,
+    searchParams.stockStatus,
+    refreshTrigger,
+    isMockDemoActive,
+    toast,
+  ]);
 
   // Xử lý thay đổi bộ lọc tìm kiếm
   const handleFilterChange = (e) => {
@@ -190,7 +208,7 @@ export default function ProductList() {
     }));
     setPagination((prev) => ({
       ...prev,
-      page: 1,
+      page: 1, // Reset về trang 1 khi thay đổi điều kiện lọc
     }));
   };
 
@@ -229,9 +247,10 @@ export default function ProductList() {
     setIsProductModalOpen(true);
   };
 
-  // Lưu biểu mẫu Thêm mới (POST /products) hoặc Cập nhật (PATCH /products/{id})
+  // Lưu biểu mẫu Thêm mới (POST) hoặc Cập nhật (PATCH)
   const handleSubmitProductForm = async (e) => {
     e.preventDefault();
+    if (isSubmittingForm) return;
     setFormError('');
 
     const sku = productForm.sku.trim().toUpperCase();
@@ -251,70 +270,70 @@ export default function ProductList() {
 
     setIsSubmittingForm(true);
     try {
-      if (isMockDemoActive) {
-        toast.info('Chế độ Mock Demo: Lưu sản phẩm giả lập.');
+      if (formMode === 'create') {
+        await productsApi.createProduct({
+          isMockMode: isMockDemoActive,
+          data: {
+            sku,
+            name,
+            category_id: categoryId,
+            sale_price_vnd: salePriceVnd,
+          },
+        });
+        toast.success(
+          isMockDemoActive
+            ? `[Mock] Đã tạo sản phẩm "${name}" thành công!`
+            : `Đã tạo sản phẩm "${name}" thành công!`
+        );
       } else {
-        if (formMode === 'create') {
-          await axiosClient.post('/products', {
+        await productsApi.updateProduct({
+          isMockMode: isMockDemoActive,
+          id: productForm.id,
+          data: {
             sku,
             name,
             category_id: categoryId,
             sale_price_vnd: salePriceVnd,
-          });
-          toast.success(`Đã tạo sản phẩm mới "${name}" (Tồn kho ban đầu = 0).`);
-        } else {
-          await axiosClient.patch(`/products/${productForm.id}`, {
-            sku,
-            name,
-            category_id: categoryId,
-            sale_price_vnd: salePriceVnd,
-          });
-          toast.success(`Đã cập nhật thông tin sản phẩm "${name}".`);
-        }
-        setRefreshTrigger((prev) => prev + 1);
+          },
+        });
+        toast.success(
+          isMockDemoActive
+            ? `[Mock] Đã cập nhật thông tin sản phẩm "${name}"!`
+            : `Đã cập nhật thông tin sản phẩm "${name}"!`
+        );
       }
       setIsProductModalOpen(false);
+      setRefreshTrigger((prev) => prev + 1);
     } catch (error) {
       setFormError(
-        getApiErrorMessage(error) || 'Không thể lưu sản phẩm. Vui lòng kiểm tra lại.'
+        getApiErrorMessage(error) ||
+          (formMode === 'create'
+            ? 'Không thể tạo sản phẩm. Vui lòng kiểm tra lại thông tin.'
+            : 'Không thể cập nhật sản phẩm. Vui lòng thử lại.')
       );
     } finally {
       setIsSubmittingForm(false);
     }
   };
 
-  // Xác nhận đổi trạng thái Ngừng bán / Kích hoạt lại (PATCH /products/{id}/status)
+  // Xác nhận đổi trạng thái Đang bán <-> Ngừng bán (PATCH /status)
   const handleConfirmDeactivate = async () => {
-    if (!productToDeactivate || isStaff) {
-      setProductToDeactivate(null);
-      return;
-    }
+    if (!productToDeactivate) return;
 
     try {
-      if (isMockDemoActive) {
-        setData((prev) =>
-          prev.map((item) =>
-            item.id === productToDeactivate.id
-              ? { ...item, status: 'INACTIVE', activeStatus: 'INACTIVE' }
-              : item
-          )
-        );
-        toast.info(
-          `Chế độ Mock: Đã chuyển "${productToDeactivate.name}" sang trạng thái Ngừng bán.`
-        );
-      } else {
-        const nextStatus =
-          productToDeactivate.status === 'INACTIVE' ? 'ACTIVE' : 'INACTIVE';
-        await axiosClient.patch(`/products/${productToDeactivate.id}/status`, {
-          status: nextStatus,
-        });
-        toast.success(
-          nextStatus === 'INACTIVE'
-            ? `Đã ngừng bán sản phẩm "${productToDeactivate.name}".`
-            : `Đã kích hoạt lại sản phẩm "${productToDeactivate.name}".`
-        );
-        setRefreshTrigger((prev) => prev + 1);
-      }
+      const nextStatus =
+        productToDeactivate.status === 'INACTIVE' ? 'ACTIVE' : 'INACTIVE';
+      await productsApi.updateProductStatus({
+        isMockMode: isMockDemoActive,
+        id: productToDeactivate.id,
+        status: nextStatus,
+      });
+      toast.success(
+        nextStatus === 'INACTIVE'
+          ? `Đã chuyển sản phẩm "${productToDeactivate.name}" sang trạng thái Ngừng bán.`
+          : `Đã kích hoạt lại sản phẩm "${productToDeactivate.name}".`
+      );
+      setRefreshTrigger((prev) => prev + 1);
     } catch (error) {
       toast.error(
         getApiErrorMessage(error) ||
@@ -328,6 +347,7 @@ export default function ProductList() {
   // Tạo danh mục mới (POST /categories - PROD-02)
   const handleCreateCategory = async (e) => {
     e.preventDefault();
+    if (isSubmittingCategory) return;
     setCategoryError('');
     const trimmed = newCategoryName.trim();
     if (!trimmed) {
@@ -337,7 +357,10 @@ export default function ProductList() {
 
     setIsSubmittingCategory(true);
     try {
-      await axiosClient.post('/categories', { name: trimmed });
+      await productsApi.createCategory({
+        isMockMode: isMockDemoActive,
+        name: trimmed,
+      });
       setNewCategoryName('');
       setCategoryRefreshTrigger((prev) => prev + 1);
       toast.success(`Đã thêm danh mục "${trimmed}".`);
@@ -350,34 +373,57 @@ export default function ProductList() {
     }
   };
 
-  // Lọc dữ liệu client-side theo từ khóa, danh mục, tồn kho và trạng thái hoạt động
-  const filteredData = useMemo(() => {
-    return data.filter((item) => {
-      if (searchParams.keyword) {
-        const kw = searchParams.keyword.trim().toLowerCase();
-        const skuMatch = String(item.sku || '').toLowerCase().includes(kw);
-        const nameMatch = String(item.name || '').toLowerCase().includes(kw);
-        if (!skuMatch && !nameMatch) return false;
-      }
-      if (searchParams.categoryId) {
-        if (String(item.category_id) !== String(searchParams.categoryId)) {
-          return false;
-        }
-      }
-      if (searchParams.status) {
-        const itemStatus = item.status || item.activeStatus;
-        if (itemStatus !== searchParams.status) return false;
-      }
-      if (searchParams.stockStatus) {
-        const qty = Number(item.quantity ?? item.stock ?? 0);
-        if (searchParams.stockStatus === 'OUT_OF_STOCK' && qty > 0) return false;
-        if (searchParams.stockStatus === 'LOW_STOCK' && (qty <= 0 || qty > 5))
-          return false;
-        if (searchParams.stockStatus === 'IN_STOCK' && qty <= 5) return false;
-      }
-      return true;
-    });
-  }, [data, searchParams]);
+  // Chỉnh sửa tên danh mục (PATCH /categories/{id} - PROD-02)
+  const handleSaveEditCategory = async (id) => {
+    const trimmed = editingCategoryName.trim();
+    if (!trimmed) {
+      setCategoryError('Tên danh mục không được để trống.');
+      return;
+    }
+    setIsSubmittingCategory(true);
+    try {
+      await productsApi.updateCategory({
+        isMockMode: isMockDemoActive,
+        id,
+        name: trimmed,
+      });
+      setEditingCategoryId(null);
+      setEditingCategoryName('');
+      setCategoryRefreshTrigger((prev) => prev + 1);
+      toast.success('Đã cập nhật tên danh mục.');
+    } catch (error) {
+      setCategoryError(
+        getApiErrorMessage(error) || 'Cập nhật danh mục thất bại.'
+      );
+    } finally {
+      setIsSubmittingCategory(false);
+    }
+  };
+
+  // Chuyển trạng thái danh mục ACTIVE / INACTIVE (PATCH /categories/{id}/status - PROD-02)
+  const handleToggleCategoryStatus = async (cat) => {
+    const nextStatus = cat.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    setIsSubmittingCategory(true);
+    try {
+      await productsApi.updateCategoryStatus({
+        isMockMode: isMockDemoActive,
+        id: cat.id,
+        status: nextStatus,
+      });
+      setCategoryRefreshTrigger((prev) => prev + 1);
+      toast.success(
+        nextStatus === 'ACTIVE'
+          ? `Đã kích hoạt danh mục "${cat.name}".`
+          : `Đã ngừng hoạt động danh mục "${cat.name}".`
+      );
+    } catch (error) {
+      setCategoryError(
+        getApiErrorMessage(error) || 'Cập nhật trạng thái danh mục thất bại.'
+      );
+    } finally {
+      setIsSubmittingCategory(false);
+    }
+  };
 
   // Cấu hình cột hiển thị theo chuẩn ProductRead và an ninh RBAC
   const columns = useMemo(() => {
@@ -420,11 +466,20 @@ export default function ProductList() {
         title: 'TỒN KHO',
         align: 'center',
         width: '110px',
-        render: (row) => (
-          <span className={styles.stockBadge}>
-            {row.quantity ?? row.stock ?? 0}
-          </span>
-        ),
+        render: (row) => {
+          // Xác thực schema ProductRead: KHÔNG mặc định missing quantity thành 0
+          if (typeof row.quantity !== 'number' || Number.isNaN(row.quantity)) {
+            return (
+              <span
+                className={styles.corruptedBadge}
+                title="Dữ liệu tồn kho không hợp lệ từ máy chủ"
+              >
+                N/A
+              </span>
+            );
+          }
+          return <span className={styles.stockBadge}>{row.quantity}</span>;
+        },
       },
       {
         key: 'stockStatus',
@@ -432,10 +487,12 @@ export default function ProductList() {
         align: 'center',
         width: '160px',
         render: (row) => {
+          if (typeof row.quantity !== 'number' || Number.isNaN(row.quantity)) {
+            return <span className={styles.badgeNeutral}>Không xác định</span>;
+          }
           let calcStatus = 'IN_STOCK';
-          const qty = Number(row.quantity ?? row.stock ?? 0);
-          if (qty <= 0) calcStatus = 'OUT_OF_STOCK';
-          else if (qty <= 5) calcStatus = 'LOW_STOCK';
+          if (row.quantity <= 0) calcStatus = 'OUT_OF_STOCK';
+          else if (row.quantity <= 5) calcStatus = 'LOW_STOCK';
           return (
             <StockStatusBadge
               status={row.stockStatus || row.stock_status || calcStatus}
@@ -449,95 +506,133 @@ export default function ProductList() {
         align: 'center',
         width: '170px',
         render: (row) => (
-          <ActiveStatusBadge activeStatus={row.activeStatus || row.status} />
+          <ActiveStatusBadge activeStatus={row.status || row.activeStatus} />
         ),
       },
-      // Cột THAO TÁC: Chỉ hiển thị cho Quản trị viên (ADMIN), ẩn hoàn toàn với STAFF
-      ...(!isStaff
-        ? [
-            {
-              key: 'actions',
-              title: 'THAO TÁC',
-              align: 'center',
-              width: '110px',
-              render: (row) => (
-                <div className={styles.actionGroup}>
-                  <button
-                    type="button"
-                    className={`${styles.iconActionBtn} ${styles.editBtn}`}
-                    onClick={() => handleOpenEditModal(row)}
-                    title="Chỉnh sửa sản phẩm"
-                    aria-label="Chỉnh sửa sản phẩm"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                      <path d="m15 5 4 4" />
-                    </svg>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`${styles.iconActionBtn} ${styles.deleteBtn}`}
-                    onClick={() => setProductToDeactivate(row)}
-                    title={
-                      row.status === 'INACTIVE'
-                        ? 'Kích hoạt lại bán hàng'
-                        : 'Ngừng bán sản phẩm'
-                    }
-                    aria-label="Đổi trạng thái sản phẩm"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
-                    </svg>
-                  </button>
-                </div>
-              ),
-            },
-          ]
-        : []),
     ];
 
+    // CHỈ ADMIN mới có cột THAO TÁC. Nhân viên STAFF không có quyền sửa / ngừng bán.
+    if (!isStaff) {
+      baseColumns.push({
+        key: 'actions',
+        title: 'THAO TÁC',
+        align: 'center',
+        width: '160px',
+        render: (row) => (
+          <div className={styles.actionButtonGroup}>
+            <button
+              type="button"
+              className={styles.actionBtn}
+              onClick={() => handleOpenEditModal(row)}
+              title="Chỉnh sửa sản phẩm"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              <span>Sửa</span>
+            </button>
+
+            <button
+              type="button"
+              className={`${styles.actionBtn} ${
+                row.status === 'INACTIVE'
+                  ? styles.actionBtnActive
+                  : styles.actionBtnDanger
+              }`}
+              onClick={() => setProductToDeactivate(row)}
+              title={
+                row.status === 'INACTIVE'
+                  ? 'Kích hoạt lại kinh doanh'
+                  : 'Ngừng kinh doanh sản phẩm'
+              }
+            >
+              {row.status === 'INACTIVE' ? (
+                <>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>Bật lại</span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  <span>Ngừng</span>
+                </>
+              )}
+            </button>
+          </div>
+        ),
+      });
+    }
+
     return baseColumns;
-  }, [isStaff, categoriesMap]);
+  }, [categoriesMap, isStaff]);
 
   return (
-    <div className={styles.pageContainer}>
-      {/* 1. Header trang */}
-      <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>Quản lý sản phẩm</h1>
-          <p className={styles.pageSubtitle}>
-            Danh mục sản phẩm kinh doanh và theo dõi tồn kho tại cửa hàng
+    <div className={styles.container}>
+      {/* 1. Header Trang & Nút Thao Tác (ADMIN ONLY) */}
+      <div className={styles.header}>
+        <div className={styles.headerTitleGroup}>
+          <div className={styles.titleWithBadge}>
+            <h1 className={styles.title}>Quản lý Sản phẩm</h1>
+            {isMockDemoActive ? (
+              <span className={styles.mockBadgeActive} title="Chế độ Mock Demo">
+                Mock Mode
+              </span>
+            ) : (
+              <span className={styles.realApiBadge} title="Kết nối API thật">
+                Real API
+              </span>
+            )}
+          </div>
+          <p className={styles.subtitle}>
+            {isStaff
+              ? 'Tra cứu danh mục, giá bán và tình trạng tồn kho sản phẩm.'
+              : 'Theo dõi tồn kho, quản lý danh mục và điều chỉnh trạng thái sản phẩm.'}
           </p>
         </div>
 
-        {!isStaff ? (
-          <div className={styles.headerActions}>
+        {/* Cụm nút thao tác (ADMIN mới có quyền Thêm sản phẩm / Quản lý Danh mục) */}
+        {!isStaff && (
+          <div className={styles.actionButtons}>
             <button
               type="button"
               className={styles.secondaryBtn}
-              onClick={() => setIsCategoryModalOpen(true)}
+              onClick={() => {
+                setCategoryError('');
+                setIsCategoryModalOpen(true);
+              }}
             >
               <svg
                 width="16"
@@ -549,10 +644,10 @@ export default function ProductList() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-                <line x1="7" y1="7" x2="7.01" y2="7" />
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
               </svg>
-              <span>Quản lý Danh mục</span>
+              <span>Quản lý danh mục</span>
             </button>
 
             <button
@@ -566,47 +661,42 @@ export default function ProductList() {
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              <span> Thêm sản phẩm</span>
+              <span>Thêm sản phẩm</span>
             </button>
           </div>
-        ) : (
-          <span className={styles.readOnlyTag}>
-            Chế độ nhân viên (Tra cứu dữ liệu)
-          </span>
         )}
       </div>
 
-      {/* 2. Thanh tìm kiếm & Bộ lọc */}
-      <div className={styles.filterCard}>
-        <div className={styles.searchWrap}>
-          <span className={styles.searchIcon} aria-hidden="true">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </span>
+      {/* 2. Thanh Tìm Kiếm & Bộ Lọc Đa Điều Kiện */}
+      <div className={styles.filterBar}>
+        <div className={styles.searchBox}>
+          <svg
+            className={styles.searchIcon}
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
           <input
             type="text"
             name="keyword"
             value={searchParams.keyword}
             onChange={handleFilterChange}
-            placeholder="Tìm theo tên sản phẩm, mã SKU..."
+            placeholder="Tìm theo Mã SKU hoặc Tên sản phẩm..."
             className={styles.searchInput}
           />
         </div>
@@ -654,10 +744,10 @@ export default function ProductList() {
       {/* 3. Bảng dữ liệu sản phẩm */}
       <Table
         columns={columns}
-        data={filteredData}
+        data={data}
         rowKey="id"
         isLoading={isLoading}
-        emptyText="Chưa có dữ liệu sản phẩm. Bấm '+ Thêm sản phẩm' để tạo mới."
+        emptyText="Không tìm thấy sản phẩm phù hợp với bộ lọc."
       />
 
       {/* 4. Phân trang */}
@@ -724,9 +814,8 @@ export default function ProductList() {
                   }
                   placeholder="VD: COCA-330ML"
                   className={styles.formInput}
-                  disabled={formMode === 'edit'}
+                  disabled={isSubmittingForm}
                   maxLength={64}
-                  required
                 />
               </div>
 
@@ -742,15 +831,17 @@ export default function ProductList() {
                       category_id: e.target.value,
                     }))
                   }
-                  className={styles.formSelect}
-                  required
+                  className={styles.formInput}
+                  disabled={isSubmittingForm}
                 >
                   <option value="">-- Chọn danh mục --</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
+                  {categories
+                    .filter((c) => c.status === 'ACTIVE')
+                    .map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
@@ -768,33 +859,51 @@ export default function ProductList() {
                     name: e.target.value,
                   }))
                 }
-                placeholder="VD: Nước giải khát Coca Cola lon 330ml"
+                placeholder="VD: Nước ngọt Coca Cola lon 330ml"
                 className={styles.formInput}
+                disabled={isSubmittingForm}
                 maxLength={160}
-                required
               />
             </div>
 
-            <div className={styles.formField}>
-              <label className={styles.formLabel}>
-                GIÁ BÁN HIỆN TẠI (VND){' '}
-                <span className={styles.requiredMark}>*</span>
-              </label>
-              <input
-                type="number"
-                value={productForm.sale_price_vnd}
-                onChange={(e) =>
-                  setProductForm((prev) => ({
-                    ...prev,
-                    sale_price_vnd: e.target.value,
-                  }))
-                }
-                placeholder="VD: 10000"
-                min="1"
-                step="1"
-                className={styles.formInput}
-                required
-              />
+            <div className={styles.formRowTwoCols}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>
+                  GIÁ BÁN (VND) <span className={styles.requiredMark}>*</span>
+                </label>
+                <input
+                  type="number"
+                  value={productForm.sale_price_vnd}
+                  onChange={(e) =>
+                    setProductForm((prev) => ({
+                      ...prev,
+                      sale_price_vnd: e.target.value,
+                    }))
+                  }
+                  placeholder="VD: 10000"
+                  className={styles.formInput}
+                  disabled={isSubmittingForm}
+                  min={1}
+                />
+              </div>
+
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>TRẠNG THÁI</label>
+                <select
+                  value={productForm.status}
+                  onChange={(e) =>
+                    setProductForm((prev) => ({
+                      ...prev,
+                      status: e.target.value,
+                    }))
+                  }
+                  className={styles.formInput}
+                  disabled={isSubmittingForm || formMode === 'create'}
+                >
+                  <option value="ACTIVE">Đang bán (ACTIVE)</option>
+                  <option value="INACTIVE">Ngừng bán (INACTIVE)</option>
+                </select>
+              </div>
             </div>
 
             {formMode === 'create' && (
@@ -809,18 +918,26 @@ export default function ProductList() {
         </Modal>
       )}
 
-      {/* 6. Modal Quản lý Danh mục (Chỉ dành cho ADMIN) */}
+      {/* 6. Modal Quản lý Danh mục (Chỉ dành cho ADMIN - PROD-02) */}
       {!isStaff && (
         <Modal
           isOpen={isCategoryModalOpen}
-          onClose={() => setIsCategoryModalOpen(false)}
-          title="Quản lý Danh mục Sản phẩm"
-          maxWidth="480px"
+          onClose={() => {
+            setIsCategoryModalOpen(false);
+            setEditingCategoryId(null);
+            setCategoryError('');
+          }}
+          title="Quản lý Danh mục Sản phẩm (PROD-02)"
+          maxWidth="520px"
           footer={
             <button
               type="button"
               className={modalStyles.cancelBtn}
-              onClick={() => setIsCategoryModalOpen(false)}
+              onClick={() => {
+                setIsCategoryModalOpen(false);
+                setEditingCategoryId(null);
+                setCategoryError('');
+              }}
             >
               Đóng
             </button>
@@ -831,6 +948,7 @@ export default function ProductList() {
               <div className={styles.formErrorBox}>{categoryError}</div>
             )}
 
+            {/* Form tạo mới danh mục */}
             <form
               onSubmit={handleCreateCategory}
               className={styles.categoryInlineForm}
@@ -842,6 +960,7 @@ export default function ProductList() {
                 placeholder="Tên danh mục mới..."
                 className={styles.formInput}
                 maxLength={120}
+                disabled={isSubmittingCategory}
               />
               <button
                 type="submit"
@@ -852,19 +971,79 @@ export default function ProductList() {
               </button>
             </form>
 
+            {/* Danh sách danh mục hiện có + Chỉnh sửa / Đổi trạng thái */}
             <div className={styles.categoryList}>
               {categories.map((cat) => (
                 <div key={cat.id} className={styles.categoryItem}>
-                  <span className={styles.categoryItemName}>{cat.name}</span>
-                  <span
-                    className={`${styles.pillBadge} ${
-                      cat.status === 'ACTIVE'
-                        ? styles.badgeSuccess
-                        : styles.badgeNeutral
-                    }`}
-                  >
-                    {cat.status === 'ACTIVE' ? 'Hoạt động' : 'Ngừng'}
-                  </span>
+                  {editingCategoryId === cat.id ? (
+                    <div style={{ display: 'flex', gap: '6px', flex: 1 }}>
+                      <input
+                        type="text"
+                        value={editingCategoryName}
+                        onChange={(e) => setEditingCategoryName(e.target.value)}
+                        className={styles.formInput}
+                        maxLength={120}
+                        style={{ padding: '4px 8px', fontSize: '13px' }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className={`${styles.categorySmallBtn} ${styles.categorySmallBtnPrimary}`}
+                        onClick={() => handleSaveEditCategory(cat.id)}
+                        disabled={isSubmittingCategory}
+                      >
+                        Lưu
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.categorySmallBtn}
+                        onClick={() => setEditingCategoryId(null)}
+                      >
+                        Hủy
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className={styles.categoryItemName}>{cat.name}</span>
+                      <div className={styles.categoryActions}>
+                        <span
+                          className={`${styles.pillBadge} ${
+                            cat.status === 'ACTIVE'
+                              ? styles.badgeSuccess
+                              : styles.badgeNeutral
+                          }`}
+                        >
+                          {cat.status === 'ACTIVE' ? 'Hoạt động' : 'Ngừng'}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.categorySmallBtn}
+                          onClick={() => {
+                            setEditingCategoryId(cat.id);
+                            setEditingCategoryName(cat.name);
+                            setCategoryError('');
+                          }}
+                          disabled={isSubmittingCategory}
+                          title="Sửa tên danh mục"
+                        >
+                          Sửa
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.categorySmallBtn}
+                          onClick={() => handleToggleCategoryStatus(cat)}
+                          disabled={isSubmittingCategory}
+                          title={
+                            cat.status === 'ACTIVE'
+                              ? 'Ngừng hoạt động danh mục'
+                              : 'Kích hoạt lại danh mục'
+                          }
+                        >
+                          {cat.status === 'ACTIVE' ? 'Ngừng' : 'Bật'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
               {categories.length === 0 && (
@@ -929,8 +1108,8 @@ export default function ProductList() {
           thái{' '}
           <strong>
             {productToDeactivate?.status === 'INACTIVE'
-              ? 'Đang bán '
-              : 'Ngừng bán'}
+              ? 'Đang bán (ACTIVE)'
+              : 'Ngừng bán (INACTIVE)'}
           </strong>
           ?
         </Modal>
