@@ -1,4 +1,4 @@
-"""Fast static checks, no network/database. Does not prove runtime tests pass."""
+"""Kiểm tra tĩnh nhanh, không dùng mạng/database; không chứng minh runtime test PASS."""
 import ast,json,re,yaml
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
@@ -24,9 +24,9 @@ fixtures=list((R/'contracts/examples').glob('*.json'))
 for f in fixtures:json.loads(f.read_text(encoding='utf-8'))
 for sprint,expected in [(2,26),(3,31)]:
  t=(R/f'docs/sprint{sprint}/TASK_IMPLEMENTATION_GUIDE.md').read_text(encoding='utf-8')
- assert len(re.findall(r'^## T04[A-F0-9]+ — ',t,re.M))==expected
-idx=(R/'docs/START_HERE.md').read_text(encoding='utf-8')
-assert len(re.findall(r'^\| S[23] \| `T04[A-F0-9]+` \| ',idx,re.M))==57
+ assert len(re.findall(r'^## T[A-Z0-9]+ — ',t,re.M))==expected
+idx=(R/'docs/contracts/API_INTEGRATION.md').read_text(encoding='utf-8')
+assert len(re.findall(r'^\| \[T[A-Z0-9]+ — ',idx,re.M))==57
 for method,path in [('post','/orders/checkout'),('post','/orders/{order_id}/cancel'),('post','/purchase-receipts/{receipt_id}/confirm'),('post','/inventory/{product_id}/adjustments')]:
  o=ops[path,method]
  assert any(p['name']=='Idempotency-Key' and p['required'] for p in o.get('parameters',[])),(path,'missing key')

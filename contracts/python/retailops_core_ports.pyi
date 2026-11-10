@@ -1,13 +1,20 @@
-"""Contract-only Python stubs for cross-module imports. NOT runtime implementation.
-Use the exact signatures when implementing modules in backend/app/modules/... .
+"""Các bản khai báo Python interface giữa module, KHÔNG phải implementation chạy thật.
+Khi triển khai module trong backend/app/modules/..., cần tuân theo các chữ ký này.
 """
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
-from typing import Callable, Generic, Mapping, Sequence, TypeVar
+from typing import Callable, Generic, Mapping, Sequence, TypeVar, Literal
 from sqlalchemy.orm import Session
 
 T = TypeVar("T")
+
+@dataclass(frozen=True)
+class Page(Generic[T]):
+    items: tuple[T, ...]
+    total: int
+    page: int
+    page_size: int
 
 class IdempotencyOperation(StrEnum):
     CHECKOUT = "CHECKOUT"
@@ -151,3 +158,37 @@ class CheckoutService:
 class OrderService:
     def cancel(self, session: Session, *, actor_id: int, actor_role: str,
                order_id: int, reason: str, idempotency_key: str) -> OrderRead: ...
+
+
+# PUR-05 và SALE-03: danh sách đọc không tự commit; filter ngày thuộc ngày kinh doanh Việt Nam.
+# Page kết quả, xử lý phân trang/role và date->UTC nằm trong service/router, không từ FE.
+@dataclass(frozen=True)
+class ReceiptQuery:
+    page: int = 1
+    page_size: int = 20
+    status: str | None = None
+    supplier_id: int | None = None
+    from_date: date | None = None
+    to_date: date | None = None
+
+class ReceiptReadService:
+    def list(self, session: Session, *, actor_id: int, actor_role: str, filters: ReceiptQuery) -> Page[ReceiptRead]: ...
+    def get(self, session: Session, *, actor_id: int, actor_role: str, receipt_id: int) -> ReceiptRead: ...
+
+@dataclass(frozen=True)
+class OrderQuery:
+    page: int = 1
+    page_size: int = 20
+    status: str | None = None
+    search: str | None = None
+    from_date: date | None = None
+    to_date: date | None = None
+
+class OrderReadService:
+    def list(self, session: Session, *, actor_id: int, actor_role: str, filters: OrderQuery) -> Page[OrderRead]: ...
+    def get(self, session: Session, *, actor_id: int, actor_role: str, order_id: int) -> OrderRead: ...
+
+
+class InventoryAdjustmentService:
+    def adjust(self, session: Session, *, actor_id: int, actor_role: Literal["ADMIN"],
+               idempotency_key: str, adjustment: CountAdjustment) -> AdjustmentResult: ...

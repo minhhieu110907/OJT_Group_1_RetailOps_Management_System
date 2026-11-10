@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
-  title: RetailOps V1 — Sprint 2–3 CF-2.0 Contract Design Baseline
-  version: 2.0.0-design-review
-  description: SRS V1.3 / ERD V1.0 aligned design baseline. Existing API vs proposed new endpoints are marked
-    with x-implementation-status. User/consumer PR acknowledgement required before calling new interfaces
-    team-approved. No paths here prove runtime existence.
+  title: RetailOps V1 — Baseline thiết kế contract Sprint 2–3 CF-2.3
+  version: 2.3.0-review
+  description: Baseline thiết kế theo SRS V1.3 và ERD V1.0. API hiện có và endpoint đề xuất được đánh dấu
+    bằng x-implementation-status. Cần người phụ trách và bên sử dụng xác nhận trên PR trước khi coi interface mới
+    là đã được nhóm phê duyệt. Tài liệu không chứng minh endpoint đã tồn tại trên runtime.
 servers:
 - url: /api/v1
 tags:
@@ -23,58 +23,58 @@ paths:
       tags:
       - staff-approvals
       operationId: listStaffApprovals
-      summary: listStaffApprovals
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Liệt kê yêu cầu duyệt Staff
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Approval list
+          description: Danh sách yêu cầu duyệt Staff
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApprovalPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -109,58 +109,58 @@ paths:
       tags:
       - staff-approvals
       operationId: approveStaff
-      summary: approveStaff
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Duyệt tài khoản Staff
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Approved staff
+          description: Nhân viên đã được duyệt
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApprovalRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -178,58 +178,58 @@ paths:
       tags:
       - staff-approvals
       operationId: rejectStaff
-      summary: rejectStaff
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Từ chối tài khoản Staff
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Rejected staff
+          description: Nhân viên đã bị từ chối
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApprovalRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -253,58 +253,58 @@ paths:
       tags:
       - products
       operationId: listProductsV2
-      summary: EXISTING /products, proposed additive search extension
-      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Tra cứu sản phẩm — tìm kiếm, lọc và sắp xếp đã triển khai trên develop
+      description: Đối chiếu backend/app/modules/products/router.py + schemas.py ở develop cd1a6d3451a8; quyền ACTIVE Admin/Staff.
+        Đối chiếu response thật bằng integration test; không coi bản thiết kế tương đương mọi runtime branch.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Paged product list
+          description: Danh sách sản phẩm có phân trang
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -324,10 +324,12 @@ paths:
           minimum: 1
           maximum: 100
       - in: query
-        name: q
+        name: search
         required: false
         schema:
           type: string
+          maxLength: 100
+        description: Tìm kiếm tên/SKU; trim chuỗi, rỗng tương đương không lọc; API đã triển khai tại develop.
       - in: query
         name: category_id
         required: false
@@ -342,65 +344,79 @@ paths:
           enum:
           - ACTIVE
           - INACTIVE
-      x-implementation-status: EXISTS_ON_DEVELOP_BASIC_LIST; FILTERS_PENDING
+      - in: query
+        name: sort
+        required: false
+        schema:
+          type: string
+          enum:
+          - name_asc
+          - name_desc
+          - sku_asc
+          - sku_desc
+          - created_desc
+          default: created_desc
+        description: Whitelist sort; mặc định created_desc, có tie-break id để phân trang ổn định.
+      x-implementation-status: VERIFIED_ROUTER_ON_DEVELOP_cd1a6d3451a8; HTTP_RESPONSE_TEST_REQUIRED
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-runtime-baseline-sha: cd1a6d3451a88bd890e76c14944a98329152c325
   /inventory:
     get:
       tags:
       - inventory
       operationId: listInventory
-      summary: listInventory
-      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Liệt kê tồn kho
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai trên
+        nhánh chung.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Paged inventory
+          description: Danh sách tồn kho có phân trang
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/InventoryPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -433,6 +449,12 @@ paths:
           enum:
           - ACTIVE
           - INACTIVE
+      - in: query
+        name: in_stock
+        required: false
+        schema:
+          type: boolean
+        description: 'true: quantity > 0; false: quantity = 0; không giữ hàng POS.'
       x-implementation-status: PLANNED_NOT_VERIFIED
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
   /inventory/{product_id}:
@@ -440,58 +462,58 @@ paths:
       tags:
       - inventory
       operationId: getInventory
-      summary: getInventory
-      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Lấy tồn kho sản phẩm
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Current inventory row
+          description: Bản ghi tồn kho hiện tại
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/InventoryRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -509,16 +531,16 @@ paths:
       tags:
       - inventory
       operationId: adjustInventory
-      summary: adjustInventory
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Điều chỉnh tồn kho
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Count adjustment result
+          description: Kết quả điều chỉnh theo số kiểm kê
           content:
             application/json:
               schema:
@@ -530,43 +552,43 @@ paths:
                 audit_id: 33
                 movement_created: false
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -590,7 +612,7 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
-        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định mới dùng
           new key.
         schema:
           type: string
@@ -611,58 +633,58 @@ paths:
       tags:
       - inventory
       operationId: getLowStock
-      summary: getLowStock
-      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Lấy danh sách tồn kho thấp
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Inventory below the shared threshold P0=5
+          description: Sản phẩm có tồn kho không vượt quá ngưỡng chung P0=5
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/LowStockPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -688,58 +710,61 @@ paths:
       tags:
       - inventory
       operationId: listStockMovements
-      summary: listStockMovements
-      description: CF-2.0 design candidate; ACTIVE ADMIN/STAFF. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Liệt kê biến động kho
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai trên
+        nhánh chung.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Safe movement history
+          description: ADMIN sử dụng StockMovementAdminPage, STAFF sử dụng StockMovementPage; backend chọn theo role, không
+            để client tự chọn.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StockMovementPage'
+                oneOf:
+                - $ref: '#/components/schemas/StockMovementPage'
+                - $ref: '#/components/schemas/StockMovementAdminPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -764,65 +789,78 @@ paths:
         schema:
           type: integer
           minimum: 1
+      - in: query
+        name: kind
+        required: false
+        schema:
+          type: string
+          enum:
+          - PURCHASE_CONFIRM
+          - SALE
+          - ORDER_CANCEL
+          - ADJUSTMENT
+        description: Lọc theo loại chuyển động kho.
       x-implementation-status: PLANNED_NOT_VERIFIED
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-role-field-policy: STAFF uses StockMovementRead only; ADMIN can receive extra audited actor/reason after schema
+        ACK and role-specific serialization; never expose unit_cost_vnd in STAFF response.
   /purchase-receipts:
     get:
       tags:
       - receipts
       operationId: listReceipts
-      summary: listReceipts
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Liệt kê phiếu nhập
+      description: 'PUR-05: phân trang ổn định (sort theo created_at DESC, id DESC), lọc khoảng ngày VN; from_date <= to_date;
+        giới hạn khoảng ngày và paging cần Tech Lead ACK. Mẫu contract dự kiến, chưa có route runtime.'
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Receipt list
+          description: Danh sách phiếu nhập
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReceiptPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -856,64 +894,81 @@ paths:
         schema:
           type: integer
           minimum: 1
+      - in: query
+        name: from_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo created_at. Chuyển UTC với [start,
+          end+1 ngày).
+      - in: query
+        name: to_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo created_at. Chuyển UTC với [start,
+          end+1 ngày).
       x-implementation-status: PLANNED_NOT_VERIFIED
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-query-policy-status: CANDIDATE_NEEDS_PROVIDER_CONSUMER_ACK
     post:
       tags:
       - receipts
       operationId: createReceiptDraft
-      summary: createReceiptDraft
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Tạo phiếu nhập nháp
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge.
+        Xem docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '201':
-          description: Created DRAFT
+          description: Đã tạo phiếu DRAFT
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReceiptRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -937,58 +992,58 @@ paths:
       tags:
       - receipts
       operationId: getReceipt
-      summary: getReceipt
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Lấy chi tiết phiếu nhập
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Receipt detail
+          description: Chi tiết phiếu nhập
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReceiptRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1005,58 +1060,58 @@ paths:
       tags:
       - receipts
       operationId: updateReceiptDraft
-      summary: updateReceiptDraft
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Sửa phiếu nhập nháp
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Updated DRAFT
+          description: Đã cập nhật phiếu DRAFT
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReceiptRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1080,58 +1135,58 @@ paths:
       tags:
       - receipts
       operationId: cancelReceiptDraft
-      summary: cancelReceiptDraft
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Hủy phiếu nhập nháp
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Cancelled DRAFT without stock change
+          description: Đã hủy phiếu DRAFT, không làm đổi tồn kho
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReceiptRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1155,16 +1210,16 @@ paths:
       tags:
       - receipts
       operationId: confirmReceipt
-      summary: confirmReceipt
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Xác nhận phiếu nhập
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ADMIN
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Confirmed receipt and stock in single transaction
+          description: Đã xác nhận phiếu và tăng tồn kho trong một transaction
           content:
             application/json:
               schema:
@@ -1189,25 +1244,25 @@ paths:
                   unit_cost_vnd: 47000
                   line_total_vnd: 94000
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1218,19 +1273,19 @@ paths:
                 details:
                   current_draft_version: 4
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1252,7 +1307,7 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
-        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định mới dùng
           new key.
         schema:
           type: string
@@ -1273,16 +1328,16 @@ paths:
       tags:
       - orders
       operationId: checkout
-      summary: checkout
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Checkout tại quầy
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge.
+        Xem docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '201':
-          description: Created COMPLETED order
+          description: Đã tạo đơn COMPLETED
           content:
             application/json:
               schema:
@@ -1304,33 +1359,35 @@ paths:
                   unit_price_vnd: 65000
                   line_total_vnd: 130000
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: PRICE_CHANGED, idempotency fingerprint mismatch, or other business conflict; no checkout
-            mutation on PRICE_CHANGED
+          description: PRICE_CHANGED có details.changed_items typed (không tạo order/stock movement); các lỗi key-reuse/race
+            dùng ErrorResponse.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                oneOf:
+                - $ref: '#/components/schemas/PriceChangedError'
+                - $ref: '#/components/schemas/CheckoutConflictError'
               examples:
                 price_changed:
-                  summary: New price must be accepted with a new intent key
+                  summary: Giá mới phải được người dùng xác nhận và sử dụng key cho ý định mới
                   value:
                     code: PRICE_CHANGED
                     message: Giá bán đã thay đổi. Vui lòng xác nhận lại.
@@ -1340,25 +1397,25 @@ paths:
                         viewed_unit_price_vnd: 65000
                         current_unit_price_vnd: 68000
                 key_reused:
-                  summary: Same key with a different request
+                  summary: Cùng key nhưng request khác nội dung
                   value:
                     code: IDEMPOTENCY_KEY_REUSED
                     message: Khóa yêu cầu đã được sử dụng cho dữ liệu khác.
                     details: null
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1378,8 +1435,8 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
-        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
-          new key.
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định
+          mới dùng new key.
         schema:
           type: string
           minLength: 16
@@ -1399,58 +1456,58 @@ paths:
       tags:
       - orders
       operationId: listOrders
-      summary: listOrders
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Liệt kê đơn hàng
+      description: 'SALE-03: phân trang ổn định (sort theo sold_at DESC, id DESC), lọc khoảng ngày VN; from_date <= to_date;
+        giới hạn khoảng ngày và paging cần Tech Lead ACK. Mẫu contract dự kiến, chưa có route runtime.'
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Order list
+          description: Danh sách đơn hàng
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1477,65 +1534,91 @@ paths:
           enum:
           - COMPLETED
           - CANCELLED
+      - in: query
+        name: from_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo sold_at. Chuyển UTC với [start, end+1
+          ngày).
+      - in: query
+        name: to_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo sold_at. Chuyển UTC với [start, end+1
+          ngày).
+      - in: query
+        name: search
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description: 'Đề xuất: chuỗi tìm kiếm đã trim, khớp chính xác Order ID khi là số; hoặc SKU snapshot trong OrderItems;
+          xử lý case/Unicode cần Na Na ↔ Lâm ACK.'
       x-implementation-status: PLANNED_NOT_VERIFIED
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-query-policy-status: CANDIDATE_NEEDS_PROVIDER_CONSUMER_ACK
   /orders/{order_id}:
     get:
       tags:
       - orders
       operationId: getOrder
-      summary: getOrder
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Lấy chi tiết đơn hàng
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ACTIVE ADMIN/STAFF
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Order detail
+          description: Chi tiết đơn hàng
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1553,58 +1636,58 @@ paths:
       tags:
       - orders
       operationId: cancelOrder
-      summary: cancelOrder
-      description: FROZEN design contract CF-1.0. NOT evidence this endpoint is implemented/merged. See
-        docs/contracts/S2_CORE_CONTRACTS_LOCKED.md.
+      summary: Hủy đơn hàng
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
       x-retailops-role: ACTIVE ADMIN/STAFF, policy role/owner/time enforced server-side
       x-contract-status: FROZEN_DESIGN
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Order CANCELLED and stock restored once
+          description: Đơn đã CANCELLED và tồn kho chỉ được hoàn lại một lần
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1624,7 +1707,7 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
-        description: One opaque key per intent. Preserve exact key+body for retry. New business intent uses
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định mới dùng
           new key.
         schema:
           type: string
@@ -1645,58 +1728,58 @@ paths:
       tags:
       - analytics
       operationId: getSalesAnalytics
-      summary: getSalesAnalytics
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Xem phân tích doanh thu
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Aggregates computed on committed orders
+          description: Chỉ số tổng hợp từ các đơn đã commit
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SalesSummary'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1721,58 +1804,58 @@ paths:
       tags:
       - analytics
       operationId: getTopProducts
-      summary: getTopProducts
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Xem sản phẩm bán chạy
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Top selling products
+          description: Sản phẩm bán chạy nhất
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductAnalyticsPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1805,58 +1888,58 @@ paths:
       tags:
       - analytics
       operationId: getSlowProducts
-      summary: getSlowProducts
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Xem sản phẩm bán chậm
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Slow moving products
+          description: Sản phẩm bán chậm
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductAnalyticsPage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1882,58 +1965,58 @@ paths:
       tags:
       - dashboard
       operationId: getDashboard
-      summary: getDashboard
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Xem Dashboard
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Sales and inventory read-side summary
+          description: Tổng hợp chỉ số bán hàng và tồn kho phục vụ đọc dữ liệu
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DashboardRead'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -1945,58 +2028,58 @@ paths:
       tags:
       - ai
       operationId: askAI
-      summary: askAI
-      description: CF-2.0 design candidate; ADMIN. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Hỏi trợ lý AI
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: ADMIN
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security:
       - bearerAuth: []
       responses:
         '200':
-          description: Answer with evidence only
+          description: Chỉ trả lời khi có dữ liệu làm bằng chứng
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AIAskResponse'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Error 404 when applicable; not all error codes occur on every input
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: Error 409 when applicable; not all error codes occur on every input
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -2014,33 +2097,33 @@ paths:
       tags:
       - auth
       operationId: forgotPassword
-      summary: forgotPassword
-      description: CF-2.0 design candidate; PUBLIC. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Yêu cầu đặt lại mật khẩu
+      description: Bản thiết kế đề xuất CF-2.3; API công khai. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: PUBLIC
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security: []
       responses:
         '202':
-          description: Generic acceptance response
+          description: Phản hồi tiếp nhận chung
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenericMessage'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -2058,45 +2141,45 @@ paths:
       tags:
       - auth
       operationId: resetPassword
-      summary: resetPassword
-      description: CF-2.0 design candidate; PUBLIC. Owner and consumer ACK required before implementation
-        on shared branch.
+      summary: Đặt lại mật khẩu
+      description: Bản thiết kế đề xuất CF-2.3; API công khai. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
       x-retailops-role: PUBLIC
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       security: []
       responses:
         '200':
-          description: Password updated and existing sessions revoked
+          description: Đã đổi mật khẩu và thu hồi các phiên hiện có
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenericMessage'
         '401':
-          description: Error 401 when applicable; not all error codes occur on every input
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Error 403 when applicable; not all error codes occur on every input
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Error 422 when applicable; not all error codes occur on every input
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Error 429 when applicable; not all error codes occur on every input
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Error 503 when applicable; not all error codes occur on every input
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
           content:
             application/json:
               schema:
@@ -2114,10 +2197,10 @@ paths:
       operationId: requestStaffReapplyProof
       tags:
       - auth
-      summary: requestStaffReapplyProof
+      summary: Yêu cầu xác minh đăng ký lại Staff
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       x-implementation-status: PLANNED_NOT_VERIFIED
-      description: 'AUTH-01 reapply: proof-of-control, idempotent prevention, account enumeration safe.
+      description: 'AUTH-01 đăng ký lại: xác minh quyền kiểm soát tài khoản, chống tạo yêu cầu trùng, không tiết lộ tài khoản có tồn tại.
         Requires Hiếu/Lâm owner-consumer ACK.'
       security: []
       requestBody:
@@ -2128,19 +2211,19 @@ paths:
               $ref: '#/components/schemas/ReapplyRequest'
       responses:
         '202':
-          description: Generic acknowledgement
+          description: Thông báo xác nhận chung, không tiết lộ sự tồn tại tài khoản
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReapplyAccepted'
         '400':
-          description: Invalid/expired/consumed one-time proof or policy violation
+          description: Bằng chứng một lần không hợp lệ/đã hết hạn/đã dùng, hoặc vi phạm chính sách
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Rate limited
+          description: Bị giới hạn số lần gọi
           content:
             application/json:
               schema:
@@ -2151,10 +2234,10 @@ paths:
       operationId: confirmStaffReapplyProof
       tags:
       - auth
-      summary: confirmStaffReapplyProof
+      summary: Xác nhận đăng ký lại Staff
       x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
       x-implementation-status: PLANNED_NOT_VERIFIED
-      description: 'AUTH-01 reapply: proof-of-control, idempotent prevention, account enumeration safe.
+      description: 'AUTH-01 đăng ký lại: xác minh quyền kiểm soát tài khoản, chống tạo yêu cầu trùng, không tiết lộ tài khoản có tồn tại.
         Requires Hiếu/Lâm owner-consumer ACK.'
       security: []
       requestBody:
@@ -2165,19 +2248,19 @@ paths:
               $ref: '#/components/schemas/ReapplyConfirmRequest'
       responses:
         '202':
-          description: Generic acknowledgement
+          description: Thông báo xác nhận chung, không tiết lộ sự tồn tại tài khoản
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReapplyAccepted'
         '400':
-          description: Invalid/expired/consumed one-time proof or policy violation
+          description: Bằng chứng một lần không hợp lệ/đã hết hạn/đã dùng, hoặc vi phạm chính sách
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Rate limited
+          description: Bị giới hạn số lần gọi
           content:
             application/json:
               schema:
@@ -2188,7 +2271,7 @@ paths:
       operationId: getProduct
       tags:
       - products
-      summary: Get Product with current Inventory
+      summary: Đọc sản phẩm kèm tồn kho hiện tại
       x-contract-status: EXISTING_CODE
       x-implementation-status: EXISTS_ON_DEVELOP
       security:
@@ -2208,13 +2291,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProductRead'
         '401':
-          description: Unauthenticated
+          description: Chưa xác thực
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Not found
+          description: Không tìm thấy
           content:
             application/json:
               schema:
@@ -2237,7 +2320,7 @@ components:
           type: string
         details:
           nullable: true
-          description: Safe, bounded error-specific details; schema per endpoint in docs/shared/API_HANDOFF.md
+          description: Chi tiết lỗi đã lọc an toàn và giới hạn; schema theo endpoint trong docs/contracts/API_INTEGRATION.md
       required:
       - code
       - message
@@ -2288,11 +2371,11 @@ components:
         created_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         updated_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
       required:
       - id
       - category_id
@@ -2352,7 +2435,7 @@ components:
         requested_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         decided_by:
           type: integer
           nullable: true
@@ -2558,7 +2641,7 @@ components:
         occurred_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
       required:
       - id
       - product_id
@@ -2569,7 +2652,7 @@ components:
       - stock_version_after
       - reference_id
       - occurred_at
-      description: Safe STAFF whitelist; admin additions require separate role-specific schema review.
+      description: Danh sách trường an toàn cho STAFF; trường bổ sung cho ADMIN phải được review schema theo role riêng.
     StockMovementPage:
       type: object
       additionalProperties: false
@@ -2728,7 +2811,7 @@ components:
             $ref: '#/components/schemas/ReceiptLineWrite'
       required:
       - expected_draft_version
-      description: 'Partial update: supply supplier_id and/or items; omitted field unchanged. Empty patch
+      description: 'Cập nhật một phần: truyền supplier_id và/hoặc items; trường bỏ qua sẽ giữ nguyên. PATCH rỗng
         forbidden at service validation.'
     ReceiptVersionRequest:
       type: object
@@ -2779,11 +2862,11 @@ components:
         created_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         updated_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         closed_at:
           type: string
           format: date-time
@@ -2859,7 +2942,7 @@ components:
             $ref: '#/components/schemas/CheckoutLine'
       required:
       - items
-      description: No VAT, discounts, payment method, refunds; backend rechecks prices and stock.
+      description: Không có VAT, giảm giá, phương thức thanh toán hoặc hoàn tiền; backend kiểm tra lại giá và tồn kho.
     OrderLineRead:
       type: object
       additionalProperties: false
@@ -2915,7 +2998,7 @@ components:
         sold_at:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         cancelled_by:
           type: integer
           nullable: true
@@ -2980,11 +3063,11 @@ components:
         period_start:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         period_end_exclusive:
           type: string
           format: date-time
-          description: UTC ISO-8601, offsets explicit
+          description: UTC ISO-8601, phải ghi rõ múi giờ
         revenue_vnd:
           type: integer
           format: int64
@@ -3031,12 +3114,12 @@ components:
         quantity:
           type: integer
           minimum: 0
-          description: Used in slow-mover analysis; may be omitted by top-sellers API.
+          description: Dùng trong phân tích bán chậm; API sản phẩm bán chạy có thể không trả trường này.
         first_stocked_at:
           type: string
           format: date-time
           nullable: true
-          description: Use first inventory stock time, NOT product.created_at. Required when analyzing slow-moving
+          description: Dùng thời điểm nhập tồn đầu tiên, KHÔNG dùng product.created_at. Bắt buộc khi phân tích sản phẩm bán chậm
             products.
       required:
       - product_id
@@ -3126,7 +3209,7 @@ components:
       - answer
       - evidence
       - insufficient_data
-      description: AI advisory only. Does not expose tool internals, SQL, model keys or write permissions.
+      description: AI chỉ đưa ra gợi ý; không lộ nội bộ tool, SQL, model key hoặc quyền ghi dữ liệu.
     ForgotPasswordRequest:
       type: object
       additionalProperties: false
@@ -3207,4 +3290,125 @@ components:
       properties:
         message:
           type: string
-x-source-commit-reviewed: f227164afa02c2ca164ef019db6410f87f43e0d9
+    PriceChangedError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - details
+      properties:
+        code:
+          type: string
+          enum:
+          - PRICE_CHANGED
+        message:
+          type: string
+        details:
+          $ref: '#/components/schemas/PriceChangedDetails'
+    StockMovementAdminRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PURCHASE_CONFIRM
+          - SALE
+          - ORDER_CANCEL
+          - ADJUSTMENT
+        quantity_before:
+          type: integer
+          format: int64
+          minimum: 0
+        quantity_after:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version_after:
+          type: integer
+          format: int64
+          minimum: 0
+        reference_id:
+          type: integer
+          format: int64
+          minimum: 1
+        occurred_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        actor_id:
+          type: integer
+          minimum: 1
+        adjustment_reason:
+          type: string
+          nullable: true
+      required:
+      - id
+      - product_id
+      - sku
+      - kind
+      - quantity_before
+      - quantity_after
+      - stock_version_after
+      - reference_id
+      - occurred_at
+      - actor_id
+      - adjustment_reason
+      description: ADMIN-only đầy đủ dữ liệu audit; STAFF phải dùng StockMovementRead. Không đưa giá nhập/giá vốn vào response
+        STAFF.
+    CheckoutConflictError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - details
+      properties:
+        code:
+          type: string
+          enum:
+          - IDEMPOTENCY_KEY_REUSED
+          - REQUEST_IN_PROGRESS
+          - INSUFFICIENT_STOCK
+          - PRODUCT_INACTIVE
+          - ORDER_CONFLICT
+        message:
+          type: string
+        details:
+          nullable: true
+          description: Chi tiết lỗi đã lọc; không chứa SQL/secret
+    StockMovementAdminPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - page
+      - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockMovementAdminRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+x-source-commit-reviewed: cd1a6d3451a88bd890e76c14944a98329152c325

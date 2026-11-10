@@ -1,14 +1,24 @@
-# RETAILOPS CF-2.1 — BACKEND INTERFACES
-> Bản tinh gọn: nội dung các tài liệu CF-2.0 được hợp nhất, không thay đổi nguồn chuẩn HTTP (`contracts/openapi.yaml`) và Python ABI (`contracts/python/*.pyi`). Các chương bên dưới là phần tham khảo có thể chứa ví dụ chữ ký cũ; khi khác canonical contract, ưu tiên ABI/OpenAPI và mở PR sửa hướng dẫn.
+# RetailOps CF-2.4 — Giao diện Python giữa các module
+**Nguồn chuẩn:** `../../contracts/python/retailops_core_ports.pyi` và `../../contracts/python/retailops_extended_ports.pyi`; chỉ tài liệu giải thích semantics, không khai báo một chữ ký khác.
+
+## Read services bổ sung trong CF-2.4
+- `ReceiptReadService.list/get`, `ReceiptQuery` → `Page[ReceiptRead]` hoặc `ReceiptRead`; chỉ ADMIN, lọc `created_at` theo ngày VN, terminal snapshot bất biến.
+- `OrderReadService.list/get`, `OrderQuery` → `Page[OrderRead]` hoặc `OrderRead`; ADMIN/STAFF ACTIVE xem mọi đơn, quyền hủy xét riêng ở `OrderService.cancel`.
+- Các read service dùng cùng `Session`, **không commit/rollback ngầm**; danh sách phân trang bounded và sắp xếp ổn định. Query/filter source ở OpenAPI.
+- Writer source: `OrderService.cancel`, `OutboxPublisher.publish_due`, `EmailEventHandler.handle`, `AIToolExecutor.execute(session, *, tool_id, arguments, context)`; mọi recipe khác tên phải được sửa, không được triển khai cả hai.
+- `StockLockSet` gắn riêng với một transaction / Session, không được cache/tái dùng; header → Product IDs tăng → Inventory IDs tăng. Lockset của transaction khác là lỗi; unit/race test phải chứng minh.
+
+# RETAILOPS CF-2.4 — GIAO DIỆN HÀM BACKEND
+> **Không cho phép chữ ký cũ mâu thuẫn:** phát hiện drift giữa hướng dẫn và `.pyi`/OpenAPI là lý do dừng tích hợp và sửa docs qua PR.
 
 
 ---
 
-## S2 CORE CONTRACTS
+## CÁC CONTRACT CỐT LÕI SPRINT 2
 
-# RETAILOPS V1.0 — SPRINT 2 CORE CONTRACT FREEZE (CF-1.0)
+## RETAILOPS V1.0 — Baseline contract cốt lõi Sprint 2 (kế thừa CF-2.4 (đặc tả kế thừa))
 
-**Ngày chốt tài liệu:** 10/11/2026 · **Phạm vi:** bốn contract liên task: `BE-IDEM`, `BE-INVENTORY`, `BE-RECEIPT/HTTP-RECEIPT`, `BE-CHECKOUT/HTTP-ORDER`. **Trạng thái:** **FROZEN AS DESIGN BASELINE IN THIS PACKAGE** theo quyết định yêu cầu khóa contract; **chưa merge repo, chưa chứng minh đã implemented, chưa thay thế code/API runtime**. Người cung cấp + ít nhất một consumer vẫn phải review PR tài liệu trước khi triển khai trên branch chung. Những tham số chưa có trong SRS/ERD (timeout cụ thể, giới hạn số dòng, provider email...) được để `TBD — explicit approval`, không tự mặc định.
+**Ngày chốt tài liệu:** 10/11/2026 · **Phạm vi:** bốn contract liên task: `BE-IDEM`, `BE-INVENTORY`, `BE-RECEIPT/HTTP-RECEIPT`, `BE-CHECKOUT/HTTP-ORDER`. **Trạng thái:** **FROZEN_DESIGN (chưa có ACK trên PR)** theo quyết định yêu cầu khóa contract; **chưa merge repo, chưa chứng minh đã implemented, chưa thay thế code/API runtime**. Người cung cấp + ít nhất một consumer vẫn phải review PR tài liệu trước khi triển khai trên branch chung. Các giới hạn AI/Email đã được Tech Lead chốt ở mức baseline CF-2.4; các giá trị còn lại cần ACK trong `docs/START_HERE.md`. Không tự hiểu quyết định thiết kế là interface đã chạy thật.
 
 **Thứ tự nguồn:** [SRS](https://github.com/minhhieu110907/OJT_Group_1_RetailOps_Management_System/blob/develop/docs/requirement/RetailOps_SRS_Approved.md) → [ERD](https://github.com/minhhieu110907/OJT_Group_1_RetailOps_Management_System/blob/develop/docs/database/RetailOps_ERD_V1.0.dbml) → tài liệu quyết định được PO/Tech Lead chấp thuận → file này → code mới. Nếu repo code hiện tại xung đột, mở PR bảo trì/migration hoặc change request; không sửa âm thầm SRS/ERD.
 
@@ -59,7 +69,7 @@ class IdempotencyExecutor:
 
 ## CF-02 — BE-INVENTORY: InventoryService (Dương → Hiếu, Dương; Lan Anh dùng qua Receipt)
 
-### Interface an toàn khi nhiều mutation cùng sản phẩm
+### Interface an toàn khi nhiều thao tác thay đổi tồn cùng một sản phẩm
 
 ```python
 from dataclasses import dataclass
@@ -145,7 +155,7 @@ class InventoryService:
 
 ## CF-03 — BE/HTTP-RECEIPT (Lan Anh Draft; Dương Confirm; Tân UI)
 
-### Python names & responsibility (giữ import tách file)
+### Tên hàm Python và phạm vi trách nhiệm (giữ import tách file)
 
 ```python
 # Các path mới do PR triển khai tạo, không phải file đang có.
@@ -187,7 +197,7 @@ class ReceiptConfirmService:
 
 ## CF-04 — BE/HTTP-ORDER CHECKOUT & CANCEL (Hiếu → Lâm, Na Na; dùng Dương Inventory)
 
-### Service API
+### API của service
 
 ```python
 # backend/app/modules/sales/service.py — new module theo planned work
@@ -256,11 +266,11 @@ return JSONResponse(status_code=outcome.status_code, content=outcome.body)
 
 Envelope lỗi chuẩn hiện có trong `backend/app/core/exception_handlers.py` = `{code,message,details}`; không trả raw exception/SQL/stack trace. Riêng `PRICE_CHANGED.details` có schema trong OpenAPI. Không gắn `429/503` lên mọi endpoint nếu không có logic vận hành tương ứng; OpenAPI response listing là các khả năng, phải có test thực tế trước khi coi implemented.
 
-## Path registration cho FastAPI tránh shadowing
+## Đăng ký đường dẫn FastAPI để tránh route bị che khuất
 
 Khi implement `GET /inventory/low-stock` và `GET /inventory/{product_id}`, route **tĩnh** `/low-stock` phải được đăng ký **trước** route động `/{product_id}`; nếu không `/low-stock` có thể bị match vào `product_id` và 422 thay vì gọi đúng handler. Tương tự áp dụng các route tĩnh `read-all`, `unread-count`, `checkout` trước dynamic segments khi cùng prefix. OpenAPI YAML liệt kê contract nhưng **không tự đảm bảo thứ tự đăng ký FastAPI**; phải có API integration test thực tế cho các URL này.
 
-## Gate và change control
+## Điều kiện nghiệm thu và kiểm soát thay đổi
 
 1. Contract file + `.pyi` + `openapi.yaml` phải nhất quán; khi đổi method, path, dtype, lỗi phải có một PR contract trước consumer code migration.
 2. `CONTRACT-FROZEN` = tài liệu chốt tên interface; **KHÔNG đồng nghĩa runtime-implemented**.
@@ -271,26 +281,26 @@ Khi implement `GET /inventory/low-stock` và `GET /inventory/{product_id}`, rout
 
 ---
 
-## BACKEND PORTS & TYPES
+## CỔNG GIAO TIẾP VÀ KIỂU DỮ LIỆU BACKEND
 
-# RetailOps — Hợp đồng interface giữa các module Backend (S2–S3)
+## RetailOps — Hợp đồng interface giữa các module backend (Sprint 2–3)
 
 **Status: APPROVAL CANDIDATE; chưa phải source code đã triển khai.** Đây là những chữ ký đề xuất để **provider và consumer cùng code từ ngày đầu**. Trước khi merge `docs/` này, Hiếu + chủ module + người tiêu thụ phải review và xác nhận. Sau khi `FROZEN`, thay đổi tên hàm/DTO/invariant phải có PR contract và sự đồng ý của consumers; không để AI Agent tự đổi chữ ký. Hệ thống hiện là **Modular Monolith**, không giả làm microservices hay tự thêm HTTP nội bộ.
 
 **Nguồn thiết kế đã kiểm chứng**: `docs/requirement/RetailOps_SRS_Approved.md`, `docs/database/RetailOps_ERD_V1.0.dbml`, `docs/sprint1/RETAILOPS_SPRINT1_CONTRACT.md`; code `develop` có `backend/app/modules/auth/dependencies.py` (`CurrentPrincipal`, `get_current_active_user`, `require_active_admin`), `backend/app/modules/products/schemas.py` (`ProductRead`, `ProductListResponse`), `backend/app/modules/purchasing/models.py` (Receipt ORM, chưa có API). **Không coi các interface bên dưới đã tồn tại trong repo.**
 
-## 1. Quy ước module, transaction và lỗi
+## 1. Quy ước về module, transaction và lỗi
 
 - Router tiếp nhận HTTP, xác thực/RBAC và parse request → service điều phối nghiệp vụ → repository đọc/ghi qua **cùng `sqlalchemy.orm.Session`**; một use case chỉ có **một transaction owner**, không commit trong Inventory/Outbox/Repo.
 - `raise` domain exception chuẩn từ `app.core.exceptions` (`ConflictError(code, message, details)`, `ResourceNotFoundError`, `ForbiddenError`, `DomainValidationError`) thay vì trả `JSONResponse` bên trong service. Lỗi bất ngờ rollback và 500 đã làm sạch.
 - MySQL InnoDB bảo vệ invariant; Redis không thay thế unique/row locks. Với mutation đa sản phẩm: khóa header chứng từ/đơn (nếu có) → Product theo ID tăng dần → Inventory theo ID tăng dần; kiểm tra trạng thái dưới lock, thao tác tồn và movement cùng transaction. Nếu implementation thực tế muốn thay đổi thứ tự: cần contract change + MySQL race tests.
 - Không sửa ORM/migration đã merge; bổ sung Alembic từ đúng head. `idempotency_records` và `outbox_events` chưa có trong cây migration được kiểm tra 10/11.
 
-## 2–4. BE-IDEM, BE-INVENTORY, BE-RECEIPT, BE-CHECKOUT — **FROZEN**
+## 2–4. BE-IDEM, BE-INVENTORY, BE-RECEIPT, BE-CHECKOUT — **ĐÃ KHÓA Ở MỨC THIẾT KẾ**
 
-**Nguồn duy nhất cho bốn contract nền:** [`../contracts/S2_CORE_CONTRACTS_LOCKED.md`](BACKEND_INTERFACES.md) và [`../../contracts/python/retailops_core_ports.pyi`](../../contracts/python/retailops_core_ports.pyi). Phần cũ tại đây đã được thay bằng liên kết để tránh hai chữ ký trái nhau. **Quan trọng:** Inventory có bước `lock_for_mutation()` trả `StockLockSet` bắt buộc; Idempotency dùng `idempotency_key`, `request_identity`, `command`, không tự `commit()`.
+**Nguồn duy nhất cho bốn contract nền:** [`../contracts/BACKEND_INTERFACES.md`](BACKEND_INTERFACES.md) và [`../../contracts/python/retailops_core_ports.pyi`](../../contracts/python/retailops_core_ports.pyi). Phần cũ tại đây đã được thay bằng liên kết để tránh hai chữ ký trái nhau. **Quan trọng:** Inventory có bước `lock_for_mutation()` trả `StockLockSet` bắt buộc; Idempotency dùng `idempotency_key`, `request_identity`, `command`, không tự `commit()`.
 
-## 5. BE-OUTBOX — Durable Event Writer, Publisher và Email Worker (owner: Hiếu)
+## 5. BE-OUTBOX — Ghi event bền vững, Publisher và Email Worker (phụ trách: Hiếu)
 
 **Chia đúng hai phần mà không chuyển ownership:** S2 có `OutboxWriter.append` + outbox migration để Approval ghi event trong transaction; S3 mới có publisher, RabbitMQ/Celery worker/retry. Nếu S1 Registration chưa ghi event bền vững thì bổ sung integration đúng event `STAFF_REGISTERED`, không tự đánh dấu tất cả email đã gửi.
 
@@ -302,7 +312,7 @@ EventType = Literal["STAFF_REGISTERED", "STAFF_APPROVED", "STAFF_REJECTED", "PAS
 class OutboxWriter:
     def append(
         self, session: Session, *, subject_user_id: int,
-        event_type: EventType, payload: dict, available_at_utc: datetime,
+        event_type: EventType, payload: Mapping[str, JsonValue], available_at_utc: datetime,
         secret_ciphertext: bytes | None = None, secret_expires_at_utc: datetime | None = None,
     ) -> bytes:  # stored binary(16) event ID
         ...  # no commit, no publish, no SMTP
@@ -312,13 +322,14 @@ class OutboxWriter:
 - Publisher **một instance** polls `published_at IS NULL AND available_at <= UTC_NOW`, publish RabbitMQ với publisher confirm, rồi set `published_at`; crash ở khe giữa hai bước có thể publish lặp. Worker **một consumer tuần tự** kiểm tra event ID và outcome, idempotent về trạng thái nội bộ; retry có giới hạn, không hứa email SMTP external exactly-once. **Không tự thêm multi-publisher lease/fencing** (ngoài TD-04E-LITE đã chốt).
 - Không gửi email trong transaction nghiệp vụ; broker hỏng không làm rollback hành vi Approval đã commit. Password reset link token cần cơ chế giải mã one-time ciphertext + expiry/tombstone và key management ngoài DB.
 
-## 6. BE-AI — AI Executor và service gọi model (owners: Hiếu/Dương)
+## 6. BE-AI — AI Executor và service gọi model (phụ trách: Hiếu/Dương)
 
 **Hiếu** sở hữu executor bảo mật, **Dương** sở hữu orchestration LLM + tool calling và gợi ý nhập hàng. Giao tiếp nội module, không cần HTTP giữa các service.
 
 ```python
 from dataclasses import dataclass
-from typing import Mapping, Any
+from typing import Mapping
+# ToolId, JsonValue và ToolContext/ToolResult định nghĩa chuẩn trong contracts/python/retailops_extended_ports.pyi
 
 @dataclass(frozen=True)
 class ToolContext:
@@ -328,27 +339,27 @@ class ToolContext:
 
 @dataclass(frozen=True)
 class ToolResult:
-    tool_id: str
-    data: Mapping[str, Any]
+    tool_id: ToolId
+    data: Mapping[str, JsonValue]
     source_period: str | None
 
 class AIToolExecutor:
     def execute(
-        self, session: Session, *, tool_id: str,
-        arguments: Mapping[str, Any], context: ToolContext,
+        self, session: Session, *, tool_id: ToolId,
+        arguments: Mapping[str, JsonValue], context: ToolContext,
     ) -> ToolResult: ...
 ```
 
 **Danh mục tool ID V1 đề xuất, cần khóa trước Dương code:** `get_sales_summary`, `get_top_products`, `get_slow_products`, `get_low_stock`. Các tool chỉ gọi Analytics/Inventory read services đã authorize; input schema có giới hạn ngày/page/size; result count và byte size bounded, timeout và max tool calls/request. Không nhận `user_id`, `is_admin`, SQL, URL, file path từ model; không được trao một connection tuỳ ý cho model. Không expose tool ABI trong API client FE: FE chỉ gọi `POST /ai/query` và hiển thị câu trả lời cùng evidence.
 
-## 7. READ APIs: sử dụng lại service/repository, không tạo bản sao nghiệp vụ
+## 7. API đọc dữ liệu: dùng lại service/repository, không nhân đôi nghiệp vụ
 
-- `products.ProductService.list_products/get_product` đang tồn tại, và `ProductRead` trong `backend/app/modules/products/schemas.py` gồm `id,category_id,sku,name,status,sale_price_vnd,quantity,stock_version,created_at,updated_at`. Na Na **mở rộng cùng endpoint `/products`** với `q/category/status`, không dựng `/product-search` cạnh tranh.
-- `InventoryReadService.list/get/low_stock`, `MovementReadService.list` là interface **đề xuất**. Đây là SELECT từ `inventory` + `products` + `stock_movements`, không cần đợi `InventoryService` mutation hoàn chỉnh. Staff không nhận cost, internal reason, personal fields.
+- `products.ProductService.list_products/get_product` đang tồn tại, và `ProductRead` trong `backend/app/modules/products/schemas.py` gồm `id,category_id,sku,name,status,sale_price_vnd,quantity,stock_version,created_at,updated_at`. Na Na **mở rộng cùng endpoint `/products`** với `search/category_id/status/sort`, không dựng `/product-search` cạnh tranh.
+- `InventoryReadService.list/get/low_stock`, `StockMovementReadService.list` là interface **đề xuất**. Đây là SELECT từ `inventory` + `products` + `stock_movements`, không cần đợi `InventoryService` mutation hoàn chỉnh. Staff không nhận cost, internal reason, personal fields.
 - `OrderReadService.list/get` được xây từ Order ORM + DTO đã khóa, không phải chờ Cancel mới bắt đầu. Staff được **đọc mọi Order** theo SRS; **chỉ Cancel Order của chính mình** trong thời hạn. Không áp cùng ownership filter cho GET và CANCEL.
 - Analytics và Dashboard trả tổng hợp **dữ liệu đã commit**, query set-based trên MySQL, không gọi LLM để tính doanh thu. `T04A92B` revenue và `T04A947` product analytics có thể làm song song; `T04AA36` Dashboard là façade đọc, không duplicate logic tính toán.
 
-## 8. Ai cần làm gì trước để unblock người khác
+## 8. Việc cần bàn giao trước để không chặn người khác
 
 | Khi nào | Provider | Handoff đủ để consumer bắt đầu | Consumer | Bằng chứng |
 |---|---|---|---|---|
@@ -365,20 +376,20 @@ class AIToolExecutor:
 
 ---
 
-## CONSUMER RECIPES
+## VÍ DỤ CÁCH BÊN SỬ DỤNG GỌI CONTRACT
 
-# RetailOps — Recipes: mỗi người gọi dependency như thế nào?
+## RetailOps — Ví dụ cách từng thành viên sử dụng dependency
 
-**Hướng dẫn chạy cùng với** `S2_CORE_CONTRACTS_LOCKED.md`; đây là ví dụ orchestration, không phải code hiện đã có. Mọi lời gọi trong cùng một use case dùng chung `Session`, không service con tự `commit()`.
+**Hướng dẫn chạy cùng với** `BACKEND_INTERFACES.md`; đây là ví dụ orchestration, không phải code hiện đã có. Mọi lời gọi trong cùng một use case dùng chung `Session`, không service con tự `commit()`.
 
-## Dương — implement `InventoryService` để Hiếu dùng
+## Dương — triển khai `InventoryService` để Hiếu sử dụng
 
 1. Tạo `backend/app/modules/inventory/{models,repository,service,schemas}.py` phù hợp codebase và ERD; không duplicate model `Inventory` trong `products/models.py` đã tồn tại.
 2. Expose `InventoryService.lock_for_mutation(session, product_ids)` và bốn methods cùng signature trong `contracts/python/retailops_core_ports.pyi`.
 3. Viết fake dùng được trong Checkout/Confirm tests. Dùng `StockLockSet` chứa ảnh chụp dưới lock; real service chỉ update row qua **cùng transaction**, bắt source FK đúng trước Stock Movement.
-4. Contract tests: `stock_version`, `first_stocked_at`, negative quantity, no-op audit, two checkout/cancel concurrent, deadlock rollback.
+4. Kiểm thử contract: `stock_version`, `first_stocked_at`, số lượng âm, audit khi no-op, hai Checkout/Hủy đơn đồng thời và rollback khi deadlock.
 
-## Hiếu — Checkout trong lúc Dương chưa merge Inventory
+## Hiếu — Triển khai Checkout khi Dương chưa merge Inventory
 
 ```python
 # Fake cấp bởi contract để test orchestration độc lập (ví dụ minh họa):
@@ -416,24 +427,24 @@ await api.post("/orders/checkout", payload, {
 
 Giỏ POS chỉ là báo giá, không giữ tồn. Không fallback sang mock khi API real lỗi `503` hoặc backend offline. Adapter mock/real tường minh theo cấu hình, UI hiển thị lỗi an toàn và phát hiện mismatch bằng contract test.
 
-## Na Na — Order History / Analytics
+## Na Na — Lịch sử đơn hàng và Analytics
 
 Dùng `OrderRead` trong OpenAPI, query `orders`+`order_items` đã commit, không lấy giá hiện tại của Product để hiển thị đơn lịch sử; STAFF được xem mọi order, nhưng cancel theo role/ownership. `S3` revenue/AOV/top chỉ tính `COMPLETED`, loại `CANCELLED`; canceled count thuộc ngày bán ban đầu, timezone Asia/Ho_Chi_Minh. Không tạo định nghĩa tính doanh thu thứ hai trong Dashboard và AI.
 
 ## Hiếu → Dương — Outbox + AI Sprint 3
 
-Hiếu bàn giao `OutboxWriter.append` (S2), `AIToolExecutor.execute` và event/task schema (S3) theo `docs/shared/BE_PORTS.md`. Dương chỉ orchestration gọi typed tools; tuyệt đối không gửi SQL/url bất kỳ từ model. Với Worker, Outbox Lite **một publisher, một worker tuần tự**; broker unavailable không được làm rollback business đã commit. `outbox_events` và token reset/reapply không chứa plaintext secrets.
+Hiếu bàn giao `OutboxWriter.append` (S2), `AIToolExecutor.execute` và event/task schema (S3) theo `contracts/python/retailops_extended_ports.pyi`. Dương chỉ orchestration gọi typed tools; tuyệt đối không gửi SQL/url bất kỳ từ model. Với Worker, Outbox Lite **một publisher, một worker tuần tự**; broker unavailable không được làm rollback business đã commit. `outbox_events` và token reset/reapply không chứa plaintext secrets.
 
-## Handoff là điều kiện hết blocker, không phải tin nhắn “code xong”
+## Bàn giao contract là điều kiện gỡ blocker, không chỉ nhắn “đã code xong”
 
 Provider gửi link PR/commit + location import + exact signature + OpenAPI/schema version + fake/test-fixture + lỗi đã chốt + cách chạy tests. Consumer trả lời `ACK` sau khi chạy contract tests/mock. Khi Provider API merge `develop`, consumer chuyển sang real API và ghi bằng chứng. Mọi thay đổi breaking phải thông báo owner/consumer qua PR contract trước; không sửa silently qua agent.
 
 
 ---
 
-## CONTRACT TEST MATRIX S2
+## MA TRẬN KIỂM THỬ CONTRACT SPRINT 2
 
-# RetailOps — Bốn contract CF-1.0: Test vectors và acceptance gate
+## RetailOps — Bốn contract cốt lõi: tình huống kiểm thử và tiêu chí nghiệm thu
 
 **Không đánh dấu PASS khi chỉ có fake/mock hoặc copy một lệnh test chưa chạy.** Provider tự viết tests, consumer xác minh bằng fake khi chưa merge và MySQL thật khi provider merge. QA chỉ nghiệm thu với bằng chứng commit SHA/migration/test environment.
 
@@ -466,7 +477,7 @@ Provider gửi link PR/commit + location import + exact signature + OpenAPI/sche
 | ROUTE-01 | GET /inventory/low-stock | 200 LowStockPage (không route dynamic /{product_id}) | Na Na / Tân | FastAPI integration |
 | ROUTE-02 | GET /orders?status=CANCELLED với STAFF | 200 list gồm mọi Order, không lọc chỉ own | Na Na / Lâm | API auth |
 
-## Nguyên tắc test implementation
+## Nguyên tắc kiểm thử implementation
 
 - MySQL 8/InnoDB, **mỗi thread/request dùng `Session` riêng**, barrier để bắt đầu cùng thời điểm; không share SQLAlchemy Session giữa threads.
 - Inject lỗi trong cùng transaction rồi đo lại DB state bằng session khác; test chính xác FK/unique/index, stock_version, committed outcome.

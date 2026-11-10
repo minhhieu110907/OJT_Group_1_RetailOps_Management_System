@@ -1,5 +1,5 @@
-"""RetailOps CF-2.0 typed cross-module ports — design proposal, not existing implementation.
-One SQLAlchemy Session per use case; nested provider ports never commit/rollback.
+"""RetailOps CF-2.2 — Các interface có khai báo kiểu giữa module; mới là thiết kế đề xuất.
+Mỗi use case dùng một SQLAlchemy Session; interface con không tự commit/rollback.
 """
 from dataclasses import dataclass
 from datetime import datetime
@@ -168,3 +168,27 @@ class DashboardService:
 class AIToolExecutor:
     def execute(self, session: Session, *, tool_id: ToolId,
                 arguments: Mapping[str, JsonValue], context: ToolContext) -> ToolResult: ...
+
+
+@dataclass(frozen=True)
+class ResetPublicAck:
+    message: str  # public generic, never reveals existence of email or account status
+
+class AuthResetService:
+    def request_reset(self, session: Session, *, email: str) -> ResetPublicAck: ...
+    def consume_reset(self, session: Session, *, token: str, new_password: str) -> ResetPublicAck: ...
+
+@dataclass(frozen=True)
+class AIReadEvidence:
+    source: str
+    period: str | None
+    summary: str
+
+@dataclass(frozen=True)
+class AIReadAnswer:
+    answer: str
+    evidence: tuple[AIReadEvidence, ...]
+    insufficient_data: bool
+
+class ReadOnlyAIService:
+    def ask(self, session: Session, *, message: str, context: ToolContext) -> AIReadAnswer: ...

@@ -1,4 +1,4 @@
-"""Static doc contract verification; requires PyYAML, no database/network."""
+"""Kiểm tra tĩnh tài liệu contract; cần PyYAML, không dùng database/network."""
 import ast
 import json
 from pathlib import Path
@@ -29,6 +29,6 @@ for p in (ROOT/'contracts/examples').glob('*.json'):
 ast.parse((ROOT/'contracts/python/retailops_core_ports.pyi').read_text(encoding='utf-8'))
 for folder,expected in [('sprint2',26),('sprint3',31)]:
  t=(ROOT/f'docs/{folder}/TASK_IMPLEMENTATION_GUIDE.md').read_text(encoding='utf-8')
- count=len(re.findall(r'^## T04[A-F0-9]+ — ',t,re.M))
+ count=len(re.findall(r'^## T[A-Z0-9]+ — ',t,re.M))
  assert count==expected,(folder,count)
 print(f'OK: {len(ops)} HTTP operations, {len(schemas)} schemas, 57 task cards, Python stubs and JSON fixtures parsed.')

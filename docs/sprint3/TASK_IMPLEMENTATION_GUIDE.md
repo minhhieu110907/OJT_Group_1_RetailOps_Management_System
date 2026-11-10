@@ -1,27 +1,31 @@
-> **CF-2.0 RULE:** interface chính xác phải tra trong [`TASK_TO_CONTRACT_INDEX`](../contracts/API_INTEGRATION.md) → [`CONTRACT_INDEX`](../contracts/API_INTEGRATION.md); HTTP ở `../../contracts/openapi.yaml`, Python ABI ở `../../contracts/python/*.pyi`, FE ở `../../contracts/typescript/api-client-contract.ts`. Các chữ ký cũ trong card chỉ là mô tả/recipe khi khác canonical interface. Chỉ được gọi APPROVED sau provider+consumer ACK trong PR.
+> **Nguồn chuẩn:** `.pyi` cho Python ABI; `contracts/openapi.yaml` cho HTTP. Agent phải sửa mọi ví dụ mâu thuẫn trước khi code, không tự chọn chữ ký. Các contract còn PENDING cần ACK của provider + consumer.
 
 # RetailOps — Hướng dẫn từng task Sprint 3
 
-**Trạng thái:** Contract Implementation Candidate — cần Tech Lead cùng consumers khóa các interface mới trước khi code.
+**Trạng thái:** Bản đề xuất triển khai contract — cần Tech Lead cùng consumers khóa các interface mới trước khi code.
 
 **Nguồn phân công duy nhất:** file Excel được cung cấp 10/11/2026, tabs Sprint 2/Sprint 3 + lịch mốc 2 ngày. Mã LMS của 57 task đã đối chiếu với tab 1 trong Excel; chỉ dùng mã đi kèm từng task.
 
 
-> **Contract freeze CF-1.0:** với các task Idempotency, Inventory, Receipt, Checkout và Cancel, bắt buộc đọc [`S2_CORE_CONTRACTS_LOCKED.md`](../contracts/BACKEND_INTERFACES.md) **trước** phần ví dụ của card. Nếu chữ ký/HTTP bên dưới khác nguồn đã khóa, **nguồn mới này thắng**; agent phải cập nhật card qua PR, không tự suy đoán. Xem [`CONSUMER_RECIPES.md`](../contracts/BACKEND_INTERFACES.md) để biết consumer gọi provider chính xác như thế nào.
+> **Tình trạng:** hợp đồng lõi là FROZEN_DESIGN, **không có nghĩa runtime đã triển khai hoặc provider/consumer đã ký nhận**.
+
 
 ## Cách đọc một task
 
-Mỗi card ghi rõ task cung cấp gì (provider), cần dùng gì (consumer), phương thức/API đề xuất để kết nối và bài test nghiệm thu. Các phương thức mới được định nghĩa tại `../shared/BE_PORTS.md`, API HTTP tại `../../contracts/openapi.yaml` và `../shared/API_HANDOFF.md`. **Mã LMS thật là định danh task duy nhất trong bộ docs.**
+Mỗi card ghi rõ task cung cấp gì (provider), cần dùng gì (consumer), phương thức/API đề xuất để kết nối và bài test nghiệm thu. Các phương thức mới được định nghĩa tại `../../contracts/python/*.pyi`, API HTTP tại `../../contracts/openapi.yaml` và phần diễn giải trong `../contracts/API_INTEGRATION.md`. **Mã LMS thật là định danh task duy nhất trong bộ docs.**
 
 ## T04A90F — Transactional Outbox và Email Worker
 
+**Không tạo vòng phụ thuộc:** task Sprint 3 chỉ triển khai `OutboxPublisher.publish_due` + `EmailEventHandler.handle` và Celery orchestration cho writer đã thuộc `T04A61F` S2. Không yêu cầu S2 chờ broker hoặc SMTP; publisher confirm rồi mới ghi published_at, worker dedupe theo event_id, retry hữu hạn.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A90F`  
 **Tên LMS:** Transactional Outbox và Email Worker  
-**Commit mẫu:** `feat(sprint3): implement 01 [T04A90F]`  
+**Commit mẫu:** `feat(backend): transactional outbox và email worker [T04A90F]`  
 **PR:** ghi `T04A90F` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 18–19/11 · **Contract:** `BE-OUTBOX`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 18–19/11 · **Contract:** `BE-OUTBOX`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -32,11 +36,18 @@ Nghiệm thu: Sự kiện không bị mất khi broker/worker ngừng hoạt đ�
 ### Giao tiếp liên task — không được tự đoán
 
 - **Phải đọc/có trước:** S2 durable OutboxWriter + migration. Contract có thể đủ để bắt đầu unit/mocks; implementation thật phải có trước integration gate.
-- **Interface/API cung cấp hoặc sử dụng:** `OutboxPublisher.poll_publish; Celery EmailWorker.handle(event_id)`.
+- **Interface/API cung cấp hoặc sử dụng:** `OutboxPublisher.publish_due; EmailEventHandler.handle(event_id)`.
 - **Bên nhận / giao tiếp:** Dương reset/worker tests; Na Na email tests.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A90F` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-OUTBOX` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A61F` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** single publisher/sequential consumer; publisher confirm; duplicate idempotency.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -55,11 +66,11 @@ Nghiệm thu: Sự kiện không bị mất khi broker/worker ngừng hoạt đ�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A92B`  
 **Tên LMS:** Analytics doanh thu và đơn hàng  
-**Commit mẫu:** `feat(sprint3): implement 02 [T04A92B]`  
+**Commit mẫu:** `feat(backend): analytics doanh thu và đơn hàng [T04A92B]`  
 **PR:** ghi `T04A92B` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-ANALYTICS`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-ANALYTICS`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -74,7 +85,14 @@ Nghiệm thu: Đối soát với đơn hàng và Stock Movement; kiểm thử kh
 - **Bên nhận / giao tiếp:** Na Na Dashboard; Lâm Dashboard; AI tools.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A92B` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ANALYTICS` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A73C`, `T04A80C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** Asia/Ho_Chi_Minh bounds, completed-only revenue/AOV, cancelled counts by sold_at.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -93,11 +111,11 @@ Nghiệm thu: Đối soát với đơn hàng và Stock Movement; kiểm thử kh
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A947`  
 **Tên LMS:** Analytics sản phẩm  
-**Commit mẫu:** `feat(sprint3): implement 03 [T04A947]`  
+**Commit mẫu:** `feat(backend): analytics sản phẩm [T04A947]`  
 **PR:** ghi `T04A947` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-ANALYTICS`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-ANALYTICS`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -112,7 +130,14 @@ Nghiệm thu: Kiểm thử MySQL cho sản phẩm không bán, đơn bị hủy,
 - **Bên nhận / giao tiếp:** Na Na Dashboard; Dương AI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A947` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ANALYTICS` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A73C`, `T04A653`, `T04A80C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** top excludes cancelled; slow >7days from first stocked, <=2 units/30d.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -131,11 +156,11 @@ Nghiệm thu: Kiểm thử MySQL cho sản phẩm không bán, đơn bị hủy,
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A961`  
 **Tên LMS:** Hoàn thiện lịch sử và hủy đơn UI  
-**Commit mẫu:** `feat(sprint3): implement 04 [T04A961]`  
+**Commit mẫu:** `feat(frontend): hoàn thiện lịch sử và hủy đơn ui [T04A961]`  
 **PR:** ghi `T04A961` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-ORDER,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-ORDER,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -150,7 +175,14 @@ Nghiệm thu: Kiểm thử trên dữ liệu thật với ADMIN/STAFF, không ch
 - **Bên nhận / giao tiếp:** Lâm QA; Lan Anh UAT.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A961` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ORDER, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A840`, `T04A80C`, `T04A883` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** real API 401/403/409, ownership/time boundary.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -169,11 +201,11 @@ Nghiệm thu: Kiểm thử trên dữ liệu thật với ADMIN/STAFF, không ch
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A97C`  
 **Tên LMS:** Hoàn thiện giao diện tồn kho  
-**Commit mẫu:** `feat(sprint3): implement 05 [T04A97C]`  
+**Commit mẫu:** `feat(frontend): hoàn thiện giao diện tồn kho [T04A97C]`  
 **PR:** ghi `T04A97C` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-INVENTORY,FE-ADAPTER`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 18–19/11 · **Contract:** `HTTP-INVENTORY,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -188,7 +220,14 @@ Nghiệm thu: STAFF không thấy giá vốn; bộ lọc và trạng thái trố
 - **Bên nhận / giao tiếp:** Tân UI QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A97C` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-INVENTORY, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A78E`, `T04A89D` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no custom threshold P1, hide restricted fields.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -207,11 +246,11 @@ Nghiệm thu: STAFF không thấy giá vốn; bộ lọc và trạng thái trố
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A996`  
 **Tên LMS:** Tài liệu và UAT  
-**Commit mẫu:** `feat(sprint3): implement 06 [T04A996]`  
+**Commit mẫu:** `docs(docs): tài liệu và uat [T04A996]`  
 **PR:** ghi `T04A996` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 18–19/11 · **Contract:** `GATE-E2E,DEPLOY`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 18–19/11 · **Contract:** `GATE-E2E,DEPLOY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -226,7 +265,14 @@ Nghiệm thu: Người khác có thể tái lập môi trường demo bằng c�
 - **Bên nhận / giao tiếp:** all owners.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A996` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-E, E, DEPLOY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A8F3` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** reproducible setup; exact commit evidence.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -245,11 +291,11 @@ Nghiệm thu: Người khác có thể tái lập môi trường demo bằng c�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A9B0`  
 **Tên LMS:** Kiểm thử giao diện quản lý  
-**Commit mẫu:** `feat(sprint3): implement 07 [T04A9B0]`  
+**Commit mẫu:** `test(qa): kiểm thử giao diện quản lý [T04A9B0]`  
 **PR:** ghi `T04A9B0` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 18–19/11 · **Contract:** `FE-ADAPTER,GATE-E2E`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 18–19/11 · **Contract:** `FE-ADAPTER,GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -264,7 +310,14 @@ Nghiệm thu: Kiểm tra quyền ADMIN/STAFF, HTTP 401/403/409, các trạng th�
 - **Bên nhận / giao tiếp:** Lan Anh UAT.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A9B0` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `FE-ADAPTER, GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A70D`, `T04A7C3`, `T04A89D`, `T04A97C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** real API role/error/loading and responsive evidence.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -283,11 +336,11 @@ Nghiệm thu: Kiểm tra quyền ADMIN/STAFF, HTTP 401/403/409, các trạng th�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A9CA`  
 **Tên LMS:** Kiểm thử Auth, Checkout và Cancel  
-**Commit mẫu:** `feat(sprint3): implement 08 [T04A9CA]`  
+**Commit mẫu:** `test(qa): kiểm thử auth, checkout và cancel [T04A9CA]`  
 **PR:** ghi `T04A9CA` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 18–19/11 · **Contract:** `TEST-DB`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 18–19/11 · **Contract:** `TEST-DB`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -302,7 +355,14 @@ Nghiệm thu: Kiểm tra HTTP 401/403, thu hồi phiên đăng nhập, Checkout/
 - **Bên nhận / giao tiếp:** Hiếu security.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A9CA` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `TEST-DB` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A61F`, `T04A73C`, `T04A80C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** concurrent checkout/cancel, RBAC, no duplicate restores.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -319,13 +379,16 @@ Nghiệm thu: Kiểm tra HTTP 401/403, thu hồi phiên đăng nhập, Checkout/
 
 ## T04A9E6 — AI Tool Executor
 
+**Bảo mật bắt buộc:** chỉ dùng chữ ký `.pyi` `AIToolExecutor.execute(session, *, tool_id, arguments, context)`; `ToolContext` do backend lấy từ principal đã xác thực, không nhận `actor_id`/role do LLM đề xuất. Validate theo `contracts/ai_tool_schemas.json` trước service call, kiểm ADMIN mỗi lần; deadline mặc định 15s, 3 tool calls và 32 KiB data/request đã được Tech Lead chốt trong CF-2.4; vẫn chờ provider–consumer ACK trên PR.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A9E6`  
 **Tên LMS:** AI Tool Executor  
-**Commit mẫu:** `feat(sprint3): implement 09 [T04A9E6]`  
+**Commit mẫu:** `feat(backend): ai tool executor [T04A9E6]`  
 **PR:** ghi `T04A9E6` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 20–21/11 · **Contract:** `BE-AI`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 20–21/11 · **Contract:** `BE-AI`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -336,11 +399,18 @@ Nghiệm thu: Kiểm thử prompt injection, giả mạo tool, vượt quyền, 
 ### Giao tiếp liên task — không được tự đoán
 
 - **Phải đọc/có trước:** Auth CurrentPrincipal; approved read-only facade. Contract có thể đủ để bắt đầu unit/mocks; implementation thật phải có trước integration gate.
-- **Interface/API cung cấp hoặc sử dụng:** `AIToolExecutor.execute(tool_id,args,principal,session)`.
+- **Interface/API cung cấp hoặc sử dụng:** `AIToolExecutor.execute(session, *, tool_id, arguments, context)`.
 - **Bên nhận / giao tiếp:** Dương AI Tool Calling; Lâm UI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A9E6` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-AI` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** ABI freeze/hand-off 18-19 Nov before actual coding slot 20-21 Nov; consumer can fake executor. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** allowlist, typed args, RBAC every tool call, time and result bounds.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -359,11 +429,11 @@ Nghiệm thu: Kiểm thử prompt injection, giả mạo tool, vượt quyền, 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AA00`  
 **Tên LMS:** Retry và phục hồi Email Worker  
-**Commit mẫu:** `feat(sprint3): implement 10 [T04AA00]`  
+**Commit mẫu:** `feat(backend): retry và phục hồi email worker [T04AA00]`  
 **PR:** ghi `T04AA00` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 20–21/11 · **Contract:** `BE-OUTBOX`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 20–21/11 · **Contract:** `BE-OUTBOX`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -378,7 +448,14 @@ Nghiệm thu: Kiểm thử broker ngừng hoạt động/khởi động lại, g
 - **Bên nhận / giao tiếp:** Dương worker integration.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AA00` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-OUTBOX` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A90F` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** broker down/replay safe; no external SMTP exactly-once claim.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -397,11 +474,11 @@ Nghiệm thu: Kiểm thử broker ngừng hoạt động/khởi động lại, g
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AA1C`  
 **Tên LMS:** Đặt lại mật khẩu và tích hợp email  
-**Commit mẫu:** `feat(sprint3): implement 11 [T04AA1C]`  
+**Commit mẫu:** `feat(backend): đặt lại mật khẩu và tích hợp email [T04AA1C]`  
 **PR:** ghi `T04AA1C` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 20–21/11 · **Contract:** `HTTP-RESET,BE-OUTBOX`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 20–21/11 · **Contract:** `HTTP-RESET,BE-OUTBOX`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -412,11 +489,18 @@ Nghiệm thu: Token được lưu dưới dạng hash, không ghi vào log; ki�
 ### Giao tiếp liên task — không được tự đoán
 
 - **Phải đọc/có trước:** account_action_tokens design; worker event writer. Contract có thể đủ để bắt đầu unit/mocks; implementation thật phải có trước integration gate.
-- **Interface/API cung cấp hoặc sử dụng:** `AuthResetService.request_reset/consume_reset -> OutboxWriter.append`.
+- **Interface/API cung cấp hoặc sử dụng:** `AuthResetService.request_reset(session, *, email) / consume_reset(session, *, token, new_password) → OutboxWriter.append trong transaction`.
 - **Bên nhận / giao tiếp:** Lâm Auth UI; Na Na email tests.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AA1C` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RESET, BE-OUTBOX` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A61F`, `T04A90F` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Reset service can code with OutboxWriter and fake worker; email E2E requires publisher/worker T04A90F. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** generic response no enumeration; one-time token and session revocation.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -435,11 +519,11 @@ Nghiệm thu: Token được lưu dưới dạng hash, không ghi vào log; ki�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AA36`  
 **Tên LMS:** Dashboard API  
-**Commit mẫu:** `feat(sprint3): implement 12 [T04AA36]`  
+**Commit mẫu:** `feat(backend): dashboard api [T04AA36]`  
 **PR:** ghi `T04AA36` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 20–21/11 · **Contract:** `HTTP-ANALYTICS`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 20–21/11 · **Contract:** `HTTP-ANALYTICS`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -454,7 +538,14 @@ Nghiệm thu: Đối soát số liệu, kiểm thử phân quyền và bàn giao
 - **Bên nhận / giao tiếp:** Lâm Dashboard and Dương AI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AA36` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ANALYTICS` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A92B`, `T04A947`, `T04A78E` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Can implement revenue + low-stock partial façade early, but DashboardRead.top_products required; full API acceptance waits Product Analytics T04A947. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** Admin-only, shared timeframe/threshold semantics.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -473,11 +564,11 @@ Nghiệm thu: Đối soát số liệu, kiểm thử phân quyền và bàn giao
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AA50`  
 **Tên LMS:** Automated Integration Tests  
-**Commit mẫu:** `feat(sprint3): implement 13 [T04AA50]`  
+**Commit mẫu:** `feat(backend): automated integration tests [T04AA50]`  
 **PR:** ghi `T04AA50` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 20–21/11 · **Contract:** `TEST-DB,GATE-CI`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 20–21/11 · **Contract:** `TEST-DB,GATE-CI`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -492,7 +583,14 @@ Nghiệm thu: Có lệnh chạy và CI đạt, bằng chứng kiểm thử race 
 - **Bên nhận / giao tiếp:** Hiếu PR review; Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AA50` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `TEST-DB, GATE-CI` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A66F`, `T04A90F`, `T04A9E6` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Test skeleton and DB harness can start before Worker/AI implementation; real tests wait provider merges. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** tests run per owned PR, not all deferred.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -511,11 +609,11 @@ Nghiệm thu: Có lệnh chạy và CI đạt, bằng chứng kiểm thử race 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AA6A`  
 **Tên LMS:** Responsive và UI States  
-**Commit mẫu:** `feat(sprint3): implement 14 [T04AA6A]`  
+**Commit mẫu:** `feat(frontend): responsive và ui states [T04AA6A]`  
 **PR:** ghi `T04AA6A` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 20–21/11 · **Contract:** `FE-ADAPTER`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 20–21/11 · **Contract:** `FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -530,7 +628,14 @@ Nghiệm thu: Kiểm tra breakpoint, điều hướng bằng bàn phím và nhã
 - **Bên nhận / giao tiếp:** Lâm QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AA6A` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A961`, `T04A97C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Responsive/error states can start from FE Design Freeze; full smoke waits UI merged. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** keyboard accessibility, no horizontal overflow, real error handling.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -549,11 +654,11 @@ Nghiệm thu: Kiểm tra breakpoint, điều hướng bằng bàn phím và nhã
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AA86`  
 **Tên LMS:** AI chỉ đọc và Tool Calling  
-**Commit mẫu:** `feat(sprint3): implement 15 [T04AA86]`  
+**Commit mẫu:** `feat(backend): ai chỉ đọc và tool calling [T04AA86]`  
 **PR:** ghi `T04AA86` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 20–21/11 · **Contract:** `BE-AI,HTTP-AI`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 20–21/11 · **Contract:** `BE-AI,HTTP-AI`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -564,11 +669,18 @@ Nghiệm thu: Chỉ ADMIN sử dụng được; câu trả lời có dẫn chứ
 ### Giao tiếp liên task — không được tự đoán
 
 - **Phải đọc/có trước:** Hiếu Executor ABI; Analytics/Inventory Read services. Contract có thể đủ để bắt đầu unit/mocks; implementation thật phải có trước integration gate.
-- **Interface/API cung cấp hoặc sử dụng:** `ReadOnlyAIService.ask(message, principal) -> evidence answer`.
+- **Interface/API cung cấp hoặc sử dụng:** `ReadOnlyAIService.ask(session, *, message, context: ToolContext) → AIReadAnswer`.
 - **Bên nhận / giao tiếp:** Lâm AI UI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AA86` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-AI, HTTP-AI` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A9E6`, `T04A92B`, `T04A947`, `T04A78E` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no arbitrary SQL/write and no model-supplied identity.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -587,11 +699,11 @@ Nghiệm thu: Chỉ ADMIN sử dụng được; câu trả lời có dẫn chứ
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AAA2`  
 **Tên LMS:** Đo hiệu năng và xác minh bảo mật  
-**Commit mẫu:** `feat(sprint3): implement 16 [T04AAA2]`  
+**Commit mẫu:** `feat(backend): đo hiệu năng và xác minh bảo mật [T04AAA2]`  
 **PR:** ghi `T04AAA2` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 20–21/11 · **Contract:** `PERF,GATE-E2E`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 20–21/11 · **Contract:** `PERF,GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -606,7 +718,14 @@ Nghiệm thu: Báo cáo số đo trước/sau, kết luận ĐẠT/CHƯA ĐẠT 
 - **Bên nhận / giao tiếp:** Lan Anh QA; release.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AAA2` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `PERF, GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A8F3`, `T04AA36` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** record hardware/users/seed/workload; targets != actual results.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -625,11 +744,11 @@ Nghiệm thu: Báo cáo số đo trước/sau, kết luận ĐẠT/CHƯA ĐẠT 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AABC`  
 **Tên LMS:** Kiểm thử Purchasing và Email  
-**Commit mẫu:** `feat(sprint3): implement 17 [T04AABC]`  
+**Commit mẫu:** `test(qa): kiểm thử purchasing và email [T04AABC]`  
 **PR:** ghi `T04AABC` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 22–23/11 · **Contract:** `TEST-DB,BE-OUTBOX`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 22–23/11 · **Contract:** `TEST-DB,BE-OUTBOX`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -644,7 +763,14 @@ Nghiệm thu: Bằng chứng chuyển trạng thái và thay đổi tồn đúng
 - **Bên nhận / giao tiếp:** Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AABC` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `TEST-DB, BE-OUTBOX` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A7DF`, `T04A90F`, `T04AA00`, `T04AA1C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no second stock increase; outbound event intent durable.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -663,11 +789,11 @@ Nghiệm thu: Bằng chứng chuyển trạng thái và thay đổi tồn đúng
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AAD7`  
 **Tên LMS:** Kiểm thử Product, Order và Analytics  
-**Commit mẫu:** `feat(sprint3): implement 18 [T04AAD7]`  
+**Commit mẫu:** `test(qa): kiểm thử product, order và analytics [T04AAD7]`  
 **PR:** ghi `T04AAD7` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 20–21/11 · **Contract:** `TEST-DB,HTTP-ANALYTICS`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 20–21/11 · **Contract:** `TEST-DB,HTTP-ANALYTICS`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -682,7 +808,14 @@ Nghiệm thu: Kiểm tra lọc/phân trang, doanh thu không tính đơn bị h�
 - **Bên nhận / giao tiếp:** Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AAD7` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `TEST-DB, HTTP-ANALYTICS` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6A3`, `T04A73C`, `T04A92B`, `T04A947` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** cancelled excluded, pagination stable, snapshot intact.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -701,11 +834,11 @@ Nghiệm thu: Kiểm tra lọc/phân trang, doanh thu không tính đơn bị h�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AAF1`  
 **Tên LMS:** Kiểm thử frontend nghiệp vụ  
-**Commit mẫu:** `feat(sprint3): implement 19 [T04AAF1]`  
+**Commit mẫu:** `test(qa): kiểm thử frontend nghiệp vụ [T04AAF1]`  
 **PR:** ghi `T04AAF1` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 20–21/11 · **Contract:** `GATE-E2E,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 20–21/11 · **Contract:** `GATE-E2E,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -720,7 +853,14 @@ Nghiệm thu: Ghi bằng chứng lỗi, phân quyền, refresh và retry; kiểm
 - **Bên nhận / giao tiếp:** Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AAF1` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-E, E, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A869`, `T04A883`, `T04A961` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no mock fallback, refresh and conflict behavior.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -739,11 +879,11 @@ Nghiệm thu: Ghi bằng chứng lỗi, phân quyền, refresh và retry; kiểm
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AB0B`  
 **Tên LMS:** AI gợi ý nhập hàng  
-**Commit mẫu:** `feat(sprint3): implement 20 [T04AB0B]`  
+**Commit mẫu:** `feat(backend): ai gợi ý nhập hàng [T04AB0B]`  
 **PR:** ghi `T04AB0B` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 22–23/11 · **Contract:** `BE-AI,HTTP-AI`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 22–23/11 · **Contract:** `BE-AI,HTTP-AI`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -758,7 +898,14 @@ Nghiệm thu: Kiểm thử khi dữ liệu ít/thiếu, ngưỡng tồn, quyền
 - **Bên nhận / giao tiếp:** Lâm AI UI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AB0B` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-AI, HTTP-AI` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04AA86`, `T04A947` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no write action; evidence + insufficient-data state.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -777,11 +924,11 @@ Nghiệm thu: Kiểm thử khi dữ liệu ít/thiếu, ngưỡng tồn, quyền
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AB25`  
 **Tên LMS:** Giao diện Dashboard và AI  
-**Commit mẫu:** `feat(sprint3): implement 21 [T04AB25]`  
+**Commit mẫu:** `feat(frontend): giao diện dashboard và ai [T04AB25]`  
 **PR:** ghi `T04AB25` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 22–23/11 · **Contract:** `HTTP-ANALYTICS,HTTP-AI,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 22–23/11 · **Contract:** `HTTP-ANALYTICS,HTTP-AI,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -796,7 +943,14 @@ Nghiệm thu: Dùng API thật, chỉ ADMIN truy cập; xử lý HTTP 401/403 v�
 - **Bên nhận / giao tiếp:** Lâm FE E2E.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AB25` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ANALYTICS, HTTP-AI, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04AA36`, `T04AA86`, `T04AB0B` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Dashboard shell can start with HTTP contract; AI/recommendation panels attach later. Do not block all UI on T04AB0B. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** display evidence/date, timeout/quota and safe errors.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -815,11 +969,11 @@ Nghiệm thu: Dùng API thật, chỉ ADMIN truy cập; xử lý HTTP 401/403 v�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AB3F`  
 **Tên LMS:** Rà soát bảo mật và concurrency  
-**Commit mẫu:** `feat(sprint3): implement 22 [T04AB3F]`  
+**Commit mẫu:** `feat(backend): rà soát bảo mật và concurrency [T04AB3F]`  
 **PR:** ghi `T04AB3F` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 22–23/11 · **Contract:** `SECURITY,TEST-DB`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 22–23/11 · **Contract:** `SECURITY,TEST-DB`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -834,7 +988,14 @@ Nghiệm thu: Kiểm tra Auth/RBAC và quyền theo trường dữ liệu, CSRF/
 - **Bên nhận / giao tiếp:** Lan Anh release gate.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AB3F` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `SECURITY, TEST-DB` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A9CA`, `T04AA50`, `T04A653` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no Critical/High; test MySQL concurrency.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -853,11 +1014,11 @@ Nghiệm thu: Kiểm tra Auth/RBAC và quyền theo trường dữ liệu, CSRF/
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AB59`  
 **Tên LMS:** Kiểm thử Inventory, Worker và AI  
-**Commit mẫu:** `feat(sprint3): implement 23 [T04AB59]`  
+**Commit mẫu:** `test(qa): kiểm thử inventory, worker và ai [T04AB59]`  
 **PR:** ghi `T04AB59` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 22–23/11 · **Contract:** `TEST-DB,BE-OUTBOX,BE-AI`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 22–23/11 · **Contract:** `TEST-DB,BE-OUTBOX,BE-AI`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -872,7 +1033,14 @@ Nghiệm thu: Bất biến dữ liệu được giữ đúng, retry hoạt độ
 - **Bên nhận / giao tiếp:** Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AB59` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `TEST-DB, BE-OUTBOX, BE-AI` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A653`, `T04A90F`, `T04A9E6`, `T04AA86` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** fail-closed AI, no transaction corruption.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -891,11 +1059,11 @@ Nghiệm thu: Bất biến dữ liệu được giữ đúng, retry hoạt độ
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AB73`  
 **Tên LMS:** Tích hợp và demo Worker/Redis/AI  
-**Commit mẫu:** `feat(sprint3): implement 24 [T04AB73]`  
+**Commit mẫu:** `feat(backend): tích hợp và demo worker/redis/ai [T04AB73]`  
 **PR:** ghi `T04AB73` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 22–23/11 · **Contract:** `GATE-E2E`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 22–23/11 · **Contract:** `GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -910,7 +1078,14 @@ Nghiệm thu: Kiểm thử nhanh luồng E2E, tình huống gián đoạn dịch
 - **Bên nhận / giao tiếp:** Hiếu release; Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AB73` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04AA00`, `T04AA86`, `T04AB0B` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** worker event to email; AI read-only; outages reproduced.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -929,11 +1104,11 @@ Nghiệm thu: Kiểm thử nhanh luồng E2E, tình huống gián đoạn dịch
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AB8D`  
 **Tên LMS:** Triển khai bản demo  
-**Commit mẫu:** `feat(sprint3): implement 25 [T04AB8D]`  
+**Commit mẫu:** `chore(release): triển khai bản demo [T04AB8D]`  
 **PR:** ghi `T04AB8D` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 22–23/11 · **Contract:** `DEPLOY`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 22–23/11 · **Contract:** `DEPLOY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -948,7 +1123,14 @@ Nghiệm thu: Tái lập trên môi trường cô lập, kiểm tra seed/migrati
 - **Bên nhận / giao tiếp:** Lâm frontend E2E; Lan Anh UAT.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AB8D` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `DEPLOY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A8D1` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Candidate deployment can start without all services; full release candidate must contain every in-scope P0 and pass QA. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** health, migrations, secrets, backup/rollback notes.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -965,13 +1147,16 @@ Nghiệm thu: Tái lập trên môi trường cô lập, kiểm tra seed/migrati
 
 ## T04ABA7 — Release và smoke test
 
+**Release Gate:** phiên bản release candidate (RC) phải pin Git SHA, deploy ngày 22–23/11 → E2E và đối soát trên CÙNG SHA → QA ký nghiệm thu `T04ABC3` → Tech Lead phê duyệt → merge `main` → smoke trên bản đã phát hành. Hotfix phải chạy lại các gate liên quan, không lấy kết quả của SHA cũ.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04ABA7`  
 **Tên LMS:** Release và smoke test  
-**Commit mẫu:** `feat(sprint3): implement 26 [T04ABA7]`  
+**Commit mẫu:** `chore(release): release và smoke test [T04ABA7]`  
 **PR:** ghi `T04ABA7` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 24/11 · **Contract:** `DEPLOY,GATE-E2E`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 24/11 · **Contract:** `DEPLOY,GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -986,7 +1171,14 @@ Nghiệm thu: Danh sách kiểm tra và bản dựng gắn với commit cụ th�
 - **Bên nhận / giao tiếp:** all.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04ABA7` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `DEPLOY, GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04AB8D`, `T04ABC3` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** 24 Nov: cannot deploy main until QA signoff on SAME RC SHA; afterwards run post-main smoke. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** same SHA tested/released; no earlier release than QA.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -1005,11 +1197,11 @@ Nghiệm thu: Danh sách kiểm tra và bản dựng gắn với commit cụ th�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04ABC3`  
 **Tên LMS:** Nghiệm thu và đóng băng release  
-**Commit mẫu:** `feat(sprint3): implement 27 [T04ABC3]`  
+**Commit mẫu:** `feat(backend): nghiệm thu và đóng băng release [T04ABC3]`  
 **PR:** ghi `T04ABC3` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 24/11 · **Contract:** `GATE-E2E`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 24/11 · **Contract:** `GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -1024,7 +1216,14 @@ Nghiệm thu: Không còn lỗi Critical/High, bất biến nghiệp vụ quan t
 - **Bên nhận / giao tiếp:** Hiếu release.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04ABC3` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A996`, `T04AAD7`, `T04AAF1`, `T04AB3F`, `T04AB59`, `T04AC15`, `T04AC2F` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Must collect FE E2E T04AC2F and reconciliation T04AC15 before signoff, even if scheduled same day. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** zero Critical/High; missing evidence blocks release.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -1043,11 +1242,11 @@ Nghiệm thu: Không còn lỗi Critical/High, bất biến nghiệp vụ quan t
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04ABDD`  
 **Tên LMS:** Báo cáo QA và tài liệu demo  
-**Commit mẫu:** `feat(sprint3): implement 28 [T04ABDD]`  
+**Commit mẫu:** `test(qa): báo cáo qa và tài liệu demo [T04ABDD]`  
 **PR:** ghi `T04ABDD` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 24/11 · **Contract:** `GATE-E2E,DEPLOY`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 24/11 · **Contract:** `GATE-E2E,DEPLOY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -1062,7 +1261,14 @@ Nghiệm thu: Danh sách kiểm tra có liên kết PR/CI, hướng dẫn chạy
 - **Bên nhận / giao tiếp:** all presenters.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04ABDD` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-E, E, DEPLOY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04ABC3`, `T04ABA7` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** QA report final SHA after release; initial report can be drafted earlier. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** reproducible demo, known limitations transparent.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -1081,11 +1287,11 @@ Nghiệm thu: Danh sách kiểm tra có liên kết PR/CI, hướng dẫn chạy
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04ABF9`  
 **Tên LMS:** Tổng hợp giao diện và bằng chứng QA  
-**Commit mẫu:** `feat(sprint3): implement 29 [T04ABF9]`  
+**Commit mẫu:** `test(qa): tổng hợp giao diện và bằng chứng qa [T04ABF9]`  
 **PR:** ghi `T04ABF9` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 24/11 · **Contract:** `FE-ADAPTER,GATE-E2E`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 24/11 · **Contract:** `FE-ADAPTER,GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -1100,7 +1306,14 @@ Nghiệm thu: Danh sách trạng thái màn hình, hình ảnh kiểm chứng th
 - **Bên nhận / giao tiếp:** Lâm FE lead; Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04ABF9` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `FE-ADAPTER, GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A9B0`, `T04AA6A` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** screens on real API/build; no mock proof.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -1119,11 +1332,11 @@ Nghiệm thu: Danh sách trạng thái màn hình, hình ảnh kiểm chứng th
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AC15`  
 **Tên LMS:** Đối soát dữ liệu và báo cáo  
-**Commit mẫu:** `feat(sprint3): implement 30 [T04AC15]`  
+**Commit mẫu:** `feat(backend): đối soát dữ liệu và báo cáo [T04AC15]`  
 **PR:** ghi `T04AC15` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 24/11 · **Contract:** `HTTP-ANALYTICS,GATE-E2E`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 24/11 · **Contract:** `HTTP-ANALYTICS,GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -1138,7 +1351,14 @@ Nghiệm thu: Bảng so sánh kết quả mong đợi với kết quả thực t
 - **Bên nhận / giao tiếp:** Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AC15` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ANALYTICS, GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A92B`, `T04A947`, `T04AA36`, `T04AAD7` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** expected-vs-actual numbers, cancelled exclusion.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -1157,11 +1377,11 @@ Nghiệm thu: Bảng so sánh kết quả mong đợi với kết quả thực t
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04AC2F`  
 **Tên LMS:** Kiểm tra end-to-end frontend  
-**Commit mẫu:** `feat(sprint3): implement 31 [T04AC2F]`  
+**Commit mẫu:** `feat(frontend): kiểm tra end-to-end frontend [T04AC2F]`  
 **PR:** ghi `T04AC2F` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 24/11 · **Contract:** `FE-ADAPTER,DEPLOY,GATE-E2E`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 24/11 · **Contract:** `FE-ADAPTER,DEPLOY,GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -1176,7 +1396,14 @@ Nghiệm thu: Kiểm thử nhanh trên các trình duyệt phổ biến, phân q
 - **Bên nhận / giao tiếp:** Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04AC2F` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `FE-ADAPTER, DEPLOY, GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04AB25`, `T04AB8D` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Candidate FE real E2E must happen before QA signoff T04ABC3; coordinate early on 24 Nov. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** reload deep routes; 401/403/409; POS/Inventory/Dashboard/AI.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.

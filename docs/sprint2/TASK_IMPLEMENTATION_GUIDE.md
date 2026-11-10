@@ -1,27 +1,31 @@
-> **CF-2.0 RULE:** interface chính xác phải tra trong [`TASK_TO_CONTRACT_INDEX`](../contracts/API_INTEGRATION.md) → [`CONTRACT_INDEX`](../contracts/API_INTEGRATION.md); HTTP ở `../../contracts/openapi.yaml`, Python ABI ở `../../contracts/python/*.pyi`, FE ở `../../contracts/typescript/api-client-contract.ts`. Các chữ ký cũ trong card chỉ là mô tả/recipe khi khác canonical interface. Chỉ được gọi APPROVED sau provider+consumer ACK trong PR.
+> **Nguồn chuẩn:** `.pyi` cho Python ABI; `contracts/openapi.yaml` cho HTTP. Agent phải sửa mọi ví dụ mâu thuẫn trước khi code, không tự chọn chữ ký. Các contract còn PENDING cần ACK của provider + consumer.
 
 # RetailOps — Hướng dẫn từng task Sprint 2
 
-**Trạng thái:** Contract Implementation Candidate — cần Tech Lead cùng consumers khóa các interface mới trước khi code.
+**Trạng thái:** Bản đề xuất triển khai contract — cần Tech Lead cùng consumers khóa các interface mới trước khi code.
 
 **Nguồn phân công duy nhất:** file Excel được cung cấp 10/11/2026, tabs Sprint 2/Sprint 3 + lịch mốc 2 ngày. Mã LMS của 57 task đã đối chiếu với tab 1 trong Excel; chỉ dùng mã đi kèm từng task.
 
 
-> **Contract freeze CF-1.0:** với các task Idempotency, Inventory, Receipt, Checkout và Cancel, bắt buộc đọc [`S2_CORE_CONTRACTS_LOCKED.md`](../contracts/BACKEND_INTERFACES.md) **trước** phần ví dụ của card. Nếu chữ ký/HTTP bên dưới khác nguồn đã khóa, **nguồn mới này thắng**; agent phải cập nhật card qua PR, không tự suy đoán. Xem [`CONSUMER_RECIPES.md`](../contracts/BACKEND_INTERFACES.md) để biết consumer gọi provider chính xác như thế nào.
+> **Tình trạng:** hợp đồng lõi là FROZEN_DESIGN, **không có nghĩa runtime đã triển khai hoặc provider/consumer đã ký nhận**.
+
 
 ## Cách đọc một task
 
-Mỗi card ghi rõ task cung cấp gì (provider), cần dùng gì (consumer), phương thức/API đề xuất để kết nối và bài test nghiệm thu. Các phương thức mới được định nghĩa tại `../shared/BE_PORTS.md`, API HTTP tại `../../contracts/openapi.yaml` và `../shared/API_HANDOFF.md`. **Mã LMS thật là định danh task duy nhất trong bộ docs.**
+Mỗi card ghi rõ task cung cấp gì (provider), cần dùng gì (consumer), phương thức/API đề xuất để kết nối và bài test nghiệm thu. Các phương thức mới được định nghĩa tại `../../contracts/python/*.pyi`, API HTTP tại `../../contracts/openapi.yaml` và phần diễn giải trong `../contracts/API_INTEGRATION.md`. **Mã LMS thật là định danh task duy nhất trong bộ docs.**
 
 ## T04A61F — Phân quyền và duyệt Staff
 
+**Bàn giao bắt buộc:** Hiếu sở hữu `OutboxWriter.append` + event envelope + migration Outbox tối thiểu **trong Sprint 2**. Auth Register đã có trên S1 phải bổ sung hook durable `STAFF_REGISTERED` trong transaction tạo Staff, duyệt/từ chối ghi `STAFF_APPROVED`/`STAFF_REJECTED`. Không được phụ thuộc Worker Sprint 3 để commit nghiệp vụ S2. Dương/QA nhận event schema và kiểm thử rollback, retry không sinh event trùng.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A61F`  
 **Tên LMS:** Phân quyền và duyệt Staff  
-**Commit mẫu:** `feat(sprint2): implement 01 [T04A61F]`  
+**Commit mẫu:** `feat(backend): phân quyền và duyệt staff [T04A61F]`  
 **PR:** ghi `T04A61F` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-AUTH,BE-OUTBOX`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-AUTH,BE-OUTBOX`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -36,7 +40,14 @@ Nghiệm thu: Kiểm thử quyền ADMIN/STAFF, các yêu cầu duyệt đồng 
 - **Bên nhận / giao tiếp:** Lâm StaffApprovalPage; Dương Email reset; Admin notifications.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A61F` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-AUTH, BE-OUTBOX` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** S2 owns OutboxWriter + event schema; absolutely no S3 Worker dependency. S1 register needs STAFF_REGISTERED backfill hook. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** race: chỉ 1 decision thắng; event trong cùng commit; role ADMIN.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -55,11 +66,11 @@ Nghiệm thu: Kiểm thử quyền ADMIN/STAFF, các yêu cầu duyệt đồng 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A639`  
 **Tên LMS:** Khung Idempotency dùng chung  
-**Commit mẫu:** `feat(sprint2): implement 02 [T04A639]`  
+**Commit mẫu:** `feat(backend): khung idempotency dùng chung [T04A639]`  
 **PR:** ghi `T04A639` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 10–11/11 · **Contract:** `BE-IDEM`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 10–11/11 · **Contract:** `BE-IDEM`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -74,7 +85,14 @@ Nghiệm thu: Kiểm thử tích hợp trên MySQL cho retry, yêu cầu trùng,
 - **Bên nhận / giao tiếp:** Hiếu Checkout/Cancel; Dương Confirm/Adjust.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A639` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-IDEM` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** replay/collision/race/rollback trên MySQL; một commit.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -91,13 +109,16 @@ Nghiệm thu: Kiểm thử tích hợp trên MySQL cho retry, yêu cầu trùng,
 
 ## T04A653 — Inventory Service
 
+**Bàn giao bắt buộc:** Dương bổ sung StockMovement ORM + migration tuyến tính (ngoài Product/Inventory đã có), `stock_version`, unique movement/source, thứ tự lock Product ID tăng → Inventory ID tăng; consumer dùng cùng `Session` và service không commit ẩn. Hiếu review migration và concurrency test MySQL.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A653`  
 **Tên LMS:** Inventory Service  
-**Commit mẫu:** `feat(sprint2): implement 03 [T04A653]`  
+**Commit mẫu:** `feat(backend): inventory service [T04A653]`  
 **PR:** ghi `T04A653` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 10–11/11 · **Contract:** `BE-INVENTORY`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 10–11/11 · **Contract:** `BE-INVENTORY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -112,7 +133,14 @@ Nghiệm thu: Kiểm thử trên MySQL bảo đảm tồn không âm, rollback n
 - **Bên nhận / giao tiếp:** Hiếu Checkout/Cancel; Dương Confirm/Adjust; Na Na Read.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A653` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `BE-INVENTORY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** StockMovement ORM + Alembic migration not found on develop; Dương to implement in this task, rather than assume S1 finished. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** khóa tăng ID; nonnegative; movement/version atomic; no hidden commit.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -131,11 +159,11 @@ Nghiệm thu: Kiểm thử trên MySQL bảo đảm tồn không âm, rollback n
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A66F`  
 **Tên LMS:** Bộ khung kiểm thử MySQL  
-**Commit mẫu:** `feat(sprint2): implement 04 [T04A66F]`  
+**Commit mẫu:** `feat(backend): bộ khung kiểm thử mysql [T04A66F]`  
 **PR:** ghi `T04A66F` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 10–11/11 · **Contract:** `TEST-DB`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 10–11/11 · **Contract:** `TEST-DB`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -150,7 +178,14 @@ Nghiệm thu: Bài kiểm thử mẫu chạy đạt; có cơ chế ngăn kết n
 - **Bên nhận / giao tiếp:** mọi Backend; Lan Anh CI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A66F` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `TEST-DB` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** fail closed nếu sai DB; rollback/race thật.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -169,11 +204,11 @@ Nghiệm thu: Bài kiểm thử mẫu chạy đạt; có cơ chế ngăn kết n
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A689`  
 **Tên LMS:** CI cho Pull Request  
-**Commit mẫu:** `feat(sprint2): implement 05 [T04A689]`  
+**Commit mẫu:** `ci(ci): ci cho pull request [T04A689]`  
 **PR:** ghi `T04A689` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 10–11/11 · **Contract:** `GATE-CI`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 10–11/11 · **Contract:** `GATE-CI`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -188,7 +223,14 @@ Nghiệm thu: PR mẫu chạy đạt các bước kiểm tra bắt buộc; khôn
 - **Bên nhận / giao tiếp:** mọi PR.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A689` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-CI` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** CI lint/unit start from existing workflows without T04A66F; MySQL job added after harness. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** required checks phản ánh thực thi thật, không job skip giả.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -205,13 +247,16 @@ Nghiệm thu: PR mẫu chạy đạt các bước kiểm tra bắt buộc; khôn
 
 ## T04A6A3 — API tra cứu sản phẩm
 
+**Đã có trên develop `cd1a6d3451a8`:** Product router đã hỗ trợ `search` (KHÔNG dùng `q`), `category_id`, `status`, `sort` whitelist và pagination. Na Na đối chiếu runtime và test bổ sung; không xây lại endpoint thứ hai.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A6A3`  
 **Tên LMS:** API tra cứu sản phẩm  
-**Commit mẫu:** `feat(sprint2): implement 06 [T04A6A3]`  
+**Commit mẫu:** `feat(backend): api tra cứu sản phẩm [T04A6A3]`  
 **PR:** ghi `T04A6A3` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-PRODUCT`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-PRODUCT`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -222,11 +267,18 @@ Nghiệm thu: Kiểm thử API, bộ lọc, phân trang; backend không trả gi
 ### Giao tiếp liên task — không được tự đoán
 
 - **Phải đọc/có trước:** Product/Category S1, ProductRead hiện có. Contract có thể đủ để bắt đầu unit/mocks; implementation thật phải có trước integration gate.
-- **Interface/API cung cấp hoặc sử dụng:** `GET /products?q=&category_id=&status=&page=&page_size=; GET /products/{id}`.
+- **Interface/API cung cấp hoặc sử dụng:** `GET /products?search=&category_id=&status=&page=&page_size=; GET /products/{id}`.
 - **Bên nhận / giao tiếp:** Lâm POS; Tân Product/Category; Na Na Dashboard.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A6A3` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-PRODUCT` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** read DTO khớp ProductRead; lọc & paging ổn định, RBAC.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -245,11 +297,11 @@ Nghiệm thu: Kiểm thử API, bộ lọc, phân trang; backend không trả gi
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A6BD`  
 **Tên LMS:** API tra cứu tồn kho  
-**Commit mẫu:** `feat(sprint2): implement 07 [T04A6BD]`  
+**Commit mẫu:** `feat(backend): api tra cứu tồn kho [T04A6BD]`  
 **PR:** ghi `T04A6BD` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-INVENTORY`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-INVENTORY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -264,7 +316,14 @@ Nghiệm thu: Kiểm thử phân trang, trạng thái, phân quyền và tính c
 - **Bên nhận / giao tiếp:** Tân inventory UI; Lâm POS; Analytics.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A6BD` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-INVENTORY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Inventory Read starts from existing ORM without mutation service (T04A653). Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** quantity/version chính xác; không lộ field nội bộ.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -281,13 +340,16 @@ Nghiệm thu: Kiểm thử phân trang, trạng thái, phân quyền và tính c
 
 ## T04A6D7 — Tạo và sửa phiếu nhập nháp
 
+**Điều kiện migration:** PurchaseReceipt ORM từ S1 đã có nhưng migration chưa thấy trên baseline. Dương bàn giao migration còn tồn từ Sprint 1 (Hiếu review) trước khi Lan Anh chạy real integration; Lan Anh vẫn có thể viết DTO/fake trước.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A6D7`  
 **Tên LMS:** Tạo và sửa phiếu nhập nháp  
-**Commit mẫu:** `feat(sprint2): implement 08 [T04A6D7]`  
+**Commit mẫu:** `feat(backend): tạo và sửa phiếu nhập nháp [T04A6D7]`  
 **PR:** ghi `T04A6D7` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-RECEIPT,BE-RECEIPT`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-RECEIPT,BE-RECEIPT`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -302,7 +364,14 @@ Nghiệm thu: Kiểm thử MySQL/API cho phiên bản cũ trả 409, số lượ
 - **Bên nhận / giao tiếp:** Dương Confirm; Tân Receipt UI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A6D7` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RECEIPT, BE-RECEIPT` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Receipt ORM exists but migration absent on develop; S1 carryover migration owned by Dương, Hiếu reviews. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** gộp item same product+price; conflict khác giá; version stale; DRAFT không đổi tồn.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -321,11 +390,11 @@ Nghiệm thu: Kiểm thử MySQL/API cho phiên bản cũ trả 409, số lượ
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A6F3`  
 **Tên LMS:** Giao diện duyệt Staff  
-**Commit mẫu:** `feat(sprint2): implement 09 [T04A6F3]`  
+**Commit mẫu:** `feat(frontend): giao diện duyệt staff [T04A6F3]`  
 **PR:** ghi `T04A6F3` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-AUTH,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-AUTH,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -340,7 +409,14 @@ Nghiệm thu: Kiểm thử trên API thật với vai trò ADMIN/STAFF; không l
 - **Bên nhận / giao tiếp:** Hiếu approval API; Lan Anh UAT.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A6F3` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-AUTH, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A61F` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** real API 401/403/409; no silent mock fallback.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -359,11 +435,11 @@ Nghiệm thu: Kiểm thử trên API thật với vai trò ADMIN/STAFF; không l
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A70D`  
 **Tên LMS:** Giao diện danh mục, nhà cung cấp  
-**Commit mẫu:** `feat(sprint2): implement 10 [T04A70D]`  
+**Commit mẫu:** `feat(frontend): giao diện danh mục, nhà cung cấp [T04A70D]`  
 **PR:** ghi `T04A70D` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-MASTER,FE-ADAPTER`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 10–11/11 · **Contract:** `HTTP-MASTER,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -378,7 +454,14 @@ Nghiệm thu: Thao tác trên API thật, xử lý trạng thái đang tải/tr�
 - **Bên nhận / giao tiếp:** Lâm FE shared; Lan Anh QA.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A70D` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-MASTER, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** ADMIN edits, STAFF restrictions, loading/error/empty on real API.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -397,11 +480,11 @@ Nghiệm thu: Thao tác trên API thật, xử lý trạng thái đang tải/tr�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A73C`  
 **Tên LMS:** Checkout và Order Model  
-**Commit mẫu:** `feat(sprint2): implement 11 [T04A73C]`  
+**Commit mẫu:** `feat(backend): checkout và order model [T04A73C]`  
 **PR:** ghi `T04A73C` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-ORDER,BE-IDEM,BE-INVENTORY`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-ORDER,BE-IDEM,BE-INVENTORY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -417,7 +500,14 @@ Nghiệm thu: Kiểm thử yêu cầu đồng thời và rollback trên MySQL.
 - **Bên nhận / giao tiếp:** Lâm checkout/cart; Na Na Order history/Analytics.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A73C` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ORDER, BE-IDEM, BE-INVENTORY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A639`, `T04A653` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** PRICE_CHANGED 409 without mutations; one Order + movement/stock commit.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -436,11 +526,11 @@ Nghiệm thu: Kiểm thử yêu cầu đồng thời và rollback trên MySQL.
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A758`  
 **Tên LMS:** Điều chỉnh tồn kho  
-**Commit mẫu:** `feat(sprint2): implement 12 [T04A758]`  
+**Commit mẫu:** `feat(backend): điều chỉnh tồn kho [T04A758]`  
 **PR:** ghi `T04A758` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-INVENTORY,BE-IDEM,BE-INVENTORY`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-INVENTORY,BE-IDEM,BE-INVENTORY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -455,7 +545,14 @@ Nghiệm thu: Kiểm thử trên MySQL cho phiên bản cũ trả 409, thao tác
 - **Bên nhận / giao tiếp:** Tân adjustment form; Na Na Movement read.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A758` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-INVENTORY, BE-IDEM, BE-INVENTORY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A639`, `T04A653` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** stale 409, no-op audit only, same-tx event/stock, Admin-only.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -474,11 +571,11 @@ Nghiệm thu: Kiểm thử trên MySQL cho phiên bản cũ trả 409, thao tác
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A772`  
 **Tên LMS:** Hủy nháp và tra cứu phiếu nhập  
-**Commit mẫu:** `feat(sprint2): implement 13 [T04A772]`  
+**Commit mẫu:** `feat(backend): hủy nháp và tra cứu phiếu nhập [T04A772]`  
 **PR:** ghi `T04A772` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-RECEIPT,BE-RECEIPT`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-RECEIPT,BE-RECEIPT`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -493,7 +590,14 @@ Nghiệm thu: Kiểm thử thao tác hủy lặp và chuyển trạng thái, phi
 - **Bên nhận / giao tiếp:** Tân Receipt list; Dương confirm.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A772` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RECEIPT, BE-RECEIPT` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6D7` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** no stock change on cancel; terminal immutability; stale 409.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -512,11 +616,11 @@ Nghiệm thu: Kiểm thử thao tác hủy lặp và chuyển trạng thái, phi
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A78E`  
 **Tên LMS:** Lịch sử biến động và cảnh báo tồn thấp  
-**Commit mẫu:** `feat(sprint2): implement 14 [T04A78E]`  
+**Commit mẫu:** `feat(backend): lịch sử biến động và cảnh báo tồn thấp [T04A78E]`  
 **PR:** ghi `T04A78E` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-INVENTORY`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-INVENTORY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -531,7 +635,14 @@ Nghiệm thu: Kiểm thử ADMIN/STAFF, dữ liệu chính xác sau nhập/bán/
 - **Bên nhận / giao tiếp:** Tân inventory UI; Dashboard; AI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A78E` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-INVENTORY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6BD`, `T04A653` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Low-stock read starts from Inventory ORM; movement history real integration needs StockMovement migration (T04A653). Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** append only; threshold=5 P0; STAFF DTO excludes internal reason/cost.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -550,11 +661,11 @@ Nghiệm thu: Kiểm thử ADMIN/STAFF, dữ liệu chính xác sau nhập/bán/
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A7A8`  
 **Tên LMS:** Giỏ hàng POS  
-**Commit mẫu:** `feat(sprint2): implement 15 [T04A7A8]`  
+**Commit mẫu:** `feat(frontend): giỏ hàng pos [T04A7A8]`  
 **PR:** ghi `T04A7A8` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-PRODUCT,HTTP-ORDER,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-PRODUCT,HTTP-ORDER,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -569,7 +680,14 @@ Nghiệm thu: Kiểm thử thao tác bằng bàn phím, nhập biểu mẫu và 
 - **Bên nhận / giao tiếp:** Hiếu Checkout; Lâm Checkout UI.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A7A8` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-PRODUCT, HTTP-ORDER, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6A3` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Cart starts from Product read and agreed Checkout DTO; no Checkout implementation is needed to start. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** local quote only, no reservation, dedup and positive quantity.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -588,11 +706,11 @@ Nghiệm thu: Kiểm thử thao tác bằng bàn phím, nhập biểu mẫu và 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A7C3`  
 **Tên LMS:** Giao diện thao tác phiếu nhập  
-**Commit mẫu:** `feat(sprint2): implement 16 [T04A7C3]`  
+**Commit mẫu:** `feat(frontend): giao diện thao tác phiếu nhập [T04A7C3]`  
 **PR:** ghi `T04A7C3` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-RECEIPT,FE-ADAPTER`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 12–13/11 · **Contract:** `HTTP-RECEIPT,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -607,7 +725,14 @@ Nghiệm thu: Kiểm thử trên API thật, xử lý phiên bản cũ trả 409
 - **Bên nhận / giao tiếp:** Lan Anh draft; Dương confirm.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A7C3` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RECEIPT, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6D7`, `T04A772`, `T04A7DF` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** UI mock from Receipt DTO; real confirm action only once T04A7DF endpoint lands. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** draft_version conflict, terminal read-only, real API smoke.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -626,11 +751,11 @@ Nghiệm thu: Kiểm thử trên API thật, xử lý phiên bản cũ trả 409
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A7DF`  
 **Tên LMS:** Xác nhận phiếu nhập  
-**Commit mẫu:** `feat(sprint2): implement 17 [T04A7DF]`  
+**Commit mẫu:** `feat(backend): xác nhận phiếu nhập [T04A7DF]`  
 **PR:** ghi `T04A7DF` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Dương · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-RECEIPT,BE-INVENTORY,BE-IDEM`
+**Người phụ trách:** Dương · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-RECEIPT,BE-INVENTORY,BE-IDEM`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -645,7 +770,14 @@ Nghiệm thu: Kiểm thử yêu cầu đồng thời, retry và rollback trên M
 - **Bên nhận / giao tiếp:** Tân confirm UI; Lan Anh UAT.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A7DF` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RECEIPT, BE-INVENTORY, BE-IDEM` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6D7`, `T04A639`, `T04A653` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** concurrent confirm exactly one effect; lock header first; snapshot frozen.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -664,11 +796,11 @@ Nghiệm thu: Kiểm thử yêu cầu đồng thời, retry và rollback trên M
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A80C`  
 **Tên LMS:** Hủy đơn và hoàn tồn  
-**Commit mẫu:** `feat(sprint2): implement 18 [T04A80C]`  
+**Commit mẫu:** `feat(backend): hủy đơn và hoàn tồn [T04A80C]`  
 **PR:** ghi `T04A80C` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER,BE-INVENTORY,BE-IDEM`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER,BE-INVENTORY,BE-IDEM`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -679,11 +811,18 @@ Nghiệm thu: Kiểm thử hủy đồng thời, retry, ranh giới 15 phút/ng�
 ### Giao tiếp liên task — không được tự đoán
 
 - **Phải đọc/có trước:** Order Model + Inventory restore + Idempotency. Contract có thể đủ để bắt đầu unit/mocks; implementation thật phải có trước integration gate.
-- **Interface/API cung cấp hoặc sử dụng:** `CancelOrderService.cancel(session, order_id, actor_id, reason, key)`.
+- **Interface/API cung cấp hoặc sử dụng:** `OrderService.cancel(session, order_id, actor_id, reason, key)`.
 - **Bên nhận / giao tiếp:** Lâm cancel UI; Na Na Order history.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A80C` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ORDER, BE-INVENTORY, BE-IDEM` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A73C`, `T04A639`, `T04A653` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** STAFF 15min same VN business day and owner; Admin same day; restore once.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -700,13 +839,16 @@ Nghiệm thu: Kiểm thử hủy đồng thời, retry, ranh giới 15 phút/ng�
 
 ## T04A826 — Redis Rate Limiting
 
+**Tái sử dụng code:** RedisFixedWindowRateLimiter và giới hạn Register 5/60s đã có trên develop; việc S2 là mở rộng Login/Refresh/Forgot/AI/Business theo SRS INF-02, kiểm trusted proxy và fail-closed/fail-safe. Không tạo limiter song song.
+
+
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A826`  
 **Tên LMS:** Redis Rate Limiting  
-**Commit mẫu:** `feat(sprint2): implement 19 [T04A826]`  
+**Commit mẫu:** `feat(backend): redis rate limiting [T04A826]`  
 **PR:** ghi `T04A826` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-RATE`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-RATE`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -721,7 +863,14 @@ Nghiệm thu: Kiểm thử giới hạn, HTTP 429, Redis ngừng hoạt động 
 - **Bên nhận / giao tiếp:** Auth, AI, all FE clients.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A826` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RATE` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** limits per SRS; 503 fail-closed public Auth/AI on Redis outage.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -740,11 +889,11 @@ Nghiệm thu: Kiểm thử giới hạn, HTTP 429, Redis ngừng hoạt động 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A840`  
 **Tên LMS:** API lịch sử đơn hàng  
-**Commit mẫu:** `feat(sprint2): implement 20 [T04A840]`  
+**Commit mẫu:** `feat(backend): api lịch sử đơn hàng [T04A840]`  
 **PR:** ghi `T04A840` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Na Na · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER`
+**Người phụ trách:** Na Na · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -759,7 +908,14 @@ Nghiệm thu: Kiểm thử snapshot giá, trạng thái CANCELLED và quyền s�
 - **Bên nhận / giao tiếp:** Lâm Order UI; Na Na Analytics.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A840` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ORDER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A73C` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Order read from T04A73C schema; no hard wait on Cancel T04A80C. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** STAFF read all, cancel authorization separate; stable pagination.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -778,11 +934,11 @@ Nghiệm thu: Kiểm thử snapshot giá, trạng thái CANCELLED và quyền s�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A869`  
 **Tên LMS:** Giao diện Checkout  
-**Commit mẫu:** `feat(sprint2): implement 21 [T04A869]`  
+**Commit mẫu:** `feat(frontend): giao diện checkout [T04A869]`  
 **PR:** ghi `T04A869` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -797,7 +953,14 @@ Nghiệm thu: Chỉ tạo một Order COMPLETED, không gửi giao dịch hai l�
 - **Bên nhận / giao tiếp:** Hiếu Checkout.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A869` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ORDER, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A73C`, `T04A7A8` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** persist same key per intent, new key on reprice/reconfirmation.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -816,11 +979,11 @@ Nghiệm thu: Chỉ tạo một Order COMPLETED, không gửi giao dịch hai l�
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A883`  
 **Tên LMS:** Giao diện hủy đơn  
-**Commit mẫu:** `feat(sprint2): implement 22 [T04A883]`  
+**Commit mẫu:** `feat(frontend): giao diện hủy đơn [T04A883]`  
 **PR:** ghi `T04A883` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lâm · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER,FE-ADAPTER`
+**Người phụ trách:** Lâm · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-ORDER,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -835,7 +998,14 @@ Nghiệm thu: Hủy qua API thật, tồn kho được hoàn đúng sau khi tả
 - **Bên nhận / giao tiếp:** Hiếu Cancel; Lan Anh UAT.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A883` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-ORDER, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A80C`, `T04A840` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** safe permission UI, backend guard authoritative, 409 handling.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -854,11 +1024,11 @@ Nghiệm thu: Hủy qua API thật, tồn kho được hoàn đúng sau khi tả
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A89D`  
 **Tên LMS:** Giao diện tồn kho thiết yếu  
-**Commit mẫu:** `feat(sprint2): implement 23 [T04A89D]`  
+**Commit mẫu:** `feat(frontend): giao diện tồn kho thiết yếu [T04A89D]`  
 **PR:** ghi `T04A89D` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-INVENTORY,FE-ADAPTER`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-INVENTORY,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -873,7 +1043,14 @@ Nghiệm thu: Kiểm thử bằng API thật, phân quyền, trạng thái đang
 - **Bên nhận / giao tiếp:** Dương adjustment; Na Na read.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A89D` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-INVENTORY, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A6BD`, `T04A758`, `T04A78E` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** STAFF read-only; 409 stale forces refresh and reconfirm.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -892,11 +1069,11 @@ Nghiệm thu: Kiểm thử bằng API thật, phân quyền, trạng thái đang
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A8B7`  
 **Tên LMS:** Giao diện lịch sử phiếu nhập  
-**Commit mẫu:** `feat(sprint2): implement 24 [T04A8B7]`  
+**Commit mẫu:** `feat(frontend): giao diện lịch sử phiếu nhập [T04A8B7]`  
 **PR:** ghi `T04A8B7` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Tân · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-RECEIPT,FE-ADAPTER`
+**Người phụ trách:** Tân · **Mốc trong Excel:** 14–15/11 · **Contract:** `HTTP-RECEIPT,FE-ADAPTER`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -911,7 +1088,14 @@ Nghiệm thu: Kiểm tra dữ liệu sau xác nhận/hủy; không hiển thị 
 - **Bên nhận / giao tiếp:** Lan Anh Receipt API; Dương Confirm.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A8B7` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `HTTP-RECEIPT, FE-ADAPTER` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A772`, `T04A7DF` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** real data statuses, no mutation action on terminal receipt.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -930,11 +1114,11 @@ Nghiệm thu: Kiểm tra dữ liệu sau xác nhận/hủy; không hiển thị 
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A8D1`  
 **Tên LMS:** Kiểm tra Docker và Nginx  
-**Commit mẫu:** `feat(sprint2): implement 25 [T04A8D1]`  
+**Commit mẫu:** `feat(backend): kiểm tra docker và nginx [T04A8D1]`  
 **PR:** ghi `T04A8D1` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Hiếu · **Mốc trong Excel:** 16/11 · **Contract:** `DEPLOY`
+**Người phụ trách:** Hiếu · **Mốc trong Excel:** 16/11 · **Contract:** `DEPLOY`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -949,7 +1133,14 @@ Nghiệm thu: Cuối Sprint 2 khởi tạo thử từ môi trường Compose cô
 - **Bên nhận / giao tiếp:** all FE/BE, E2E and release.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A8D1` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `DEPLOY` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ không có task S2/S3 bắt buộc; kiểm tra baseline Sprint 1 (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Proxy/cookie/trusted-header audit should start 10-11 Nov; final smoke 16 Nov. Keep official milestone. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** volume preservation, health, proxy spoof tests, no exposed DB.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.
@@ -968,11 +1159,11 @@ Nghiệm thu: Cuối Sprint 2 khởi tạo thử từ môi trường Compose cô
 
 **Mã task LMS (bắt buộc trong commit/PR):** `T04A8F3`  
 **Tên LMS:** Kiểm thử end-to-end Sprint 2  
-**Commit mẫu:** `feat(sprint2): implement 26 [T04A8F3]`  
+**Commit mẫu:** `test(qa): kiểm thử end-to-end sprint 2 [T04A8F3]`  
 **PR:** ghi `T04A8F3` trong tiêu đề hoặc description; dùng chính mã LMS này cho tất cả dependency và tham chiếu task.
 
 
-**Owner:** Lan Anh · **Mốc trong Excel:** 16/11 · **Contract:** `GATE-E2E`
+**Người phụ trách:** Lan Anh · **Mốc trong Excel:** 16/11 · **Contract:** `GATE-E2E`
 
 ### Phạm vi công việc (giữ nguyên ý nghĩa bảng phân công)
 
@@ -987,7 +1178,14 @@ Nghiệm thu: Xác nhận dữ liệu đúng, kiểm thử HTTP 409/retry/race c
 - **Bên nhận / giao tiếp:** all six owners.
 - **Nếu interface chưa merge:** dùng fake/adapter khớp chữ ký, schema và test cases; không copy logic nghiệp vụ hoặc tạo endpoint tạm không được duyệt.
 
-### Kiểm thử và Definition of Done
+
+**Cổng dependency cho `T04A8F3` (theo `contracts/task_dependencies.json` — chờ duyệt):**
+
+- **STARTABLE:** khóa `GATE-E, E` với provider/consumer; có thể viết unit test và adapter fake/mock mà không chờ tất cả PR.
+- **INTEGRATABLE:** đã có mã từ `T04A61F`, `T04A6D7`, `T04A73C`, `T04A758`, `T04A772`, `T04A7DF`, `T04A80C`, `T04A6F3`, `T04A7C3`, `T04A869`, `T04A883`, `T04A89D`, `T04A8B7`, `T04A8D1` (nếu áp dụng), schema/migration cần thiết và CI; gọi API/DB thật. **Không coi mock PASS là xong task.**
+- **ACCEPTED:** Consumer integrates real after provider PR; QA/CI evidence as applicable. Có kết quả test cho trường hợp đúng, lỗi, quyền truy cập và concurrency/rollback khi là write path; QA/consumer ACK.
+
+### Kiểm thử và điều kiện hoàn thành (Definition of Done)
 
 - **Nghiệp vụ/rủi ro bắt buộc:** evidence on exact commit; 403,409,replay,concurrency,rollback.
 - **Unit/API:** có test success, validation, quyền 401/403, conflict 409 theo endpoint áp dụng; Pydantic `extra="forbid"` khi có request body.

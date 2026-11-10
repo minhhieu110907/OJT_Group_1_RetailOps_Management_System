@@ -1,4 +1,4 @@
-/** CF-2.0 FRONTEND CONTRACT; reference only, not a generated production client. */
+/** CF-2.3 — Contract frontend chỉ để tham chiếu; không phải API client production đã sinh sẵn. */
 export type ApiError = {
   code: string;
   message: string;
@@ -37,7 +37,7 @@ export type SalesSummary = {period_start:string;period_end_exclusive:string;
 export type AIEvidence = {source:string;period:string|null;summary:string};
 export type AIAnswer = {answer:string;evidence:AIEvidence[];insufficient_data:boolean};
 
-/** API adapter is the ONLY layer allowed to know mock or real transport. */
+/** Chỉ API adapter được phép biết transport đang dùng mock hay API thật. */
 export interface RetailOpsApi {
   listProducts(query?:URLSearchParams):Promise<Page<ProductRead>>;
   checkout(payload:CheckoutRequest, idempotencyKey:string):Promise<OrderRead>;
@@ -47,7 +47,33 @@ export interface RetailOpsApi {
   getSalesAnalytics(query?:URLSearchParams):Promise<SalesSummary>;
   askAI(message:string):Promise<AIAnswer>;
 }
-// Critical: same checkout intent must retain SAME key + payload after uncertain timeout.
-// PRICE_CHANGED: ask user confirmation, generate NEW payload + NEW key.
-// When REAL mode is selected, NEVER fallback silently to mock on 4xx/5xx/network errors.
-// Client side hiding a button is never a replacement for server-side authorization.
+// Quan trọng: retry cùng ý định Checkout sau timeout không rõ kết quả phải giữ NGUYÊN key và payload.
+// PRICE_CHANGED: yêu cầu người dùng xác nhận giá mới, sau đó tạo payload MỚI và key MỚI.
+// Khi đã chọn chế độ API thật, KHÔNG âm thầm chuyển sang mock nếu gặp lỗi 4xx/5xx/network.
+// Ẩn nút ở frontend không bao giờ thay thế kiểm tra quyền tại backend.
+
+
+/** GET /products đã triển khai trên develop; dùng `search`, không dùng `q`. */
+export type ProductSort = 'name_asc'|'name_desc'|'sku_asc'|'sku_desc'|'created_desc';
+export type ProductListQuery = {
+  search?:string; category_id?:number; status?:'ACTIVE'|'INACTIVE';
+  sort?:ProductSort; page?:number; page_size?:number;
+};
+/** Chuyển ngày YYYY-MM-DD theo Asia/Ho_Chi_Minh tại backend; client không tự đổi sang UTC. */
+export type DateRangeVN = {from_date?:string; to_date?:string};
+export type ReceiptListQuery = DateRangeVN & {
+  status?:'DRAFT'|'CONFIRMED'|'CANCELLED'; supplier_id?:number; page?:number; page_size?:number;
+};
+export type OrderListQuery = DateRangeVN & {
+  status?:'COMPLETED'|'CANCELLED'; search?:string; page?:number; page_size?:number;
+};
+export type PriceChangedError = {
+  code:'PRICE_CHANGED'; message:string;
+  details:{changed_items:Array<{product_id:number;viewed_unit_price_vnd:number;current_unit_price_vnd:number}>};
+};
+/** FE xem mọi Order, nhưng không tự suy ra quyền hủy từ việc được phép xem. */
+export interface RetailOpsReadApi {
+  listProducts(query?:ProductListQuery):Promise<Page<ProductRead>>;
+  listReceipts(query?:ReceiptListQuery):Promise<Page<ReceiptRead>>;
+  listOrders(query?:OrderListQuery):Promise<Page<OrderRead>>;
+}

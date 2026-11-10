@@ -1,0 +1,379 @@
+{
+  "version": "CF-2.3-REVIEW",
+  "status": "PROPOSED_NEEDS_HIEU_DUONG_ACK",
+  "contract": "4 tool đọc dữ liệu, không nhận identity/SQL/url/path từ model. ToolContext lấy từ authenticated principal của request và kiểm ADMIN ở MỖI lần thực thi; fail-closed.",
+  "input_limits_status": "Đề xuất kỹ thuật giữ kế thừa CF-2.2: limit 1..20, days 1..90; phải ACK trước implementation. Timeout/tool-call budget ở tài liệu quyết định, không tự mặc định.",
+  "tools": {
+    "get_sales_summary": {
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool_id",
+          "data",
+          "source_period"
+        ],
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "enum": [
+              "get_sales_summary"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "period_start",
+              "period_end_exclusive",
+              "revenue_vnd",
+              "completed_orders",
+              "cancelled_orders",
+              "aov_vnd"
+            ],
+            "properties": {
+              "period_start": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "period_end_exclusive": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "revenue_vnd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completed_orders": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cancelled_orders": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "aov_vnd": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "source_period": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "business_service": "SalesAnalyticsService.summary"
+    },
+    "get_top_products": {
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool_id",
+          "data",
+          "source_period"
+        ],
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "enum": [
+              "get_top_products"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "total"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "product_id",
+                    "sku",
+                    "name",
+                    "sold_units",
+                    "revenue_vnd"
+                  ],
+                  "properties": {
+                    "product_id": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "sku": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "sold_units": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "revenue_vnd": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "quantity": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "first_stocked_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "source_period": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "business_service": "ProductAnalyticsService.top"
+    },
+    "get_slow_products": {
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool_id",
+          "data",
+          "source_period"
+        ],
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "enum": [
+              "get_slow_products"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "total"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "product_id",
+                    "sku",
+                    "name",
+                    "sold_units",
+                    "revenue_vnd"
+                  ],
+                  "properties": {
+                    "product_id": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "sku": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "sold_units": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "revenue_vnd": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "quantity": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "first_stocked_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "source_period": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "business_service": "ProductAnalyticsService.slow"
+    },
+    "get_low_stock": {
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool_id",
+          "data",
+          "source_period"
+        ],
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "enum": [
+              "get_low_stock"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "items",
+              "total"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "product_id",
+                    "sku",
+                    "name",
+                    "quantity",
+                    "threshold"
+                  ],
+                  "properties": {
+                    "product_id": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "sku": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "threshold": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "source_period": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "business_service": "InventoryReadService.low_stock"
+    }
+  }
+}
