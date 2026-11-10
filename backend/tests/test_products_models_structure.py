@@ -132,9 +132,7 @@ def test_product_columns_fks_indexes_and_checks_match_erd(
         ),
     }
 
-    indexes = {
-        idx.name: [col.name for col in idx.columns] for idx in table.indexes
-    }
+    indexes = {idx.name: [col.name for col in idx.columns] for idx in table.indexes}
     assert indexes == {
         "ix_products_category_id_status_id": ["category_id", "status", "id"],
         "ix_products_status_id": ["status", "id"],
@@ -186,9 +184,7 @@ def test_inventory_columns_fks_indexes_and_checks_match_erd(
         ),
     }
 
-    indexes = {
-        idx.name: [col.name for col in idx.columns] for idx in table.indexes
-    }
+    indexes = {idx.name: [col.name for col in idx.columns] for idx in table.indexes}
     assert indexes == {
         "ix_inventory_quantity_product_id": ["quantity", "product_id"],
     }

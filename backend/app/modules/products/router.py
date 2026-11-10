@@ -11,10 +11,13 @@ from app.modules.auth.dependencies import (
     require_active_admin,
 )
 from app.modules.auth.models import User
+from app.modules.products.models import CatalogStatus
 from app.modules.products.schemas import (
+    MAX_PRODUCT_SEARCH_LENGTH,
     ProductCreateRequest,
     ProductListResponse,
     ProductRead,
+    ProductSortOrder,
     ProductStatusUpdateRequest,
     ProductUpdateRequest,
 )
@@ -35,9 +38,21 @@ def list_products(
     service: Annotated[ProductService, Depends(get_product_service)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    search: Annotated[str | None, Query(max_length=MAX_PRODUCT_SEARCH_LENGTH)] = None,
+    category_id: Annotated[int | None, Query(ge=1)] = None,
+    status: Annotated[CatalogStatus | None, Query()] = None,
+    sort: Annotated[ProductSortOrder, Query()] = ProductSortOrder.CREATED_DESC,
 ) -> ProductListResponse:
-    """List products with current inventory balance (ACTIVE Admin/Staff)."""
-    return service.list_products(session, page=page, page_size=page_size)
+    """List products with search, filter, sort, and current inventory balance."""
+    return service.list_products(
+        session,
+        page=page,
+        page_size=page_size,
+        search=search,
+        category_id=category_id,
+        status=status,
+        sort=sort,
+    )
 
 
 @router.get(

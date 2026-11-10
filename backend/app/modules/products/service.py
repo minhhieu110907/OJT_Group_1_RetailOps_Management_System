@@ -17,8 +17,10 @@ from app.modules.products.schemas import (
     ProductCreateRequest,
     ProductListResponse,
     ProductRead,
+    ProductSortOrder,
     ProductStatusUpdateRequest,
     ProductUpdateRequest,
+    normalize_search_query,
 )
 
 MYSQL_DUPLICATE_ENTRY_CODE = 1062
@@ -57,10 +59,55 @@ class ProductService:
         self.inventory = inventory or InventoryRepository()
 
     def list_products(
-        self, session: Session, *, page: int = 1, page_size: int = 20
+        self,
+        session: Session,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        search: str | None = None,
+        category_id: int | None = None,
+        status: CatalogStatus | None = None,
+        sort: ProductSortOrder = ProductSortOrder.CREATED_DESC,
     ) -> ProductListResponse:
+        if page < 1:
+            raise DomainValidationError("Tham số 'page' phải lớn hơn hoặc bằng 1.")
+        if page_size < 1 or page_size > 100:
+            raise DomainValidationError(
+                "Tham số 'page_size' phải nằm trong khoảng từ 1 đến 100."
+            )
+        if category_id is not None and category_id < 1:
+            raise DomainValidationError(
+                "Tham số 'category_id' phải là số nguyên dương."
+            )
+        try:
+            normalized_search = normalize_search_query(search)
+        except ValueError as error:
+            raise DomainValidationError(str(error)) from error
+
+        if status is not None and not isinstance(status, CatalogStatus):
+            try:
+                status = CatalogStatus(status)
+            except ValueError as error:
+                raise DomainValidationError(
+                    "Tham số 'status' chỉ chấp nhận ACTIVE hoặc INACTIVE."
+                ) from error
+
+        if not isinstance(sort, ProductSortOrder):
+            try:
+                sort = ProductSortOrder(sort)
+            except ValueError as error:
+                raise DomainValidationError(
+                    "Tham số 'sort' không nằm trong danh sách cho phép."
+                ) from error
+
         rows, total = self.products.list_with_inventory(
-            session, page=page, page_size=page_size
+            session,
+            page=page,
+            page_size=page_size,
+            search=normalized_search,
+            category_id=category_id,
+            status=status,
+            sort=sort,
         )
         items = [self._to_read_dto(product, inv) for product, inv in rows]
         return ProductListResponse(
@@ -77,9 +124,7 @@ class ProductService:
         product, inv = pair
         return self._to_read_dto(product, inv)
 
-    def create(
-        self, session: Session, data: ProductCreateRequest
-    ) -> ProductRead:
+    def create(self, session: Session, data: ProductCreateRequest) -> ProductRead:
         self._require_active_category(session, data.category_id)
         existing_sku = self.products.get_by_sku(session, data.sku)
         if existing_sku is not None:
@@ -205,4 +250,3 @@ class ProductService:
             created_at=product.created_at,
             updated_at=product.updated_at,
         )
-

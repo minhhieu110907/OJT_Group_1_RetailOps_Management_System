@@ -23,6 +23,7 @@ from app.modules.products.repository import InventoryRepository, ProductReposito
 from app.modules.products.router import get_product_service
 from app.modules.products.schemas import (
     ProductCreateRequest,
+    ProductSortOrder,
     ProductStatusUpdateRequest,
     ProductUpdateRequest,
 )
@@ -134,16 +135,45 @@ class FakeProductRepository(ProductRepository):
         return product, inv
 
     def list_with_inventory(
-        self, _session: object, *, page: int, page_size: int
+        self,
+        _session: object,
+        *,
+        page: int,
+        page_size: int,
+        search: str | None = None,
+        category_id: int | None = None,
+        status: CatalogStatus | str | None = None,
+        sort: ProductSortOrder = ProductSortOrder.CREATED_DESC,
     ) -> tuple[list[tuple[Product, Inventory]], int]:
-        ordered_ids = sorted(self.store.products.keys())
-        total = len(ordered_ids)
+        records = list(self.store.products.values())
+        if category_id is not None:
+            records = [p for p in records if p.category_id == category_id]
+        if status is not None:
+            status_val = status.value if isinstance(status, CatalogStatus) else status
+            records = [p for p in records if p.status == status_val]
+        if search is not None and search.strip():
+            kw = search.strip().lower()
+            records = [
+                p for p in records if kw in p.name.lower() or kw in p.sku.lower()
+            ]
+
+        if sort == ProductSortOrder.NAME_ASC:
+            records.sort(key=lambda p: (p.name, p.id))
+        elif sort == ProductSortOrder.NAME_DESC:
+            records.sort(key=lambda p: (p.name, p.id), reverse=True)
+        elif sort == ProductSortOrder.SKU_ASC:
+            records.sort(key=lambda p: (p.sku, p.id))
+        elif sort == ProductSortOrder.SKU_DESC:
+            records.sort(key=lambda p: (p.sku, p.id), reverse=True)
+        elif sort == ProductSortOrder.CREATED_DESC:
+            records.sort(key=lambda p: (p.created_at, p.id), reverse=True)
+        else:
+            raise DomainValidationError("Tham số sắp xếp không hợp lệ.")
+
+        total = len(records)
         start = (page - 1) * page_size
         end = start + page_size
-        items = [
-            (self.store.products[pid], self.store.inventory[pid])
-            for pid in ordered_ids[start:end]
-        ]
+        items = [(prod, self.store.inventory[prod.id]) for prod in records[start:end]]
         return items, total
 
     def add(self, _session: object, product: Product) -> Product:
@@ -161,9 +191,7 @@ class FakeInventoryRepository(InventoryRepository):
         self.store = store
         self.prod_repo = prod_repo
 
-    def add_zero(
-        self, _session: object, product_id: int, now: datetime
-    ) -> Inventory:
+    def add_zero(self, _session: object, product_id: int, now: datetime) -> Inventory:
         if self.store.fail_inventory_add:
             if (
                 self.prod_repo.pending_product is not None
@@ -182,9 +210,7 @@ class FakeInventoryRepository(InventoryRepository):
         return inv
 
 
-def build_fake_service() -> tuple[
-    ProductService, InMemoryProductStore, FakeSession
-]:
+def build_fake_service() -> tuple[ProductService, InMemoryProductStore, FakeSession]:
     store = InMemoryProductStore()
     prod_repo = FakeProductRepository(store)
     inv_repo = FakeInventoryRepository(store, prod_repo)
@@ -648,8 +674,8 @@ async def test_api_non_active_or_revoked_user_is_rejected_with_401() -> None:
         created_at=now,
         updated_at=now,
     )
-    application.dependency_overrides[get_current_principal] = lambda: (
-        CurrentPrincipal(user=pending_user, session_id=uuid4())
+    application.dependency_overrides[get_current_principal] = lambda: CurrentPrincipal(
+        user=pending_user, session_id=uuid4()
     )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=application), base_url="http://test"
@@ -659,3 +685,434 @@ async def test_api_non_active_or_revoked_user_is_rejected_with_401() -> None:
         assert pending_resp.json()["code"] == "FORBIDDEN"
 
 
+def _build_sqlite_product_session() -> tuple[object, list[str]]:
+    """Build an in-memory SQLite session with ascii_bin, Unicode lower, and SQL log."""
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    executed_sql: list[str] = []
+
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(dbapi_conn: object, _record: object) -> None:
+        conn = dbapi_conn  # type: ignore[assignment]
+        conn.create_collation(  # type: ignore[attr-defined]
+            "ascii_bin", lambda a, b: (a > b) - (a < b)
+        )
+        conn.create_function(  # type: ignore[attr-defined]
+            "lower", 1, lambda s: s.lower() if isinstance(s, str) else s
+        )
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record_sql(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        executed_sql.append(statement)
+
+    Category.__table__.create(engine)
+    Product.__table__.create(engine)
+    Inventory.__table__.create(engine)
+
+    session = Session(engine)
+    now = datetime(2026, 11, 8, 8, 0, 0)
+    cat_drink = Category(
+        id=1,
+        name="Đồ uống",
+        status=CategoryStatus.ACTIVE.value,
+        created_at=now,
+        updated_at=now,
+    )
+    cat_snack = Category(
+        id=2,
+        name="Bánh kẹo",
+        status=CategoryStatus.ACTIVE.value,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add_all([cat_drink, cat_snack])
+
+    # Seed 6 products with distinct SKUs, names, categories, statuses, and timestamps
+    # P1 and P2 share the exact same name ("Cà phê rang xay") to test id tie-breaker
+    # P3 and P4 share the exact same created_at to test created_desc tie-breaker by id
+    t1 = datetime(2026, 11, 8, 9, 0, 0)
+    t2 = datetime(2026, 11, 8, 9, 5, 0)
+    t3 = datetime(2026, 11, 8, 9, 10, 0)
+    t4 = datetime(2026, 11, 8, 9, 15, 0)
+    t5 = datetime(2026, 11, 8, 9, 20, 0)
+
+    seed_rows = [
+        (
+            1,
+            1,
+            "CF-ARABICA-01",
+            "Cà phê rang xay",
+            CatalogStatus.ACTIVE.value,
+            55_000,
+            12,
+            2,
+            t1,
+        ),
+        (
+            2,
+            1,
+            "CF-ROBUSTA-02",
+            "Cà phê rang xay",
+            CatalogStatus.ACTIVE.value,
+            45_000,
+            8,
+            1,
+            t2,
+        ),
+        (
+            3,
+            1,
+            "TEA_OLONG_100%",
+            "Trà Ô Long 100% nguyên chất",
+            CatalogStatus.INACTIVE.value,
+            30_000,
+            0,
+            0,
+            t3,
+        ),
+        (
+            4,
+            2,
+            "SNK-OREO-01",
+            "Bánh quy Oreo Vani",
+            CatalogStatus.ACTIVE.value,
+            18_000,
+            25,
+            4,
+            t3,
+        ),
+        (
+            5,
+            2,
+            "SNK-LAYS-02",
+            "Khoai tây Lay's",
+            CatalogStatus.INACTIVE.value,
+            22_000,
+            5,
+            1,
+            t4,
+        ),
+        (
+            6,
+            1,
+            "MILK-TH-01",
+            "Sữa tươi tiệt trùng",
+            CatalogStatus.ACTIVE.value,
+            32_000,
+            40,
+            3,
+            t5,
+        ),
+    ]
+    for pid, cid, sku, name, st, price, qty, ver, created in seed_rows:
+        session.add(
+            Product(
+                id=pid,
+                category_id=cid,
+                sku=sku,
+                name=name,
+                status=st,
+                sale_price_vnd=price,
+                created_at=created,
+                updated_at=created,
+            )
+        )
+        session.add(
+            Inventory(
+                product_id=pid,
+                quantity=qty,
+                stock_version=ver,
+                first_stocked_at=created if qty > 0 else None,
+                updated_at=created,
+            )
+        )
+    session.commit()
+    executed_sql.clear()
+    return session, executed_sql
+
+
+def test_sql_repository_search_filter_sort_pagination_and_no_n_plus_one() -> None:
+    """Verify SQLAlchemy repository query semantics, tie-breakers, and query count."""
+    session, executed_sql = _build_sqlite_product_session()
+    service = ProductService()
+
+    # 1. Default sort (created_desc with id DESC tie-breaker):
+    # Expected order of IDs: 6 (t5), 5 (t4), 4 (t3, id=4), 3 (t3, id=3), 2 (t2), 1 (t1)
+    executed_sql.clear()
+    default_res = service.list_products(session, page=1, page_size=20)  # type: ignore[arg-type]
+    assert default_res.total == 6
+    assert [item.id for item in default_res.items] == [6, 5, 4, 3, 2, 1]
+    # Verify exactly 2 SQL statements executed (1 COUNT + 1 SELECT JOIN), no N+1!
+    select_statements = [
+        s for s in executed_sql if s.lstrip().upper().startswith("SELECT")
+    ]
+    assert len(select_statements) == 2
+
+    # 2. Sort whitelist: name_asc (id ASC tie-breaker on P1 & P2)
+    name_asc_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        sort=ProductSortOrder.NAME_ASC,
+    )
+    assert [item.id for item in name_asc_res.items] == [4, 1, 2, 5, 6, 3]
+
+    # 3. Sort whitelist: name_desc (with id DESC tie-breaker on P2 & P1)
+    name_desc_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        sort=ProductSortOrder.NAME_DESC,
+    )
+    assert [item.id for item in name_desc_res.items] == [3, 6, 5, 2, 1, 4]
+
+    # 4. Sort whitelist: sku_asc and sku_desc
+    sku_asc_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        sort=ProductSortOrder.SKU_ASC,
+    )
+    assert [item.sku for item in sku_asc_res.items] == [
+        "CF-ARABICA-01",
+        "CF-ROBUSTA-02",
+        "MILK-TH-01",
+        "SNK-LAYS-02",
+        "SNK-OREO-01",
+        "TEA_OLONG_100%",
+    ]
+
+    sku_desc_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        sort=ProductSortOrder.SKU_DESC,
+    )
+    assert [item.sku for item in sku_desc_res.items] == list(
+        reversed([item.sku for item in sku_asc_res.items])
+    )
+
+    # 5. Case-insensitive search by SKU (even on ascii_bin column) and Vietnamese name
+    sku_search_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        search="  cf-robusta  ",
+    )
+    assert sku_search_res.total == 1
+    assert sku_search_res.items[0].id == 2
+
+    name_search_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        search="cÀ pHê",
+        sort=ProductSortOrder.NAME_ASC,
+    )
+    assert name_search_res.total == 2
+    assert [item.id for item in name_search_res.items] == [1, 2]
+
+    # 6. LIKE wildcard escaping (% and _ treated literally, not as SQL wildcards)
+    literal_percent = service.list_products(
+        session,  # type: ignore[arg-type]
+        search="100%",
+    )
+    assert [item.id for item in literal_percent.items] == [3]
+
+    literal_underscore = service.list_products(
+        session,  # type: ignore[arg-type]
+        search="TEA_OLONG",
+    )
+    assert [item.id for item in literal_underscore.items] == [3]
+
+    # 7. Filter by category_id, status, and combined filters
+    cat1_active = service.list_products(
+        session,  # type: ignore[arg-type]
+        category_id=1,
+        status=CatalogStatus.ACTIVE,
+        sort=ProductSortOrder.CREATED_DESC,
+    )
+    assert cat1_active.total == 3
+    assert [item.id for item in cat1_active.items] == [6, 2, 1]
+
+    combined = service.list_products(
+        session,  # type: ignore[arg-type]
+        search="cà phê",
+        category_id=1,
+        status=CatalogStatus.ACTIVE,
+        sort=ProductSortOrder.SKU_DESC,
+    )
+    assert combined.total == 2
+    assert [item.id for item in combined.items] == [2, 1]
+
+    # 8. Multi-page pagination stability across tied names (page_size=2 over 6 items)
+    seen_ids: list[int] = []
+    for p in (1, 2, 3):
+        page_res = service.list_products(
+            session,  # type: ignore[arg-type]
+            page=p,
+            page_size=2,
+            sort=ProductSortOrder.NAME_ASC,
+        )
+        assert page_res.total == 6
+        assert page_res.page == p
+        assert page_res.page_size == 2
+        assert len(page_res.items) == 2
+        seen_ids.extend(item.id for item in page_res.items)
+    assert seen_ids == [4, 1, 2, 5, 6, 3]
+    assert len(set(seen_ids)) == 6
+
+    # 9. Empty result
+    empty_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        search="KHONG-TON-TAI-XYZ",
+    )
+    assert empty_res.total == 0
+    assert empty_res.items == []
+    assert empty_res.page == 1
+    assert empty_res.page_size == 20
+
+
+def test_router_and_service_query_contract_and_validation_sync() -> None:
+    """Verify router endpoint, service validation, and OpenAPI schema synchronously."""
+    from app.modules.products.router import list_products
+
+    session, _ = _build_sqlite_product_session()
+    service = ProductService()
+    application = create_app(test_settings())
+
+    # 1. OpenAPI schema for GET /api/v1/products exposes exact query contract
+    openapi = application.openapi()
+    get_op = openapi["paths"]["/api/v1/products"]["get"]
+    param_map = {p["name"]: p for p in get_op["parameters"]}
+    assert set(param_map.keys()) == {
+        "page",
+        "page_size",
+        "search",
+        "category_id",
+        "status",
+        "sort",
+    }
+    assert "stock_status" not in param_map
+    assert param_map["sort"]["schema"]["default"] == "created_desc"
+
+    # 2. Direct router call for STAFF and ADMIN returns filtered ProductListResponse
+    for role in (UserRole.STAFF, UserRole.ADMIN):
+        principal = make_principal(role)
+        res = list_products(
+            _current_user=principal.user,
+            session=session,  # type: ignore[arg-type]
+            service=service,
+            page=1,
+            page_size=2,
+            search="Cà phê",
+            category_id=1,
+            status=CatalogStatus.ACTIVE,
+            sort=ProductSortOrder.NAME_ASC,
+        )
+        assert res.total == 2
+        assert [item.id for item in res.items] == [1, 2]
+        for item in res.items:
+            dumped = item.model_dump()
+            assert "unit_cost_vnd" not in dumped
+            assert "cost" not in dumped
+
+    # 3. Service validation rejects invalid bounds, search length, status, and sort
+    for invalid_kwargs in (
+        {"page": 0},
+        {"page": -1},
+        {"page_size": 0},
+        {"page_size": 101},
+        {"category_id": 0},
+        {"category_id": -3},
+        {"search": "x" * 101},
+        {"status": "DELETED"},
+        {"sort": "invalid_sort"},
+        {"sort": "price_asc"},
+    ):
+        with pytest.raises(DomainValidationError) as exc_info:
+            service.list_products(
+                session,  # type: ignore[arg-type]
+                **invalid_kwargs,  # type: ignore[arg-type]
+            )
+        assert exc_info.value.status_code == 422
+        assert exc_info.value.code == "VALIDATION_ERROR"
+
+
+@pytest.mark.anyio
+async def test_api_products_query_params_validation_and_staff_admin_access() -> None:
+    """Verify HTTP query parameter contract, 422 validation, and DTO field safety."""
+    settings = test_settings()
+    sql_session, _ = _build_sqlite_product_session()
+    service = ProductService()
+
+    application = create_app(settings)
+    application.dependency_overrides[get_settings] = lambda: settings
+    application.dependency_overrides[get_db_session] = lambda: sql_session
+    application.dependency_overrides[get_product_service] = lambda: service
+
+    for role in (UserRole.STAFF, UserRole.ADMIN):
+        application.dependency_overrides[get_current_principal] = lambda r=role: (
+            make_principal(r)
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application),
+            base_url="http://test",
+        ) as client:
+            resp = await client.get(
+                "/api/v1/products",
+                params={
+                    "page": 1,
+                    "page_size": 2,
+                    "search": "Cà phê",
+                    "category_id": 1,
+                    "status": "ACTIVE",
+                    "sort": "name_asc",
+                },
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["total"] == 2
+            assert body["page"] == 1
+            assert body["page_size"] == 2
+            assert [item["id"] for item in body["items"]] == [1, 2]
+            for item in body["items"]:
+                assert set(item.keys()) == {
+                    "id",
+                    "category_id",
+                    "sku",
+                    "name",
+                    "status",
+                    "sale_price_vnd",
+                    "quantity",
+                    "stock_version",
+                    "created_at",
+                    "updated_at",
+                }
+                assert "unit_cost_vnd" not in item
+                assert "cost" not in item
+
+    # Negative validation tests (422) — invalid params never silently ignored
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        for invalid_params in (
+            {"page": 0},
+            {"page": -1},
+            {"page_size": 0},
+            {"page_size": 101},
+            {"category_id": 0},
+            {"category_id": -3},
+            {"status": "DELETED"},
+            {"status": "PENDING"},
+            {"search": "x" * 101},
+            {"sort": "invalid_sort"},
+            {"sort": "price_asc"},
+            {"sort": "id; DROP TABLE products"},
+        ):
+            bad_resp = await client.get("/api/v1/products", params=invalid_params)
+            assert bad_resp.status_code == 422, f"Expected 422 for {invalid_params}"
+            err_body = bad_resp.json()
+            assert err_body["code"] == "VALIDATION_ERROR"

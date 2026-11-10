@@ -1,10 +1,35 @@
 """Pydantic request and response schemas for the Product API."""
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from app.modules.products.models import CatalogStatus
+
+MAX_PRODUCT_SEARCH_LENGTH = 100
+
+
+class ProductSortOrder(StrEnum):
+    """Whitelisted sort keys for the product catalog query API."""
+
+    NAME_ASC = "name_asc"
+    NAME_DESC = "name_desc"
+    SKU_ASC = "sku_asc"
+    SKU_DESC = "sku_desc"
+    CREATED_DESC = "created_desc"
+
+
+def normalize_search_query(value: str | None) -> str | None:
+    """Validate and trim an optional product search keyword."""
+    if value is None:
+        return None
+    if len(value) > MAX_PRODUCT_SEARCH_LENGTH:
+        raise ValueError(
+            f"Search query must not exceed {MAX_PRODUCT_SEARCH_LENGTH} characters"
+        )
+    trimmed = value.strip()
+    return trimmed if trimmed else None
 
 
 def normalize_sku(value: str) -> str:
@@ -113,4 +138,3 @@ class ProductListResponse(BaseModel):
     total: int
     page: int
     page_size: int
-
