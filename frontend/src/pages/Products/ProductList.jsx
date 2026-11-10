@@ -22,15 +22,10 @@ const INITIAL_PRODUCT_FORM = {
 };
 
 export default function ProductList() {
-  const { user, isMockMode, canUseMock } = useAuth();
+  const { user } = useAuth();
   const toast = useToast();
 
   const isStaff = user?.role !== 'ADMIN';
-  // FIX CRITICAL (PR #27 Corrective Pass):
-  // Mock mode CHỈ được bật khi môi trường cho phép (canUseMock) VÀ người dùng chọn Mock (isMockMode).
-  // Production luôn chạy Real API (canUseMock === false).
-  // Tuyệt đối không hardcode true và không tự động fallback khi backend lỗi.
-  const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
   // 1. State tìm kiếm, lọc, sắp xếp & phân trang
   const [searchParams, setSearchParams] = useState({
@@ -87,7 +82,6 @@ export default function ProductList() {
     const loadCategories = async () => {
       try {
         const res = await productsApi.getCategories({
-          isMockMode: isMockDemoActive,
           page: 1,
           pageSize: 100,
         });
@@ -103,7 +97,7 @@ export default function ProductList() {
     return () => {
       categoryRequestIdRef.current += 1;
     };
-  }, [isMockDemoActive]);
+  }, []);
 
   // Map tra cứu tên danh mục
   const categoriesMap = useMemo(() => {
@@ -122,7 +116,6 @@ export default function ProductList() {
       setIsLoading(true);
       try {
         const res = await productsApi.getProducts({
-          isMockMode: isMockDemoActive,
           page: pagination.page,
           pageSize: pagination.page_size,
           keyword: debouncedKeyword,
@@ -168,7 +161,6 @@ export default function ProductList() {
     searchParams.status,
     searchParams.sort,
     refreshTrigger,
-    isMockDemoActive,
     toast,
   ]);
 
@@ -267,7 +259,6 @@ export default function ProductList() {
     try {
       if (formMode === 'create') {
         await productsApi.createProduct({
-          isMockMode: isMockDemoActive,
           data: {
             sku,
             name,
@@ -281,7 +272,6 @@ export default function ProductList() {
         // Cập nhật thông tin sản phẩm KHÔNG gửi status (status dùng PATCH /products/{id}/status)
         // và KHÔNG sửa mã SKU khi đang cập nhật.
         await productsApi.updateProduct({
-          isMockMode: isMockDemoActive,
           id: productForm.id,
           data: {
             name,
@@ -310,7 +300,6 @@ export default function ProductList() {
       const nextStatus =
         productToDeactivate.status === 'INACTIVE' ? 'ACTIVE' : 'INACTIVE';
       await productsApi.updateProductStatus({
-        isMockMode: isMockDemoActive,
         id: productToDeactivate.id,
         status: nextStatus,
       });
@@ -358,13 +347,11 @@ export default function ProductList() {
     setIsSubmittingCategory(true);
     try {
       const created = await productsApi.createCategory({
-        isMockMode: isMockDemoActive,
         name: trimmed,
       });
       toast.success(`Đã thêm danh mục "${created.name}" thành công!`);
       setNewCategoryName('');
       const res = await productsApi.getCategories({
-        isMockMode: isMockDemoActive,
         page: 1,
         pageSize: 100,
       });
@@ -396,7 +383,6 @@ export default function ProductList() {
     setIsSubmittingCategory(true);
     try {
       const updated = await productsApi.updateCategory({
-        isMockMode: isMockDemoActive,
         id: catId,
         name: trimmed,
       });
@@ -404,7 +390,6 @@ export default function ProductList() {
       setEditingCategoryId(null);
       setEditingCategoryName('');
       const res = await productsApi.getCategories({
-        isMockMode: isMockDemoActive,
         page: 1,
         pageSize: 100,
       });
@@ -427,7 +412,6 @@ export default function ProductList() {
     setIsSubmittingCategory(true);
     try {
       await productsApi.updateCategoryStatus({
-        isMockMode: isMockDemoActive,
         id: cat.id,
         status: nextStatus,
       });
@@ -437,7 +421,6 @@ export default function ProductList() {
           : `Đã ngừng kích hoạt danh mục "${cat.name}".`
       );
       const res = await productsApi.getCategories({
-        isMockMode: isMockDemoActive,
         page: 1,
         pageSize: 100,
       });
@@ -717,6 +700,12 @@ export default function ProductList() {
             name="keyword"
             value={searchParams.keyword}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                setDebouncedKeyword(searchParams.keyword.trim());
+              }
+            }}
             placeholder="Tìm theo tên, mã SKU..."
             className={styles.searchInput}
           />

@@ -1,19 +1,15 @@
-import test, { describe } from 'node:test';
+import test, { describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import axiosClient from '../api/axiosClient.js';
 import {
   productsApi,
   validateProductRead,
   validateCategoryRead,
-  resetMockCatalogStore,
-  shouldRunMock,
   parseAndValidateSalePriceVnd,
   ALLOWED_PRODUCT_SORTS,
 } from '../api/productsApi.js';
 
-const TEST_DEV_MOCK_ENV = { DEV: true, PROD: false, VITE_USE_MOCK: 'true' };
-const TEST_PROD_ENV = { DEV: false, PROD: true, MODE: 'production', VITE_USE_MOCK: 'true' };
-
-describe('T3C9C86 Product Management & API Strategy Test Suite', () => {
+describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
   // ==========================================================================
   // 1. FIX-01: ProductRead Schema Validation & Quantity Invariant
   // ==========================================================================
@@ -25,7 +21,6 @@ describe('T3C9C86 Product Management & API Strategy Test Suite', () => {
         name: 'Sản phẩm lỗi',
         category_id: 1,
         sale_price_vnd: 20000,
-        // quantity is undefined
       };
 
       assert.throws(
@@ -81,30 +76,7 @@ describe('T3C9C86 Product Management & API Strategy Test Suite', () => {
   });
 
   // ==========================================================================
-  // 2. CRITICAL BUG REGRESSION: Mock Mode Environment Isolation
-  // ==========================================================================
-  describe('CRITICAL: Mock Mode Isolation & Environment Guard', () => {
-    test('production environment strictly prevents Mock mode even with explicit isMockMode=true', () => {
-      // Production must NEVER allow mock mode, regardless of explicitFlag
-      assert.equal(shouldRunMock(true, TEST_PROD_ENV), false);
-      assert.equal(shouldRunMock(false, TEST_PROD_ENV), false);
-      assert.equal(shouldRunMock(undefined, TEST_PROD_ENV), false);
-    });
-
-    test('development without VITE_USE_MOCK="true" strictly prevents Mock mode', () => {
-      const devNoMock = { DEV: true, PROD: false, VITE_USE_MOCK: 'false' };
-      assert.equal(shouldRunMock(true, devNoMock), false);
-      assert.equal(shouldRunMock(undefined, devNoMock), false);
-    });
-
-    test('development with VITE_USE_MOCK="true" honors explicit flag and global state', () => {
-      assert.equal(shouldRunMock(true, TEST_DEV_MOCK_ENV), true);
-      assert.equal(shouldRunMock(false, TEST_DEV_MOCK_ENV), false);
-    });
-  });
-
-  // ==========================================================================
-  // 3. SALE PRICE VALIDATION: parseAndValidateSalePriceVnd
+  // 2. SALE PRICE VALIDATION: parseAndValidateSalePriceVnd
   // ==========================================================================
   describe('FIX-04: Strict Sale Price Validation (VND Integer)', () => {
     test('accepts valid pure integer (28000)', () => {
@@ -175,228 +147,252 @@ describe('T3C9C86 Product Management & API Strategy Test Suite', () => {
   });
 
   // ==========================================================================
-  // 4. MOCK DATA OPERATIONS & DATASET FILTERING
+  // 3. REAL API INTEGRATION & QUERY CONTRACT (T3C9D97)
   // ==========================================================================
-  describe('FIX-02: Real vs Mock Strategy & Full Dataset Filtering', () => {
-    test('Mock Mode filters across entire dataset before paginating (keyword & category)', async () => {
-      resetMockCatalogStore();
+  describe('FIX-02: Real API Query Parameters & Contract Integration', () => {
+    let capturedCalls = [];
 
-      // Search for Coca Cola across all pages
+    beforeEach(() => {
+      capturedCalls = [];
+      axiosClient.get = async (url, config) => {
+        capturedCalls.push({ method: 'GET', url, config });
+        if (url === '/products') {
+          return {
+            data: {
+              items: [
+                {
+                  id: 101,
+                  category_id: 1,
+                  sku: 'COCA-330ML',
+                  name: 'Coca Cola 330ml',
+                  sale_price_vnd: 12000,
+                  quantity: 48,
+                  stock_version: 1,
+                  status: 'ACTIVE',
+                },
+              ],
+              total: 1,
+              page: config?.params?.page || 1,
+              page_size: config?.params?.page_size || 20,
+            },
+          };
+        }
+        if (url === '/categories') {
+          return {
+            data: {
+              items: [
+                { id: 1, name: 'Đồ uống', status: 'ACTIVE' },
+                { id: 2, name: 'Bánh kẹo', status: 'INACTIVE' },
+              ],
+              total: 2,
+              page: 1,
+              page_size: 100,
+            },
+          };
+        }
+        return { data: {} };
+      };
+
+      axiosClient.post = async (url, data, config) => {
+        capturedCalls.push({ method: 'POST', url, data, config });
+        if (url === '/products') {
+          return {
+            data: {
+              id: 999,
+              ...data,
+              status: 'ACTIVE',
+              quantity: 0,
+              stock_version: 0,
+            },
+          };
+        }
+        if (url === '/categories') {
+          return {
+            data: {
+              id: 888,
+              name: data.name,
+              status: 'ACTIVE',
+            },
+          };
+        }
+        return { data: {} };
+      };
+
+      axiosClient.patch = async (url, data, config) => {
+        capturedCalls.push({ method: 'PATCH', url, data, config });
+        if (url.startsWith('/products/') && url.endsWith('/status')) {
+          return {
+            data: {
+              id: 101,
+              category_id: 1,
+              sku: 'COCA-330ML',
+              name: 'Coca Cola 330ml',
+              sale_price_vnd: 12000,
+              quantity: 48,
+              stock_version: 2,
+              status: data.status,
+            },
+          };
+        }
+        if (url.startsWith('/products/')) {
+          return {
+            data: {
+              id: 101,
+              category_id: data.category_id || 1,
+              sku: 'COCA-330ML',
+              name: data.name || 'Coca Cola 330ml',
+              sale_price_vnd: data.sale_price_vnd || 12000,
+              quantity: 48,
+              stock_version: 2,
+              status: 'ACTIVE',
+            },
+          };
+        }
+        if (url.startsWith('/categories/') && url.endsWith('/status')) {
+          return {
+            data: {
+              id: 1,
+              name: 'Đồ uống',
+              status: data.status,
+            },
+          };
+        }
+        if (url.startsWith('/categories/')) {
+          return {
+            data: {
+              id: 1,
+              name: data.name,
+              status: 'ACTIVE',
+            },
+          };
+        }
+        return { data: {} };
+      };
+    });
+
+    test('getProducts sends exact query parameters to backend GET /products', async () => {
       const res = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        page: 1,
-        pageSize: 5,
-        keyword: 'COCA',
+        page: 2,
+        pageSize: 15,
+        keyword: 'coca',
+        categoryId: '1',
+        status: 'ACTIVE',
+        sort: 'name_asc',
       });
 
+      assert.equal(capturedCalls.length, 1);
+      assert.equal(capturedCalls[0].url, '/products');
+      assert.deepEqual(capturedCalls[0].config.params, {
+        page: 2,
+        page_size: 15,
+        search: 'coca',
+        category_id: 1,
+        status: 'ACTIVE',
+        sort: 'name_asc',
+      });
       assert.equal(res.total, 1);
       assert.equal(res.items.length, 1);
       assert.equal(res.items[0].sku, 'COCA-330ML');
-      assert.equal(res.page, 1);
     });
 
-    test('Mock Mode sorts correctly across whitelisted sort criteria', async () => {
-      resetMockCatalogStore();
-
-      // Verify sort whitelist
+    test('getProducts respects sort whitelist and ignores invalid sort', async () => {
       assert.ok(ALLOWED_PRODUCT_SORTS.has('name_asc'));
       assert.ok(ALLOWED_PRODUCT_SORTS.has('name_desc'));
       assert.ok(ALLOWED_PRODUCT_SORTS.has('sku_asc'));
       assert.ok(ALLOWED_PRODUCT_SORTS.has('sku_desc'));
       assert.ok(ALLOWED_PRODUCT_SORTS.has('created_desc'));
 
-      const resAsc = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        sort: 'name_asc',
+      await productsApi.getProducts({
+        sort: 'invalid_hacker_sort;DROP TABLE',
       });
-      for (let i = 0; i < resAsc.items.length - 1; i++) {
-        assert.ok(resAsc.items[i].name.localeCompare(resAsc.items[i + 1].name, 'vi') <= 0);
-      }
+
+      assert.equal(capturedCalls.length, 1);
+      // sort must be omitted if not in whitelist
+      assert.equal(capturedCalls[0].config.params.sort, undefined);
     });
 
-    test('Mock Mode mutations actually create and mutate data in mock store', async () => {
-      resetMockCatalogStore();
-
-      // Create product in mock store
-      const created = await productsApi.createProduct({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
+    test('createProduct sends payload to POST /products and validates zero stock balance', async () => {
+      const res = await productsApi.createProduct({
         data: {
-          sku: 'NEW-ITEM-001',
-          name: 'Nước ép cam tươi',
+          sku: 'AQUA-500ML',
+          name: 'Nước khoáng Aquafina 500ml',
           category_id: 1,
-          sale_price_vnd: 25000,
+          sale_price_vnd: 7000,
         },
       });
 
-      assert.equal(created.sku, 'NEW-ITEM-001');
-      assert.equal(created.quantity, 0, 'PROD-01: Newly created product must start with 0 quantity');
+      assert.equal(capturedCalls.length, 1);
+      assert.equal(capturedCalls[0].url, '/products');
+      assert.equal(capturedCalls[0].data.sku, 'AQUA-500ML');
+      assert.equal(res.quantity, 0, 'PROD-01: Initial product inventory is always 0');
+    });
 
-      // Verify that query returns the newly created item
-      const listRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        keyword: 'NEW-ITEM-001',
+    test('updateProduct sanitizes payload to protect SKU and quantity immutability', async () => {
+      const res = await productsApi.updateProduct({
+        id: 101,
+        data: {
+          sku: 'HACKED-SKU',
+          name: 'Coca Cola Cải Tiến',
+          category_id: 2,
+          sale_price_vnd: 13000,
+          quantity: 9999,
+          stock_version: 99,
+          status: 'INACTIVE',
+        },
       });
-      assert.equal(listRes.total, 1);
-      assert.equal(listRes.items[0].sku, 'NEW-ITEM-001');
 
-      // Update product status in mock store
-      const toggled = await productsApi.updateProductStatus({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        id: created.id,
+      assert.equal(capturedCalls.length, 1);
+      assert.equal(capturedCalls[0].url, '/products/101');
+      assert.deepEqual(capturedCalls[0].data, {
+        name: 'Coca Cola Cải Tiến',
+        category_id: 2,
+        sale_price_vnd: 13000,
+      });
+      assert.equal(capturedCalls[0].data.sku, undefined, 'SKU must NEVER be sent in update');
+      assert.equal(capturedCalls[0].data.quantity, undefined, 'Quantity must NEVER be sent in update');
+      assert.equal(capturedCalls[0].data.status, undefined, 'Status must NEVER be sent in edit');
+      assert.equal(res.name, 'Coca Cola Cải Tiến');
+    });
+
+    test('updateProductStatus sends PATCH /products/:id/status', async () => {
+      const res = await productsApi.updateProductStatus({
+        id: 101,
         status: 'INACTIVE',
       });
+
+      assert.equal(capturedCalls.length, 1);
+      assert.equal(capturedCalls[0].url, '/products/101/status');
+      assert.deepEqual(capturedCalls[0].data, { status: 'INACTIVE' });
+      assert.equal(res.status, 'INACTIVE');
+    });
+
+    test('Category endpoints operate correctly with real contract (PROD-02)', async () => {
+      // 1. Get categories
+      const list = await productsApi.getCategories();
+      assert.equal(capturedCalls[0].url, '/categories');
+      assert.equal(list.items.length, 2);
+
+      // 2. Create category
+      const created = await productsApi.createCategory({ name: 'Đồ đông lạnh' });
+      assert.equal(capturedCalls[1].url, '/categories');
+      assert.deepEqual(capturedCalls[1].data, { name: 'Đồ đông lạnh' });
+      assert.equal(created.name, 'Đồ đông lạnh');
+
+      // 3. Rename category
+      const renamed = await productsApi.updateCategory({ id: 1, name: 'Đồ uống có ga' });
+      assert.equal(capturedCalls[2].url, '/categories/1');
+      assert.deepEqual(capturedCalls[2].data, { name: 'Đồ uống có ga' });
+      assert.equal(renamed.name, 'Đồ uống có ga');
+
+      // 4. Toggle category status
+      const toggled = await productsApi.updateCategoryStatus({ id: 1, status: 'INACTIVE' });
+      assert.equal(capturedCalls[3].url, '/categories/1/status');
+      assert.deepEqual(capturedCalls[3].data, { status: 'INACTIVE' });
       assert.equal(toggled.status, 'INACTIVE');
-
-      // Update product master fields (PROD-01: does not alter stock or sku)
-      const updated = await productsApi.updateProduct({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        id: created.id,
-        data: {
-          name: 'Nước ép cam tươi nguyên chất',
-          category_id: 1,
-          sale_price_vnd: 28000,
-        },
-      });
-      assert.equal(updated.name, 'Nước ép cam tươi nguyên chất');
-      assert.equal(updated.sale_price_vnd, 28000);
-      assert.equal(updated.quantity, 0, 'PROD-01: Product update must never alter stock quantity');
-      assert.equal(updated.sku, 'NEW-ITEM-001', 'SKU must remain immutable during product edit');
     });
 
-    test('Mock Mode prevents duplicate SKU creation with 409 error', async () => {
-      resetMockCatalogStore();
-
-      await assert.rejects(
-        async () => {
-          await productsApi.createProduct({
-            isMockMode: true,
-            runtimeEnv: TEST_DEV_MOCK_ENV,
-            data: {
-              sku: 'COCA-330ML', // Already exists in mock store
-              name: 'Trùng SKU',
-              category_id: 1,
-              sale_price_vnd: 10000,
-            },
-          });
-        },
-        (err) => err.status === 409
-      );
-    });
-
-    test('Filter Bar: filters accurately by keyword, category, status, and reset', async () => {
-      resetMockCatalogStore();
-
-      // 1. Keyword search (case-insensitive and trimmed)
-      const keywordRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        keyword: '  pepsi  ',
-      });
-      assert.equal(keywordRes.total, 1);
-      assert.equal(keywordRes.items[0].sku, 'PEPSI-330ML');
-
-      // 2. Filter by Category (Category 1: Đồ uống)
-      const catRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        categoryId: 1,
-      });
-      assert.equal(catRes.total, 3);
-      assert.ok(catRes.items.every((p) => p.category_id === 1));
-
-      // 3. Filter by Status INACTIVE
-      const inactiveRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        status: 'INACTIVE',
-      });
-      assert.equal(inactiveRes.total, 1);
-      assert.equal(inactiveRes.items[0].sku, 'CHINSU-CHAI-500G');
-
-      // 4. Combined Filter: Category 1 + Status ACTIVE
-      const combinedRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        categoryId: 1,
-        status: 'ACTIVE',
-      });
-      assert.equal(combinedRes.total, 3);
-      assert.ok(combinedRes.items.every((p) => p.category_id === 1 && p.status === 'ACTIVE'));
-
-      // 5. Keyword search with no matches
-      const noMatchRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        keyword: 'NON_EXISTENT_PRODUCT_XYZ',
-      });
-      assert.equal(noMatchRes.total, 0);
-      assert.equal(noMatchRes.items.length, 0);
-
-      // 6. Reset filters (all empty) returns all default products
-      const resetRes = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        keyword: '',
-        categoryId: '',
-        status: '',
-      });
-      assert.equal(resetRes.total, 8);
-      assert.equal(resetRes.items.length, 8);
-    });
-  });
-
-  // ==========================================================================
-  // 5. FIX-03: PROD-02 Category Management in Adapter
-  // ==========================================================================
-  describe('FIX-03: PROD-02 Category Management in Adapter', () => {
-    test('supports Category create, rename, and status toggle in adapter', async () => {
-      resetMockCatalogStore();
-
-      // Create category
-      const newCat = await productsApi.createCategory({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        name: 'Hàng đông lạnh',
-      });
-      assert.equal(newCat.name, 'Hàng đông lạnh');
-      assert.equal(newCat.status, 'ACTIVE');
-
-      // Rename category
-      const renamed = await productsApi.updateCategory({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        id: newCat.id,
-        name: 'Thực phẩm đông lạnh',
-      });
-      assert.equal(renamed.name, 'Thực phẩm đông lạnh');
-
-      // Toggle status to INACTIVE
-      const inactive = await productsApi.updateCategoryStatus({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-        id: newCat.id,
-        status: 'INACTIVE',
-      });
-      assert.equal(inactive.status, 'INACTIVE');
-    });
-  });
-
-  // ==========================================================================
-  // 6. FIX-04: RBAC & Codebase Security Invariants
-  // ==========================================================================
-  describe('FIX-04: RBAC & Codebase Security Invariants', () => {
-    test('ProductRead never contains costPrice or unit_cost_vnd', async () => {
-      resetMockCatalogStore();
-      const res = await productsApi.getProducts({
-        isMockMode: true,
-        runtimeEnv: TEST_DEV_MOCK_ENV,
-      });
+    test('ProductRead contract strictly excludes costPrice and unit_cost_vnd', async () => {
+      const res = await productsApi.getProducts();
       for (const item of res.items) {
         assert.equal(item.costPrice, undefined);
         assert.equal(item.unit_cost_vnd, undefined);
