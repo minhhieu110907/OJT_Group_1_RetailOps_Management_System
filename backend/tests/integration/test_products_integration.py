@@ -543,3 +543,107 @@ def test_mysql_product_search_filter_sort_and_pagination_stability(
             assert len(page_res.items) == 1
             paged_ids.append(page_res.items[0].id)
         assert paged_ids == [p1.id, p2.id, p3.id]
+
+
+def test_mysql_product_search_special_characters_escaping(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Verify MySQL 8 LIKE escaping for %, _, and \\ with near-identical pairs."""
+    service = ProductService()
+    run_tag = unique_token("ESC")
+
+    with Session(migrated_integration_engine) as session:
+        category = add_category(session, f"{run_tag}_CAT", status="ACTIVE")
+
+        # 1. Percent test pair: p_pct contains literal '%', p_non_pct does not
+        p_pct = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-PCT-10%",
+                name=f"{run_tag} Trà Chanh 10% Tự Nhiên",
+                category_id=category.id,
+                sale_price_vnd=15_000,
+            ),
+        )
+        p_non_pct = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-PCT-100",
+                name=f"{run_tag} Trà Chanh 100 Tự Nhiên",
+                category_id=category.id,
+                sale_price_vnd=15_000,
+            ),
+        )
+
+        # 2. Underscore test pair: p_under has '_', p_non_under has 'X'
+        p_under = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}_US_A_B",
+                name=f"{run_tag} Snack Phô Mai A_B Giòn",
+                category_id=category.id,
+                sale_price_vnd=20_000,
+            ),
+        )
+        p_non_under = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-US-AXB",
+                name=f"{run_tag} Snack Phô Mai AXB Giòn",
+                category_id=category.id,
+                sale_price_vnd=20_000,
+            ),
+        )
+
+        # 3. Backslash test pair: p_bs contains literal '\', p_non_bs does not
+        p_bs = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-BS-WIN\\DIR",
+                name=f"{run_tag} Kẹo Dẻo Win\\Dir Dâu",
+                category_id=category.id,
+                sale_price_vnd=25_000,
+            ),
+        )
+        p_non_bs = service.create(
+            session,
+            ProductCreateRequest(
+                sku=f"{SKU_PREFIX}{run_tag}-BS-WINDIR",
+                name=f"{run_tag} Kẹo Dẻo WinDir Dâu",
+                category_id=category.id,
+                sale_price_vnd=25_000,
+            ),
+        )
+
+        # Test % escaping: searching "10%" must return only p_pct, NOT p_non_pct
+        pct_res = service.list_products(session, search=f"{run_tag} Trà Chanh 10%")
+        assert pct_res.total == 1
+        assert pct_res.items[0].id == p_pct.id
+        assert p_non_pct.id not in [item.id for item in pct_res.items]
+
+        sku_pct_res = service.list_products(session, search=f"{run_tag}-pct-10%")
+        assert sku_pct_res.total == 1
+        assert sku_pct_res.items[0].id == p_pct.id
+
+        # Test _ escaping: searching "A_B" must return only p_under, NOT p_non_under
+        under_res = service.list_products(
+            session, search=f"{run_tag} Snack Phô Mai A_B"
+        )
+        assert under_res.total == 1
+        assert under_res.items[0].id == p_under.id
+        assert p_non_under.id not in [item.id for item in under_res.items]
+
+        sku_under_res = service.list_products(session, search=f"{run_tag}_us_a_b")
+        assert sku_under_res.total == 1
+        assert sku_under_res.items[0].id == p_under.id
+
+        # Test \ escaping: searching "WIN\DIR" must return only p_bs, NOT p_non_bs
+        bs_res = service.list_products(session, search=f"{run_tag} Kẹo Dẻo Win\\Dir")
+        assert bs_res.total == 1
+        assert bs_res.items[0].id == p_bs.id
+        assert p_non_bs.id not in [item.id for item in bs_res.items]
+
+        # Test negative search: special character combination not present returns 0
+        none_res = service.list_products(session, search=f"{run_tag}_UNKNOWN_%\\")
+        assert none_res.total == 0
+        assert none_res.items == []
