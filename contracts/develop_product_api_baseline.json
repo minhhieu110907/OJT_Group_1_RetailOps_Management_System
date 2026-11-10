@@ -1,0 +1,41 @@
+{
+  "version": "CF-2.3-REVIEW",
+  "commit_sha": "cd1a6d3451a88bd890e76c14944a98329152c325",
+  "path": "GET /api/v1/products",
+  "router": "backend/app/modules/products/router.py",
+  "parameters": {
+    "page": {
+      "type": "integer",
+      "default": 1
+    },
+    "page_size": {
+      "type": "integer",
+      "default": 20,
+      "maximum": 100
+    },
+    "search": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "category_id": {
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "ACTIVE",
+        "INACTIVE"
+      ]
+    },
+    "sort": {
+      "enum": [
+        "name_asc",
+        "name_desc",
+        "sku_asc",
+        "sku_desc",
+        "created_desc"
+      ],
+      "default": "created_desc"
+    }
+  },
+  "limitations": "Pinned code-signature snapshot verified 2026-11-10, NOT an executable FastAPI HTTP comparison. When merging docs, rerun against latest develop and API tests."
+}

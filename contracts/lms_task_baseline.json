@@ -1,0 +1,406 @@
+{
+  "version": "CF-2.3-REVIEW",
+  "source": "Tab 1: 57 task trong file (RetailOps_S2_S3_LMS_Task_Filter_Corrected.xlsx), 10/11/2026",
+  "source_file_sha256": "872cc3bddca66378530252e8f7561fa13b1c945f71b1cf291a7f633f85ec8c9a",
+  "tasks": [
+    {
+      "lms_id": "T04A61F",
+      "title": "Phân quyền và duyệt Staff",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A639",
+      "title": "Khung Idempotency dùng chung",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A653",
+      "title": "Inventory Service",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A66F",
+      "title": "Bộ khung kiểm thử MySQL",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A689",
+      "title": "CI cho Pull Request",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A6A3",
+      "title": "API tra cứu sản phẩm",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A6BD",
+      "title": "API tra cứu tồn kho",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A6D7",
+      "title": "Tạo và sửa phiếu nhập nháp",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A6F3",
+      "title": "Giao diện duyệt Staff",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A70D",
+      "title": "Giao diện danh mục, nhà cung cấp",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A73C",
+      "title": "Checkout và Order Model",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A758",
+      "title": "Điều chỉnh tồn kho",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A772",
+      "title": "Hủy nháp và tra cứu phiếu nhập",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A78E",
+      "title": "Lịch sử biến động và cảnh báo tồn thấp",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A7A8",
+      "title": "Giỏ hàng POS",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A7C3",
+      "title": "Giao diện thao tác phiếu nhập",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A7DF",
+      "title": "Xác nhận phiếu nhập",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A80C",
+      "title": "Hủy đơn và hoàn tồn",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A826",
+      "title": "Redis Rate Limiting",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A840",
+      "title": "API lịch sử đơn hàng",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A869",
+      "title": "Giao diện Checkout",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A883",
+      "title": "Giao diện hủy đơn",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A89D",
+      "title": "Giao diện tồn kho thiết yếu",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A8B7",
+      "title": "Giao diện lịch sử phiếu nhập",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A8D1",
+      "title": "Kiểm tra Docker và Nginx",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A8F3",
+      "title": "Kiểm thử end-to-end Sprint 2",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 2
+    },
+    {
+      "lms_id": "T04A90F",
+      "title": "Transactional Outbox và Email Worker",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A92B",
+      "title": "Analytics doanh thu và đơn hàng",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A947",
+      "title": "Analytics sản phẩm",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A961",
+      "title": "Hoàn thiện lịch sử và hủy đơn UI",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A97C",
+      "title": "Hoàn thiện giao diện tồn kho",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A996",
+      "title": "Tài liệu và UAT",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A9B0",
+      "title": "Kiểm thử giao diện quản lý",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A9CA",
+      "title": "Kiểm thử Auth, Checkout và Cancel",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04A9E6",
+      "title": "AI Tool Executor",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AA00",
+      "title": "Retry và phục hồi Email Worker",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AA1C",
+      "title": "Đặt lại mật khẩu và tích hợp email",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AA36",
+      "title": "Dashboard API",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AA50",
+      "title": "Automated Integration Tests",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AA6A",
+      "title": "Responsive và UI States",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AA86",
+      "title": "AI chỉ đọc và Tool Calling",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AAA2",
+      "title": "Đo hiệu năng và xác minh bảo mật",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AABC",
+      "title": "Kiểm thử Purchasing và Email",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AAD7",
+      "title": "Kiểm thử Product, Order và Analytics",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AAF1",
+      "title": "Kiểm thử frontend nghiệp vụ",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AB0B",
+      "title": "AI gợi ý nhập hàng",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AB25",
+      "title": "Giao diện Dashboard và AI",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AB3F",
+      "title": "Rà soát bảo mật và concurrency",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AB59",
+      "title": "Kiểm thử Inventory, Worker và AI",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AB73",
+      "title": "Tích hợp và demo Worker/Redis/AI",
+      "owner_lms": "Cao Nguyễn Anh Dương",
+      "owner": "Dương",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AB8D",
+      "title": "Triển khai bản demo",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04ABA7",
+      "title": "Release và smoke test",
+      "owner_lms": "Nguyễn Minh Hiếu 8",
+      "owner": "Hiếu",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04ABC3",
+      "title": "Nghiệm thu và đóng băng release",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04ABDD",
+      "title": "Báo cáo QA và tài liệu demo",
+      "owner_lms": "Vũ Hoàng Lan Anh",
+      "owner": "Lan Anh",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04ABF9",
+      "title": "Tổng hợp giao diện và bằng chứng QA",
+      "owner_lms": "Nguyễn Minh Tân",
+      "owner": "Tân",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AC15",
+      "title": "Đối soát dữ liệu và báo cáo",
+      "owner_lms": "Phạm Thị Na Na",
+      "owner": "Na Na",
+      "sprint": 3
+    },
+    {
+      "lms_id": "T04AC2F",
+      "title": "Kiểm tra end-to-end frontend",
+      "owner_lms": "Vũ Trần Lâm",
+      "owner": "Lâm",
+      "sprint": 3
+    }
+  ]
+}

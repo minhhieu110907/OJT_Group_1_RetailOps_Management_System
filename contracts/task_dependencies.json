@@ -1,0 +1,1085 @@
+{
+  "version": "CF-2.3-REVIEW",
+  "source": "57 task LMS tab 1; dependency đề xuất từ review 2026-11-10, chờ Tech Lead duyệt",
+  "tasks": [
+    {
+      "lms_id": "T04A61F",
+      "title": "Phân quyền và duyệt Staff",
+      "owner": "Hiếu",
+      "window": "10–11/11",
+      "start_contracts": [
+        "HTTP-AUTH",
+        "BE-OUTBOX"
+      ],
+      "integrate_after": [],
+      "gate_note": "S2 owns OutboxWriter + event schema; absolutely no S3 Worker dependency. S1 register needs STAFF_REGISTERED backfill hook.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A639",
+      "title": "Khung Idempotency dùng chung",
+      "owner": "Hiếu",
+      "window": "10–11/11",
+      "start_contracts": [
+        "BE-IDEM"
+      ],
+      "integrate_after": [],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A653",
+      "title": "Inventory Service",
+      "owner": "Dương",
+      "window": "10–11/11",
+      "start_contracts": [
+        "BE-INVENTORY"
+      ],
+      "integrate_after": [],
+      "gate_note": "StockMovement ORM + Alembic migration not found on develop; Dương to implement in this task, rather than assume S1 finished.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A66F",
+      "title": "Bộ khung kiểm thử MySQL",
+      "owner": "Dương",
+      "window": "10–11/11",
+      "start_contracts": [
+        "TEST-DB"
+      ],
+      "integrate_after": [],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A689",
+      "title": "CI cho Pull Request",
+      "owner": "Lan Anh",
+      "window": "10–11/11",
+      "start_contracts": [
+        "GATE-CI"
+      ],
+      "integrate_after": [],
+      "gate_note": "CI lint/unit start from existing workflows without T04A66F; MySQL job added after harness.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A6A3",
+      "title": "API tra cứu sản phẩm",
+      "owner": "Na Na",
+      "window": "10–11/11",
+      "start_contracts": [
+        "HTTP-PRODUCT"
+      ],
+      "integrate_after": [],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A6BD",
+      "title": "API tra cứu tồn kho",
+      "owner": "Na Na",
+      "window": "10–11/11",
+      "start_contracts": [
+        "HTTP-INVENTORY"
+      ],
+      "integrate_after": [],
+      "gate_note": "Inventory Read starts from existing ORM without mutation service (T04A653).",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A6D7",
+      "title": "Tạo và sửa phiếu nhập nháp",
+      "owner": "Lan Anh",
+      "window": "10–11/11",
+      "start_contracts": [
+        "HTTP-RECEIPT",
+        "BE-RECEIPT"
+      ],
+      "integrate_after": [],
+      "gate_note": "Receipt ORM exists but migration absent on develop; S1 carryover migration owned by Dương, Hiếu reviews.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A6F3",
+      "title": "Giao diện duyệt Staff",
+      "owner": "Lâm",
+      "window": "10–11/11",
+      "start_contracts": [
+        "HTTP-AUTH",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A61F"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A70D",
+      "title": "Giao diện danh mục, nhà cung cấp",
+      "owner": "Tân",
+      "window": "10–11/11",
+      "start_contracts": [
+        "HTTP-MASTER",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A73C",
+      "title": "Checkout và Order Model",
+      "owner": "Hiếu",
+      "window": "12–13/11",
+      "start_contracts": [
+        "HTTP-ORDER",
+        "BE-IDEM",
+        "BE-INVENTORY"
+      ],
+      "integrate_after": [
+        "T04A639",
+        "T04A653"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A758",
+      "title": "Điều chỉnh tồn kho",
+      "owner": "Dương",
+      "window": "12–13/11",
+      "start_contracts": [
+        "HTTP-INVENTORY",
+        "BE-IDEM",
+        "BE-INVENTORY"
+      ],
+      "integrate_after": [
+        "T04A639",
+        "T04A653"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A772",
+      "title": "Hủy nháp và tra cứu phiếu nhập",
+      "owner": "Lan Anh",
+      "window": "12–13/11",
+      "start_contracts": [
+        "HTTP-RECEIPT",
+        "BE-RECEIPT"
+      ],
+      "integrate_after": [
+        "T04A6D7"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A78E",
+      "title": "Lịch sử biến động và cảnh báo tồn thấp",
+      "owner": "Na Na",
+      "window": "12–13/11",
+      "start_contracts": [
+        "HTTP-INVENTORY"
+      ],
+      "integrate_after": [
+        "T04A6BD",
+        "T04A653"
+      ],
+      "gate_note": "Low-stock read starts from Inventory ORM; movement history real integration needs StockMovement migration (T04A653).",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A7A8",
+      "title": "Giỏ hàng POS",
+      "owner": "Lâm",
+      "window": "12–13/11",
+      "start_contracts": [
+        "HTTP-PRODUCT",
+        "HTTP-ORDER",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A6A3"
+      ],
+      "gate_note": "Cart starts from Product read and agreed Checkout DTO; no Checkout implementation is needed to start.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A7C3",
+      "title": "Giao diện thao tác phiếu nhập",
+      "owner": "Tân",
+      "window": "12–13/11",
+      "start_contracts": [
+        "HTTP-RECEIPT",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A6D7",
+        "T04A772",
+        "T04A7DF"
+      ],
+      "gate_note": "UI mock from Receipt DTO; real confirm action only once T04A7DF endpoint lands.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A7DF",
+      "title": "Xác nhận phiếu nhập",
+      "owner": "Dương",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-RECEIPT",
+        "BE-INVENTORY",
+        "BE-IDEM"
+      ],
+      "integrate_after": [
+        "T04A6D7",
+        "T04A639",
+        "T04A653"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A80C",
+      "title": "Hủy đơn và hoàn tồn",
+      "owner": "Hiếu",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-ORDER",
+        "BE-INVENTORY",
+        "BE-IDEM"
+      ],
+      "integrate_after": [
+        "T04A73C",
+        "T04A639",
+        "T04A653"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A826",
+      "title": "Redis Rate Limiting",
+      "owner": "Hiếu",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-RATE"
+      ],
+      "integrate_after": [],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A840",
+      "title": "API lịch sử đơn hàng",
+      "owner": "Na Na",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-ORDER"
+      ],
+      "integrate_after": [
+        "T04A73C"
+      ],
+      "gate_note": "Order read from T04A73C schema; no hard wait on Cancel T04A80C.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A869",
+      "title": "Giao diện Checkout",
+      "owner": "Lâm",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-ORDER",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A73C",
+        "T04A7A8"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A883",
+      "title": "Giao diện hủy đơn",
+      "owner": "Lâm",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-ORDER",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A80C",
+        "T04A840"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A89D",
+      "title": "Giao diện tồn kho thiết yếu",
+      "owner": "Tân",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-INVENTORY",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A6BD",
+        "T04A758",
+        "T04A78E"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A8B7",
+      "title": "Giao diện lịch sử phiếu nhập",
+      "owner": "Tân",
+      "window": "14–15/11",
+      "start_contracts": [
+        "HTTP-RECEIPT",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A772",
+        "T04A7DF"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A8D1",
+      "title": "Kiểm tra Docker và Nginx",
+      "owner": "Hiếu",
+      "window": "16/11",
+      "start_contracts": [
+        "DEPLOY"
+      ],
+      "integrate_after": [],
+      "gate_note": "Proxy/cookie/trusted-header audit should start 10-11 Nov; final smoke 16 Nov. Keep official milestone.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A8F3",
+      "title": "Kiểm thử end-to-end Sprint 2",
+      "owner": "Lan Anh",
+      "window": "16/11",
+      "start_contracts": [
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04A61F",
+        "T04A6D7",
+        "T04A73C",
+        "T04A758",
+        "T04A772",
+        "T04A7DF",
+        "T04A80C",
+        "T04A6F3",
+        "T04A7C3",
+        "T04A869",
+        "T04A883",
+        "T04A89D",
+        "T04A8B7",
+        "T04A8D1"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 2,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A90F",
+      "title": "Transactional Outbox và Email Worker",
+      "owner": "Hiếu",
+      "window": "18–19/11",
+      "start_contracts": [
+        "BE-OUTBOX"
+      ],
+      "integrate_after": [
+        "T04A61F"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A92B",
+      "title": "Analytics doanh thu và đơn hàng",
+      "owner": "Na Na",
+      "window": "18–19/11",
+      "start_contracts": [
+        "HTTP-ANALYTICS"
+      ],
+      "integrate_after": [
+        "T04A73C",
+        "T04A80C"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A947",
+      "title": "Analytics sản phẩm",
+      "owner": "Dương",
+      "window": "18–19/11",
+      "start_contracts": [
+        "HTTP-ANALYTICS"
+      ],
+      "integrate_after": [
+        "T04A73C",
+        "T04A653",
+        "T04A80C"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A961",
+      "title": "Hoàn thiện lịch sử và hủy đơn UI",
+      "owner": "Lâm",
+      "window": "18–19/11",
+      "start_contracts": [
+        "HTTP-ORDER",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A840",
+        "T04A80C",
+        "T04A883"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A97C",
+      "title": "Hoàn thiện giao diện tồn kho",
+      "owner": "Tân",
+      "window": "18–19/11",
+      "start_contracts": [
+        "HTTP-INVENTORY",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A78E",
+        "T04A89D"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A996",
+      "title": "Tài liệu và UAT",
+      "owner": "Lan Anh",
+      "window": "18–19/11",
+      "start_contracts": [
+        "GATE-E",
+        "E",
+        "DEPLOY"
+      ],
+      "integrate_after": [
+        "T04A8F3"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A9B0",
+      "title": "Kiểm thử giao diện quản lý",
+      "owner": "Tân",
+      "window": "18–19/11",
+      "start_contracts": [
+        "FE-ADAPTER",
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04A70D",
+        "T04A7C3",
+        "T04A89D",
+        "T04A97C"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A9CA",
+      "title": "Kiểm thử Auth, Checkout và Cancel",
+      "owner": "Dương",
+      "window": "18–19/11",
+      "start_contracts": [
+        "TEST-DB"
+      ],
+      "integrate_after": [
+        "T04A61F",
+        "T04A73C",
+        "T04A80C"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04A9E6",
+      "title": "AI Tool Executor",
+      "owner": "Hiếu",
+      "window": "20–21/11",
+      "start_contracts": [
+        "BE-AI"
+      ],
+      "integrate_after": [],
+      "gate_note": "ABI freeze/hand-off 18-19 Nov before actual coding slot 20-21 Nov; consumer can fake executor.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AA00",
+      "title": "Retry và phục hồi Email Worker",
+      "owner": "Hiếu",
+      "window": "20–21/11",
+      "start_contracts": [
+        "BE-OUTBOX"
+      ],
+      "integrate_after": [
+        "T04A90F"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AA1C",
+      "title": "Đặt lại mật khẩu và tích hợp email",
+      "owner": "Dương",
+      "window": "20–21/11",
+      "start_contracts": [
+        "HTTP-RESET",
+        "BE-OUTBOX"
+      ],
+      "integrate_after": [
+        "T04A61F",
+        "T04A90F"
+      ],
+      "gate_note": "Reset service can code with OutboxWriter and fake worker; email E2E requires publisher/worker T04A90F.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AA36",
+      "title": "Dashboard API",
+      "owner": "Na Na",
+      "window": "20–21/11",
+      "start_contracts": [
+        "HTTP-ANALYTICS"
+      ],
+      "integrate_after": [
+        "T04A92B",
+        "T04A947",
+        "T04A78E"
+      ],
+      "gate_note": "Can implement revenue + low-stock partial façade early, but DashboardRead.top_products required; full API acceptance waits Product Analytics T04A947.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AA50",
+      "title": "Automated Integration Tests",
+      "owner": "Dương",
+      "window": "20–21/11",
+      "start_contracts": [
+        "TEST-DB",
+        "GATE-CI"
+      ],
+      "integrate_after": [
+        "T04A66F",
+        "T04A90F",
+        "T04A9E6"
+      ],
+      "gate_note": "Test skeleton and DB harness can start before Worker/AI implementation; real tests wait provider merges.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AA6A",
+      "title": "Responsive và UI States",
+      "owner": "Tân",
+      "window": "20–21/11",
+      "start_contracts": [
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A961",
+        "T04A97C"
+      ],
+      "gate_note": "Responsive/error states can start from FE Design Freeze; full smoke waits UI merged.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AA86",
+      "title": "AI chỉ đọc và Tool Calling",
+      "owner": "Dương",
+      "window": "20–21/11",
+      "start_contracts": [
+        "BE-AI",
+        "HTTP-AI"
+      ],
+      "integrate_after": [
+        "T04A9E6",
+        "T04A92B",
+        "T04A947",
+        "T04A78E"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AAA2",
+      "title": "Đo hiệu năng và xác minh bảo mật",
+      "owner": "Hiếu",
+      "window": "20–21/11",
+      "start_contracts": [
+        "PERF",
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04A8F3",
+        "T04AA36"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AABC",
+      "title": "Kiểm thử Purchasing và Email",
+      "owner": "Na Na",
+      "window": "22–23/11",
+      "start_contracts": [
+        "TEST-DB",
+        "BE-OUTBOX"
+      ],
+      "integrate_after": [
+        "T04A7DF",
+        "T04A90F",
+        "T04AA00",
+        "T04AA1C"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AAD7",
+      "title": "Kiểm thử Product, Order và Analytics",
+      "owner": "Na Na",
+      "window": "20–21/11",
+      "start_contracts": [
+        "TEST-DB",
+        "HTTP-ANALYTICS"
+      ],
+      "integrate_after": [
+        "T04A6A3",
+        "T04A73C",
+        "T04A92B",
+        "T04A947"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AAF1",
+      "title": "Kiểm thử frontend nghiệp vụ",
+      "owner": "Lâm",
+      "window": "20–21/11",
+      "start_contracts": [
+        "GATE-E",
+        "E",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04A869",
+        "T04A883",
+        "T04A961"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AB0B",
+      "title": "AI gợi ý nhập hàng",
+      "owner": "Dương",
+      "window": "22–23/11",
+      "start_contracts": [
+        "BE-AI",
+        "HTTP-AI"
+      ],
+      "integrate_after": [
+        "T04AA86",
+        "T04A947"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AB25",
+      "title": "Giao diện Dashboard và AI",
+      "owner": "Lâm",
+      "window": "22–23/11",
+      "start_contracts": [
+        "HTTP-ANALYTICS",
+        "HTTP-AI",
+        "FE-ADAPTER"
+      ],
+      "integrate_after": [
+        "T04AA36",
+        "T04AA86",
+        "T04AB0B"
+      ],
+      "gate_note": "Dashboard shell can start with HTTP contract; AI/recommendation panels attach later. Do not block all UI on T04AB0B.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AB3F",
+      "title": "Rà soát bảo mật và concurrency",
+      "owner": "Hiếu",
+      "window": "22–23/11",
+      "start_contracts": [
+        "SECURITY",
+        "TEST-DB"
+      ],
+      "integrate_after": [
+        "T04A9CA",
+        "T04AA50",
+        "T04A653"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AB59",
+      "title": "Kiểm thử Inventory, Worker và AI",
+      "owner": "Dương",
+      "window": "22–23/11",
+      "start_contracts": [
+        "TEST-DB",
+        "BE-OUTBOX",
+        "BE-AI"
+      ],
+      "integrate_after": [
+        "T04A653",
+        "T04A90F",
+        "T04A9E6",
+        "T04AA86"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AB73",
+      "title": "Tích hợp và demo Worker/Redis/AI",
+      "owner": "Dương",
+      "window": "22–23/11",
+      "start_contracts": [
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04AA00",
+        "T04AA86",
+        "T04AB0B"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AB8D",
+      "title": "Triển khai bản demo",
+      "owner": "Hiếu",
+      "window": "22–23/11",
+      "start_contracts": [
+        "DEPLOY"
+      ],
+      "integrate_after": [
+        "T04A8D1"
+      ],
+      "gate_note": "Candidate deployment can start without all services; full release candidate must contain every in-scope P0 and pass QA.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04ABA7",
+      "title": "Release và smoke test",
+      "owner": "Hiếu",
+      "window": "24/11",
+      "start_contracts": [
+        "DEPLOY",
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04AB8D",
+        "T04ABC3"
+      ],
+      "gate_note": "24 Nov: cannot deploy main until QA signoff on SAME RC SHA; afterwards run post-main smoke.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04ABC3",
+      "title": "Nghiệm thu và đóng băng release",
+      "owner": "Lan Anh",
+      "window": "24/11",
+      "start_contracts": [
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04A996",
+        "T04AAD7",
+        "T04AAF1",
+        "T04AB3F",
+        "T04AB59",
+        "T04AC15",
+        "T04AC2F"
+      ],
+      "gate_note": "Must collect FE E2E T04AC2F and reconciliation T04AC15 before signoff, even if scheduled same day.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04ABDD",
+      "title": "Báo cáo QA và tài liệu demo",
+      "owner": "Lan Anh",
+      "window": "24/11",
+      "start_contracts": [
+        "GATE-E",
+        "E",
+        "DEPLOY"
+      ],
+      "integrate_after": [
+        "T04ABC3",
+        "T04ABA7"
+      ],
+      "gate_note": "QA report final SHA after release; initial report can be drafted earlier.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04ABF9",
+      "title": "Tổng hợp giao diện và bằng chứng QA",
+      "owner": "Tân",
+      "window": "24/11",
+      "start_contracts": [
+        "FE-ADAPTER",
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04A9B0",
+        "T04AA6A"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AC15",
+      "title": "Đối soát dữ liệu và báo cáo",
+      "owner": "Na Na",
+      "window": "24/11",
+      "start_contracts": [
+        "HTTP-ANALYTICS",
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04A92B",
+        "T04A947",
+        "T04AA36",
+        "T04AAD7"
+      ],
+      "gate_note": "Consumer integrates real after provider PR; QA/CI evidence as applicable.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    },
+    {
+      "lms_id": "T04AC2F",
+      "title": "Kiểm tra end-to-end frontend",
+      "owner": "Lâm",
+      "window": "24/11",
+      "start_contracts": [
+        "FE-ADAPTER",
+        "DEPLOY",
+        "GATE-E",
+        "E"
+      ],
+      "integrate_after": [
+        "T04AB25",
+        "T04AB8D"
+      ],
+      "gate_note": "Candidate FE real E2E must happen before QA signoff T04ABC3; coordinate early on 24 Nov.",
+      "sprint": 3,
+      "startable": "Có contract được provider + consumer thống nhất (được dùng fake/mock); không cần chờ toàn bộ implementation.",
+      "integratable": "Provider đã merge, schema Alembic liên quan đã upgrade sạch và kiểm thử tích hợp với API/DB thật.",
+      "accepted": "Bằng chứng kiểm thử theo rủi ro trong card, consumer ACK; QA xác nhận nếu thuộc đường P0."
+    }
+  ]
+}

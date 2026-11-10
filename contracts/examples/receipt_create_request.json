@@ -1,0 +1,10 @@
+{
+  "supplier_id": 4,
+  "items": [
+    {
+      "product_id": 12,
+      "quantity": 2,
+      "unit_cost_vnd": 47000
+    }
+  ]
+}

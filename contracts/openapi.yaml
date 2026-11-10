@@ -1,0 +1,3414 @@
+openapi: 3.0.3
+info:
+  title: RetailOps V1 — Baseline thiết kế contract Sprint 2–3 CF-2.3
+  version: 2.3.0-review
+  description: Baseline thiết kế theo SRS V1.3 và ERD V1.0. API hiện có và endpoint đề xuất được đánh dấu
+    bằng x-implementation-status. Cần người phụ trách và bên sử dụng xác nhận trên PR trước khi coi interface mới
+    là đã được nhóm phê duyệt. Tài liệu không chứng minh endpoint đã tồn tại trên runtime.
+servers:
+- url: /api/v1
+tags:
+- name: auth
+- name: staff-approvals
+- name: products
+- name: inventory
+- name: receipts
+- name: orders
+- name: analytics
+- name: dashboard
+- name: ai
+paths:
+  /staff-approvals:
+    get:
+      tags:
+      - staff-approvals
+      operationId: listStaffApprovals
+      summary: Liệt kê yêu cầu duyệt Staff
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách yêu cầu duyệt Staff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /staff-approvals/{id}/approve:
+    post:
+      tags:
+      - staff-approvals
+      operationId: approveStaff
+      summary: Duyệt tài khoản Staff
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Nhân viên đã được duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /staff-approvals/{id}/reject:
+    post:
+      tags:
+      - staff-approvals
+      operationId: rejectStaff
+      summary: Từ chối tài khoản Staff
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Nhân viên đã bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRequest'
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /products:
+    get:
+      tags:
+      - products
+      operationId: listProductsV2
+      summary: Tra cứu sản phẩm — tìm kiếm, lọc và sắp xếp đã triển khai trên develop
+      description: Đối chiếu backend/app/modules/products/router.py + schemas.py ở develop cd1a6d3451a8; quyền ACTIVE Admin/Staff.
+        Đối chiếu response thật bằng integration test; không coi bản thiết kế tương đương mọi runtime branch.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách sản phẩm có phân trang
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: search
+        required: false
+        schema:
+          type: string
+          maxLength: 100
+        description: Tìm kiếm tên/SKU; trim chuỗi, rỗng tương đương không lọc; API đã triển khai tại develop.
+      - in: query
+        name: category_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+      - in: query
+        name: sort
+        required: false
+        schema:
+          type: string
+          enum:
+          - name_asc
+          - name_desc
+          - sku_asc
+          - sku_desc
+          - created_desc
+          default: created_desc
+        description: Whitelist sort; mặc định created_desc, có tie-break id để phân trang ổn định.
+      x-implementation-status: VERIFIED_ROUTER_ON_DEVELOP_cd1a6d3451a8; HTTP_RESPONSE_TEST_REQUIRED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-runtime-baseline-sha: cd1a6d3451a88bd890e76c14944a98329152c325
+  /inventory:
+    get:
+      tags:
+      - inventory
+      operationId: listInventory
+      summary: Liệt kê tồn kho
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai trên
+        nhánh chung.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách tồn kho có phân trang
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: category_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+      - in: query
+        name: in_stock
+        required: false
+        schema:
+          type: boolean
+        description: 'true: quantity > 0; false: quantity = 0; không giữ hàng POS.'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory/{product_id}:
+    get:
+      tags:
+      - inventory
+      operationId: getInventory
+      summary: Lấy tồn kho sản phẩm
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Bản ghi tồn kho hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: product_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory/{product_id}/adjustments:
+    post:
+      tags:
+      - inventory
+      operationId: adjustInventory
+      summary: Điều chỉnh tồn kho
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Kết quả điều chỉnh theo số kiểm kê
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustResponse'
+              example:
+                product_id: 12
+                quantity: 7
+                stock_version: 5
+                audit_id: 33
+                movement_created: false
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustRequest'
+            example:
+              counted_quantity: 7
+              expected_stock_version: 5
+              reason: Kiểm kê thực tế
+      parameters:
+      - in: path
+        name: product_id
+        required: true
+        schema:
+          type: integer
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định mới dùng
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /inventory/low-stock:
+    get:
+      tags:
+      - inventory
+      operationId: getLowStock
+      summary: Lấy danh sách tồn kho thấp
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Sản phẩm có tồn kho không vượt quá ngưỡng chung P0=5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowStockPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /stock-movements:
+    get:
+      tags:
+      - inventory
+      operationId: listStockMovements
+      summary: Liệt kê biến động kho
+      description: Bản thiết kế đề xuất CF-2.3; ADMIN/STAFF đang ACTIVE. Hai bên phải xác nhận trước khi triển khai trên
+        nhánh chung.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: ADMIN sử dụng StockMovementAdminPage, STAFF sử dụng StockMovementPage; backend chọn theo role, không
+            để client tự chọn.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/StockMovementPage'
+                - $ref: '#/components/schemas/StockMovementAdminPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: product_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: kind
+        required: false
+        schema:
+          type: string
+          enum:
+          - PURCHASE_CONFIRM
+          - SALE
+          - ORDER_CANCEL
+          - ADJUSTMENT
+        description: Lọc theo loại chuyển động kho.
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-role-field-policy: STAFF uses StockMovementRead only; ADMIN can receive extra audited actor/reason after schema
+        ACK and role-specific serialization; never expose unit_cost_vnd in STAFF response.
+  /purchase-receipts:
+    get:
+      tags:
+      - receipts
+      operationId: listReceipts
+      summary: Liệt kê phiếu nhập
+      description: 'PUR-05: phân trang ổn định (sort theo created_at DESC, id DESC), lọc khoảng ngày VN; from_date <= to_date;
+        giới hạn khoảng ngày và paging cần Tech Lead ACK. Mẫu contract dự kiến, chưa có route runtime.'
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách phiếu nhập
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - DRAFT
+          - CONFIRMED
+          - CANCELLED
+      - in: query
+        name: supplier_id
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: from_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo created_at. Chuyển UTC với [start,
+          end+1 ngày).
+      - in: query
+        name: to_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo created_at. Chuyển UTC với [start,
+          end+1 ngày).
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-query-policy-status: CANDIDATE_NEEDS_PROVIDER_CONSUMER_ACK
+    post:
+      tags:
+      - receipts
+      operationId: createReceiptDraft
+      summary: Tạo phiếu nhập nháp
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge.
+        Xem docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Đã tạo phiếu DRAFT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptCreateRequest'
+            example:
+              supplier_id: 4
+              items:
+              - product_id: 12
+                quantity: 2
+                unit_cost_vnd: 47000
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts/{receipt_id}:
+    get:
+      tags:
+      - receipts
+      operationId: getReceipt
+      summary: Lấy chi tiết phiếu nhập
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Chi tiết phiếu nhập
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+    patch:
+      tags:
+      - receipts
+      operationId: updateReceiptDraft
+      summary: Sửa phiếu nhập nháp
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Đã cập nhật phiếu DRAFT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptUpdateRequest'
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts/{receipt_id}/cancel:
+    post:
+      tags:
+      - receipts
+      operationId: cancelReceiptDraft
+      summary: Hủy phiếu nhập nháp
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Đã hủy phiếu DRAFT, không làm đổi tồn kho
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptVersionRequest'
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /purchase-receipts/{receipt_id}/confirm:
+    post:
+      tags:
+      - receipts
+      operationId: confirmReceipt
+      summary: Xác nhận phiếu nhập
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ADMIN
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Đã xác nhận phiếu và tăng tồn kho trong một transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptRead'
+              example:
+                id: 9
+                supplier_id: 4
+                supplier_name_snapshot: NCC demo
+                status: CONFIRMED
+                draft_version: 3
+                total_vnd: 94000
+                created_by: 1
+                closed_by: 1
+                created_at: '2026-11-10T01:00:00Z'
+                updated_at: '2026-11-10T02:00:00Z'
+                closed_at: '2026-11-10T02:00:00Z'
+                items:
+                - product_id: 12
+                  sku_snapshot: SKU12
+                  product_name_snapshot: San pham demo
+                  quantity: 2
+                  unit_cost_vnd: 47000
+                  line_total_vnd: 94000
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: RECEIPT_VERSION_CONFLICT
+                message: Phiếu nhập đã được thay đổi. Vui lòng tải lại.
+                details:
+                  current_draft_version: 4
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptVersionRequest'
+            example:
+              expected_draft_version: 3
+      parameters:
+      - in: path
+        name: receipt_id
+        required: true
+        schema:
+          type: integer
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định mới dùng
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders/checkout:
+    post:
+      tags:
+      - orders
+      operationId: checkout
+      summary: Checkout tại quầy
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge.
+        Xem docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Đã tạo đơn COMPLETED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderRead'
+              example:
+                id: 51
+                status: COMPLETED
+                total_vnd: 130000
+                created_by: 7
+                sold_at: '2026-11-10T07:00:00Z'
+                cancelled_by: null
+                cancelled_at: null
+                cancel_reason: null
+                items:
+                - product_id: 12
+                  sku_snapshot: SKU12
+                  product_name_snapshot: San pham demo
+                  quantity: 2
+                  unit_price_vnd: 65000
+                  line_total_vnd: 130000
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: PRICE_CHANGED có details.changed_items typed (không tạo order/stock movement); các lỗi key-reuse/race
+            dùng ErrorResponse.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/PriceChangedError'
+                - $ref: '#/components/schemas/CheckoutConflictError'
+              examples:
+                price_changed:
+                  summary: Giá mới phải được người dùng xác nhận và sử dụng key cho ý định mới
+                  value:
+                    code: PRICE_CHANGED
+                    message: Giá bán đã thay đổi. Vui lòng xác nhận lại.
+                    details:
+                      changed_items:
+                      - product_id: 12
+                        viewed_unit_price_vnd: 65000
+                        current_unit_price_vnd: 68000
+                key_reused:
+                  summary: Cùng key nhưng request khác nội dung
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Khóa yêu cầu đã được sử dụng cho dữ liệu khác.
+                    details: null
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+            example:
+              items:
+              - product_id: 12
+                quantity: 2
+                viewed_unit_price_vnd: 65000
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định
+          mới dùng new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders:
+    get:
+      tags:
+      - orders
+      operationId: listOrders
+      summary: Liệt kê đơn hàng
+      description: 'SALE-03: phân trang ổn định (sort theo sold_at DESC, id DESC), lọc khoảng ngày VN; from_date <= to_date;
+        giới hạn khoảng ngày và paging cần Tech Lead ACK. Mẫu contract dự kiến, chưa có route runtime.'
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - COMPLETED
+          - CANCELLED
+      - in: query
+        name: from_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo sold_at. Chuyển UTC với [start, end+1
+          ngày).
+      - in: query
+        name: to_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Ngày kinh doanh Asia/Ho_Chi_Minh YYYY-MM-DD, inclusive; lọc theo sold_at. Chuyển UTC với [start, end+1
+          ngày).
+      - in: query
+        name: search
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description: 'Đề xuất: chuỗi tìm kiếm đã trim, khớp chính xác Order ID khi là số; hoặc SKU snapshot trong OrderItems;
+          xử lý case/Unicode cần Na Na ↔ Lâm ACK.'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+      x-query-policy-status: CANDIDATE_NEEDS_PROVIDER_CONSUMER_ACK
+  /orders/{order_id}:
+    get:
+      tags:
+      - orders
+      operationId: getOrder
+      summary: Lấy chi tiết đơn hàng
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Chi tiết đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: path
+        name: order_id
+        required: true
+        schema:
+          type: integer
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /orders/{order_id}/cancel:
+    post:
+      tags:
+      - orders
+      operationId: cancelOrder
+      summary: Hủy đơn hàng
+      description: Contract đã khóa ở mức thiết kế CF-2.3 (đặc tả kế thừa); KHÔNG chứng minh endpoint đã được triển khai/merge. Xem
+        docs/contracts/BACKEND_INTERFACES.md.
+      x-retailops-role: ACTIVE ADMIN/STAFF, policy role/owner/time enforced server-side
+      x-contract-status: FROZEN_DESIGN
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Đơn đã CANCELLED và tồn kho chỉ được hoàn lại một lần
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      parameters:
+      - in: path
+        name: order_id
+        required: true
+        schema:
+          type: integer
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Mỗi ý định nghiệp vụ dùng một key không suy đoán được. Khi retry phải giữ nguyên key và body. Ý định mới dùng
+          new key.
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]{16,128}$
+      x-idempotency:
+        namespace: actor_id + operation + key_digest
+        expires_after_completed_hours: 24
+        single_mysql_transaction: true
+        same_key_same_payload: replay status and response body
+        same_key_different_payload: 409 IDEMPOTENCY_KEY_REUSED
+        concurrent_duplicate: bounded wait or 409 REQUEST_IN_PROGRESS
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /analytics/sales:
+    get:
+      tags:
+      - analytics
+      operationId: getSalesAnalytics
+      summary: Xem phân tích doanh thu
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Chỉ số tổng hợp từ các đơn đã commit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesSummary'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /analytics/products/top:
+    get:
+      tags:
+      - analytics
+      operationId: getTopProducts
+      summary: Xem sản phẩm bán chạy
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Sản phẩm bán chạy nhất
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductAnalyticsPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - in: query
+        name: days
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 366
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /analytics/products/slow:
+    get:
+      tags:
+      - analytics
+      operationId: getSlowProducts
+      summary: Xem sản phẩm bán chậm
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Sản phẩm bán chậm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductAnalyticsPage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /dashboard:
+    get:
+      tags:
+      - dashboard
+      operationId: getDashboard
+      summary: Xem Dashboard
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Tổng hợp chỉ số bán hàng và tồn kho phục vụ đọc dữ liệu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardRead'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /ai/query:
+    post:
+      tags:
+      - ai
+      operationId: askAI
+      summary: Hỏi trợ lý AI
+      description: Bản thiết kế đề xuất CF-2.3; chỉ ADMIN. Người phụ trách và bên sử dụng phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: ADMIN
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Chỉ trả lời khi có dữ liệu làm bằng chứng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAskResponse'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Lỗi 404 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Lỗi 409 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAskRequest'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/forgot-password:
+    post:
+      tags:
+      - auth
+      operationId: forgotPassword
+      summary: Yêu cầu đặt lại mật khẩu
+      description: Bản thiết kế đề xuất CF-2.3; API công khai. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: PUBLIC
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security: []
+      responses:
+        '202':
+          description: Phản hồi tiếp nhận chung
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericMessage'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/reset-password:
+    post:
+      tags:
+      - auth
+      operationId: resetPassword
+      summary: Đặt lại mật khẩu
+      description: Bản thiết kế đề xuất CF-2.3; API công khai. Hai bên phải xác nhận trước khi triển khai
+        trên nhánh chung.
+      x-retailops-role: PUBLIC
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      security: []
+      responses:
+        '200':
+          description: Đã đổi mật khẩu và thu hồi các phiên hiện có
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericMessage'
+        '401':
+          description: Lỗi 401 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Lỗi 403 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Lỗi 422 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Lỗi 429 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Lỗi 503 khi áp dụng; không phải mọi trường hợp đều phát sinh mã lỗi này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/reapply/request-proof:
+    post:
+      operationId: requestStaffReapplyProof
+      tags:
+      - auth
+      summary: Yêu cầu xác minh đăng ký lại Staff
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      description: 'AUTH-01 đăng ký lại: xác minh quyền kiểm soát tài khoản, chống tạo yêu cầu trùng, không tiết lộ tài khoản có tồn tại.
+        Requires Hiếu/Lâm owner-consumer ACK.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReapplyRequest'
+      responses:
+        '202':
+          description: Thông báo xác nhận chung, không tiết lộ sự tồn tại tài khoản
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReapplyAccepted'
+        '400':
+          description: Bằng chứng một lần không hợp lệ/đã hết hạn/đã dùng, hoặc vi phạm chính sách
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Bị giới hạn số lần gọi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /auth/reapply/confirm:
+    post:
+      operationId: confirmStaffReapplyProof
+      tags:
+      - auth
+      summary: Xác nhận đăng ký lại Staff
+      x-contract-status: CF2_DESIGN_REVIEW_REQUIRED
+      x-implementation-status: PLANNED_NOT_VERIFIED
+      description: 'AUTH-01 đăng ký lại: xác minh quyền kiểm soát tài khoản, chống tạo yêu cầu trùng, không tiết lộ tài khoản có tồn tại.
+        Requires Hiếu/Lâm owner-consumer ACK.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReapplyConfirmRequest'
+      responses:
+        '202':
+          description: Thông báo xác nhận chung, không tiết lộ sự tồn tại tài khoản
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReapplyAccepted'
+        '400':
+          description: Bằng chứng một lần không hợp lệ/đã hết hạn/đã dùng, hoặc vi phạm chính sách
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Bị giới hạn số lần gọi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /products/{product_id}:
+    get:
+      operationId: getProduct
+      tags:
+      - products
+      summary: Đọc sản phẩm kèm tồn kho hiện tại
+      x-contract-status: EXISTING_CODE
+      x-implementation-status: EXISTS_ON_DEVELOP
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: product_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: ProductRead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductRead'
+        '401':
+          description: Chưa xác thực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          nullable: true
+          description: Chi tiết lỗi đã lọc an toàn và giới hạn; schema theo endpoint trong docs/contracts/API_INTEGRATION.md
+      required:
+      - code
+      - message
+      - details
+    GenericMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+      required:
+      - message
+    ProductRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        category_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 160
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+        sale_price_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        updated_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+      required:
+      - id
+      - category_id
+      - sku
+      - name
+      - status
+      - sale_price_vnd
+      - quantity
+      - stock_version
+      - created_at
+      - updated_at
+    ProductPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    ApprovalRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        user_id:
+          type: integer
+          format: int64
+          minimum: 1
+        attempt_no:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+        requested_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        decided_by:
+          type: integer
+          nullable: true
+        decided_at:
+          type: string
+          format: date-time
+          nullable: true
+        decision_reason:
+          type: string
+          nullable: true
+      required:
+      - id
+      - user_id
+      - attempt_no
+      - status
+      - requested_at
+      - decided_by
+      - decided_at
+      - decision_reason
+    ApprovalPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    RejectRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - reason
+    InventoryRead:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        name:
+          type: string
+        category_id:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - INACTIVE
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        first_stocked_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - product_id
+      - sku
+      - name
+      - category_id
+      - status
+      - quantity
+      - stock_version
+      - first_stocked_at
+    InventoryPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    AdjustRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        counted_quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        expected_stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - counted_quantity
+      - expected_stock_version
+      - reason
+    AdjustResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version:
+          type: integer
+          format: int64
+          minimum: 0
+        audit_id:
+          type: integer
+          format: int64
+          minimum: 1
+        movement_created:
+          type: boolean
+      required:
+      - product_id
+      - quantity
+      - stock_version
+      - audit_id
+      - movement_created
+    StockMovementRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PURCHASE_CONFIRM
+          - SALE
+          - ORDER_CANCEL
+          - ADJUSTMENT
+        quantity_before:
+          type: integer
+          format: int64
+          minimum: 0
+        quantity_after:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version_after:
+          type: integer
+          format: int64
+          minimum: 0
+        reference_id:
+          type: integer
+          format: int64
+          minimum: 1
+        occurred_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+      required:
+      - id
+      - product_id
+      - sku
+      - kind
+      - quantity_before
+      - quantity_after
+      - stock_version_after
+      - reference_id
+      - occurred_at
+      description: Danh sách trường an toàn cho STAFF; trường bổ sung cho ADMIN phải được review schema theo role riêng.
+    StockMovementPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockMovementRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    LowStockItem:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 0
+        threshold:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - product_id
+      - sku
+      - name
+      - quantity
+      - threshold
+    LowStockPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LowStockItem'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    ReceiptLineWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_cost_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - product_id
+      - quantity
+      - unit_cost_vnd
+    ReceiptLineRead:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku_snapshot:
+          type: string
+        product_name_snapshot:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_cost_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        line_total_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - product_id
+      - sku_snapshot
+      - product_name_snapshot
+      - quantity
+      - unit_cost_vnd
+      - line_total_vnd
+    ReceiptCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        supplier_id:
+          type: integer
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReceiptLineWrite'
+      required:
+      - supplier_id
+      - items
+    ReceiptUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expected_draft_version:
+          type: integer
+          format: int64
+          minimum: 1
+        supplier_id:
+          type: integer
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReceiptLineWrite'
+      required:
+      - expected_draft_version
+      description: 'Cập nhật một phần: truyền supplier_id và/hoặc items; trường bỏ qua sẽ giữ nguyên. PATCH rỗng
+        forbidden at service validation.'
+    ReceiptVersionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expected_draft_version:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - expected_draft_version
+    ReceiptRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        supplier_id:
+          type: integer
+          format: int64
+          minimum: 1
+        supplier_name_snapshot:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - CONFIRMED
+          - CANCELLED
+        draft_version:
+          type: integer
+          format: int64
+          minimum: 1
+        total_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        closed_by:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        updated_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceiptLineRead'
+      required:
+      - id
+      - supplier_id
+      - supplier_name_snapshot
+      - status
+      - draft_version
+      - total_vnd
+      - created_by
+      - closed_by
+      - created_at
+      - updated_at
+      - closed_at
+      - items
+    ReceiptPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceiptRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    CheckoutLine:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        viewed_unit_price_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - product_id
+      - quantity
+      - viewed_unit_price_vnd
+    CheckoutRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CheckoutLine'
+      required:
+      - items
+      description: Không có VAT, giảm giá, phương thức thanh toán hoặc hoàn tiền; backend kiểm tra lại giá và tồn kho.
+    OrderLineRead:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku_snapshot:
+          type: string
+        product_name_snapshot:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+          minimum: 1
+        unit_price_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+        line_total_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - product_id
+      - sku_snapshot
+      - product_name_snapshot
+      - quantity
+      - unit_price_vnd
+      - line_total_vnd
+    OrderRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - COMPLETED
+          - CANCELLED
+        total_vnd:
+          type: integer
+          format: int64
+          minimum: 1
+        created_by:
+          type: integer
+          format: int64
+          minimum: 1
+        sold_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        cancelled_by:
+          type: integer
+          nullable: true
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_reason:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLineRead'
+      required:
+      - id
+      - status
+      - total_vnd
+      - created_by
+      - sold_at
+      - cancelled_by
+      - cancelled_at
+      - cancel_reason
+      - items
+    OrderPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    CancelRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - reason
+    SalesSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        period_start:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        period_end_exclusive:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        revenue_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        completed_orders:
+          type: integer
+          format: int64
+          minimum: 0
+        cancelled_orders:
+          type: integer
+          format: int64
+          minimum: 0
+        aov_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - period_start
+      - period_end_exclusive
+      - revenue_vnd
+      - completed_orders
+      - cancelled_orders
+      - aov_vnd
+    ProductAnalyticsItem:
+      type: object
+      additionalProperties: false
+      properties:
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        name:
+          type: string
+        sold_units:
+          type: integer
+          format: int64
+          minimum: 0
+        revenue_vnd:
+          type: integer
+          format: int64
+          minimum: 0
+        quantity:
+          type: integer
+          minimum: 0
+          description: Dùng trong phân tích bán chậm; API sản phẩm bán chạy có thể không trả trường này.
+        first_stocked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Dùng thời điểm nhập tồn đầu tiên, KHÔNG dùng product.created_at. Bắt buộc khi phân tích sản phẩm bán chậm
+            products.
+      required:
+      - product_id
+      - sku
+      - name
+      - sold_units
+      - revenue_vnd
+    ProductAnalyticsPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductAnalyticsItem'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required:
+      - items
+      - total
+      - page
+      - page_size
+    DashboardRead:
+      type: object
+      additionalProperties: false
+      properties:
+        sales:
+          $ref: '#/components/schemas/SalesSummary'
+        low_stock_count:
+          type: integer
+          format: int64
+          minimum: 0
+        top_products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductAnalyticsItem'
+      required:
+      - sales
+      - low_stock_count
+      - top_products
+    AIAskRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required:
+      - message
+    AIEvidence:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+        period:
+          type: string
+          nullable: true
+        summary:
+          type: string
+      required:
+      - source
+      - period
+      - summary
+    AIAskResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        answer:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIEvidence'
+        insufficient_data:
+          type: boolean
+      required:
+      - answer
+      - evidence
+      - insufficient_data
+      description: AI chỉ đưa ra gợi ý; không lộ nội bộ tool, SQL, model key hoặc quyền ghi dữ liệu.
+    ForgotPasswordRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 1
+          maxLength: 72
+      required:
+      - token
+      - new_password
+    PriceChangedDetails:
+      type: object
+      additionalProperties: false
+      required:
+      - changed_items
+      properties:
+        changed_items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - product_id
+            - viewed_unit_price_vnd
+            - current_unit_price_vnd
+            properties:
+              product_id:
+                type: integer
+                format: int64
+                minimum: 1
+              viewed_unit_price_vnd:
+                type: integer
+                format: int64
+                minimum: 1
+              current_unit_price_vnd:
+                type: integer
+                format: int64
+                minimum: 1
+    ReapplyRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+    ReapplyConfirmRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 2048
+    ReapplyAccepted:
+      type: object
+      additionalProperties: false
+      required:
+      - message
+      properties:
+        message:
+          type: string
+    PriceChangedError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - details
+      properties:
+        code:
+          type: string
+          enum:
+          - PRICE_CHANGED
+        message:
+          type: string
+        details:
+          $ref: '#/components/schemas/PriceChangedDetails'
+    StockMovementAdminRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        product_id:
+          type: integer
+          format: int64
+          minimum: 1
+        sku:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PURCHASE_CONFIRM
+          - SALE
+          - ORDER_CANCEL
+          - ADJUSTMENT
+        quantity_before:
+          type: integer
+          format: int64
+          minimum: 0
+        quantity_after:
+          type: integer
+          format: int64
+          minimum: 0
+        stock_version_after:
+          type: integer
+          format: int64
+          minimum: 0
+        reference_id:
+          type: integer
+          format: int64
+          minimum: 1
+        occurred_at:
+          type: string
+          format: date-time
+          description: UTC ISO-8601, phải ghi rõ múi giờ
+        actor_id:
+          type: integer
+          minimum: 1
+        adjustment_reason:
+          type: string
+          nullable: true
+      required:
+      - id
+      - product_id
+      - sku
+      - kind
+      - quantity_before
+      - quantity_after
+      - stock_version_after
+      - reference_id
+      - occurred_at
+      - actor_id
+      - adjustment_reason
+      description: ADMIN-only đầy đủ dữ liệu audit; STAFF phải dùng StockMovementRead. Không đưa giá nhập/giá vốn vào response
+        STAFF.
+    CheckoutConflictError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - details
+      properties:
+        code:
+          type: string
+          enum:
+          - IDEMPOTENCY_KEY_REUSED
+          - REQUEST_IN_PROGRESS
+          - INSUFFICIENT_STOCK
+          - PRODUCT_INACTIVE
+          - ORDER_CONFLICT
+        message:
+          type: string
+        details:
+          nullable: true
+          description: Chi tiết lỗi đã lọc; không chứa SQL/secret
+    StockMovementAdminPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - page
+      - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockMovementAdminRead'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+x-source-commit-reviewed: cd1a6d3451a88bd890e76c14944a98329152c325
