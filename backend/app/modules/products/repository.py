@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, UnaryExpression, func, or_, select
+from sqlalchemy import ColumnElement, UnaryExpression, Unicode, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError
@@ -73,7 +73,7 @@ class ProductRepository:
                 predicates.append(
                     or_(
                         Product.name.ilike(pattern, escape="\\"),
-                        Product.sku.ilike(pattern, escape="\\"),
+                        cast(Product.sku, Unicode).ilike(pattern, escape="\\"),
                     )
                 )
         return predicates
