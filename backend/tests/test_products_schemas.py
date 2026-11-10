@@ -7,10 +7,13 @@ from pydantic import ValidationError
 
 from app.modules.products.models import CatalogStatus
 from app.modules.products.schemas import (
+    MAX_PRODUCT_SEARCH_LENGTH,
     ProductCreateRequest,
     ProductRead,
+    ProductSortOrder,
     ProductStatusUpdateRequest,
     ProductUpdateRequest,
+    normalize_search_query,
 )
 
 
@@ -168,3 +171,35 @@ def test_product_read_whitelists_exact_10_fields_without_cost() -> None:
     assert "unit_cost_vnd" not in dumped
     assert "cost" not in dumped
 
+
+def test_product_sort_order_whitelist_and_rejection() -> None:
+    assert [member.value for member in ProductSortOrder] == [
+        "name_asc",
+        "name_desc",
+        "sku_asc",
+        "sku_desc",
+        "created_desc",
+    ]
+    for bad_sort in (
+        "id_asc",
+        "price_asc",
+        "created_asc",
+        "name; DROP TABLE products",
+        "",
+    ):
+        with pytest.raises(ValueError):
+            ProductSortOrder(bad_sort)
+
+
+def test_normalize_search_query_trims_and_enforces_max_length() -> None:
+    assert normalize_search_query(None) is None
+    assert normalize_search_query("") is None
+    assert normalize_search_query("   ") is None
+    assert normalize_search_query("  Cà phê sữa  ") == "Cà phê sữa"
+    assert (
+        normalize_search_query("a" * MAX_PRODUCT_SEARCH_LENGTH)
+        == "a" * MAX_PRODUCT_SEARCH_LENGTH
+    )
+
+    with pytest.raises(ValueError, match="must not exceed 100 characters"):
+        normalize_search_query("a" * (MAX_PRODUCT_SEARCH_LENGTH + 1))
