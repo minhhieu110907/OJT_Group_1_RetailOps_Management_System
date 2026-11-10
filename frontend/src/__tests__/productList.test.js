@@ -2,7 +2,12 @@ import test, { describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import axiosClient, { getApiErrorMessage } from '../api/axiosClient.js';
+import axiosClient, {
+  getApiErrorMessage,
+  invalidateSession,
+  startAuthenticatedSession,
+  transitionAuthMode,
+} from '../api/axiosClient.js';
 import {
   productsApi,
   validateProductRead,
@@ -201,6 +206,57 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
         () => productsApi.updateCategoryStatus({ isMockMode: true, id: 1, status: 'INACTIVE' }),
         /Chế độ Mock Demo không được hỗ trợ/
       );
+    });
+
+    test('blocks Real API calls when AuthContext/axiosClient is in Mock Mode even without explicit isMockMode param', async () => {
+      let realApiCallCount = 0;
+      axiosClient.get = async () => {
+        realApiCallCount += 1;
+        return { data: {} };
+      };
+      axiosClient.post = async () => {
+        realApiCallCount += 1;
+        return { data: {} };
+      };
+
+      try {
+        transitionAuthMode(true, TEST_DEV_ENV);
+
+        await assert.rejects(
+          () => productsApi.getProducts(),
+          (err) => err.code === 'ERR_MOCK_NOT_SUPPORTED'
+        );
+        await assert.rejects(
+          () => productsApi.getCategories(),
+          (err) => err.code === 'ERR_MOCK_NOT_SUPPORTED'
+        );
+        await assert.rejects(
+          () => productsApi.createProduct({ sku: 'A', name: 'B', category_id: 1, sale_price_vnd: 1000 }),
+          (err) => err.code === 'ERR_MOCK_NOT_SUPPORTED'
+        );
+        assert.equal(realApiCallCount, 0, 'Must NEVER send Real API requests while in Mock Mode');
+      } finally {
+        transitionAuthMode(false, TEST_DEV_ENV);
+        invalidateSession();
+      }
+    });
+
+    test('blocks Real API calls when session holds a Mock token identity (mock_jwt_*)', async () => {
+      try {
+        transitionAuthMode(false, TEST_DEV_ENV);
+        startAuthenticatedSession('mock_jwt_usr_admin_demo_999999');
+
+        await assert.rejects(
+          () => productsApi.getProducts(),
+          (err) => err.code === 'ERR_MOCK_NOT_SUPPORTED'
+        );
+        await assert.rejects(
+          () => productsApi.updateProductStatus({ id: 1, status: 'INACTIVE' }),
+          (err) => err.code === 'ERR_MOCK_NOT_SUPPORTED'
+        );
+      } finally {
+        invalidateSession();
+      }
     });
   });
 

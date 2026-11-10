@@ -137,6 +137,7 @@ export default function ProductList() {
 
     const loadProducts = async () => {
       if (isMock) {
+        setData([]);
         setIsLoading(false);
         return;
       }
@@ -227,8 +228,14 @@ export default function ProductList() {
     }));
   };
 
-  // Mở modal Thêm mới (F03: Chặn thêm sản phẩm nếu chưa tải được danh mục)
+  // Mở modal Thêm mới (F02: Chặn khi ở chế độ Mock; F03: Chặn thêm sản phẩm nếu chưa tải được danh mục)
   const handleOpenCreateModal = () => {
+    if (isMock) {
+      toast.warning(
+        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
+      );
+      return;
+    }
     if (categoryLoadError || categories.length === 0) {
       toast.warning('Vui lòng tải thành công danh mục trước khi thêm sản phẩm mới.');
       reloadCategories();
@@ -245,24 +252,28 @@ export default function ProductList() {
   };
 
   // Mở modal Sửa
-  const handleOpenEditModal = (row) => {
-    setFormMode('edit');
-    setFormError('');
-    setProductForm({
-      id: row.id,
-      sku: row.sku || '',
-      name: row.name || '',
-      category_id: String(row.category_id || ''),
-      sale_price_vnd: String(row.sale_price_vnd || ''),
-      status: row.status || 'ACTIVE',
-    });
-    setIsProductModalOpen(true);
-  };
+  const handleOpenEditModal = useCallback(
+    (row) => {
+      if (isMock) return;
+      setFormMode('edit');
+      setFormError('');
+      setProductForm({
+        id: row.id,
+        sku: row.sku || '',
+        name: row.name || '',
+        category_id: String(row.category_id || ''),
+        sale_price_vnd: String(row.sale_price_vnd || ''),
+        status: row.status || 'ACTIVE',
+      });
+      setIsProductModalOpen(true);
+    },
+    [isMock]
+  );
 
   // Submit Form Thêm/Sửa
   const handleSubmitProductForm = async (e) => {
     e.preventDefault();
-    if (isSubmittingForm) return;
+    if (isMock || isSubmittingForm) return;
     setFormError('');
 
     const sku = productForm.sku.trim().toUpperCase();
@@ -359,6 +370,12 @@ export default function ProductList() {
 
   // Mở modal Quản lý danh mục (PROD-02)
   const handleOpenCategoryModal = () => {
+    if (isMock) {
+      toast.warning(
+        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
+      );
+      return;
+    }
     setNewCategoryName('');
     setEditingCategoryId(null);
     setEditingCategoryName('');
@@ -660,7 +677,7 @@ export default function ProductList() {
     }
 
     return baseColumns;
-  }, [categoriesMap, isStaff]);
+  }, [categoriesMap, handleOpenEditModal, isStaff]);
 
   return (
     <div className={styles.container}>
@@ -696,6 +713,7 @@ export default function ProductList() {
               type="button"
               className={styles.secondaryBtn}
               onClick={handleOpenCategoryModal}
+              disabled={isMock}
               title="Quản lý danh mục hàng hóa (PROD-02)"
             >
               <svg
@@ -717,6 +735,7 @@ export default function ProductList() {
               type="button"
               className={styles.primaryBtn}
               onClick={handleOpenCreateModal}
+              disabled={isMock}
             >
               <svg
                 width="16"

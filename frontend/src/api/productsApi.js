@@ -1,4 +1,8 @@
-import axiosClient, { isMockAllowed } from './axiosClient.js';
+import axiosClient, {
+  getClientToken,
+  getUseMock,
+  isMockAllowed,
+} from './axiosClient.js';
 
 /**
  * Whitelist các kiểu sắp xếp hợp lệ cho API Product (phối hợp với backend T3C9D97).
@@ -37,6 +41,25 @@ export function shouldRunMock(explicitFlag, runtimeEnv = import.meta.env) {
   }
   // Product Manager workflow is Real API only
   return false;
+}
+
+/**
+ * F02 Fail-Closed Guard:
+ * Ngăn chặn tuyệt đối việc gọi Real Product/Category API khi hệ thống đang ở chế độ Mock
+ * (theo trạng thái đồng bộ từ axiosClient/AuthContext) hoặc khi đang mang danh tính/token Mock.
+ * Không tạo nguồn trạng thái Mock thứ hai bên cạnh AuthContext/axiosClient.
+ */
+export function assertRealApiMode(explicitMockFlag = false) {
+  const token = getClientToken();
+  const hasMockToken =
+    typeof token === 'string' && token.trim().startsWith('mock_jwt_');
+  if (explicitMockFlag || getUseMock() || hasMockToken) {
+    const err = new Error(
+      'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
+    );
+    err.code = 'ERR_MOCK_NOT_SUPPORTED';
+    throw err;
+  }
 }
 
 /**
@@ -255,11 +278,7 @@ export const productsApi = {
     status = '',
     sort = '',
   } = {}) {
-    if (isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(isMockMode);
 
     const params = {
       page,
@@ -287,11 +306,7 @@ export const productsApi = {
    * Initial quantity is always 0 on backend (PROD-01).
    */
   async createProduct(payloadOrWrapper) {
-    if (payloadOrWrapper?.isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(payloadOrWrapper?.isMockMode);
     const data = payloadOrWrapper?.data ?? payloadOrWrapper;
     const response = await axiosClient.post('/products', data);
     return validateProductRead(response.data);
@@ -302,11 +317,7 @@ export const productsApi = {
    * Note: SKU is strictly immutable in edit mode.
    */
   async updateProduct({ isMockMode, id, data } = {}) {
-    if (isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(isMockMode);
     // Defensive payload sanitization: Send only whitelisted ProductUpdateRequest fields (name, category_id, sale_price_vnd)
     // Never send 'sku', 'status', 'quantity', 'stock_version'
     const cleanPayload = {};
@@ -322,11 +333,7 @@ export const productsApi = {
    * Toggle product active/inactive status (Admin only).
    */
   async updateProductStatus({ isMockMode, id, status } = {}) {
-    if (isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(isMockMode);
     const response = await axiosClient.patch(`/products/${id}/status`, { status });
     return validateProductRead(response.data);
   },
@@ -336,11 +343,7 @@ export const productsApi = {
    * Supports bounded multi-page fetching (F06) to ensure complete list if total > 100.
    */
   async getCategories({ isMockMode, page = 1, pageSize = 100, fetchAll = false } = {}) {
-    if (isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(isMockMode);
 
     const response = await axiosClient.get('/categories', {
       params: { page, page_size: pageSize },
@@ -375,11 +378,7 @@ export const productsApi = {
    * Create a new category (Admin only - PROD-02).
    */
   async createCategory(payloadOrWrapper) {
-    if (payloadOrWrapper?.isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(payloadOrWrapper?.isMockMode);
     const name = typeof payloadOrWrapper === 'string' ? payloadOrWrapper : payloadOrWrapper?.name;
     const response = await axiosClient.post('/categories', { name });
     return validateCategoryRead(response.data);
@@ -389,11 +388,7 @@ export const productsApi = {
    * Update category name (Admin only - PROD-02).
    */
   async updateCategory({ isMockMode, id, name } = {}) {
-    if (isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(isMockMode);
     const response = await axiosClient.patch(`/categories/${id}`, { name });
     return validateCategoryRead(response.data);
   },
@@ -402,11 +397,7 @@ export const productsApi = {
    * Toggle category status ACTIVE / INACTIVE (Admin only - PROD-02).
    */
   async updateCategoryStatus({ isMockMode, id, status } = {}) {
-    if (isMockMode) {
-      throw new Error(
-        'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
-      );
-    }
+    assertRealApiMode(isMockMode);
     const response = await axiosClient.patch(`/categories/${id}/status`, { status });
     return validateCategoryRead(response.data);
   },
