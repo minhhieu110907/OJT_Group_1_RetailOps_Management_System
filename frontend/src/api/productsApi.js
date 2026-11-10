@@ -21,12 +21,36 @@ export const ALLOWED_PRODUCT_SORTS = new Set([
 export const VALID_CATALOG_STATUSES = new Set(['ACTIVE', 'INACTIVE']);
 
 /**
- * Validate ISO timestamp string according to backend datetime contract.
- * Rejects missing, null, undefined, invalid date strings, or NaN timestamps.
+ * Validate ISO timestamp string according to FastAPI/Pydantic/MySQL contract (FIX-09).
+ * Rejects missing, null, undefined, natural language words, invalid calendar dates (e.g. Feb 31),
+ * or malformed timestamp strings.
  */
 export function isValidIsoTimestamp(val) {
   if (typeof val !== 'string' || !val.trim()) return false;
-  const time = Date.parse(val);
+  const trimmed = val.trim();
+  const match = trimmed.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:Z|([+-]\d{2}:?\d{2}))?$/
+  );
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
+  if (hour < 0 || hour > 23) return false;
+  if (minute < 0 || minute > 59) return false;
+  if (second < 0 || second > 59) return false;
+
+  const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInMonths = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (day > daysInMonths[month - 1]) return false;
+
+  const time = Date.parse(trimmed);
   return Number.isFinite(time);
 }
 
@@ -261,13 +285,110 @@ export function validateCategoryRead(item) {
 }
 
 /**
+ * Validate paginated envelope contract (FIX-07 Fail-Closed).
+ * Rules:
+ * - payload must be a non-null, non-array object.
+ * - items must be an Array.
+ * - total must be a non-negative integer.
+ * - page must be an integer >= minPage (default 1).
+ * - page_size must be an integer between minPageSize (1) and maxPageSize (100).
+ * - items.length <= page_size.
+ * - total >= items.length.
+ * - When total === 0, items.length must be 0.
+ * - No implicit string-to-number coercion.
+ * - Does not invent metadata.
+ * - Each item is validated through itemValidator.
+ * - Does NOT reject out-of-range pages when items is empty (valid backend behavior).
+ */
+export function validatePaginatedResponse(
+  payload,
+  itemValidator,
+  { minPage = 1, minPageSize = 1, maxPageSize = 100 } = {}
+) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Paginated response payload must be a non-null object.');
+  }
+
+  if (!Array.isArray(payload.items)) {
+    throw new Error('Paginated response "items" must be an array.');
+  }
+
+  if (
+    typeof payload.total !== 'number' ||
+    !Number.isInteger(payload.total) ||
+    payload.total < 0
+  ) {
+    throw new Error(
+      `Paginated response "total" must be a non-negative integer, got: ${JSON.stringify(payload.total)}`
+    );
+  }
+
+  if (
+    typeof payload.page !== 'number' ||
+    !Number.isInteger(payload.page) ||
+    payload.page < minPage
+  ) {
+    throw new Error(
+      `Paginated response "page" must be an integer >= ${minPage}, got: ${JSON.stringify(payload.page)}`
+    );
+  }
+
+  if (
+    typeof payload.page_size !== 'number' ||
+    !Number.isInteger(payload.page_size) ||
+    payload.page_size < minPageSize ||
+    payload.page_size > maxPageSize
+  ) {
+    throw new Error(
+      `Paginated response "page_size" must be an integer between ${minPageSize} and ${maxPageSize}, got: ${JSON.stringify(payload.page_size)}`
+    );
+  }
+
+  if (payload.items.length > payload.page_size) {
+    throw new Error(
+      `Paginated response items count (${payload.items.length}) exceeds page_size (${payload.page_size}).`
+    );
+  }
+
+  if (payload.total === 0 && payload.items.length > 0) {
+    throw new Error(
+      `Paginated response has total=0 but contains ${payload.items.length} items.`
+    );
+  }
+
+  if (payload.total < payload.items.length) {
+    throw new Error(
+      `Paginated response "total" (${payload.total}) cannot be less than items count (${payload.items.length}).`
+    );
+  }
+
+  if (typeof itemValidator !== 'function') {
+    throw new Error('validatePaginatedResponse requires an itemValidator function.');
+  }
+
+  const validatedItems = payload.items.map(itemValidator);
+
+  return {
+    items: validatedItems,
+    total: payload.total,
+    page: payload.page,
+    page_size: payload.page_size,
+  };
+}
+
+/**
+ * Maximum pages allowed for bounded category pagination (FIX-08).
+ */
+export const MAX_CATEGORY_PAGES_LIMIT = 10;
+
+/**
  * Unified Product API service connecting directly to FastAPI backend.
  */
 export const productsApi = {
   /**
    * Fetch products with pagination, filters, and sorting.
    * Calls Real FastAPI backend GET /api/v1/products.
-   * Fail-closed against Mock Mode (F02).
+   * Fail-closed against Mock Mode (F02) and Malformed Envelopes (FIX-07).
    */
   async getProducts({
     isMockMode,
@@ -290,15 +411,10 @@ export const productsApi = {
     if (sort && ALLOWED_PRODUCT_SORTS.has(sort)) params.sort = sort;
 
     const response = await axiosClient.get('/products', { params });
-    const payload = response.data || {};
-    const items = Array.isArray(payload.items) ? payload.items.map(validateProductRead) : [];
-
-    return {
-      items,
-      total: Number(payload.total) || items.length,
-      page: Number(payload.page) || page,
-      page_size: Number(payload.page_size) || pageSize,
-    };
+    return validatePaginatedResponse(response.data, validateProductRead, {
+      minPageSize: 1,
+      maxPageSize: 100,
+    });
   },
 
   /**
@@ -340,37 +456,97 @@ export const productsApi = {
 
   /**
    * Fetch categories list from FastAPI backend GET /api/v1/categories.
-   * Supports bounded multi-page fetching (F06) to ensure complete list if total > 100.
+   * Supports bounded multi-page fetching (FIX-08) with duplicate detection,
+   * metadata consistency checks, and fail-closed pagination.
    */
-  async getCategories({ isMockMode, page = 1, pageSize = 100, fetchAll = false } = {}) {
+  async getCategories({
+    isMockMode,
+    page = 1,
+    pageSize = 100,
+    fetchAll = false,
+    maxPages = MAX_CATEGORY_PAGES_LIMIT,
+  } = {}) {
     assertRealApiMode(isMockMode);
 
-    const response = await axiosClient.get('/categories', {
-      params: { page, page_size: pageSize },
-    });
-    const payload = response.data || {};
-    let items = Array.isArray(payload.items) ? payload.items.map(validateCategoryRead) : [];
-    const total = Number(payload.total) || items.length;
+    const initialPage = typeof page === 'number' && Number.isInteger(page) && page >= 1 ? page : 1;
+    const initialPageSize =
+      typeof pageSize === 'number' && Number.isInteger(pageSize) && pageSize >= 1 && pageSize <= 100
+        ? pageSize
+        : 100;
 
-    // F06: Safe bounded pagination if total > 100 and caller requests fetchAll (capped at 10 pages / 1000 items)
-    if (fetchAll && total > items.length && items.length > 0) {
-      const maxPages = Math.min(Math.ceil(total / pageSize), 10);
-      for (let p = 2; p <= maxPages; p++) {
-        const nextRes = await axiosClient.get('/categories', {
-          params: { page: p, page_size: pageSize },
-        });
-        const nextItems = Array.isArray(nextRes.data?.items)
-          ? nextRes.data.items.map(validateCategoryRead)
-          : [];
-        items = items.concat(nextItems);
-      }
+    const firstResponse = await axiosClient.get('/categories', {
+      params: { page: initialPage, page_size: initialPageSize },
+    });
+
+    const firstResult = validatePaginatedResponse(
+      firstResponse.data,
+      validateCategoryRead,
+      { minPageSize: 1, maxPageSize: 100 }
+    );
+
+    if (!fetchAll) {
+      return firstResult;
     }
 
+    const allItems = [...firstResult.items];
+    const seenIds = new Set(allItems.map((cat) => cat.id));
+    if (seenIds.size !== allItems.length) {
+      throw new Error('Duplicate category ID detected on initial page.');
+    }
+
+    const total = firstResult.total;
+    const totalPages = Math.max(1, Math.ceil(total / initialPageSize));
+    const pagesToFetchLimit = Math.min(totalPages, initialPage + maxPages - 1);
+
+    let currentPage = initialPage + 1;
+    while (currentPage <= pagesToFetchLimit && allItems.length < total) {
+      const nextResponse = await axiosClient.get('/categories', {
+        params: { page: currentPage, page_size: initialPageSize },
+      });
+
+      const nextResult = validatePaginatedResponse(
+        nextResponse.data,
+        validateCategoryRead,
+        { minPageSize: 1, maxPageSize: 100 }
+      );
+
+      // Verify metadata consistency across pages
+      if (nextResult.total !== total) {
+        throw new Error(
+          `Category pagination metadata inconsistency: expected total ${total}, got ${nextResult.total} on page ${currentPage}.`
+        );
+      }
+      if (nextResult.page !== currentPage) {
+        throw new Error(
+          `Category pagination page mismatch: requested page ${currentPage}, got ${nextResult.page}.`
+        );
+      }
+
+      if (nextResult.items.length === 0) {
+        break;
+      }
+
+      for (const item of nextResult.items) {
+        if (seenIds.has(item.id)) {
+          throw new Error(
+            `Category pagination duplicate ID detected: ID ${item.id} already received in previous pages.`
+          );
+        }
+        seenIds.add(item.id);
+        allItems.push(item);
+      }
+
+      currentPage += 1;
+    }
+
+    const isTruncated = allItems.length < total;
+
     return {
-      items,
+      items: allItems,
       total,
-      page: Number(payload.page) || page,
-      page_size: Number(payload.page_size) || pageSize,
+      page: initialPage,
+      page_size: initialPageSize,
+      isTruncated,
     };
   },
 

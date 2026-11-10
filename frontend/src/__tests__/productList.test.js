@@ -12,6 +12,7 @@ import {
   productsApi,
   validateProductRead,
   validateCategoryRead,
+  validatePaginatedResponse,
   parseAndValidateSalePriceVnd,
   shouldRunMock,
   isValidIsoTimestamp,
@@ -750,6 +751,404 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       assert.match(productListSource, /categoryRequestIdRef/, 'Must guard category requests against stale responses');
       assert.match(productListSource, /reloadCategories/, 'Must provide category retry action for F03');
       assert.match(productListSource, /mockWarningBanner/, 'Must render explicit unsupported banner when Mock Mode is active');
+    });
+  });
+
+  // ==========================================================================
+  // 7. FIX-07: FAIL-CLOSED PAGINATED RESPONSE ENVELOPE (validatePaginatedResponse)
+  // ==========================================================================
+  describe('FIX-07: Fail-Closed Paginated Response Envelope', () => {
+    test('accepts valid product paginated response', () => {
+      const validPayload = {
+        items: [VALID_PRODUCT_FIXTURE],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      };
+      const res = validatePaginatedResponse(validPayload, validateProductRead);
+      assert.equal(res.total, 1);
+      assert.equal(res.page, 1);
+      assert.equal(res.page_size, 20);
+      assert.equal(res.items.length, 1);
+      assert.equal(res.items[0].sku, 'COCA-330ML');
+    });
+
+    test('accepts valid empty result (items=[], total=0)', () => {
+      const emptyPayload = {
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 20,
+      };
+      const res = validatePaginatedResponse(emptyPayload, validateProductRead);
+      assert.equal(res.total, 0);
+      assert.equal(res.items.length, 0);
+    });
+
+    test('accepts valid empty out-of-range page (items=[], total=5, page=3, page_size=10)', () => {
+      const outOfRangePayload = {
+        items: [],
+        total: 5,
+        page: 3,
+        page_size: 10,
+      };
+      const res = validatePaginatedResponse(outOfRangePayload, validateProductRead);
+      assert.equal(res.total, 5);
+      assert.equal(res.page, 3);
+      assert.equal(res.items.length, 0);
+    });
+
+    test('strictly rejects non-object or null payload', () => {
+      assert.throws(() => validatePaginatedResponse(null, validateProductRead), /non-null object/);
+      assert.throws(() => validatePaginatedResponse(undefined, validateProductRead), /non-null object/);
+      assert.throws(() => validatePaginatedResponse([], validateProductRead), /non-null object/);
+      assert.throws(() => validatePaginatedResponse('string', validateProductRead), /non-null object/);
+    });
+
+    test('strictly rejects missing or non-array items', () => {
+      assert.throws(() => validatePaginatedResponse({ total: 1, page: 1, page_size: 20 }, validateProductRead), /must be an array/);
+      assert.throws(() => validatePaginatedResponse({ items: null, total: 1, page: 1, page_size: 20 }, validateProductRead), /must be an array/);
+      assert.throws(() => validatePaginatedResponse({ items: {}, total: 1, page: 1, page_size: 20 }, validateProductRead), /must be an array/);
+    });
+
+    test('strictly rejects null, missing, string, or negative total', () => {
+      assert.throws(() => validatePaginatedResponse({ items: [], total: null, page: 1, page_size: 20 }, validateProductRead), /non-negative integer/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: undefined, page: 1, page_size: 20 }, validateProductRead), /non-negative integer/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: '10', page: 1, page_size: 20 }, validateProductRead), /non-negative integer/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: -1, page: 1, page_size: 20 }, validateProductRead), /non-negative integer/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 1.5, page: 1, page_size: 20 }, validateProductRead), /non-negative integer/);
+    });
+
+    test('strictly rejects total=0 when items is not empty', () => {
+      assert.throws(
+        () => validatePaginatedResponse({ items: [VALID_PRODUCT_FIXTURE], total: 0, page: 1, page_size: 20 }, validateProductRead),
+        /total=0 but contains 1 items/
+      );
+    });
+
+    test('strictly rejects total less than items.length', () => {
+      assert.throws(
+        () => validatePaginatedResponse({ items: [VALID_PRODUCT_FIXTURE], total: -1, page: 1, page_size: 20 }, validateProductRead),
+        /non-negative integer/
+      );
+    });
+
+    test('strictly rejects invalid page (page < 1, string, float)', () => {
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: 0, page_size: 20 }, validateProductRead), /page/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: -1, page_size: 20 }, validateProductRead), /page/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: '1', page_size: 20 }, validateProductRead), /page/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: 1.5, page_size: 20 }, validateProductRead), /page/);
+    });
+
+    test('strictly rejects invalid page_size (page_size < 1 or > 100, string, float)', () => {
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: 1, page_size: 0 }, validateProductRead), /page_size/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: 1, page_size: 101 }, validateProductRead), /page_size/);
+      assert.throws(() => validatePaginatedResponse({ items: [], total: 0, page: 1, page_size: '20' }, validateProductRead), /page_size/);
+    });
+
+    test('strictly rejects when items.length exceeds page_size', () => {
+      const payload = {
+        items: [VALID_PRODUCT_FIXTURE, { ...VALID_PRODUCT_FIXTURE, id: 102, sku: 'COCA-600ML' }],
+        total: 2,
+        page: 1,
+        page_size: 1,
+      };
+      assert.throws(() => validatePaginatedResponse(payload, validateProductRead), /exceeds page_size/);
+    });
+
+    test('strictly rejects when individual product item is invalid', () => {
+      const payload = {
+        items: [{ ...VALID_PRODUCT_FIXTURE, sku: '' }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      };
+      assert.throws(() => validatePaginatedResponse(payload, validateProductRead), /missing valid sku/);
+    });
+
+    test('strictly rejects when individual category item is invalid', () => {
+      const payload = {
+        items: [{ ...VALID_CATEGORY_FIXTURE, name: '' }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      };
+      assert.throws(() => validatePaginatedResponse(payload, validateCategoryRead), /missing valid name/);
+    });
+  });
+
+  // ==========================================================================
+  // 8. FIX-08: CATEGORY PAGINATION CORRECTNESS & BOUNDS
+  // ==========================================================================
+  describe('FIX-08: Category Pagination Correctness & Bounds', () => {
+    test('handles single page category fetch with isTruncated=false', async () => {
+      axiosClient.get = async () => ({
+        data: {
+          items: [VALID_CATEGORY_FIXTURE],
+          total: 1,
+          page: 1,
+          page_size: 100,
+        },
+      });
+
+      const res = await productsApi.getCategories({ fetchAll: true, pageSize: 100 });
+      assert.equal(res.items.length, 1);
+      assert.equal(res.total, 1);
+      assert.equal(res.isTruncated, false);
+    });
+
+    test('handles multi-page (2-3 pages) fetch and merges items accurately', async () => {
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        return {
+          data: {
+            items: [
+              {
+                id: page,
+                name: `Danh mục ${page}`,
+                status: 'ACTIVE',
+                created_at: '2026-11-01T00:00:00.000Z',
+                updated_at: '2026-11-01T00:00:00.000Z',
+              },
+            ],
+            total: 3,
+            page,
+            page_size: 1,
+          },
+        };
+      };
+
+      const res = await productsApi.getCategories({ fetchAll: true, page: 1, pageSize: 1 });
+      assert.equal(res.items.length, 3);
+      assert.equal(res.total, 3);
+      assert.equal(res.isTruncated, false);
+      assert.deepEqual(res.items.map((c) => c.id), [1, 2, 3]);
+    });
+
+    test('supports starting from page other than 1 without hardcoded page 2', async () => {
+      const requestedPages = [];
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        requestedPages.push(page);
+        return {
+          data: {
+            items: [
+              {
+                id: page,
+                name: `Danh mục ${page}`,
+                status: 'ACTIVE',
+                created_at: '2026-11-01T00:00:00.000Z',
+                updated_at: '2026-11-01T00:00:00.000Z',
+              },
+            ],
+            total: 3,
+            page,
+            page_size: 1,
+          },
+        };
+      };
+
+      const res = await productsApi.getCategories({ fetchAll: true, page: 2, pageSize: 1 });
+      assert.deepEqual(requestedPages, [2, 3]);
+      assert.equal(res.items.length, 2);
+      assert.equal(res.items[0].id, 2);
+      assert.equal(res.items[1].id, 3);
+    });
+
+    test('safely bounds pagination and marks isTruncated=true when total exceeds max limit', async () => {
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        return {
+          data: {
+            items: [
+              {
+                id: page,
+                name: `Danh mục ${page}`,
+                status: 'ACTIVE',
+                created_at: '2026-11-01T00:00:00.000Z',
+                updated_at: '2026-11-01T00:00:00.000Z',
+              },
+            ],
+            total: 100, // 100 items total
+            page,
+            page_size: 1,
+          },
+        };
+      };
+
+      // Cap at 3 pages max
+      const res = await productsApi.getCategories({ fetchAll: true, page: 1, pageSize: 1, maxPages: 3 });
+      assert.equal(res.items.length, 3);
+      assert.equal(res.total, 100);
+      assert.equal(res.isTruncated, true, 'Must clearly report isTruncated when bounded limit is hit');
+    });
+
+    test('strictly rejects when next page returns inconsistent total metadata', async () => {
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        return {
+          data: {
+            items: [{ ...VALID_CATEGORY_FIXTURE, id: page }],
+            total: page === 1 ? 4 : 999, // Metadata drifts!
+            page,
+            page_size: 1,
+          },
+        };
+      };
+
+      await assert.rejects(
+        () => productsApi.getCategories({ fetchAll: true, page: 1, pageSize: 1 }),
+        /metadata inconsistency/
+      );
+    });
+
+    test('strictly rejects when next page returns page mismatch', async () => {
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        return {
+          data: {
+            items: [{ ...VALID_CATEGORY_FIXTURE, id: page }],
+            total: 3,
+            page: page === 2 ? 1 : page, // Server sends wrong page back!
+            page_size: 1,
+          },
+        };
+      };
+
+      await assert.rejects(
+        () => productsApi.getCategories({ fetchAll: true, page: 1, pageSize: 1 }),
+        /page mismatch/
+      );
+    });
+
+    test('strictly rejects when duplicate category ID is detected across pages', async () => {
+      axiosClient.get = async (url, config) => {
+        return {
+          data: {
+            items: [{ ...VALID_CATEGORY_FIXTURE, id: 1 }], // Duplicate ID 1 returned on every page!
+            total: 2,
+            page: config.params.page,
+            page_size: 1,
+          },
+        };
+      };
+
+      await assert.rejects(
+        () => productsApi.getCategories({ fetchAll: true, page: 1, pageSize: 1 }),
+        /duplicate ID detected/
+      );
+    });
+
+    test('strictly rejects when initial page contains duplicate category IDs', async () => {
+      axiosClient.get = async () => ({
+        data: {
+          items: [
+            { ...VALID_CATEGORY_FIXTURE, id: 1, name: 'Cat 1' },
+            { ...VALID_CATEGORY_FIXTURE, id: 1, name: 'Cat 1 Dup' },
+          ],
+          total: 2,
+          page: 1,
+          page_size: 2,
+        },
+      });
+
+      await assert.rejects(
+        () => productsApi.getCategories({ fetchAll: true }),
+        /Duplicate category ID detected on initial page/
+      );
+    });
+
+    test('cleanly stops pagination when next page returns empty items', async () => {
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        return {
+          data: {
+            items: page === 1 ? [VALID_CATEGORY_FIXTURE] : [],
+            total: 5,
+            page,
+            page_size: 1,
+          },
+        };
+      };
+
+      const res = await productsApi.getCategories({ fetchAll: true, page: 1, pageSize: 1 });
+      assert.equal(res.items.length, 1);
+      assert.equal(res.isTruncated, true);
+    });
+  });
+
+  // ==========================================================================
+  // 9. FIX-09: STRICT TIMESTAMP VALIDATION (isValidIsoTimestamp)
+  // ==========================================================================
+  describe('FIX-09: Strict Timestamp Validation (isValidIsoTimestamp)', () => {
+    test('accepts valid Backend ISO timestamps with or without timezone', () => {
+      assert.equal(isValidIsoTimestamp('2026-11-01T08:00:00.000Z'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-01T08:00:00Z'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-01 08:00:00'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-01T08:00:00'), true);
+    });
+
+    test('accepts timestamps with microseconds up to 6 digits (MySQL DATETIME(fsp=6))', () => {
+      assert.equal(isValidIsoTimestamp('2026-11-07T12:00:00.123456Z'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-07T12:00:00.123456'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-07 12:00:00.123456'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-07T12:00:00.5Z'), true);
+    });
+
+    test('accepts timestamps with timezone offsets', () => {
+      assert.equal(isValidIsoTimestamp('2026-11-07T12:00:00+07:00'), true);
+      assert.equal(isValidIsoTimestamp('2026-11-07T12:00:00-05:00'), true);
+    });
+
+    test('rejects null, undefined, empty string, and whitespace', () => {
+      assert.equal(isValidIsoTimestamp(null), false);
+      assert.equal(isValidIsoTimestamp(undefined), false);
+      assert.equal(isValidIsoTimestamp(''), false);
+      assert.equal(isValidIsoTimestamp('   '), false);
+    });
+
+    test('rejects natural language strings (yesterday, tomorrow, now)', () => {
+      assert.equal(isValidIsoTimestamp('yesterday'), false);
+      assert.equal(isValidIsoTimestamp('tomorrow'), false);
+      assert.equal(isValidIsoTimestamp('now'), false);
+    });
+
+    test('rejects non-ISO date formats', () => {
+      assert.equal(isValidIsoTimestamp('2026/11/01'), false);
+      assert.equal(isValidIsoTimestamp('01-11-2026'), false);
+      assert.equal(isValidIsoTimestamp('11/01/2026'), false);
+      assert.equal(isValidIsoTimestamp('2026.11.01'), false);
+    });
+
+    test('rejects nonexistent calendar dates (calendar invariants)', () => {
+      // February 31
+      assert.equal(isValidIsoTimestamp('2026-02-31T00:00:00Z'), false);
+      // April 31 (April has only 30 days)
+      assert.equal(isValidIsoTimestamp('2026-04-31T00:00:00Z'), false);
+      // June 31
+      assert.equal(isValidIsoTimestamp('2026-06-31T00:00:00Z'), false);
+      // September 31
+      assert.equal(isValidIsoTimestamp('2026-09-31T00:00:00Z'), false);
+      // November 31
+      assert.equal(isValidIsoTimestamp('2026-11-31T00:00:00Z'), false);
+      // Non-leap year: 2026 is not a leap year -> Feb 29 does not exist!
+      assert.equal(isValidIsoTimestamp('2026-02-29T00:00:00Z'), false);
+      // Leap year: 2024 is a leap year -> Feb 29 is valid!
+      assert.equal(isValidIsoTimestamp('2024-02-29T00:00:00Z'), true);
+      // Invalid months
+      assert.equal(isValidIsoTimestamp('2026-13-01T00:00:00Z'), false);
+      assert.equal(isValidIsoTimestamp('2026-00-01T00:00:00Z'), false);
+      // Invalid day
+      assert.equal(isValidIsoTimestamp('2026-11-00T00:00:00Z'), false);
+      assert.equal(isValidIsoTimestamp('2026-11-32T00:00:00Z'), false);
+      // Invalid hour
+      assert.equal(isValidIsoTimestamp('2026-11-01T25:00:00Z'), false);
+    });
+
+    test('rejects unparseable or corrupted values', () => {
+      assert.equal(isValidIsoTimestamp('not-a-timestamp'), false);
+      assert.equal(isValidIsoTimestamp(12345678), false);
+      assert.equal(isValidIsoTimestamp({}), false);
     });
   });
 });

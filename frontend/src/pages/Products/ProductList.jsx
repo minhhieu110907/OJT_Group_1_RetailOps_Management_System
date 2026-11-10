@@ -101,6 +101,9 @@ export default function ProductList() {
       .then((res) => {
         if (currentId === categoryRequestIdRef.current) {
           setCategories(res.items || []);
+          if (res.isTruncated) {
+            toast.warning(`Chỉ hiển thị được ${res.items.length}/${res.total} danh mục do đạt giới hạn tải.`);
+          }
           setCategoryLoadError('');
         }
       })
@@ -120,7 +123,7 @@ export default function ProductList() {
     return () => {
       categoryRequestIdRef.current += 1;
     };
-  }, [categoryRetryTrigger, isMock]);
+  }, [categoryRetryTrigger, isMock, toast]);
 
   // Map tra cứu tên danh mục
   const categoriesMap = useMemo(() => {
