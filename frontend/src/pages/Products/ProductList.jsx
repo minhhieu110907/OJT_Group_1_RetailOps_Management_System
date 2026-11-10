@@ -888,21 +888,33 @@ export default function ProductList() {
               </div>
 
               <div className={styles.formField}>
-                <label className={styles.formLabel}>TRẠNG THÁI</label>
-                <select
-                  value={productForm.status}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({
-                      ...prev,
-                      status: e.target.value,
-                    }))
-                  }
-                  className={styles.formInput}
-                  disabled={isSubmittingForm || formMode === 'create'}
-                >
-                  <option value="ACTIVE">Đang bán (ACTIVE)</option>
-                  <option value="INACTIVE">Ngừng bán (INACTIVE)</option>
-                </select>
+                <label className={styles.formLabel}>
+                  {formMode === 'create' ? 'TỒN KHO BAN ĐẦU' : 'TRẠNG THÁI KINH DOANH'}
+                </label>
+                {formMode === 'create' ? (
+                  <input
+                    type="text"
+                    value="0 (Khởi tạo tự động - PROD-01)"
+                    className={styles.formInput}
+                    disabled
+                    style={{ backgroundColor: '#F8FAFC', color: '#047857', fontWeight: 600 }}
+                  />
+                ) : (
+                  <select
+                    value={productForm.status}
+                    onChange={(e) =>
+                      setProductForm((prev) => ({
+                        ...prev,
+                        status: e.target.value,
+                      }))
+                    }
+                    className={styles.formInput}
+                    disabled={isSubmittingForm}
+                  >
+                    <option value="ACTIVE">Đang bán (ACTIVE)</option>
+                    <option value="INACTIVE">Ngừng bán (INACTIVE)</option>
+                  </select>
+                )}
               </div>
             </div>
 
