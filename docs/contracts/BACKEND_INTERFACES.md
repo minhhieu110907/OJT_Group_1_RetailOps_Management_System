@@ -177,7 +177,7 @@ class ReceiptConfirmService:
                 idempotency_key: str) -> ReceiptRead: ...
 ```
 
-`ReceiptLineInput = {product_id:int,quantity:int,unit_cost_vnd:int}`; `ReceiptRead` trả đầy đủ `id, supplier_id, supplier_name_snapshot, status, draft_version, total_vnd, created_by, closed_by, created_at, updated_at, closed_at, items[]`; mỗi item `product_id, sku_snapshot, product_name_snapshot, quantity, unit_cost_vnd, line_total_vnd`. Chữ ký new code phải theo `.pyi` và OpenAPI; `supplier_id=None`/`items=None` nghĩa **không cập nhật**, còn JSON `null` **bị 422** nếu field hiện diện; Pydantic phân biệt omitted bằng `model_fields_set`. `items:[]` 422. Ngưỡng max lines/size chưa được chuẩn hóa trong SRS/ERD → có guard vận hành chờ owner phê duyệt, không tự viết ra số 'đã chốt'.
+`ReceiptLineInput = {product_id:int,quantity:int,unit_cost_vnd:int}`; `ReceiptRead` trả đầy đủ `id, supplier_id, supplier_name_snapshot, status, draft_version, total_vnd, created_by, closed_by, created_at, updated_at, closed_at, items[]`; mỗi item `product_id, sku_snapshot, product_name_snapshot, quantity, unit_cost_vnd, line_total_vnd`. Chữ ký new code phải theo `.pyi` và OpenAPI; `supplier_id=None`/`items=None` nghĩa **không cập nhật**, còn JSON `null` **bị 422** nếu field hiện diện; Pydantic phân biệt omitted bằng `model_fields_set`. `items:[]` 422. Bắt buộc có ít nhất một trong hai trường `supplier_id` hoặc `items` khi PATCH; gửi payload rỗng chỉ có `expected_draft_version` bị 422 `EMPTY_PATCH_FORBIDDEN` và giữ nguyên version. Giới hạn số nguyên kỹ thuật: `quantity <= 2,147,483,647` (SQL INT, áp dụng cho cả dòng đơn lẻ và tổng gộp); `unit_cost_vnd`, `line_total_vnd`, `total_vnd <= 9,223,372,036,854,775,807` (SQL BIGINT); vượt ngưỡng sẽ bị từ chối bằng 422 `VALIDATION_ERROR`.
 
 **HTTP path & success:**
 
@@ -189,7 +189,23 @@ class ReceiptConfirmService:
 | POST | `/purchase-receipts/{receipt_id}/confirm` | `{expected_draft_version}` + `Idempotency-Key` | `200 ReceiptRead(CONFIRMED)` | ADMIN |
 | GET | `/purchase-receipts`, `/{receipt_id}` | filters/ID | `200 Page/ReceiptRead` | ADMIN |
 
-**SRS PUR-02/03/04 rules:** DRAFT không thay đổi inventory; duplicate Product+same unit_cost phải gộp quantity, duplicate Product+khác cost `422`, mọi tính tiền số nguyên VND (`line_total = qty*cost`, `total = sum`). Khi chỉnh DRAFT phải lock header và check expected version, tăng `draft_version` khi mutation được chấp nhận. Confirm phải idempotent, `supplier` + `products` ACTIVE, tất cả Stock/Movement/Receipt terminal trong một commit. CONFIRMED/CANCELLED không thể sửa lại. Cancel Draft không làm thay đổi stock. Snapshot Supplier/Product theo ERD tại terminal; không sửa history khi source đổi tên. Stale version trả `409 RECEIPT_VERSION_CONFLICT` và payload an toàn chỉ chứa version mới nhất nếu caller có quyền.
+**Mã lỗi HTTP chuẩn cho POST và PATCH /purchase-receipts:**
+
+- `401 UNAUTHENTICATED`: Không có Bearer token hợp lệ hoặc session hết hạn.
+- `403 FORBIDDEN`: Người dùng không có vai trò ADMIN (ví dụ STAFF).
+- `404 RESOURCE_NOT_FOUND`: `receipt_id`, `supplier_id`, hoặc `product_id` không tồn tại trong hệ thống.
+- `409 Conflict`:
+  - `RECEIPT_VERSION_CONFLICT`: `expected_draft_version` không khớp với `draft_version` hiện tại của phiếu, hoặc phát hiện xung đột cập nhật đồng thời (chỉ 1 transaction thắng, transaction còn lại nhận 409 kèm `details.current_draft_version`).
+  - `INVALID_STATE`: Phiếu nhập không ở trạng thái DRAFT (đã `CONFIRMED` hoặc `CANCELLED`).
+- `422 VALIDATION_ERROR`:
+  - `RECEIPT_ITEM_COST_CONFLICT`: Các dòng trong cùng một chứng từ có cùng `product_id` nhưng khác `unit_cost_vnd`.
+  - `EMPTY_PATCH_FORBIDDEN`: Request PATCH không truyền cả `supplier_id` lẫn `items` (chỉ có `expected_draft_version`).
+  - `SUPPLIER_INACTIVE`: Nhà cung cấp đang ở trạng thái INACTIVE.
+  - `PRODUCT_INACTIVE`: Sản phẩm nhập đang ở trạng thái INACTIVE.
+  - Giới hạn số nguyên: `quantity` sau gộp vượt quá SQL INT ($2,147,483,647$) hoặc thành tiền/tổng tiền vượt quá SQL BIGINT ($9,223,372,036,854,775,807$).
+  - Vi phạm schema Pydantic: thiếu trường bắt buộc, mảng `items` rỗng, hoặc có trường lạ vi phạm `extra="forbid"`.
+
+**SRS PUR-02/03/04 rules:** DRAFT không thay đổi inventory; duplicate Product+same unit_cost phải gộp quantity, duplicate Product+khác cost `422`, mọi tính tiền số nguyên VND (`line_total = qty*cost`, `total = sum`). Khi chỉnh DRAFT phải lock header và check expected version, tăng `draft_version` khi mutation được chấp nhận. Quản lý transaction ở top-level (Router sở hữu commit/rollback, Service chỉ thao tác `flush()`). Confirm phải idempotent, `supplier` + `products` ACTIVE, tất cả Stock/Movement/Receipt terminal trong một commit. CONFIRMED/CANCELLED không thể sửa lại. Cancel Draft không làm thay đổi stock. Snapshot Supplier/Product theo ERD tại terminal; không sửa history khi source đổi tên. Stale version trả `409 RECEIPT_VERSION_CONFLICT` và payload an toàn chỉ chứa version mới nhất nếu caller có quyền.
 
 **Integration gating:** Receipt ORM hiện có ở `backend/app/modules/purchasing/models.py` nhưng snapshot `develop` chưa có migration tương ứng, nên **Dương/Hiếu điều phối migration** trước khi chạy real DB tests; Lan Anh có thể viết draft service/test fake và Tân có thể làm UI/mock trong khi đợi migration. Lan Anh và Dương không cùng mở PR sửa một router file; chia router hoặc PR integration nhỏ sau review.
 

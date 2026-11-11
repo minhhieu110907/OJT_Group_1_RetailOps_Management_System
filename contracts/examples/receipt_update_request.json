@@ -1,0 +1,11 @@
+{
+  "expected_draft_version": 1,
+  "supplier_id": 4,
+  "items": [
+    {
+      "product_id": 12,
+      "quantity": 5,
+      "unit_cost_vnd": 47000
+    }
+  ]
+}
