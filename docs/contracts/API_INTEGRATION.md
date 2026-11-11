@@ -242,7 +242,20 @@ Response 200 là `ApprovalRead`: `id`, `user_id`, `attempt_no`, `status="APPROVE
 ]}
 ```
 
-Backend chuẩn hóa thành một item quantity=5; `total_vnd=200000`; `status="DRAFT"`, `draft_version=1`, **Inventory unchanged**. Cùng Product, hai giá nhập khác nhau phải `422`, không tự tính trung bình.
+Backend chuẩn hóa thành một item quantity=5; `total_vnd=200000`; `status="DRAFT"`, `draft_version=1`, **Inventory unchanged**. Cùng Product, hai giá nhập khác nhau phải `422` (mã lỗi `RECEIPT_ITEM_COST_CONFLICT`), không tự tính trung bình.
+
+```json
+// PATCH /api/v1/purchase-receipts/78 (ADMIN)
+{
+  "expected_draft_version": 1,
+  "supplier_id": 4,
+  "items": [
+    {"product_id": 12, "quantity": 5, "unit_cost_vnd": 40000}
+  ]
+}
+```
+
+Cập nhật phiếu DRAFT thành công trả về `200 ReceiptRead` với `draft_version=2`. Bắt buộc gửi ít nhất một trường thay đổi (`supplier_id` hoặc `items`); PATCH rỗng chỉ có `expected_draft_version` bị từ chối bằng `422` (`EMPTY_PATCH_FORBIDDEN`) và không tăng version. Khi `expected_draft_version` không khớp phiên bản hiện tại hoặc bị sửa đồng thời bởi người khác, trả về `409 RECEIPT_VERSION_CONFLICT`. Phiếu đã CONFIRMED hoặc CANCELLED không được sửa (`409 INVALID_STATE`).
 
 ```http
 POST /api/v1/purchase-receipts/78/confirm

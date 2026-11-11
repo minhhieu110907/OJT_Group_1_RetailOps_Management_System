@@ -11,6 +11,10 @@ from app.modules.categories.models import Category
 from app.modules.notifications.models import AdminNotification
 from app.modules.outbox.models import OutboxEvent
 from app.modules.products.models import Inventory, Product
+from app.modules.purchasing.models import (
+    PurchaseReceipt,
+    PurchaseReceiptItem,
+)
 from app.modules.suppliers.models import Supplier
 
 REGISTERED_MODELS = (
@@ -24,6 +28,8 @@ REGISTERED_MODELS = (
     Supplier,
     Product,
     Inventory,
+    PurchaseReceipt,
+    PurchaseReceiptItem,
 )
 metadata = Base.metadata
 
