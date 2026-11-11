@@ -160,4 +160,3 @@ def downgrade() -> None:
         table_name="inventory_adjustments",
     )
     op.drop_table("inventory_adjustments")
-
