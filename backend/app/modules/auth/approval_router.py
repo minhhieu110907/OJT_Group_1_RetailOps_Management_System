@@ -27,11 +27,17 @@ def list_staff_approvals(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ApprovalPage:
-    return service.list(
+    result = service.list(
         session,
         status=status.value if status is not None else None,
         page=page,
         page_size=page_size,
+    )
+    return ApprovalPage(
+        items=list(result.items),
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
     )
 
 

@@ -163,7 +163,7 @@ class AuthService:
                     "schema_version": 1,
                     "approval_request_id": approval_request.id,
                 },
-                available_at_utc=now,
+                available_at_utc=now.replace(tzinfo=UTC),
             )
             session.commit()
         except IntegrityError as error:

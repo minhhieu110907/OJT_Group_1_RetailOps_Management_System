@@ -1,20 +1,23 @@
 """HTTP contract tests for ADMIN Staff approval endpoints."""
 
 from datetime import datetime
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
 import pytest
+import yaml
 from pydantic import SecretStr
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import InvalidStateError, ResourceNotFoundError
+from app.core.pagination import Page
 from app.db.session import get_db_session
 from app.main import create_app
 from app.modules.auth.approval_router import get_staff_approval_service
 from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
 from app.modules.auth.models import User
-from app.modules.auth.schemas import ApprovalPage, ApprovalRead
+from app.modules.auth.schemas import ApprovalRead
 
 
 def settings() -> Settings:
@@ -49,7 +52,7 @@ def principal(role: str) -> CurrentPrincipal:
 class FakeApprovalService:
     def list(
         self, _session: object, *, status: str | None, page: int, page_size: int
-    ) -> ApprovalPage:
+    ) -> Page[ApprovalRead]:
         item = ApprovalRead(
             id=10,
             user_id=2,
@@ -60,7 +63,7 @@ class FakeApprovalService:
             decided_at=None,
             decision_reason=None,
         )
-        return ApprovalPage(items=[item], total=1, page=page, page_size=page_size)
+        return Page(items=(item,), total=1, page=page, page_size=page_size)
 
     def decide(
         self,
@@ -96,6 +99,34 @@ def application(role: str | None = "ADMIN") -> object:
     if role is not None:
         app.dependency_overrides[get_current_principal] = lambda: principal(role)
     return app
+
+
+def test_generated_openapi_matches_frozen_approval_contract() -> None:
+    runtime = application().openapi()  # type: ignore[union-attr]
+    frozen = yaml.safe_load(
+        (Path(__file__).parents[4] / "contracts" / "openapi.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    operations = (
+        ("/staff-approvals", "get"),
+        ("/staff-approvals/{id}/approve", "post"),
+        ("/staff-approvals/{id}/reject", "post"),
+    )
+    for path, method in operations:
+        assert method in frozen["paths"][path]
+        assert method in runtime["paths"][f"/api/v1{path}"]
+
+    list_schema = runtime["paths"]["/api/v1/staff-approvals"]["get"]["responses"][
+        "200"
+    ]["content"]["application/json"]["schema"]
+    assert list_schema["$ref"] == "#/components/schemas/ApprovalPage"
+    assert set(runtime["components"]["schemas"]["ApprovalPage"]["required"]) == {
+        "items",
+        "total",
+        "page",
+        "page_size",
+    }
 
 
 @pytest.mark.anyio

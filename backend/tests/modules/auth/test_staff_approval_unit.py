@@ -1,10 +1,11 @@
 """Unit coverage for approval transitions and the transactional Outbox writer."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.core.exceptions import AppException
+from app.core.pagination import Page
 from app.modules.auth.approval_repository import StaffApprovalRepository
 from app.modules.auth.approval_service import StaffApprovalService
 from app.modules.auth.models import StaffApprovalRequest, User
@@ -157,8 +158,8 @@ def test_outbox_writer_only_adds_without_commit_or_rollback() -> None:
         session,  # type: ignore[arg-type]
         subject_user_id=2,
         event_type="STAFF_REGISTERED",
-        payload={"schema_version": 1},
-        available_at_utc=datetime(2026, 11, 11, 8, 0),
+        payload={"schema_version": 1, "approval_request_id": 10},
+        available_at_utc=datetime.now(UTC),
     )
     assert len(event_id) == 16
     assert len(session.added) == 1
@@ -166,6 +167,104 @@ def test_outbox_writer_only_adds_without_commit_or_rollback() -> None:
     assert isinstance(event, OutboxEvent)
     assert event.available_at >= event.created_at
     assert session.commits == session.rollbacks == 0
+
+
+def test_list_returns_frozen_contract_page_with_tuple_items() -> None:
+    service = StaffApprovalService(
+        repository=FakeRepository(
+            actor=user(1, "ADMIN", "ACTIVE"),
+            request=approval(),
+            staff=user(2, "STAFF", "PENDING_APPROVAL"),
+        )
+    )
+    service.repository.list_page = lambda *_args, **_kwargs: ([approval()], 1)  # type: ignore[method-assign]
+
+    result = service.list(object(), status="PENDING", page=1, page_size=20)  # type: ignore[arg-type]
+
+    assert isinstance(result, Page)
+    assert isinstance(result.items, tuple)
+    assert result.items[0].status == "PENDING"
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"schema_version": 1}, "fields"),
+        (
+            {
+                "schema_version": 1,
+                "approval_request_id": 10,
+                "token": "raw-secret",
+            },
+            "fields",
+        ),
+        (
+            {"schema_version": 1, "approval_request_id": object()},
+            "positive integer",
+        ),
+    ],
+)
+def test_outbox_writer_rejects_payload_outside_event_schema(
+    payload: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        OutboxWriter().append(
+            FakeSession(),  # type: ignore[arg-type]
+            subject_user_id=2,
+            event_type="STAFF_REGISTERED",
+            payload=payload,  # type: ignore[arg-type]
+            available_at_utc=datetime.now(UTC),
+        )
+
+
+def test_outbox_writer_requires_aware_timestamps_and_consistent_ciphertext() -> None:
+    writer = OutboxWriter()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        writer.append(
+            FakeSession(),  # type: ignore[arg-type]
+            subject_user_id=2,
+            event_type="STAFF_REGISTERED",
+            payload={"schema_version": 1, "approval_request_id": 10},
+            available_at_utc=datetime(2026, 11, 11, 8, 0),
+        )
+    with pytest.raises(ValueError, match="provided together"):
+        writer.append(
+            FakeSession(),  # type: ignore[arg-type]
+            subject_user_id=2,
+            event_type="PASSWORD_RESET",
+            payload={"schema_version": 1},
+            available_at_utc=datetime.now(UTC),
+            secret_ciphertext=b"ciphertext",
+        )
+    with pytest.raises(ValueError, match="invalid length"):
+        writer.append(
+            FakeSession(),  # type: ignore[arg-type]
+            subject_user_id=2,
+            event_type="PASSWORD_RESET",
+            payload={"schema_version": 1},
+            available_at_utc=datetime.now(UTC),
+            secret_ciphertext=b"x" * 2049,
+            secret_expires_at_utc=datetime.now(UTC) + timedelta(minutes=5),
+        )
+
+
+def test_outbox_writer_accepts_bounded_ciphertext_for_secret_event() -> None:
+    session = FakeSession()
+    event_id = OutboxWriter().append(
+        session,  # type: ignore[arg-type]
+        subject_user_id=2,
+        event_type="PASSWORD_RESET",
+        payload={"schema_version": 1},
+        available_at_utc=datetime.now(UTC),
+        secret_ciphertext=b"encrypted-test-value",
+        secret_expires_at_utc=datetime.now(UTC) + timedelta(minutes=5),
+    )
+
+    assert len(event_id) == 16
+    event = session.added[0]
+    assert isinstance(event, OutboxEvent)
+    assert event.secret_ciphertext == b"encrypted-test-value"
+    assert event.secret_expires_at is not None
 
 
 @pytest.mark.parametrize("reason", [None, "   ", "x" * 501])

@@ -1,5 +1,7 @@
 """Staff approval application service and transaction owner."""
 
+from datetime import UTC
+
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -8,9 +10,10 @@ from app.core.exceptions import (
     InvalidStateError,
     ResourceNotFoundError,
 )
+from app.core.pagination import Page
 from app.modules.auth.approval_repository import StaffApprovalRepository
 from app.modules.auth.models import ApprovalStatus, UserRole, UserStatus
-from app.modules.auth.schemas import ApprovalPage, ApprovalRead
+from app.modules.auth.schemas import ApprovalRead
 from app.modules.auth.service import utc_now_naive
 from app.modules.outbox.writer import OutboxWriter
 
@@ -33,12 +36,12 @@ class StaffApprovalService:
         status: str | None,
         page: int,
         page_size: int,
-    ) -> ApprovalPage:
+    ) -> Page[ApprovalRead]:
         items, total = self.repository.list_page(
             session, status=status, page=page, page_size=page_size
         )
-        return ApprovalPage(
-            items=[ApprovalRead.model_validate(item) for item in items],
+        return Page(
+            items=tuple(ApprovalRead.model_validate(item) for item in items),
             total=total,
             page=page,
             page_size=page_size,
@@ -110,7 +113,7 @@ class StaffApprovalService:
                     "approval_request_id": approval.id,
                     "actor_id": actor_id,
                 },
-                available_at_utc=now,
+                available_at_utc=now.replace(tzinfo=UTC),
             )
             response = ApprovalRead.model_validate(approval)
             session.commit()
