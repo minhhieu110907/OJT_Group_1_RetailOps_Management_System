@@ -25,6 +25,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check forbidden review artifacts
+        working-directory: .
+        run: |
+          if git ls-files | grep -E '\.(zip|tar\.gz|rar|7z)$'; then
+            echo "::error::Compressed review artifacts detected in Git tracking. Please remove them."
+            exit 1
+          fi
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
         with:
@@ -38,6 +45,16 @@ jobs:
         run: uv sync --locked
       - name: Ruff
         run: uv run --locked ruff check .
+      - name: Ruff Format Check
+        run: uv run --locked ruff format --check .
+      - name: Check single Alembic head
+        run: |
+          heads_count=$(uv run --locked alembic heads | grep -c " (head)" || true)
+          if [ "$heads_count" -ne 1 ]; then
+            echo "::error::Multiple or zero Alembic migration heads detected: $heads_count"
+            uv run --locked alembic heads
+            exit 1
+          fi
       - name: Unit and API tests
         run: uv run --locked pytest -m "not integration"
 
@@ -128,6 +145,14 @@ jobs:
           if [[ -n "$container_id" ]]; then
             docker inspect --format '{{json .State.Health}}' "$container_id" || true
           fi
+      - name: Verify clean Alembic migration and schema diffs
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          set -a
+          source ../.env
+          set +a
+          uv run --locked pytest tests/integration/test_migrations.py
       - name: MySQL integration tests (must fail if configuration is missing)
         working-directory: backend
         run: |
