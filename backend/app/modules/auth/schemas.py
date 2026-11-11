@@ -1,9 +1,16 @@
 """Pydantic schemas with explicit safe field allowlists."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_serializer,
+    field_validator,
+)
 
 from app.modules.auth.models import ApprovalStatus, UserRole, UserStatus
 
@@ -26,7 +33,7 @@ class UserRead(OrmReadModel):
     updated_at: datetime
 
 
-class StaffApprovalRead(OrmReadModel):
+class ApprovalRead(OrmReadModel):
     """Safe staff approval representation."""
 
     id: int
@@ -37,6 +44,28 @@ class StaffApprovalRead(OrmReadModel):
     decided_by: int | None
     decided_at: datetime | None
     decision_reason: str | None
+
+    @field_serializer("requested_at", "decided_at")
+    def serialize_utc(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        else:
+            value = value.astimezone(UTC)
+        return value.isoformat().replace("+00:00", "Z")
+
+
+StaffApprovalRead = ApprovalRead
+
+
+class ApprovalPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ApprovalRead]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
 
 
 class AuthSessionRead(OrmReadModel):
@@ -60,6 +89,18 @@ class RefreshTokenMetadata(OrmReadModel):
 
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class RejectRequest(StrictRequest):
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def reject_blank_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("reason must contain non-whitespace characters")
+        return normalized
 
 
 class LoginRequest(StrictRequest):

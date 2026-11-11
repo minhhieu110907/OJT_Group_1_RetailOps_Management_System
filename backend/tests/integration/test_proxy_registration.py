@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.modules.auth.models import AuthSession, StaffApprovalRequest, User
 from app.modules.auth.service import REGISTER_ACCEPTED_MESSAGE
 from app.modules.notifications.models import AdminNotification
+from app.modules.outbox.models import OutboxEvent
 
 pytestmark = [pytest.mark.integration, pytest.mark.proxy_integration]
 EMAIL_PREFIX = "t3c9a33_proxy_registration_"
@@ -62,6 +63,9 @@ def _cleanup_registrations(engine: Engine) -> None:
                     AdminNotification.approval_request_id.in_(approval_ids)
                 )
             )
+        session.execute(
+            delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(user_ids))
+        )
         session.execute(
             delete(StaffApprovalRequest).where(
                 StaffApprovalRequest.user_id.in_(user_ids)
