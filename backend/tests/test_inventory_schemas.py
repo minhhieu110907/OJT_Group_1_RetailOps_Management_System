@@ -268,6 +268,7 @@ def test_stock_movement_read_valid() -> None:
     assert item.reference_id == 12
     assert not hasattr(item, "actor_id")
     assert not hasattr(item, "adjustment_reason")
+    assert item.model_dump(mode="json")["occurred_at"] == "2026-11-11T10:00:00Z"
 
 
 def test_stock_movement_read_forbids_actor_and_prices() -> None:
@@ -315,6 +316,7 @@ def test_stock_movement_admin_read_valid() -> None:
     item = StockMovementAdminRead.model_validate(data)
     assert item.actor_id == 42
     assert item.adjustment_reason == "Vỡ bao bì khi sắp xếp kho"
+    assert item.model_dump(mode="json")["occurred_at"] == "2026-11-11T10:00:00Z"
 
 
 def test_stock_movement_admin_read_forbids_cost_prices() -> None:

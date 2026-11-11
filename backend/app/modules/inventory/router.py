@@ -9,6 +9,7 @@ from app.db.session import get_db_session
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.models import User, UserRole
 from app.modules.inventory.schemas import (
+    DEFAULT_LOW_STOCK_THRESHOLD,
     InventoryPage,
     InventoryRead,
     LowStockPage,
@@ -65,12 +66,16 @@ def get_low_stock(
     service: Annotated[InventoryQueryService, Depends(get_inventory_service)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    threshold: Annotated[
+        int, Query(ge=1, description="Ngưỡng cảnh báo tồn kho thấp")
+    ] = DEFAULT_LOW_STOCK_THRESHOLD,
 ) -> LowStockPage:
     """Retrieve products with inventory balance at or below the low-stock threshold."""
     return service.get_low_stock(
         session=session,
         page=page,
         page_size=page_size,
+        threshold=threshold,
     )
 
 

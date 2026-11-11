@@ -1,9 +1,9 @@
 """Pydantic schemas for inventory queries, low-stock warnings, and stock movements."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 DEFAULT_LOW_STOCK_THRESHOLD: int = 5
 
@@ -13,6 +13,13 @@ StockMovementKind = Literal[
     "ORDER_CANCEL",
     "ADJUSTMENT",
 ]
+
+
+def _ensure_utc_iso(dt: datetime) -> str:
+    """Format naive or aware UTC datetimes to ISO-8601 with trailing Z."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 class InventoryRead(BaseModel):
@@ -33,6 +40,12 @@ class InventoryRead(BaseModel):
         default=None,
         description="Thời điểm lần đầu tiên sản phẩm có tồn kho dương",
     )
+
+    @field_serializer("first_stocked_at")
+    def serialize_first_stocked_at(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return _ensure_utc_iso(value)
 
 
 class InventoryPage(BaseModel):
@@ -94,6 +107,10 @@ class StockMovementRead(BaseModel):
     reference_id: int = Field(..., ge=1, description="Mã tham chiếu chứng từ nguồn")
     occurred_at: datetime = Field(..., description="Thời điểm biến động (UTC ISO-8601)")
 
+    @field_serializer("occurred_at")
+    def serialize_occurred_at(self, value: datetime) -> str:
+        return _ensure_utc_iso(value)
+
 
 class StockMovementAdminRead(BaseModel):
     """Audited stock movement view for ADMIN including actor and adjustment reason."""
@@ -118,6 +135,10 @@ class StockMovementAdminRead(BaseModel):
         default=None,
         description="Lý do điều chỉnh kiểm kê (chỉ có khi kind=ADJUSTMENT)",
     )
+
+    @field_serializer("occurred_at")
+    def serialize_occurred_at(self, value: datetime) -> str:
+        return _ensure_utc_iso(value)
 
 
 class StockMovementPage(BaseModel):

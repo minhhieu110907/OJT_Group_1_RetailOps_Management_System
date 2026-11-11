@@ -215,12 +215,14 @@ async def test_low_stock_route_precedence_no_422(app: object) -> None:
         ("?page=-1", 422),
         ("?page_size=0", 422),
         ("?page_size=101", 422),
+        ("?threshold=0", 422),
+        ("?threshold=-1", 422),
     ],
 )
 async def test_low_stock_pagination_validation(
     app: object, query: str, expected_status: int
 ) -> None:
-    """Verify validation on invalid pagination parameters."""
+    """Verify validation on invalid pagination and threshold parameters."""
     application = app  # type: ignore[assignment]
     application.dependency_overrides[get_current_principal] = lambda: make_principal(
         UserRole.STAFF
@@ -231,6 +233,31 @@ async def test_low_stock_pagination_validation(
         res = await client.get(f"/api/v1/inventory/low-stock{query}")
 
     assert res.status_code == expected_status
+
+
+@pytest.mark.anyio
+async def test_low_stock_custom_threshold_filtering(app: object) -> None:
+    """Test flexible threshold query parameter and matching item threshold."""
+    application = app  # type: ignore[assignment]
+    application.dependency_overrides[get_current_principal] = lambda: make_principal(
+        UserRole.ADMIN
+    )
+
+    transport = httpx.ASGITransport(app=application)  # type: ignore[arg-type]
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Threshold = 10 includes P4 (qty=6), but still excludes P5 (inactive)
+        res = await client.get("/api/v1/inventory/low-stock?threshold=10")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 5
+    product_ids = [item["product_id"] for item in body["items"]]
+    assert 4 in product_ids
+    assert 5 not in product_ids
+
+    # Verify each item returns the queried threshold
+    for item in body["items"]:
+        assert item["threshold"] == 10
 
 
 @pytest.mark.anyio
@@ -401,6 +428,7 @@ async def test_stock_movements_staff_projection_hides_audit_fields(app: object) 
         assert "stock_version_after" in item
         assert "reference_id" in item
         assert "occurred_at" in item
+        assert item["occurred_at"].endswith("Z")
 
         # Staff MUST NOT have audited actor_id or adjustment_reason
         assert "actor_id" not in item
@@ -439,6 +467,7 @@ async def test_stock_movements_admin_projection_includes_audit_fields(
     adj_item = next(i for i in body["items"] if i["kind"] == "ADJUSTMENT")
     assert adj_item["actor_id"] == 12
     assert adj_item["adjustment_reason"] == "Hao hụt kiểm kê cuối tháng"
+    assert adj_item["occurred_at"].endswith("Z")
 
     # Strictly no cost prices even for admin
     for item in body["items"]:
