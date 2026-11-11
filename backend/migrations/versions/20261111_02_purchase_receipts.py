@@ -152,3 +152,4 @@ def downgrade() -> None:
         table_name="purchase_receipts",
     )
     op.drop_table("purchase_receipts")
+
