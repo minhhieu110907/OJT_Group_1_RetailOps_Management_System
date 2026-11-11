@@ -16,6 +16,7 @@ from app.modules.auth.models import AuthSession, StaffApprovalRequest, User
 from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import REGISTER_ACCEPTED_MESSAGE, AuthService
 from app.modules.notifications.models import AdminNotification
+from app.modules.outbox.models import OutboxEvent
 
 pytestmark = pytest.mark.integration
 EMAIL_PREFIX = "t3c9a33_registration_"
@@ -33,11 +34,16 @@ def auth_settings() -> Settings:
     )
 
 
-def auth_service(*, notification_service: object | None = None) -> AuthService:
+def auth_service(
+    *,
+    notification_service: object | None = None,
+    outbox_writer: object | None = None,
+) -> AuthService:
     return AuthService(
         auth_settings(),
         password_hasher=PasswordHasher(work_factor=4),
         notification_service=notification_service,
+        outbox_writer=outbox_writer,
     )
 
 
@@ -63,6 +69,7 @@ def cleanup_registration_rows(engine: Engine) -> None:
                     AdminNotification.approval_request_id.in_(approval_ids)
                 )
             )
+        session.execute(delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(user_ids)))
         session.execute(
             delete(StaffApprovalRequest).where(
                 StaffApprovalRequest.user_id.in_(user_ids)
@@ -101,7 +108,7 @@ def registration_admin(migrated_integration_engine: Engine) -> int:
         return admin.id
 
 
-def registration_counts(session: Session, email: str) -> tuple[int, int, int, int]:
+def registration_counts(session: Session, email: str) -> tuple[int, int, int, int, int]:
     user_ids = select(User.id).where(User.email_normalized == email)
     approval_ids = select(StaffApprovalRequest.id).where(
         StaffApprovalRequest.user_id.in_(user_ids)
@@ -112,6 +119,14 @@ def registration_counts(session: Session, email: str) -> tuple[int, int, int, in
                 select(func.count())
                 .select_from(User)
                 .where(User.email_normalized == email)
+            )
+            or 0
+        ),
+        int(
+            session.scalar(
+                select(func.count())
+                .select_from(OutboxEvent)
+                .where(OutboxEvent.subject_user_id.in_(user_ids))
             )
             or 0
         ),
@@ -169,7 +184,15 @@ def test_register_creates_pending_user_approval_and_notification_once(
         assert approval.attempt_no == 1
         assert approval.status == "PENDING"
         assert notification.admin_user_id == registration_admin
-        assert registration_counts(session, email) == (1, 1, 1, 0)
+        assert registration_counts(session, email) == (1, 1, 1, 1, 0)
+        event = session.scalar(
+            select(OutboxEvent).where(OutboxEvent.subject_user_id == user.id)
+        )
+        assert event.event_type == "STAFF_REGISTERED"
+        assert event.payload == {
+            "schema_version": 1,
+            "approval_request_id": approval.id,
+        }
 
 
 @pytest.mark.parametrize("status", ["ACTIVE", "REJECTED"])
@@ -198,12 +221,17 @@ def test_existing_non_pending_identity_gets_generic_response_without_new_rows(
         result = auth_service().register(session, email, "valid-password")
 
         assert result.message == REGISTER_ACCEPTED_MESSAGE
-        assert registration_counts(session, email) == (1, 0, 0, 0)
+        assert registration_counts(session, email) == (1, 0, 0, 0, 0)
 
 
 class FailingNotificationService:
     def create_for_approval(self, *_args: object, **_kwargs: object) -> None:
         raise RuntimeError("forced notification persistence failure")
+
+
+class FailingOutboxWriter:
+    def append(self, *_args: object, **_kwargs: object) -> bytes:
+        raise RuntimeError("forced outbox persistence failure")
 
 
 class OtherDuplicateNotificationService:
@@ -244,7 +272,19 @@ def test_notification_failure_rolls_back_entire_registration(
     with Session(migrated_integration_engine) as session:
         with pytest.raises(RuntimeError, match="forced notification"):
             service.register(session, email, "valid-password")
-        assert registration_counts(session, email) == (0, 0, 0, 0)
+        assert registration_counts(session, email) == (0, 0, 0, 0, 0)
+
+
+def test_outbox_failure_rolls_back_entire_registration(
+    migrated_integration_engine: Engine,
+    registration_admin: int,
+) -> None:
+    email = f"{EMAIL_PREFIX}outbox-rollback@example.com"
+    service = auth_service(outbox_writer=FailingOutboxWriter())
+    with Session(migrated_integration_engine) as session:
+        with pytest.raises(RuntimeError, match="forced outbox"):
+            service.register(session, email, "valid-password")
+        assert registration_counts(session, email) == (0, 0, 0, 0, 0)
 
 
 def test_other_duplicate_constraint_is_not_treated_as_duplicate_email(
@@ -258,7 +298,7 @@ def test_other_duplicate_constraint_is_not_treated_as_duplicate_email(
             service.register(session, email, "valid-password")
 
         assert "uq_admin_notifications_approval_request_id" in str(captured.value)
-        assert registration_counts(session, email) == (0, 0, 0, 0)
+        assert registration_counts(session, email) == (0, 0, 0, 0, 0)
         assert session.scalar(select(func.count()).select_from(User)) is not None
 
 
@@ -273,7 +313,7 @@ def test_notification_foreign_key_failure_rolls_back_and_session_recovers(
             service.register(session, email, "valid-password")
 
         assert getattr(captured.value.orig, "args", (None,))[0] == 1452
-        assert registration_counts(session, email) == (0, 0, 0, 0)
+        assert registration_counts(session, email) == (0, 0, 0, 0, 0)
         assert session.scalar(select(func.count()).select_from(User)) is not None
 
 
@@ -292,4 +332,4 @@ def test_concurrent_registration_creates_single_atomic_result(
 
     assert messages == [REGISTER_ACCEPTED_MESSAGE, REGISTER_ACCEPTED_MESSAGE]
     with Session(migrated_integration_engine) as session:
-        assert registration_counts(session, email) == (1, 1, 1, 0)
+        assert registration_counts(session, email) == (1, 1, 1, 1, 0)
