@@ -372,7 +372,7 @@ export default function ProductList() {
   };
 
   // Mở modal Quản lý danh mục (PROD-02)
-  const handleOpenCategoryModal = () => {
+  const _handleOpenCategoryModal = () => {
     if (isMock) {
       toast.warning(
         'Chế độ Mock Demo không được hỗ trợ trong Quản lý sản phẩm. Vui lòng chuyển sang Real API.'
@@ -712,28 +712,6 @@ export default function ProductList() {
 
         {!isStaff && (
           <div className={styles.headerActions}>
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              onClick={handleOpenCategoryModal}
-              disabled={isMock}
-              title="Quản lý danh mục hàng hóa (PROD-02)"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-              </svg>
-              <span>Danh mục</span>
-            </button>
-
             <button
               type="button"
               className={styles.primaryBtn}

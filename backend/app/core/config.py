@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     app_name: str = "RetailOps API"
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
-    db_host: str
+    db_host: str = ""
     db_port: int = 3306
-    db_name: str
-    db_user: str
-    db_password: SecretStr
+    db_name: str = ""
+    db_user: str = ""
+    db_password: SecretStr = SecretStr("")
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_pool_timeout_seconds: int = 10
@@ -140,7 +140,15 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> URL:
-        """Build a SQLAlchemy URL without string interpolation of credentials."""
+        """Build a SQLAlchemy URL.
+        If `db_host` is not provided, fall back to a local SQLite database
+        (useful for quick local testing without MySQL)."""
+        if not self.db_host:
+            # SQLite file located in the backend root directory
+            return URL.create(
+                drivername="sqlite",
+                database=str(BACKEND_DIR / "db.sqlite3"),
+            )
         return URL.create(
             drivername="mysql+pymysql",
             username=self.db_user,
@@ -150,7 +158,6 @@ class Settings(BaseSettings):
             database=self.db_name,
             query={"charset": "utf8mb4"},
         )
-
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
