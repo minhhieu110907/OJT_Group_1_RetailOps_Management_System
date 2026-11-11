@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import URL, create_engine, delete, func, inspect, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.auth.models import User
@@ -179,7 +179,7 @@ def test_schema_and_non_negative_stock_guard_in_mysql(
 
         # Direct SQL/ORM attempt to set negative stock violates MySQL CHECK constraint
         inv.quantity = -1
-        with pytest.raises(IntegrityError):
+        with pytest.raises((IntegrityError, OperationalError), match="ck_inventory"):
             verify_session.commit()
         verify_session.rollback()
 
