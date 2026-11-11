@@ -3,7 +3,9 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import BigInteger, create_engine, event, select
+from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -21,9 +23,6 @@ from app.modules.purchasing.draft_service import ReceiptDraftService
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.purchasing.schemas import ReceiptLineInput
 from app.modules.suppliers.models import Supplier, SupplierStatus
-from sqlalchemy import BigInteger, event
-from sqlalchemy.dialects.mysql import TINYINT
-from sqlalchemy.ext.compiler import compiles
 
 
 @compiles(TINYINT, "sqlite")
@@ -131,15 +130,9 @@ def test_create_draft_success_merges_identical_product_cost():
     with Session(engine) as session:
         supplier, prod1, prod2 = seed_entities(session)
         items = [
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=3, unit_cost_vnd=80_000
-            ),
-            ReceiptLineInput(
-                product_id=prod2.id, quantity=5, unit_cost_vnd=120_000
-            ),
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=2, unit_cost_vnd=80_000
-            ),
+            ReceiptLineInput(product_id=prod1.id, quantity=3, unit_cost_vnd=80_000),
+            ReceiptLineInput(product_id=prod2.id, quantity=5, unit_cost_vnd=120_000),
+            ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=80_000),
         ]
         receipt = service.create_draft(
             session,
@@ -179,12 +172,8 @@ def test_create_draft_rejects_conflicting_product_cost():
     with Session(engine) as session:
         supplier, prod1, _ = seed_entities(session)
         items = [
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=2, unit_cost_vnd=80_000
-            ),
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=3, unit_cost_vnd=90_000
-            ),
+            ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=80_000),
+            ReceiptLineInput(product_id=prod1.id, quantity=3, unit_cost_vnd=90_000),
         ]
         with pytest.raises(ConflictError) as exc_info:
             service.create_draft(
@@ -207,9 +196,7 @@ def test_create_draft_rejects_inactive_supplier():
         session.commit()
 
         items = [
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=1, unit_cost_vnd=50_000
-            )
+            ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=50_000)
         ]
         with pytest.raises(DomainValidationError):
             service.create_draft(
@@ -230,9 +217,7 @@ def test_create_draft_rejects_inactive_product():
         session.commit()
 
         items = [
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=1, unit_cost_vnd=50_000
-            )
+            ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=50_000)
         ]
         with pytest.raises(DomainValidationError):
             service.create_draft(
@@ -250,9 +235,7 @@ def test_create_draft_rejects_nonexistent_supplier_and_product():
     with Session(engine) as session:
         _, prod1, _ = seed_entities(session)
         items = [
-            ReceiptLineInput(
-                product_id=prod1.id, quantity=1, unit_cost_vnd=50_000
-            )
+            ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=50_000)
         ]
         with pytest.raises(ResourceNotFoundError):
             service.create_draft(
@@ -286,9 +269,7 @@ def test_update_draft_increments_version_and_updates_items():
             actor_id=1,
             supplier_id=supplier.id,
             items=[
-                ReceiptLineInput(
-                    product_id=prod1.id, quantity=2, unit_cost_vnd=50_000
-                )
+                ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=50_000)
             ],
         )
         session.commit()
@@ -301,9 +282,7 @@ def test_update_draft_increments_version_and_updates_items():
             receipt_id=created.id,
             expected_draft_version=1,
             items=[
-                ReceiptLineInput(
-                    product_id=prod2.id, quantity=4, unit_cost_vnd=60_000
-                )
+                ReceiptLineInput(product_id=prod2.id, quantity=4, unit_cost_vnd=60_000)
             ],
         )
         session.commit()
@@ -326,9 +305,7 @@ def test_update_draft_stale_version_conflict():
             actor_id=1,
             supplier_id=supplier.id,
             items=[
-                ReceiptLineInput(
-                    product_id=prod1.id, quantity=2, unit_cost_vnd=50_000
-                )
+                ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=50_000)
             ],
         )
         session.commit()
@@ -356,9 +333,7 @@ def test_update_draft_rejects_non_draft_status():
             actor_id=1,
             supplier_id=supplier.id,
             items=[
-                ReceiptLineInput(
-                    product_id=prod1.id, quantity=2, unit_cost_vnd=50_000
-                )
+                ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=50_000)
             ],
         )
         receipt_row = session.get(PurchaseReceipt, created.id)

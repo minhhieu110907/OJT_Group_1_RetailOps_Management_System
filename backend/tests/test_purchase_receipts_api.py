@@ -6,7 +6,9 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import create_engine
+from sqlalchemy import BigInteger, create_engine, event
+from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -20,9 +22,6 @@ from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.suppliers.models import Supplier, SupplierStatus
-from sqlalchemy import BigInteger, event
-from sqlalchemy.dialects.mysql import TINYINT
-from sqlalchemy.ext.compiler import compiles
 
 ORIGIN = "http://127.0.0.1:5173"
 
@@ -180,9 +179,7 @@ async def test_purchase_receipts_unauthenticated_returns_401():
             "/api/v1/purchase-receipts",
             json={
                 "supplier_id": 1,
-                "items": [
-                    {"product_id": 1, "quantity": 1, "unit_cost_vnd": 10000}
-                ],
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 10000}],
             },
         )
         assert r1.status_code == 401
@@ -209,9 +206,7 @@ async def test_purchase_receipts_by_staff_returns_403():
             "/api/v1/purchase-receipts",
             json={
                 "supplier_id": 1,
-                "items": [
-                    {"product_id": 1, "quantity": 1, "unit_cost_vnd": 10000}
-                ],
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 10000}],
             },
         )
         assert r1.status_code == 403
@@ -302,9 +297,7 @@ async def test_create_purchase_receipt_extra_fields_returns_422():
             json={
                 "supplier_id": 1,
                 "extra_field": "unauthorized",
-                "items": [
-                    {"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}
-                ],
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}],
             },
         )
         assert resp.status_code == 422
@@ -340,9 +333,7 @@ async def test_update_purchase_receipt_by_admin_success_200():
             "/api/v1/purchase-receipts",
             json={
                 "supplier_id": 1,
-                "items": [
-                    {"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}
-                ],
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}],
             },
         )
         assert create_resp.status_code == 201
@@ -352,9 +343,7 @@ async def test_update_purchase_receipt_by_admin_success_200():
             f"/api/v1/purchase-receipts/{receipt_id}",
             json={
                 "expected_draft_version": 1,
-                "items": [
-                    {"product_id": 2, "quantity": 3, "unit_cost_vnd": 90000}
-                ],
+                "items": [{"product_id": 2, "quantity": 3, "unit_cost_vnd": 90000}],
             },
         )
         assert update_resp.status_code == 200
@@ -377,9 +366,7 @@ async def test_update_purchase_receipt_stale_version_returns_409():
             "/api/v1/purchase-receipts",
             json={
                 "supplier_id": 1,
-                "items": [
-                    {"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}
-                ],
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}],
             },
         )
         receipt_id = create_resp.json()["id"]
@@ -407,9 +394,7 @@ async def test_get_purchase_receipt_by_admin_200():
             "/api/v1/purchase-receipts",
             json={
                 "supplier_id": 1,
-                "items": [
-                    {"product_id": 1, "quantity": 2, "unit_cost_vnd": 30000}
-                ],
+                "items": [{"product_id": 1, "quantity": 2, "unit_cost_vnd": 30000}],
             },
         )
         receipt_id = create_resp.json()["id"]

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError
 from app.db.base import Base
+from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.purchasing.draft_service import ReceiptDraftService
@@ -28,6 +29,25 @@ def unique_token(prefix: str) -> str:
     return f"{prefix}{uuid4().hex[:8]}"
 
 
+def get_or_create_test_admin(session: Session) -> User:
+    admin = session.scalar(select(User).where(User.admin_slot == 1))
+    if admin is None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        admin = User(
+            email_normalized=f"{RECEIPT_TEST_PREFIX}admin@example.com",
+            password_hash="$2b$04$sentinel.receipt.admin.hash.do.not.mutate",
+            role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            admin_slot=1,
+            last_reapplied_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(admin)
+        session.flush()
+    return admin
+
+
 @pytest.fixture(autouse=True)
 def setup_and_teardown_receipt_tables(
     migrated_integration_engine: Engine,
@@ -37,14 +57,16 @@ def setup_and_teardown_receipt_tables(
         migrated_integration_engine,
         tables=[PurchaseReceipt.__table__, PurchaseReceiptItem.__table__],
     )
+    with Session(migrated_integration_engine) as session, session.begin():
+        get_or_create_test_admin(session)
     yield
     with Session(migrated_integration_engine) as session, session.begin():
         # Clean up receipts created in test
         receipt_ids = list(
             session.scalars(
-                select(PurchaseReceipt.id).join(
-                    Supplier, PurchaseReceipt.supplier_id == Supplier.id
-                ).where(Supplier.name.like(f"{RECEIPT_TEST_PREFIX}%"))
+                select(PurchaseReceipt.id)
+                .join(Supplier, PurchaseReceipt.supplier_id == Supplier.id)
+                .where(Supplier.name.like(f"{RECEIPT_TEST_PREFIX}%"))
             )
         )
         if receipt_ids:
@@ -54,21 +76,15 @@ def setup_and_teardown_receipt_tables(
                 )
             )
             session.execute(
-                delete(PurchaseReceipt).where(
-                    PurchaseReceipt.id.in_(receipt_ids)
-                )
+                delete(PurchaseReceipt).where(PurchaseReceipt.id.in_(receipt_ids))
             )
         prod_ids = list(
             session.scalars(
-                select(Product.id).where(
-                    Product.sku.like(f"{RECEIPT_TEST_PREFIX}%")
-                )
+                select(Product.id).where(Product.sku.like(f"{RECEIPT_TEST_PREFIX}%"))
             )
         )
         if prod_ids:
-            session.execute(
-                delete(Inventory).where(Inventory.product_id.in_(prod_ids))
-            )
+            session.execute(delete(Inventory).where(Inventory.product_id.in_(prod_ids)))
             session.execute(delete(Product).where(Product.id.in_(prod_ids)))
         session.execute(
             delete(Supplier).where(Supplier.name.like(f"{RECEIPT_TEST_PREFIX}%"))
@@ -76,11 +92,16 @@ def setup_and_teardown_receipt_tables(
         session.execute(
             delete(Category).where(Category.name.like(f"{RECEIPT_TEST_PREFIX}%"))
         )
+        session.execute(
+            delete(User).where(User.email_normalized.like(f"{RECEIPT_TEST_PREFIX}%"))
+        )
 
 
 def seed_mysql_entities(
     session: Session,
-) -> tuple[Supplier, Product, Product, Inventory]:
+) -> tuple[int, Supplier, Product, Product, Inventory]:
+    admin = get_or_create_test_admin(session)
+    admin_id = admin.id
     now = datetime.now(UTC).replace(tzinfo=None)
     category = Category(
         name=unique_token(f"{RECEIPT_TEST_PREFIX}CAT_"),
@@ -139,7 +160,7 @@ def seed_mysql_entities(
     )
     session.add_all([inv1, inv2])
     session.commit()
-    return supplier, prod1, prod2, inv1
+    return admin_id, supplier, prod1, prod2, inv1
 
 
 def test_mysql_create_draft_atomically_merges_items_without_inventory_mutation(
@@ -147,7 +168,7 @@ def test_mysql_create_draft_atomically_merges_items_without_inventory_mutation(
 ) -> None:
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
-        supplier, prod1, prod2, inv1 = seed_mysql_entities(session)
+        admin_id, supplier, prod1, prod2, inv1 = seed_mysql_entities(session)
         supplier_id = supplier.id
         prod1_id = prod1.id
         prod2_id = prod2.id
@@ -155,18 +176,12 @@ def test_mysql_create_draft_atomically_merges_items_without_inventory_mutation(
     with Session(migrated_integration_engine) as action_session:
         created = service.create_draft(
             action_session,
-            actor_id=1,
+            actor_id=admin_id,
             supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(
-                    product_id=prod1_id, quantity=3, unit_cost_vnd=60_000
-                ),
-                ReceiptLineInput(
-                    product_id=prod2_id, quantity=2, unit_cost_vnd=90_000
-                ),
-                ReceiptLineInput(
-                    product_id=prod1_id, quantity=2, unit_cost_vnd=60_000
-                ),
+                ReceiptLineInput(product_id=prod1_id, quantity=3, unit_cost_vnd=60_000),
+                ReceiptLineInput(product_id=prod2_id, quantity=2, unit_cost_vnd=90_000),
+                ReceiptLineInput(product_id=prod1_id, quantity=2, unit_cost_vnd=60_000),
             ],
         )
         action_session.commit()
@@ -206,7 +221,7 @@ def test_mysql_cost_conflict_rolls_back_without_orphan_receipt(
 ) -> None:
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
-        supplier, prod1, _, _ = seed_mysql_entities(session)
+        admin_id, supplier, prod1, _, _ = seed_mysql_entities(session)
         supplier_id = supplier.id
         prod1_id = prod1.id
 
@@ -214,7 +229,7 @@ def test_mysql_cost_conflict_rolls_back_without_orphan_receipt(
         with pytest.raises(ConflictError) as exc_info:
             service.create_draft(
                 action_session,
-                actor_id=1,
+                actor_id=admin_id,
                 supplier_id=supplier_id,
                 items=[
                     ReceiptLineInput(
@@ -230,9 +245,7 @@ def test_mysql_cost_conflict_rolls_back_without_orphan_receipt(
 
     with Session(migrated_integration_engine) as verify_session:
         orphan = verify_session.scalar(
-            select(PurchaseReceipt).where(
-                PurchaseReceipt.supplier_id == supplier_id
-            )
+            select(PurchaseReceipt).where(PurchaseReceipt.supplier_id == supplier_id)
         )
         assert orphan is None
 
@@ -242,15 +255,13 @@ def test_mysql_concurrent_update_optimistic_locking_only_one_wins(
 ) -> None:
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
-        supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
         created = service.create_draft(
             session,
-            actor_id=1,
+            actor_id=admin_id,
             supplier_id=supplier.id,
             items=[
-                ReceiptLineInput(
-                    product_id=prod1.id, quantity=1, unit_cost_vnd=40_000
-                )
+                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=40_000)
             ],
         )
         session.commit()
@@ -262,7 +273,7 @@ def test_mysql_concurrent_update_optimistic_locking_only_one_wins(
             try:
                 service.update_draft(
                     worker_session,
-                    actor_id=1,
+                    actor_id=admin_id,
                     receipt_id=receipt_id,
                     expected_draft_version=1,
                     items=[

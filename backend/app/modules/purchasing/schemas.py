@@ -76,4 +76,3 @@ class ReceiptRead(BaseModel):
     updated_at: datetime
     closed_at: datetime | None
     items: list[ReceiptItemRead]
-

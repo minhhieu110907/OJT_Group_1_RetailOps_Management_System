@@ -85,4 +85,3 @@ def get_purchase_receipt(
 ) -> ReceiptRead:
     """Get purchase receipt details by ID (Admin only)."""
     return service.get_receipt(session, receipt_id=receipt_id)
-

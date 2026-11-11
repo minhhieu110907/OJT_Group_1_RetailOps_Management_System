@@ -137,9 +137,7 @@ class ReceiptDraftService:
         """Create a new purchase receipt in DRAFT status without mutating inventory."""
         supplier = session.get(Supplier, supplier_id)
         if supplier is None:
-            raise ResourceNotFoundError(
-                f"Nhà cung cấp ID {supplier_id} không tồn tại."
-            )
+            raise ResourceNotFoundError(f"Nhà cung cấp ID {supplier_id} không tồn tại.")
         if str(supplier.status) != SupplierStatus.ACTIVE:
             raise DomainValidationError(
                 f"Nhà cung cấp '{supplier.name}' đang ở trạng thái không hoạt động."
