@@ -4,7 +4,6 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-import threading
 from uuid import uuid4
 
 import pytest
