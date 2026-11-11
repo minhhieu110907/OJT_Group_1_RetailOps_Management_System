@@ -35,15 +35,18 @@ def create_purchase_receipt(
     payload: ReceiptCreateRequest,
 ) -> ReceiptRead:
     """Create a new DRAFT purchase receipt (Admin only)."""
-    with session.begin_nested():
+    try:
         result = service.create_draft(
             session,
             actor_id=current_admin.id,
             supplier_id=payload.supplier_id,
             items=payload.items,
         )
-    session.commit()
-    return result
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
 
 
 @router.patch(
@@ -59,7 +62,7 @@ def update_purchase_receipt(
     payload: ReceiptUpdateRequest,
 ) -> ReceiptRead:
     """Update a DRAFT purchase receipt with optimistic locking (Admin only)."""
-    with session.begin_nested():
+    try:
         result = service.update_draft(
             session,
             actor_id=current_admin.id,
@@ -68,8 +71,11 @@ def update_purchase_receipt(
             supplier_id=payload.supplier_id,
             items=payload.items,
         )
-    session.commit()
-    return result
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
 
 
 @router.get(
@@ -83,5 +89,5 @@ def get_purchase_receipt(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[ReceiptDraftService, Depends(get_receipt_draft_service)],
 ) -> ReceiptRead:
-    """Get purchase receipt details by ID (Admin only)."""
+    """Fetch a purchase receipt by ID with its line items (Admin only)."""
     return service.get_receipt(session, receipt_id=receipt_id)

@@ -21,7 +21,10 @@ from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.purchasing.draft_service import ReceiptDraftService
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
-from app.modules.purchasing.schemas import ReceiptLineInput
+from app.modules.purchasing.schemas import (
+    MAX_SQL_INT,
+    ReceiptLineInput,
+)
 from app.modules.suppliers.models import Supplier, SupplierStatus
 
 
@@ -134,7 +137,7 @@ def test_create_draft_success_merges_identical_product_cost():
             ReceiptLineInput(product_id=prod2.id, quantity=5, unit_cost_vnd=120_000),
             ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=80_000),
         ]
-        receipt = service.create_draft(
+        created = service.create_draft(
             session,
             actor_id=1,
             supplier_id=supplier.id,
@@ -142,27 +145,24 @@ def test_create_draft_success_merges_identical_product_cost():
         )
         session.commit()
 
-        assert receipt.status == "DRAFT"
-        assert receipt.draft_version == 1
-        assert receipt.supplier_id == supplier.id
-        assert receipt.supplier_name_snapshot == supplier.name
-        assert len(receipt.items) == 2
+        assert created.status == "DRAFT"
+        assert created.draft_version == 1
+        assert created.supplier_id == supplier.id
+        assert created.supplier_name_snapshot == supplier.name
+        # 5 * 80k + 5 * 120k = 400k + 600k = 1_000_000
+        assert created.total_vnd == 1_000_000
+        assert len(created.items) == 2
 
-        # prod1 merged quantity: 3 + 2 = 5; line total: 5 * 80_000 = 400_000
-        item1 = next(it for it in receipt.items if it.product_id == prod1.id)
-        assert item1.quantity == 5
-        assert item1.unit_cost_vnd == 80_000
-        assert item1.line_total_vnd == 400_000
-        assert item1.sku_snapshot == prod1.sku
-        assert item1.product_name_snapshot == prod1.name
+        item_p1 = next(it for it in created.items if it.product_id == prod1.id)
+        assert item_p1.quantity == 5
+        assert item_p1.unit_cost_vnd == 80_000
+        assert item_p1.line_total_vnd == 400_000
+        assert item_p1.sku_snapshot == "SKU-CHAO-01"
 
-        # prod2: 5 * 120_000 = 600_000
-        item2 = next(it for it in receipt.items if it.product_id == prod2.id)
-        assert item2.quantity == 5
-        assert item2.unit_cost_vnd == 120_000
-        assert item2.line_total_vnd == 600_000
-
-        assert receipt.total_vnd == 1_000_000
+        item_p2 = next(it for it in created.items if it.product_id == prod2.id)
+        assert item_p2.quantity == 5
+        assert item_p2.unit_cost_vnd == 120_000
+        assert item_p2.line_total_vnd == 600_000
 
 
 def test_create_draft_rejects_conflicting_product_cost():
@@ -175,15 +175,16 @@ def test_create_draft_rejects_conflicting_product_cost():
             ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=80_000),
             ReceiptLineInput(product_id=prod1.id, quantity=3, unit_cost_vnd=90_000),
         ]
-        with pytest.raises(ConflictError) as exc_info:
+        with pytest.raises(DomainValidationError) as exc_info:
             service.create_draft(
                 session,
                 actor_id=1,
                 supplier_id=supplier.id,
                 items=items,
             )
-        assert exc_info.value.code == "RECEIPT_ITEM_COST_CONFLICT"
-        assert exc_info.value.status_code == 409
+        assert exc_info.value.status_code == 422
+        assert exc_info.value.details["code"] == "RECEIPT_ITEM_COST_CONFLICT"
+        assert exc_info.value.details["product_id"] == prod1.id
 
 
 def test_create_draft_rejects_inactive_supplier():
@@ -233,27 +234,29 @@ def test_create_draft_rejects_nonexistent_supplier_and_product():
     service = ReceiptDraftService()
 
     with Session(engine) as session:
-        _, prod1, _ = seed_entities(session)
-        items = [
-            ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=50_000)
-        ]
-        with pytest.raises(ResourceNotFoundError):
-            service.create_draft(
-                session,
-                actor_id=1,
-                supplier_id=999_999,
-                items=items,
-            )
+        supplier, prod1, _ = seed_entities(session)
 
+        # Nonexistent supplier
         with pytest.raises(ResourceNotFoundError):
             service.create_draft(
                 session,
                 actor_id=1,
-                supplier_id=1,
+                supplier_id=99999,
                 items=[
                     ReceiptLineInput(
-                        product_id=999_999, quantity=1, unit_cost_vnd=50_000
+                        product_id=prod1.id, quantity=1, unit_cost_vnd=50_000
                     )
+                ],
+            )
+
+        # Nonexistent product
+        with pytest.raises(ResourceNotFoundError):
+            service.create_draft(
+                session,
+                actor_id=1,
+                supplier_id=supplier.id,
+                items=[
+                    ReceiptLineInput(product_id=99999, quantity=1, unit_cost_vnd=50_000)
                 ],
             )
 
@@ -273,9 +276,8 @@ def test_update_draft_increments_version_and_updates_items():
             ],
         )
         session.commit()
-        assert created.draft_version == 1
-        assert created.total_vnd == 100_000
 
+        # Update items
         updated = service.update_draft(
             session,
             actor_id=1,
@@ -288,10 +290,54 @@ def test_update_draft_increments_version_and_updates_items():
         session.commit()
 
         assert updated.draft_version == 2
-        assert updated.total_vnd == 240_000
+        assert updated.total_vnd == 240_000  # 4 * 60k
         assert len(updated.items) == 1
         assert updated.items[0].product_id == prod2.id
-        assert updated.items[0].quantity == 4
+
+
+def test_update_draft_rejects_empty_patch():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, _ = seed_entities(session)
+        created = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=50_000)
+            ],
+        )
+        session.commit()
+        initial_updated_at = created.updated_at
+
+        # Empty PATCH (neither supplier_id nor items provided)
+        with pytest.raises(DomainValidationError) as exc_info:
+            service.update_draft(
+                session,
+                actor_id=1,
+                receipt_id=created.id,
+                expected_draft_version=1,
+                supplier_id=None,
+                items=None,
+            )
+        assert exc_info.value.status_code == 422
+        assert exc_info.value.details["reason"] == "EMPTY_PATCH_FORBIDDEN"
+
+        # Verify receipt invariants: version, updated_at, total, items are unchanged
+        current = session.get(PurchaseReceipt, created.id)
+        assert current.draft_version == 1
+        assert current.updated_at == initial_updated_at
+        assert current.total_vnd == 100_000
+        current_items = list(
+            session.scalars(
+                select(PurchaseReceiptItem).where(
+                    PurchaseReceiptItem.receipt_id == created.id
+                )
+            )
+        )
+        assert len(current_items) == 1
 
 
 def test_update_draft_stale_version_conflict():
@@ -316,7 +362,11 @@ def test_update_draft_stale_version_conflict():
                 actor_id=1,
                 receipt_id=created.id,
                 expected_draft_version=99,
-                items=None,
+                items=[
+                    ReceiptLineInput(
+                        product_id=prod1.id, quantity=3, unit_cost_vnd=50_000
+                    )
+                ],
             )
         assert exc_info.value.code == "RECEIPT_VERSION_CONFLICT"
         assert exc_info.value.status_code == 409
@@ -348,8 +398,49 @@ def test_update_draft_rejects_non_draft_status():
                 actor_id=1,
                 receipt_id=created.id,
                 expected_draft_version=1,
-                items=None,
+                items=[
+                    ReceiptLineInput(
+                        product_id=prod1.id, quantity=3, unit_cost_vnd=50_000
+                    )
+                ],
             )
+
+
+def test_create_and_update_integer_bounds_and_overflow():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, _ = seed_entities(session)
+
+        # Merged quantity exceeds MAX_SQL_INT
+        half_max = MAX_SQL_INT // 2 + 10
+        items_merged_overflow = [
+            ReceiptLineInput(product_id=prod1.id, quantity=half_max, unit_cost_vnd=1),
+            ReceiptLineInput(product_id=prod1.id, quantity=half_max, unit_cost_vnd=1),
+        ]
+        with pytest.raises(DomainValidationError) as exc_info:
+            service.create_draft(
+                session,
+                actor_id=1,
+                supplier_id=supplier.id,
+                items=items_merged_overflow,
+            )
+        assert exc_info.value.status_code == 422
+        assert "vượt quá giới hạn SQL INT" in str(exc_info.value)
+
+        # Valid boundary: quantity == MAX_SQL_INT, unit_cost_vnd == 1
+        valid_boundary_items = [
+            ReceiptLineInput(product_id=prod1.id, quantity=MAX_SQL_INT, unit_cost_vnd=1)
+        ]
+        created = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=valid_boundary_items,
+        )
+        assert created.total_vnd == MAX_SQL_INT
+        assert created.items[0].quantity == MAX_SQL_INT
 
 
 def test_draft_operations_do_not_mutate_inventory():

@@ -16,6 +16,8 @@ from app.core.exceptions import (
 from app.modules.products.models import CatalogStatus, Product
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.purchasing.schemas import (
+    MAX_SQL_BIGINT,
+    MAX_SQL_INT,
     ReceiptItemRead,
     ReceiptLineInput,
     ReceiptRead,
@@ -24,7 +26,7 @@ from app.modules.suppliers.models import Supplier, SupplierStatus
 
 
 def utc_now_naive() -> datetime:
-    """Return the current UTC timestamp without timezone info for MySQL DATETIME(6)."""
+    """Return current UTC timestamp without timezone info for MySQL DATETIME(6)."""
     return datetime.now(UTC).replace(tzinfo=None)
 
 
@@ -45,20 +47,29 @@ class ReceiptDraftService:
             pid = item.product_id
             cost = item.unit_cost_vnd
             if pid in product_costs and product_costs[pid] != cost:
-                raise ConflictError(
-                    code="RECEIPT_ITEM_COST_CONFLICT",
-                    message=(
-                        f"Sản phẩm ID {pid} có nhiều đơn giá khác nhau trong "
-                        f"cùng một phiếu ({product_costs[pid]} và {cost})."
-                    ),
+                raise DomainValidationError(
+                    f"Sản phẩm ID {pid} có nhiều đơn giá khác nhau trong "
+                    f"cùng một phiếu ({product_costs[pid]} và {cost}).",
                     details={
+                        "code": "RECEIPT_ITEM_COST_CONFLICT",
                         "product_id": pid,
                         "existing_unit_cost_vnd": product_costs[pid],
                         "conflicting_unit_cost_vnd": cost,
                     },
                 )
             product_costs[pid] = cost
-            product_quantities[pid] = product_quantities.get(pid, 0) + item.quantity
+            new_qty = product_quantities.get(pid, 0) + item.quantity
+            if new_qty > MAX_SQL_INT:
+                raise DomainValidationError(
+                    f"Tổng số lượng sản phẩm ID {pid} sau khi gộp "
+                    f"vượt quá giới hạn SQL INT ({MAX_SQL_INT}).",
+                    details={
+                        "product_id": pid,
+                        "quantity": new_qty,
+                        "max": MAX_SQL_INT,
+                    },
+                )
+            product_quantities[pid] = new_qty
 
         product_ids = list(product_quantities.keys())
         products = list(
@@ -83,7 +94,26 @@ class ReceiptDraftService:
             qty = product_quantities[pid]
             cost = product_costs[pid]
             line_total = qty * cost
+            if line_total > MAX_SQL_BIGINT:
+                raise DomainValidationError(
+                    f"Thành tiền của sản phẩm ID {pid} vượt quá "
+                    f"giới hạn BIGINT ({MAX_SQL_BIGINT}).",
+                    details={
+                        "product_id": pid,
+                        "line_total_vnd": line_total,
+                        "max": MAX_SQL_BIGINT,
+                    },
+                )
             total_vnd += line_total
+            if total_vnd > MAX_SQL_BIGINT:
+                raise DomainValidationError(
+                    f"Tổng giá trị phiếu nhập vượt quá "
+                    f"giới hạn BIGINT ({MAX_SQL_BIGINT}).",
+                    details={
+                        "total_vnd": total_vnd,
+                        "max": MAX_SQL_BIGINT,
+                    },
+                )
             processed_lines.append(
                 {
                     "product_id": pid,
@@ -189,6 +219,13 @@ class ReceiptDraftService:
         items: Sequence[ReceiptLineInput] | None = None,
     ) -> ReceiptRead:
         """Update a DRAFT purchase receipt with optimistic version check."""
+        if supplier_id is None and items is None:
+            raise DomainValidationError(
+                "Yêu cầu cập nhật phải chứa ít nhất một trong hai trường: "
+                "'supplier_id' hoặc 'items'.",
+                details={"reason": "EMPTY_PATCH_FORBIDDEN"},
+            )
+
         receipt = session.scalar(
             select(PurchaseReceipt)
             .where(PurchaseReceipt.id == receipt_id)

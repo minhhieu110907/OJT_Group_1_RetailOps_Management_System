@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, DomainValidationError
 from app.db.base import Base
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
@@ -227,7 +227,7 @@ def test_mysql_cost_conflict_rolls_back_without_orphan_receipt(
         prod1_id = prod1.id
 
     with Session(migrated_integration_engine) as action_session:
-        with pytest.raises(ConflictError) as exc_info:
+        with pytest.raises(DomainValidationError) as exc_info:
             service.create_draft(
                 action_session,
                 actor_id=admin_id,
@@ -241,7 +241,7 @@ def test_mysql_cost_conflict_rolls_back_without_orphan_receipt(
                     ),
                 ],
             )
-        assert exc_info.value.code == "RECEIPT_ITEM_COST_CONFLICT"
+        assert exc_info.value.details.get("code") == "RECEIPT_ITEM_COST_CONFLICT"
         action_session.rollback()
 
     with Session(migrated_integration_engine) as verify_session:

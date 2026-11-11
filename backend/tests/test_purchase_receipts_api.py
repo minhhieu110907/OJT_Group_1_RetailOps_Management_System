@@ -186,7 +186,10 @@ async def test_purchase_receipts_unauthenticated_returns_401():
 
         r2 = await client.patch(
             "/api/v1/purchase-receipts/1",
-            json={"expected_draft_version": 1},
+            json={
+                "expected_draft_version": 1,
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 10000}],
+            },
         )
         assert r2.status_code == 401
 
@@ -213,7 +216,10 @@ async def test_purchase_receipts_by_staff_returns_403():
 
         r2 = await client.patch(
             "/api/v1/purchase-receipts/1",
-            json={"expected_draft_version": 1},
+            json={
+                "expected_draft_version": 1,
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 10000}],
+            },
         )
         assert r2.status_code == 403
 
@@ -262,7 +268,7 @@ async def test_create_purchase_receipt_by_admin_success_201():
 
 
 @pytest.mark.anyio
-async def test_create_purchase_receipt_cost_conflict_returns_409():
+async def test_create_purchase_receipt_cost_conflict_returns_422():
     engine = build_test_db()
     app = build_app(UserRole.ADMIN, engine)
 
@@ -279,9 +285,10 @@ async def test_create_purchase_receipt_cost_conflict_returns_409():
                 ],
             },
         )
-        assert resp.status_code == 409
+        assert resp.status_code == 422
         err = resp.json()
-        assert err["code"] == "RECEIPT_ITEM_COST_CONFLICT"
+        assert err["code"] == "VALIDATION_ERROR"
+        assert err["details"]["code"] == "RECEIPT_ITEM_COST_CONFLICT"
 
 
 @pytest.mark.anyio
@@ -375,6 +382,7 @@ async def test_update_purchase_receipt_stale_version_returns_409():
             f"/api/v1/purchase-receipts/{receipt_id}",
             json={
                 "expected_draft_version": 99,
+                "items": [{"product_id": 1, "quantity": 2, "unit_cost_vnd": 50000}],
             },
         )
         assert update_resp.status_code == 409
@@ -402,3 +410,109 @@ async def test_get_purchase_receipt_by_admin_200():
         get_resp = await client.get(f"/api/v1/purchase-receipts/{receipt_id}")
         assert get_resp.status_code == 200
         assert get_resp.json()["id"] == receipt_id
+
+
+@pytest.mark.anyio
+async def test_update_purchase_receipt_empty_patch_returns_422():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        create_resp = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}],
+            },
+        )
+        receipt_id = create_resp.json()["id"]
+
+        # Only version
+        r1 = await client.patch(
+            f"/api/v1/purchase-receipts/{receipt_id}",
+            json={"expected_draft_version": 1},
+        )
+        assert r1.status_code == 422
+        assert r1.json()["code"] == "VALIDATION_ERROR"
+
+        # Explicitly null supplier_id and null items
+        r2 = await client.patch(
+            f"/api/v1/purchase-receipts/{receipt_id}",
+            json={
+                "expected_draft_version": 1,
+                "supplier_id": None,
+                "items": None,
+            },
+        )
+        assert r2.status_code == 422
+        assert r2.json()["code"] == "VALIDATION_ERROR"
+
+        # Verify receipt draft_version is still 1
+        get_resp = await client.get(f"/api/v1/purchase-receipts/{receipt_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["draft_version"] == 1
+
+
+@pytest.mark.anyio
+async def test_create_and_update_purchase_receipt_integer_bounds_returns_422():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # Quantity exceeds INT max (2_147_483_647)
+        r1 = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [
+                    {
+                        "product_id": 1,
+                        "quantity": 2_147_483_648,
+                        "unit_cost_vnd": 1000,
+                    }
+                ],
+            },
+        )
+        assert r1.status_code == 422
+
+        # Unit cost exceeds BIGINT max
+        r2 = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [
+                    {
+                        "product_id": 1,
+                        "quantity": 1,
+                        "unit_cost_vnd": 9_223_372_036_854_775_808,
+                    }
+                ],
+            },
+        )
+        assert r2.status_code == 422
+
+        # Merged quantity exceeds INT max
+        r3 = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [
+                    {
+                        "product_id": 1,
+                        "quantity": 2_000_000_000,
+                        "unit_cost_vnd": 1000,
+                    },
+                    {
+                        "product_id": 1,
+                        "quantity": 200_000_000,
+                        "unit_cost_vnd": 1000,
+                    },
+                ],
+            },
+        )
+        assert r3.status_code == 422
+        assert r3.json()["code"] == "VALIDATION_ERROR"
