@@ -1,8 +1,10 @@
 """MySQL integration tests for Purchase Receipt draft lifecycle and concurrency."""
 
+import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+import threading
 from uuid import uuid4
 
 import pytest
@@ -268,7 +270,10 @@ def test_mysql_concurrent_update_optimistic_locking_only_one_wins(
         receipt_id = created.id
         prod2_id = prod2.id
 
+    barrier = threading.Barrier(2)
+
     def worker(worker_id: int) -> str:
+        barrier.wait()
         with Session(migrated_integration_engine) as worker_session:
             try:
                 service.update_draft(

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -189,7 +189,12 @@ class ReceiptDraftService:
         items: Sequence[ReceiptLineInput] | None = None,
     ) -> ReceiptRead:
         """Update a DRAFT purchase receipt with optimistic version check."""
-        receipt = session.get(PurchaseReceipt, receipt_id)
+        receipt = session.scalar(
+            select(PurchaseReceipt)
+            .where(PurchaseReceipt.id == receipt_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if receipt is None:
             raise ResourceNotFoundError(f"Phiếu nhập ID {receipt_id} không tồn tại.")
 
@@ -212,6 +217,8 @@ class ReceiptDraftService:
                 },
             )
 
+        new_supplier_id = receipt.supplier_id
+        new_supplier_name = receipt.supplier_name_snapshot
         if supplier_id is not None:
             supplier = session.get(Supplier, supplier_id)
             if supplier is None:
@@ -222,30 +229,75 @@ class ReceiptDraftService:
                 raise DomainValidationError(
                     f"Nhà cung cấp '{supplier.name}' đang ở trạng thái không hoạt động."
                 )
-            receipt.supplier_id = supplier_id
-            receipt.supplier_name_snapshot = supplier.name
+            new_supplier_id = supplier_id
+            new_supplier_name = supplier.name
+
+        new_total_vnd = receipt.total_vnd
+        item_rows: list[PurchaseReceiptItem] = []
+        if items is not None:
+            lines, new_total_vnd = self._process_items(session, items)
+            for line in lines:
+                item_rows.append(
+                    PurchaseReceiptItem(
+                        receipt_id=receipt.id,
+                        product_id=line["product_id"],
+                        sku_snapshot=line["sku_snapshot"],
+                        product_name_snapshot=line["product_name_snapshot"],
+                        quantity=line["quantity"],
+                        unit_cost_vnd=line["unit_cost_vnd"],
+                        line_total_vnd=line["line_total_vnd"],
+                    )
+                )
+
+        now = utc_now_naive()
+        stmt = (
+            update(PurchaseReceipt)
+            .where(
+                PurchaseReceipt.id == receipt_id,
+                PurchaseReceipt.draft_version == expected_draft_version,
+                PurchaseReceipt.status == "DRAFT",
+            )
+            .values(
+                draft_version=expected_draft_version + 1,
+                updated_at=now,
+                total_vnd=new_total_vnd,
+                supplier_id=new_supplier_id,
+                supplier_name_snapshot=new_supplier_name,
+            )
+        )
+        result = session.execute(stmt)
+        if result.rowcount == 0:
+            current = session.scalar(
+                select(PurchaseReceipt).where(PurchaseReceipt.id == receipt_id)
+            )
+            if current is None:
+                raise ResourceNotFoundError(
+                    f"Phiếu nhập ID {receipt_id} không tồn tại."
+                )
+            if current.status != "DRAFT":
+                raise InvalidStateError(
+                    f"Không thể chỉnh sửa phiếu nhập đã ở trạng thái {current.status}."
+                )
+            raise ConflictError(
+                code="RECEIPT_VERSION_CONFLICT",
+                message=(
+                    f"Phiên bản nháp không khớp: kỳ vọng {expected_draft_version}, "
+                    f"hiện tại là {current.draft_version}."
+                ),
+                details={
+                    "receipt_id": receipt_id,
+                    "current_draft_version": current.draft_version,
+                    "expected_draft_version": expected_draft_version,
+                },
+            )
 
         if items is not None:
-            lines, total_vnd = self._process_items(session, items)
             session.execute(
                 delete(PurchaseReceiptItem).where(
                     PurchaseReceiptItem.receipt_id == receipt.id
                 )
             )
-            item_rows: list[PurchaseReceiptItem] = []
-            for line in lines:
-                item_row = PurchaseReceiptItem(
-                    receipt_id=receipt.id,
-                    product_id=line["product_id"],
-                    sku_snapshot=line["sku_snapshot"],
-                    product_name_snapshot=line["product_name_snapshot"],
-                    quantity=line["quantity"],
-                    unit_cost_vnd=line["unit_cost_vnd"],
-                    line_total_vnd=line["line_total_vnd"],
-                )
-                session.add(item_row)
-                item_rows.append(item_row)
-            receipt.total_vnd = total_vnd
+            session.add_all(item_rows)
         else:
             item_rows = list(
                 session.scalars(
@@ -255,9 +307,8 @@ class ReceiptDraftService:
                 )
             )
 
-        receipt.draft_version += 1
-        receipt.updated_at = utc_now_naive()
         session.flush()
+        session.refresh(receipt)
         return self._to_receipt_read(receipt, item_rows)
 
     def get_receipt(self, session: Session, receipt_id: int) -> ReceiptRead:
