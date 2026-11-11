@@ -106,9 +106,7 @@ def test_decision_atomically_updates_user_approval_and_outbox(
     event_type: str,
 ) -> None:
     admin_id = ensure_admin(migrated_integration_engine)
-    user_id, approval_id = create_pending(
-        migrated_integration_engine, decision.lower()
-    )
+    user_id, approval_id = create_pending(migrated_integration_engine, decision.lower())
     with Session(migrated_integration_engine) as session:
         result = StaffApprovalService().decide(
             session,

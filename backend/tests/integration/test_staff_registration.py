@@ -69,7 +69,9 @@ def cleanup_registration_rows(engine: Engine) -> None:
                     AdminNotification.approval_request_id.in_(approval_ids)
                 )
             )
-        session.execute(delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(user_ids)))
+        session.execute(
+            delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(user_ids))
+        )
         session.execute(
             delete(StaffApprovalRequest).where(
                 StaffApprovalRequest.user_id.in_(user_ids)

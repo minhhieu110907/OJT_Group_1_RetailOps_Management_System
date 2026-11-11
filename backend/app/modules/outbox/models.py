@@ -45,9 +45,7 @@ class OutboxEvent(Base):
     )
 
     id: Mapped[bytes] = mapped_column(BINARY(16), primary_key=True)
-    subject_user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"), nullable=False
-    )
+    subject_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     secret_expires_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6))

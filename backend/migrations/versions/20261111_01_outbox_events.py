@@ -74,7 +74,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_outbox_events_outcome_finished_id", table_name="outbox_events")
-    op.drop_index(
-        "ix_outbox_events_published_available_id", table_name="outbox_events"
-    )
+    op.drop_index("ix_outbox_events_published_available_id", table_name="outbox_events")
     op.drop_table("outbox_events")
