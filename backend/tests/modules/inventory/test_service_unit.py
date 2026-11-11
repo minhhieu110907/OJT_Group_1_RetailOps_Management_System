@@ -1,0 +1,455 @@
+"""Unit tests for InventoryService validation, lock ordering, and tx invariants."""
+
+from __future__ import annotations
+
+import ast
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+from app.modules.inventory import (
+    CountAdjustment,
+    DuplicateMovementError,
+    InactiveProductStockError,
+    InsufficientStockError,
+    InventoryAdjustment,
+    InventoryMovementRepository,
+    InventoryService,
+    InventoryValidationError,
+    LockedStock,
+    MovementKind,
+    ProductStatus,
+    StaleStockVersionError,
+    StockChangeItem,
+    StockConflictError,
+    StockItemNotFoundError,
+    StockLine,
+    StockLockSet,
+    StockMovement,
+    merge_and_sort_stock_lines,
+    normalize_lock_order,
+)
+
+FORBIDDEN_SESSION_METHODS = {
+    "commit",
+    "rollback",
+    "close",
+    "begin",
+    "begin_nested",
+}
+
+
+class GuardedUnitSession:
+    """Fake session that fails if any transaction boundary method is called."""
+
+    def commit(self) -> None:  # pragma: no cover - defensive guard
+        raise AssertionError("InventoryService must never call session.commit()")
+
+    def rollback(self) -> None:  # pragma: no cover - defensive guard
+        raise AssertionError("InventoryService must never call session.rollback()")
+
+    def close(self) -> None:  # pragma: no cover - defensive guard
+        raise AssertionError("InventoryService must never call session.close()")
+
+    def begin(self) -> None:  # pragma: no cover - defensive guard
+        raise AssertionError("InventoryService must never call session.begin()")
+
+    def begin_nested(self) -> None:  # pragma: no cover - defensive guard
+        raise AssertionError("InventoryService must never call session.begin_nested()")
+
+
+@dataclass
+class _InMemoryProductState:
+    product_id: int
+    sku: str
+    name: str
+    status: str
+    sale_price_vnd: int
+    quantity: int
+    stock_version: int
+    first_stocked_at: datetime | None = None
+
+
+class FakeInventoryMovementRepository(InventoryMovementRepository):
+    """In-memory repository recording exact lock acquisition order for unit tests."""
+
+    def __init__(self, initial_states: Sequence[_InMemoryProductState]) -> None:
+        self.states: dict[int, _InMemoryProductState] = {
+            s.product_id: s for s in initial_states
+        }
+        self.lock_history: list[list[int]] = []
+        self.movements: list[StockMovement] = []
+        self.adjustments: list[InventoryAdjustment] = []
+        self._next_movement_id = 1
+        self._next_adjustment_id = 1
+
+    def lock_products_and_inventory(  # type: ignore[override]
+        self,
+        session: object,
+        sorted_product_ids: Sequence[int],
+    ) -> StockLockSet:
+        ordered = list(sorted_product_ids)
+        self.lock_history.append(ordered)
+        missing = [pid for pid in ordered if pid not in self.states]
+        if missing:
+            raise StockItemNotFoundError(product_ids=missing)
+        rows = {
+            pid: LockedStock(
+                product_id=pid,
+                sku=self.states[pid].sku,
+                name=self.states[pid].name,
+                status=self.states[pid].status,
+                sale_price_vnd=self.states[pid].sale_price_vnd,
+                quantity=self.states[pid].quantity,
+                stock_version=self.states[pid].stock_version,
+            )
+            for pid in ordered
+        }
+        return StockLockSet(rows=rows, session_identity=id(session))
+
+    def guarded_update_balance(  # type: ignore[override]
+        self,
+        session: object,
+        *,
+        product_id: int,
+        expected_version: int,
+        new_quantity: int,
+        now: datetime,
+    ) -> bool:
+        state = self.states.get(product_id)
+        if state is None or state.stock_version != expected_version or new_quantity < 0:
+            return False
+        state.quantity = new_quantity
+        state.stock_version += 1
+        if new_quantity > 0 and state.first_stocked_at is None:
+            state.first_stocked_at = now
+        return True
+
+    def find_existing_movement(  # type: ignore[override]
+        self,
+        session: object,
+        *,
+        kind: MovementKind,
+        product_id: int,
+        receipt_id: int | None = None,
+        order_id: int | None = None,
+        adjustment_id: int | None = None,
+    ) -> StockMovement | None:
+        for mov in self.movements:
+            if mov.product_id != product_id or mov.kind != kind.value:
+                continue
+            if kind == MovementKind.PURCHASE_CONFIRM and mov.receipt_id == receipt_id:
+                return mov
+            if (
+                kind in {MovementKind.SALE, MovementKind.ORDER_CANCEL}
+                and mov.order_id == order_id
+            ):
+                return mov
+            if kind == MovementKind.ADJUSTMENT and mov.adjustment_id == adjustment_id:
+                return mov
+        return None
+
+    def add_adjustment(  # type: ignore[override]
+        self,
+        session: object,
+        adjustment: InventoryAdjustment,
+    ) -> InventoryAdjustment:
+        adjustment.id = self._next_adjustment_id
+        self._next_adjustment_id += 1
+        self.adjustments.append(adjustment)
+        return adjustment
+
+    def add_movement(  # type: ignore[override]
+        self,
+        session: object,
+        movement: StockMovement,
+    ) -> StockMovement:
+        movement.id = self._next_movement_id
+        self._next_movement_id += 1
+        self.movements.append(movement)
+        return movement
+
+
+def test_normalize_lock_order_sorts_and_deduplicates_ascending() -> None:
+    assert normalize_lock_order([42, 7, 19, 7, 1, 42]) == [1, 7, 19, 42]
+
+    for invalid_input in ([], [0], [-5], [True], ["1"]):  # type: ignore[list-item]
+        with pytest.raises(InventoryValidationError):
+            normalize_lock_order(invalid_input)  # type: ignore[arg-type]
+
+
+def test_merge_and_sort_stock_lines_combines_duplicates_and_sorts() -> None:
+    lines = [
+        StockLine(product_id=30, quantity=2),
+        StockLine(product_id=10, quantity=3),
+        StockLine(product_id=20, quantity=1),
+        StockLine(product_id=10, quantity=4),
+    ]
+    merged = merge_and_sort_stock_lines(lines)
+    assert merged == [
+        StockLine(product_id=10, quantity=7),
+        StockLine(product_id=20, quantity=1),
+        StockLine(product_id=30, quantity=2),
+    ]
+
+    for bad_lines in (
+        [],
+        [StockLine(product_id=0, quantity=1)],
+        [StockLine(product_id=1, quantity=0)],
+        [StockLine(product_id=1, quantity=-3)],
+        [StockLine(product_id=True, quantity=1)],  # type: ignore[arg-type]
+        [StockLine(product_id=1, quantity=True)],  # type: ignore[arg-type]
+    ):
+        with pytest.raises(InventoryValidationError):
+            merge_and_sort_stock_lines(bad_lines)
+
+
+def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() -> None:
+    fixed_now = datetime(2026, 11, 11, 9, 0, 0)
+    repo = FakeInventoryMovementRepository(
+        [
+            _InMemoryProductState(
+                product_id=10,
+                sku="SKU-010",
+                name="Product 10",
+                status=ProductStatus.ACTIVE.value,
+                sale_price_vnd=50_000,
+                quantity=0,
+                stock_version=0,
+            ),
+            _InMemoryProductState(
+                product_id=20,
+                sku="SKU-020",
+                name="Product 20",
+                status=ProductStatus.ACTIVE.value,
+                sale_price_vnd=80_000,
+                quantity=5,
+                stock_version=2,
+            ),
+        ]
+    )
+    service = InventoryService(repository=repo, clock=lambda: fixed_now)
+    session = GuardedUnitSession()
+
+    # 1. INCREASE with reversed + duplicate product order -> locks [10, 20] ascending
+    inc_results = service.increase(
+        session,  # type: ignore[arg-type]
+        items=[
+            StockChangeItem(product_id=20, quantity=3),
+            StockChangeItem(product_id=10, quantity=4),
+            StockChangeItem(product_id=10, quantity=6),
+        ],
+        reference_id=101,
+        actor_id=1,
+    )
+    assert repo.lock_history[-1] == [10, 20]
+    assert [
+        (r.product_id, r.quantity_before, r.quantity_after, r.delta)
+        for r in inc_results
+    ] == [
+        (10, 0, 10, 10),
+        (20, 5, 8, 3),
+    ]
+    assert [r.stock_version_after for r in inc_results] == [1, 3]
+    assert repo.states[10].first_stocked_at == fixed_now
+
+    # 2. Idempotent retry with identical reference + quantities -> no second movement
+    retry_results = service.increase(
+        session,  # type: ignore[arg-type]
+        items=[
+            StockChangeItem(product_id=10, quantity=10),
+            StockChangeItem(product_id=20, quantity=3),
+        ],
+        reference_id=101,
+        actor_id=1,
+    )
+    assert [r.movement_created for r in retry_results] == [False, False]
+    assert repo.states[10].quantity == 10
+    assert repo.states[10].stock_version == 1
+    assert len(repo.movements) == 2
+
+    # Conflicting quantity on same reference_id must raise DuplicateMovementError
+    with pytest.raises(DuplicateMovementError):
+        service.increase(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=10, quantity=99)],
+            reference_id=101,
+            actor_id=1,
+        )
+
+    # 3. DECREASE (Checkout)
+    dec_results = service.decrease(
+        session,  # type: ignore[arg-type]
+        items=[StockChangeItem(product_id=10, quantity=4)],
+        reference_id=501,
+        actor_id=2,
+    )
+    assert dec_results[0].quantity_before == 10
+    assert dec_results[0].quantity_after == 6
+    assert dec_results[0].delta == -4
+    assert dec_results[0].stock_version_after == 2
+
+    # 4. RETURN (Order Cancel)
+    ret_results = service.return_stock(
+        session,  # type: ignore[arg-type]
+        items=[StockChangeItem(product_id=10, quantity=4)],
+        reference_id=501,
+        actor_id=2,
+    )
+    assert ret_results[0].quantity_before == 6
+    assert ret_results[0].quantity_after == 10
+    assert ret_results[0].delta == 4
+    assert ret_results[0].stock_version_after == 3
+
+    # 5. ADJUST (physical count): non-zero delta & zero delta (no-op)
+    adj_changed = service.adjust(
+        session,  # type: ignore[arg-type]
+        items=[
+            StockChangeItem(
+                product_id=10,
+                counted_quantity=7,
+                expected_stock_version=3,
+            )
+        ],
+        actor_id=1,
+        note="Kiểm kê cuối ca phát hiện hao hụt 3 đơn vị",
+    )
+    assert adj_changed[0].movement_created is True
+    assert adj_changed[0].quantity_before == 10
+    assert adj_changed[0].quantity_after == 7
+    assert adj_changed[0].delta == -3
+    assert adj_changed[0].stock_version_after == 4
+    assert adj_changed[0].audit_id is not None
+
+    # No-op adjustment (counted_quantity == current quantity): creates audit ONLY
+    movements_before_noop = len(repo.movements)
+    adj_noop = service.adjust(
+        session,  # type: ignore[arg-type]
+        items=[
+            StockChangeItem(
+                product_id=10,
+                counted_quantity=7,
+                expected_stock_version=4,
+            )
+        ],
+        actor_id=1,
+        note="Kiểm kê khớp tồn kho thực tế",
+    )
+    assert adj_noop[0].movement_created is False
+    assert adj_noop[0].movement_id is None
+    assert adj_noop[0].audit_id is not None
+    assert adj_noop[0].stock_version_after == 4
+    assert len(repo.movements) == movements_before_noop
+    assert len(repo.adjustments) == 2
+
+    # Stale expected_stock_version MUST raise StaleStockVersionError (409)
+    with pytest.raises(StaleStockVersionError):
+        service.adjust(
+            session,  # type: ignore[arg-type]
+            items=[
+                StockChangeItem(
+                    product_id=10,
+                    counted_quantity=7,
+                    expected_stock_version=3,
+                )
+            ],
+            actor_id=1,
+            note="Stale version",
+        )
+
+
+def test_negative_stock_inactive_product_and_cross_session_lock_guards() -> None:
+    repo = FakeInventoryMovementRepository(
+        [
+            _InMemoryProductState(
+                product_id=1,
+                sku="SKU-ACTIVE",
+                name="Active Product",
+                status=ProductStatus.ACTIVE.value,
+                sale_price_vnd=20_000,
+                quantity=2,
+                stock_version=1,
+            ),
+            _InMemoryProductState(
+                product_id=2,
+                sku="SKU-INACTIVE",
+                name="Inactive Product",
+                status=ProductStatus.INACTIVE.value,
+                sale_price_vnd=20_000,
+                quantity=5,
+                stock_version=1,
+            ),
+        ]
+    )
+    service = InventoryService(repository=repo)
+    session = GuardedUnitSession()
+
+    # Insufficient stock raises 409 InsufficientStockError without modifying balance
+    with pytest.raises(InsufficientStockError) as exc_info:
+        service.decrease(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=1, quantity=3)],
+            reference_id=900,
+            actor_id=1,
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "INSUFFICIENT_STOCK"
+    assert repo.states[1].quantity == 2
+    assert repo.states[1].stock_version == 1
+
+    # INACTIVE product is rejected for receipt/checkout but allowed for adjustment
+    with pytest.raises(InactiveProductStockError):
+        service.increase(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=2, quantity=1)],
+            reference_id=901,
+            actor_id=1,
+        )
+    with pytest.raises(InactiveProductStockError):
+        service.decrease(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=2, quantity=1)],
+            reference_id=902,
+            actor_id=1,
+        )
+
+    adj_inactive = service.adjust_to_count(
+        session,  # type: ignore[arg-type]
+        locks=service.lock_for_mutation(session, product_ids=[2]),  # type: ignore[arg-type]
+        actor_id=1,
+        adjustment=CountAdjustment(
+            product_id=2,
+            counted_quantity=4,
+            expected_stock_version=1,
+            reason="Kiểm kê hàng ngừng kinh doanh",
+        ),
+    )
+    assert adj_inactive.stock.quantity == 4
+    assert adj_inactive.stock.stock_version == 2
+
+    # Cross-session StockLockSet reuse is rejected
+    other_session = GuardedUnitSession()
+    foreign_locks = service.lock_for_mutation(other_session, product_ids=[1])  # type: ignore[arg-type]
+    with pytest.raises(StockConflictError):
+        service.decrease_for_checkout(
+            session,  # type: ignore[arg-type]
+            locks=foreign_locks,
+            order_id=999,
+            actor_id=1,
+            lines=[StockLine(product_id=1, quantity=1)],
+        )
+
+
+def test_inventory_module_never_calls_transaction_boundary_methods() -> None:
+    module_dir = Path(__file__).resolve().parents[3] / "app" / "modules" / "inventory"
+    for py_file in module_dir.glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                assert node.func.attr not in FORBIDDEN_SESSION_METHODS, (
+                    f"{py_file.name}:{node.lineno} calls forbidden transaction "
+                    f"method '{node.func.attr}()'"
+                )
