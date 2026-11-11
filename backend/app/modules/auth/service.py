@@ -39,6 +39,7 @@ from app.modules.auth.security import (
 )
 from app.modules.notifications.repository import NotificationRepository
 from app.modules.notifications.service import NotificationService
+from app.modules.outbox.writer import OutboxWriter
 
 DUMMY_BCRYPT_HASH = "$2b$12$62o5pXd4lx/yYM9iMtKFKu/oWXJ7GXA1cAhnAs7tQxsjUE4JnvMnG"
 REGISTER_ACCEPTED_MESSAGE = (
@@ -85,6 +86,7 @@ class AuthService:
         repository: AuthRepository | None = None,
         password_hasher: PasswordHasher | None = None,
         notification_service: NotificationService | None = None,
+        outbox_writer: OutboxWriter | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository or AuthRepository()
@@ -92,6 +94,7 @@ class AuthService:
         self.notification_service = notification_service or NotificationService(
             repository=NotificationRepository()
         )
+        self.outbox_writer = outbox_writer or OutboxWriter()
         self.jwt = JwtService(settings)
         self.csrf = CsrfService(settings)
 
@@ -151,6 +154,16 @@ class AuthService:
                 session,
                 admin_user_id=admin.id,
                 approval_request_id=approval_request.id,
+            )
+            self.outbox_writer.append(
+                session,
+                subject_user_id=user.id,
+                event_type="STAFF_REGISTERED",
+                payload={
+                    "schema_version": 1,
+                    "approval_request_id": approval_request.id,
+                },
+                available_at_utc=now.replace(tzinfo=UTC),
             )
             session.commit()
         except IntegrityError as error:

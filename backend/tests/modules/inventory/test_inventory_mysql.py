@@ -28,6 +28,7 @@ from app.modules.inventory import (
     ReferenceType,
     StaleStockVersionError,
     StockChangeItem,
+    StockConflictError,
     StockLine,
     StockMovement,
 )
@@ -539,11 +540,26 @@ def test_all_four_operations_and_before_after_movement_ledger_in_mysql(
         assert noop_adj.stock.quantity == 12
         assert noop_adj.stock.stock_version == 4
 
-        # 6. Stale version in ADJUST raises 409 StaleStockVersionError
-        with pytest.raises(StaleStockVersionError):
+        # Reusing an already-consumed StockLockSet raises StockConflictError
+        with pytest.raises(StockConflictError):
             service.adjust_to_count(
                 session,
                 locks=locks,
+                actor_id=actor_id,
+                adjustment=CountAdjustment(
+                    product_id=product_id,
+                    counted_quantity=12,
+                    expected_stock_version=4,
+                    reason="Không được tái dùng StockLockSet",
+                ),
+            )
+
+        # 6. Stale version in ADJUST raises 409 StaleStockVersionError
+        fresh_locks = service.lock_for_mutation(session, product_ids=[product_id])
+        with pytest.raises(StaleStockVersionError):
+            service.adjust_to_count(
+                session,
+                locks=fresh_locks,
                 actor_id=actor_id,
                 adjustment=CountAdjustment(
                     product_id=product_id,
@@ -552,7 +568,22 @@ def test_all_four_operations_and_before_after_movement_ledger_in_mysql(
                     reason="Version cũ phải bị từ chối",
                 ),
             )
+
+        # 7. StockLockSet acquired before commit() is rejected after commit()
+        pre_commit_locks = service.lock_for_mutation(session, product_ids=[product_id])
         session.commit()
+        with pytest.raises(StockConflictError):
+            service.adjust_to_count(
+                session,
+                locks=pre_commit_locks,
+                actor_id=actor_id,
+                adjustment=CountAdjustment(
+                    product_id=product_id,
+                    counted_quantity=12,
+                    expected_stock_version=4,
+                    reason="Lockset sau commit phải bị từ chối",
+                ),
+            )
 
     with Session(migrated_integration_engine) as verify_session:
         final_inv = verify_session.get(Inventory, product_id)

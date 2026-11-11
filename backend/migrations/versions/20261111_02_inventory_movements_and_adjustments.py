@@ -1,7 +1,7 @@
 """Create inventory_adjustments and stock_movements tables.
 
-Revision ID: 20261111_01
-Revises: 20261107_03
+Revision ID: 20261111_02
+Revises: 20261111_01
 Create Date: 2026-11-11
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
 
-revision: str = "20261111_01"
-down_revision: str | None = "20261107_03"
+revision: str = "20261111_02"
+down_revision: str | None = "20261111_01"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -160,3 +160,4 @@ def downgrade() -> None:
         table_name="inventory_adjustments",
     )
     op.drop_table("inventory_adjustments")
+

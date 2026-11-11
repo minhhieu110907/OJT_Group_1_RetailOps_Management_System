@@ -1,17 +1,51 @@
-"""Value objects and DTOs for the Inventory Service."""
+"""Pydantic query DTOs and domain dataclasses for the Inventory module."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.inventory.models import MovementKind, MovementType, ReferenceType
 
 
+class InventoryRead(BaseModel):
+    """Public inventory view for active ADMIN and STAFF."""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    product_id: int = Field(..., ge=1, description="Mã định danh sản phẩm")
+    sku: str = Field(..., description="Mã SKU của sản phẩm")
+    name: str = Field(..., description="Tên sản phẩm")
+    category_id: int = Field(..., ge=1, description="Mã định danh danh mục")
+    status: Literal["ACTIVE", "INACTIVE"] = Field(
+        ..., description="Trạng thái sản phẩm"
+    )
+    quantity: int = Field(..., ge=0, description="Số lượng tồn kho hiện tại")
+    stock_version: int = Field(..., ge=0, description="Phiên bản tồn kho lạc quan")
+    first_stocked_at: datetime | None = Field(
+        default=None,
+        description="Thời điểm lần đầu tiên sản phẩm có tồn kho dương",
+    )
+
+
+class InventoryPage(BaseModel):
+    """Paginated inventory list response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[InventoryRead] = Field(..., description="Danh sách bản ghi tồn kho")
+    total: int = Field(..., ge=0, description="Tổng số bản ghi thỏa mãn điều kiện")
+    page: int = Field(..., ge=1, description="Trang hiện tại")
+    page_size: int = Field(..., ge=1, le=100, description="Số lượng bản ghi mỗi trang")
+
+
 @dataclass(frozen=True)
 class StockLine:
-    """Line item for receipt/checkout/cancel stock changes (CF-02 contract)."""
+    """Line item for receipt confirmation, checkout, or order cancellation (CF-02)."""
 
     product_id: int
     quantity: int
@@ -19,7 +53,7 @@ class StockLine:
 
 @dataclass(frozen=True)
 class LockedStock:
-    """Snapshot of a Product and its Inventory balance under SELECT ... FOR UPDATE."""
+    """Snapshot of a locked Product + Inventory row pair under SELECT ... FOR UPDATE."""
 
     product_id: int
     sku: str
@@ -32,15 +66,30 @@ class LockedStock:
 
 @dataclass(frozen=True)
 class StockLockSet:
-    """Transaction-scoped set of locked Product+Inventory rows sorted by ID."""
+    """Collection of locked stock snapshots bound to one active Session/Transaction."""
 
     rows: Mapping[int, LockedStock]
-    session_identity: int | None = field(default=None, repr=False, compare=False)
+    session_identity: int | None = None
+    transaction_identity: int | None = None
+    _state: dict[str, bool] = field(
+        default_factory=lambda: {"consumed": False},
+        repr=False,
+        compare=False,
+    )
+
+    @property
+    def is_consumed(self) -> bool:
+        """Return True if this lockset has already been consumed by a mutation."""
+        return bool(self._state.get("consumed", False))
+
+    def mark_consumed(self) -> None:
+        """Mark this lockset as consumed so it cannot be reused across mutations."""
+        self._state["consumed"] = True
 
 
 @dataclass(frozen=True)
 class StockResult:
-    """Post-mutation inventory state for a product (CF-02 contract)."""
+    """Updated stock balance and version returned after a mutation (CF-02)."""
 
     product_id: int
     quantity: int
@@ -49,7 +98,7 @@ class StockResult:
 
 @dataclass(frozen=True)
 class CountAdjustment:
-    """Input for physical inventory count adjustment (CF-02 & SRS INV-02)."""
+    """Input payload for Admin physical count adjustment (CF-02)."""
 
     product_id: int
     counted_quantity: int
@@ -94,7 +143,7 @@ class StockMovementResult:
     kind: MovementKind
     movement_type: MovementType
     reference_type: ReferenceType
-    reference_id: int
+    reference_id: int | None
     actor_id: int
     quantity_before: int
     quantity_after: int
@@ -109,6 +158,8 @@ class StockMovementResult:
 __all__ = [
     "AdjustmentResult",
     "CountAdjustment",
+    "InventoryPage",
+    "InventoryRead",
     "LockedStock",
     "StockChangeItem",
     "StockLine",

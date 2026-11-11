@@ -1,4 +1,4 @@
-"""Inventory module public exports."""
+"""Inventory module for querying and managing product inventory balances."""
 
 from app.modules.inventory.exceptions import (
     DuplicateMovementError,
@@ -8,6 +8,7 @@ from app.modules.inventory.exceptions import (
     StaleStockVersionError,
     StockConflictError,
     StockItemNotFoundError,
+    is_mysql_lock_conflict_error,
 )
 from app.modules.inventory.models import (
     Inventory,
@@ -19,10 +20,16 @@ from app.modules.inventory.models import (
     ReferenceType,
     StockMovement,
 )
-from app.modules.inventory.repository import InventoryMovementRepository
+from app.modules.inventory.repository import (
+    InventoryMovementRepository,
+    InventoryQueryRepository,
+    get_session_transaction_identity,
+)
 from app.modules.inventory.schemas import (
     AdjustmentResult,
     CountAdjustment,
+    InventoryPage,
+    InventoryRead,
     LockedStock,
     StockChangeItem,
     StockLine,
@@ -31,6 +38,7 @@ from app.modules.inventory.schemas import (
     StockResult,
 )
 from app.modules.inventory.service import (
+    InventoryQueryService,
     InventoryService,
     merge_and_sort_stock_lines,
     normalize_lock_order,
@@ -45,6 +53,10 @@ __all__ = [
     "Inventory",
     "InventoryAdjustment",
     "InventoryMovementRepository",
+    "InventoryPage",
+    "InventoryQueryRepository",
+    "InventoryQueryService",
+    "InventoryRead",
     "InventoryService",
     "InventoryValidationError",
     "LockedStock",
@@ -62,6 +74,8 @@ __all__ = [
     "StockMovement",
     "StockMovementResult",
     "StockResult",
+    "get_session_transaction_identity",
+    "is_mysql_lock_conflict_error",
     "merge_and_sort_stock_lines",
     "normalize_lock_order",
 ]

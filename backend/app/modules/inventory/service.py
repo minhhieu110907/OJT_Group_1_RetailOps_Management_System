@@ -1,4 +1,24 @@
-"""Unified Inventory Service with deterministic lock ordering and stock movements."""
+"""Inventory query and mutation services.
+
+Provides:
+1. ``InventoryQueryService`` (T04A6BD): read-only paginated list and detail queries.
+2. ``InventoryService`` (T04A653): unified stock mutation entry point
+   ``apply_stock_change()``, thin wrappers (``increase``, ``decrease``,
+   ``return_stock``, ``adjust``), and frozen CF-02 contract methods
+   (``lock_for_mutation``, ``increase_for_receipt``, ``decrease_for_checkout``,
+   ``restore_for_cancel``, ``adjust_to_count``).
+
+Architectural invariants:
+- Never calls ``session.commit()``, ``session.rollback()``, ``session.close()``,
+  ``session.begin()``, or ``session.begin_nested()``.
+- Enforces deterministic ascending lock order: Product ID ASC -> Inventory ID ASC.
+- ``StockLockSet`` is bound to a single active ``(Session, SessionTransaction)``
+  and is single-use (cannot be cached, reused after commit/rollback, or reused
+  across multiple mutations).
+- Guarantees non-negative inventory balances at both service and DB layers.
+- Guarantees atomic whole-document idempotent replay or strict duplicate rejection
+  before mutating any row.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +28,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import ResourceNotFoundError
 from app.modules.inventory.exceptions import (
     DuplicateMovementError,
     InactiveProductStockError,
@@ -25,11 +46,16 @@ from app.modules.inventory.models import (
     ReferenceType,
     StockMovement,
 )
-from app.modules.inventory.repository import InventoryMovementRepository
+from app.modules.inventory.repository import (
+    InventoryMovementRepository,
+    InventoryQueryRepository,
+    get_session_transaction_identity,
+)
 from app.modules.inventory.schemas import (
     AdjustmentResult,
     CountAdjustment,
-    LockedStock,
+    InventoryPage,
+    InventoryRead,
     StockChangeItem,
     StockLine,
     StockLockSet,
@@ -37,62 +63,18 @@ from app.modules.inventory.schemas import (
     StockResult,
 )
 
-
-def utc_now_naive() -> datetime:
-    """Return current UTC timestamp without tzinfo for MySQL DATETIME(6)."""
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _is_strict_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def normalize_lock_order(product_ids: Sequence[int]) -> list[int]:
-    """Validate, deduplicate, and sort product IDs ascending for lock acquisition."""
-    if not product_ids:
-        raise InventoryValidationError("Danh sách sản phẩm cần khóa không được rỗng.")
-    unique_ids: set[int] = set()
-    for pid in product_ids:
-        if not _is_strict_int(pid) or pid <= 0:
-            raise InventoryValidationError(
-                "Mã sản phẩm (product_id) phải là số nguyên dương."
-            )
-        unique_ids.add(pid)
-    return sorted(unique_ids)
-
-
-def merge_and_sort_stock_lines(lines: Sequence[StockLine]) -> list[StockLine]:
-    """Validate positive quantities, merge duplicate product_ids, and sort ascending."""
-    if not lines:
-        raise InventoryValidationError("Danh sách sản phẩm biến động không được rỗng.")
-    totals: dict[int, int] = {}
-    for line in lines:
-        if not _is_strict_int(line.product_id) or line.product_id <= 0:
-            raise InventoryValidationError(
-                "Mã sản phẩm (product_id) phải là số nguyên dương."
-            )
-        if not _is_strict_int(line.quantity) or line.quantity <= 0:
-            raise InventoryValidationError(
-                "Số lượng biến động (quantity) phải là số nguyên dương (> 0)."
-            )
-        totals[line.product_id] = totals.get(line.product_id, 0) + line.quantity
-    return [
-        StockLine(product_id=pid, quantity=totals[pid]) for pid in sorted(totals.keys())
-    ]
-
+_MOVEMENT_TYPE_TO_KIND: dict[MovementType, MovementKind] = {
+    MovementType.INCREASE: MovementKind.PURCHASE_CONFIRM,
+    MovementType.DECREASE: MovementKind.SALE,
+    MovementType.RETURN: MovementKind.ORDER_CANCEL,
+    MovementType.ADJUST: MovementKind.ADJUSTMENT,
+}
 
 _MOVEMENT_KIND_TO_TYPE: dict[MovementKind, MovementType] = {
     MovementKind.PURCHASE_CONFIRM: MovementType.INCREASE,
     MovementKind.SALE: MovementType.DECREASE,
     MovementKind.ORDER_CANCEL: MovementType.RETURN,
     MovementKind.ADJUSTMENT: MovementType.ADJUST,
-}
-
-_MOVEMENT_TYPE_TO_KIND: dict[MovementType, MovementKind] = {
-    MovementType.INCREASE: MovementKind.PURCHASE_CONFIRM,
-    MovementType.DECREASE: MovementKind.SALE,
-    MovementType.RETURN: MovementKind.ORDER_CANCEL,
-    MovementType.ADJUST: MovementKind.ADJUSTMENT,
 }
 
 _KIND_TO_DEFAULT_REFERENCE_TYPE: dict[MovementKind, ReferenceType] = {
@@ -103,28 +85,114 @@ _KIND_TO_DEFAULT_REFERENCE_TYPE: dict[MovementKind, ReferenceType] = {
 }
 
 
-class InventoryService:
-    """Single unified service for all stock mutations in RetailOps V1.0.
+def _utc_now_naive() -> datetime:
+    """Return current UTC timestamp as naive datetime(6) for MySQL storage."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
-    Transaction & concurrency invariants:
-    - NEVER calls ``session.commit()``, ``session.rollback()``, ``session.close()``,
-      ``session.begin()``, or ``session.begin_nested()``.
-    - The calling service (Checkout, Receipt Confirm, Cancel Order, Adjustment)
-      owns the transaction boundary.
-    - All multi-item mutations lock ``Product`` rows in ascending ``id`` order
-      followed by ``Inventory`` rows in ascending ``product_id`` order.
-    """
+
+def _is_strict_int(value: object) -> bool:
+    """Return True if value is a Python int and NOT a bool."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def normalize_lock_order(product_ids: Sequence[int]) -> list[int]:
+    """Validate, deduplicate, and sort product IDs in ascending lock order."""
+    if not product_ids:
+        raise InventoryValidationError(
+            "Danh sách sản phẩm cần khóa không được để trống."
+        )
+
+    unique_ids: set[int] = set()
+    for pid in product_ids:
+        if not _is_strict_int(pid) or pid <= 0:
+            raise InventoryValidationError(
+                "Mã sản phẩm (product_id) phải là số nguyên dương."
+            )
+        unique_ids.add(pid)
+
+    return sorted(unique_ids)
+
+
+def merge_and_sort_stock_lines(lines: Sequence[StockLine]) -> list[StockLine]:
+    """Validate, merge duplicate product lines, and sort by product_id ASC."""
+    if not lines:
+        raise InventoryValidationError(
+            "Danh sách dòng biến động tồn kho không được để trống."
+        )
+
+    merged: dict[int, int] = {}
+    for line in lines:
+        if not _is_strict_int(line.product_id) or line.product_id <= 0:
+            raise InventoryValidationError(
+                "Mã sản phẩm (product_id) phải là số nguyên dương."
+            )
+        if not _is_strict_int(line.quantity) or line.quantity <= 0:
+            raise InventoryValidationError(
+                "Số lượng biến động (quantity) phải là số nguyên dương (> 0)."
+            )
+        merged[line.product_id] = merged.get(line.product_id, 0) + line.quantity
+
+    return [
+        StockLine(product_id=pid, quantity=merged[pid]) for pid in sorted(merged.keys())
+    ]
+
+
+class InventoryQueryService:
+    """Orchestrates inventory read queries and builds response DTOs."""
+
+    def __init__(self, repository: InventoryQueryRepository | None = None) -> None:
+        self._repository = repository or InventoryQueryRepository()
+
+    def list_inventory(
+        self,
+        session: Session,
+        page: int,
+        page_size: int,
+        category_id: int | None = None,
+        status: str | None = None,
+        in_stock: bool | None = None,
+    ) -> InventoryPage:
+        """Fetch paginated inventory items and return as InventoryPage."""
+        items, total = self._repository.list_inventory(
+            session=session,
+            page=page,
+            page_size=page_size,
+            category_id=category_id,
+            status=status,
+            in_stock=in_stock,
+        )
+        return InventoryPage(
+            items=[InventoryRead.model_validate(item) for item in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    def get_inventory(self, session: Session, product_id: int) -> InventoryRead:
+        """Fetch inventory item by product ID or raise ResourceNotFoundError."""
+        item = self._repository.get_by_product_id(
+            session=session, product_id=product_id
+        )
+        if item is None:
+            raise ResourceNotFoundError(
+                "Không tìm thấy thông tin tồn kho cho sản phẩm yêu cầu."
+            )
+        return InventoryRead.model_validate(item)
+
+
+class InventoryService:
+    """Unified Inventory Service for stock mutations and CF-02 contract port."""
 
     def __init__(
         self,
         repository: InventoryMovementRepository | None = None,
-        clock: Callable[[], datetime] = utc_now_naive,
+        clock: Callable[[], datetime] = _utc_now_naive,
     ) -> None:
         self._repository = repository or InventoryMovementRepository()
         self._clock = clock
 
     # ------------------------------------------------------------------
-    # Lock acquisition (TD-04B / CF-02)
+    # Locking primitive (CF-02)
     # ------------------------------------------------------------------
 
     def lock_for_mutation(
@@ -133,12 +201,12 @@ class InventoryService:
         *,
         product_ids: Sequence[int],
     ) -> StockLockSet:
-        """Lock Product and Inventory rows in deterministic ascending ID order."""
+        """Lock Product rows ASC then Inventory rows ASC under SELECT ... FOR UPDATE."""
         sorted_ids = normalize_lock_order(product_ids)
         return self._repository.lock_products_and_inventory(session, sorted_ids)
 
     # ------------------------------------------------------------------
-    # Unified entry point (apply_stock_change + thin wrappers)
+    # Unified entry point + thin wrappers
     # ------------------------------------------------------------------
 
     def apply_stock_change(
@@ -185,27 +253,96 @@ class InventoryService:
             )
 
         normalized_items = self._normalize_and_merge_delta_items(items)
-        active_locks = self._ensure_lock_set(
+        active_locks = self._consume_or_acquire_lock_set(
             session,
             locks=locks,
             required_product_ids=[item.product_id for item in normalized_items],
         )
 
+        # Look up all existing movements for (kind, reference_id) before mutating
+        existing_by_pid = self._load_reference_movements_map(
+            session,
+            kind=kind,
+            reference_id=reference_id,
+            candidate_product_ids=[item.product_id for item in normalized_items],
+        )
+
+        if existing_by_pid:
+            if not idempotent_replay:
+                first_dup_pid = next(iter(existing_by_pid.keys()))
+                raise DuplicateMovementError(
+                    details={
+                        "product_id": first_dup_pid,
+                        "kind": kind.value,
+                        "reference_id": reference_id,
+                    }
+                )
+
+            requested_pids = {item.product_id for item in normalized_items}
+            if requested_pids != set(existing_by_pid.keys()):
+                raise DuplicateMovementError(
+                    details={
+                        "kind": kind.value,
+                        "reference_id": reference_id,
+                        "requested_product_ids": sorted(requested_pids),
+                        "recorded_product_ids": sorted(existing_by_pid.keys()),
+                    }
+                )
+
+            replayed_results: list[StockMovementResult] = []
+            for item in normalized_items:
+                assert item.quantity is not None
+                signed_delta = (
+                    -item.quantity if kind == MovementKind.SALE else item.quantity
+                )
+                existing = existing_by_pid[item.product_id]
+                version_before = existing.stock_version_after - 1
+                if (
+                    existing.delta != signed_delta
+                    or existing.actor_id != actor_id
+                    or (
+                        item.expected_stock_version is not None
+                        and item.expected_stock_version != version_before
+                    )
+                ):
+                    raise DuplicateMovementError(
+                        details={
+                            "product_id": item.product_id,
+                            "kind": kind.value,
+                            "reference_id": reference_id,
+                        }
+                    )
+
+                replayed_results.append(
+                    StockMovementResult(
+                        movement_id=existing.id,
+                        product_id=existing.product_id,
+                        sku_snapshot=existing.sku_snapshot,
+                        kind=kind,
+                        movement_type=resolved_type,
+                        reference_type=resolved_ref_type,
+                        reference_id=reference_id,
+                        actor_id=existing.actor_id,
+                        quantity_before=existing.quantity_before,
+                        quantity_after=existing.quantity_after,
+                        delta=existing.delta,
+                        stock_version_before=version_before,
+                        stock_version_after=existing.stock_version_after,
+                        occurred_at=existing.occurred_at,
+                        movement_created=False,
+                    )
+                )
+            return replayed_results
+
         # Pre-validate all locked rows before mutating any row
         for item in normalized_items:
+            assert item.quantity is not None
             locked = active_locks.rows[item.product_id]
             if (
                 kind in {MovementKind.PURCHASE_CONFIRM, MovementKind.SALE}
                 and locked.status != ProductStatus.ACTIVE.value
             ):
-                existing = self._find_reference_movement(
-                    session,
-                    kind=kind,
-                    product_id=item.product_id,
-                    reference_id=reference_id,
-                )
-                if existing is None:
-                    raise InactiveProductStockError(product_id=item.product_id)
+                raise InactiveProductStockError(product_id=item.product_id)
 
             if (
                 item.expected_stock_version is not None
@@ -217,6 +354,16 @@ class InventoryService:
                     current_stock_version=locked.stock_version,
                 )
 
+            signed_delta = (
+                -item.quantity if kind == MovementKind.SALE else item.quantity
+            )
+            if locked.quantity + signed_delta < 0:
+                raise InsufficientStockError(
+                    product_id=item.product_id,
+                    requested_quantity=item.quantity,
+                    available_quantity=locked.quantity,
+                )
+
         now = self._normalize_timestamp(self._clock())
         results: list[StockMovementResult] = []
 
@@ -226,54 +373,7 @@ class InventoryService:
             signed_delta = (
                 -item.quantity if kind == MovementKind.SALE else item.quantity
             )
-
-            existing = self._find_reference_movement(
-                session,
-                kind=kind,
-                product_id=item.product_id,
-                reference_id=reference_id,
-            )
-            if existing is not None:
-                if (
-                    idempotent_replay
-                    and existing.delta == signed_delta
-                    and existing.actor_id == actor_id
-                ):
-                    results.append(
-                        StockMovementResult(
-                            movement_id=existing.id,
-                            product_id=existing.product_id,
-                            sku_snapshot=existing.sku_snapshot,
-                            kind=kind,
-                            movement_type=resolved_type,
-                            reference_type=resolved_ref_type,
-                            reference_id=reference_id,
-                            actor_id=existing.actor_id,
-                            quantity_before=existing.quantity_before,
-                            quantity_after=existing.quantity_after,
-                            delta=existing.delta,
-                            stock_version_before=existing.stock_version_after - 1,
-                            stock_version_after=existing.stock_version_after,
-                            occurred_at=existing.occurred_at,
-                            movement_created=False,
-                        )
-                    )
-                    continue
-                raise DuplicateMovementError(
-                    details={
-                        "product_id": item.product_id,
-                        "kind": kind.value,
-                        "reference_id": reference_id,
-                    }
-                )
-
             new_quantity = locked.quantity + signed_delta
-            if new_quantity < 0:
-                raise InsufficientStockError(
-                    product_id=item.product_id,
-                    requested_quantity=item.quantity,
-                    available_quantity=locked.quantity,
-                )
 
             updated = self._repository.guarded_update_balance(
                 session,
@@ -632,7 +732,7 @@ class InventoryService:
                 )
 
         sorted_items = sorted(items, key=lambda x: x.product_id)
-        active_locks = self._ensure_lock_set(
+        active_locks = self._consume_or_acquire_lock_set(
             session,
             locks=locks,
             required_product_ids=[item.product_id for item in sorted_items],
@@ -748,7 +848,7 @@ class InventoryService:
 
         return results
 
-    def _ensure_lock_set(
+    def _consume_or_acquire_lock_set(
         self,
         session: Session,
         *,
@@ -757,24 +857,64 @@ class InventoryService:
     ) -> StockLockSet:
         sorted_ids = normalize_lock_order(required_product_ids)
         if locks is None:
-            return self.lock_for_mutation(session, product_ids=sorted_ids)
+            acquired = self.lock_for_mutation(session, product_ids=sorted_ids)
+            acquired.mark_consumed()
+            return acquired
 
-        if locks.session_identity is not None and locks.session_identity != id(session):
+        if locks.session_identity is None or locks.session_identity != id(session):
             raise StockConflictError(
                 "StockLockSet thuộc về một Session/Transaction khác "
                 "và không được tái sử dụng."
+            )
+
+        current_tx_identity = get_session_transaction_identity(session)
+        if current_tx_identity == 0 or (
+            locks.transaction_identity is not None
+            and locks.transaction_identity != current_tx_identity
+        ):
+            raise StockConflictError(
+                "StockLockSet đã hết hiệu lực do giao dịch (transaction) "
+                "đã kết thúc hoặc thay đổi."
+            )
+
+        if locks.is_consumed:
+            raise StockConflictError(
+                "StockLockSet đã được sử dụng cho một thao tác biến động trước đó "
+                "và không được phép tái sử dụng."
             )
 
         missing = [pid for pid in sorted_ids if pid not in locks.rows]
         if missing:
             raise StockItemNotFoundError(product_ids=missing)
 
-        # Refresh snapshot from current session under lock so sequential mutations
-        # within the same transaction observe updated balance & stock_version.
-        refreshed = self._repository.lock_products_and_inventory(session, sorted_ids)
-        merged_rows: dict[int, LockedStock] = dict(locks.rows)
-        merged_rows.update(refreshed.rows)
-        return StockLockSet(rows=merged_rows, session_identity=id(session))
+        locks.mark_consumed()
+        return locks
+
+    def _load_reference_movements_map(
+        self,
+        session: Session,
+        *,
+        kind: MovementKind,
+        reference_id: int,
+        candidate_product_ids: Sequence[int],
+    ) -> dict[int, StockMovement]:
+        movements = self._repository.find_movements_by_reference(
+            session,
+            kind=kind,
+            reference_id=reference_id,
+        )
+        by_pid: dict[int, StockMovement] = {m.product_id: m for m in movements}
+        if not by_pid:
+            for pid in candidate_product_ids:
+                existing = self._find_reference_movement(
+                    session,
+                    kind=kind,
+                    product_id=pid,
+                    reference_id=reference_id,
+                )
+                if existing is not None:
+                    by_pid[pid] = existing
+        return by_pid
 
     def _find_reference_movement(
         self,
@@ -913,3 +1053,11 @@ class InventoryService:
         if value.tzinfo is not None:
             return value.astimezone(UTC).replace(tzinfo=None)
         return value
+
+
+__all__ = [
+    "InventoryQueryService",
+    "InventoryService",
+    "merge_and_sort_stock_lines",
+    "normalize_lock_order",
+]

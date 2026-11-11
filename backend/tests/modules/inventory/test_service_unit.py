@@ -29,6 +29,7 @@ from app.modules.inventory import (
     StockLine,
     StockLockSet,
     StockMovement,
+    get_session_transaction_identity,
     merge_and_sort_stock_lines,
     normalize_lock_order,
 )
@@ -44,6 +45,20 @@ FORBIDDEN_SESSION_METHODS = {
 
 class GuardedUnitSession:
     """Fake session that fails if any transaction boundary method is called."""
+
+    def __init__(self, tx_token: object | None = None) -> None:
+        self._tx_token = object() if tx_token is None else tx_token
+
+    def get_transaction(self) -> object | None:
+        return self._tx_token
+
+    def rotate_transaction(self) -> None:
+        """Simulate a new transaction after an external commit/rollback."""
+        self._tx_token = object()
+
+    def end_transaction(self) -> None:
+        """Simulate a session with no active transaction."""
+        self._tx_token = None
 
     def commit(self) -> None:  # pragma: no cover - defensive guard
         raise AssertionError("InventoryService must never call session.commit()")
@@ -108,7 +123,11 @@ class FakeInventoryMovementRepository(InventoryMovementRepository):
             )
             for pid in ordered
         }
-        return StockLockSet(rows=rows, session_identity=id(session))
+        return StockLockSet(
+            rows=rows,
+            session_identity=id(session),
+            transaction_identity=get_session_transaction_identity(session),
+        )
 
     def guarded_update_balance(  # type: ignore[override]
         self,
@@ -151,6 +170,35 @@ class FakeInventoryMovementRepository(InventoryMovementRepository):
             if kind == MovementKind.ADJUSTMENT and mov.adjustment_id == adjustment_id:
                 return mov
         return None
+
+    def find_movements_by_reference(  # type: ignore[override]
+        self,
+        session: object,
+        *,
+        kind: MovementKind,
+        reference_id: int,
+    ) -> list[StockMovement]:
+        matched: list[StockMovement] = []
+        for mov in self.movements:
+            if mov.kind != kind.value:
+                continue
+            is_match = (
+                (
+                    kind == MovementKind.PURCHASE_CONFIRM
+                    and mov.receipt_id == reference_id
+                )
+                or (
+                    kind in {MovementKind.SALE, MovementKind.ORDER_CANCEL}
+                    and mov.order_id == reference_id
+                )
+                or (
+                    kind == MovementKind.ADJUSTMENT
+                    and mov.adjustment_id == reference_id
+                )
+            )
+            if is_match:
+                matched.append(mov)
+        return sorted(matched, key=lambda m: (m.product_id, m.id or 0))
 
     def add_adjustment(  # type: ignore[override]
         self,
@@ -229,6 +277,15 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
                 quantity=5,
                 stock_version=2,
             ),
+            _InMemoryProductState(
+                product_id=30,
+                sku="SKU-030",
+                name="Product 30",
+                status=ProductStatus.ACTIVE.value,
+                sale_price_vnd=90_000,
+                quantity=12,
+                stock_version=1,
+            ),
         ]
     )
     service = InventoryService(repository=repo, clock=lambda: fixed_now)
@@ -260,8 +317,16 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
     retry_results = service.increase(
         session,  # type: ignore[arg-type]
         items=[
-            StockChangeItem(product_id=10, quantity=10),
-            StockChangeItem(product_id=20, quantity=3),
+            StockChangeItem(
+                product_id=10,
+                quantity=10,
+                expected_stock_version=0,
+            ),
+            StockChangeItem(
+                product_id=20,
+                quantity=3,
+                expected_stock_version=2,
+            ),
         ],
         reference_id=101,
         actor_id=1,
@@ -271,11 +336,39 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
     assert repo.states[10].stock_version == 1
     assert len(repo.movements) == 2
 
+    # Partial batch replay (missing product 20 from reference_id=101) -> rejected
+    with pytest.raises(DuplicateMovementError):
+        service.increase(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=10, quantity=10)],
+            reference_id=101,
+            actor_id=1,
+        )
+
+    # Mixed batch replay (existing product 10 + unrecorded product 30 on ref 101)
+    # MUST be rejected before mutating product 30!
+    with pytest.raises(DuplicateMovementError):
+        service.increase(
+            session,  # type: ignore[arg-type]
+            items=[
+                StockChangeItem(product_id=10, quantity=10),
+                StockChangeItem(product_id=20, quantity=3),
+                StockChangeItem(product_id=30, quantity=5),
+            ],
+            reference_id=101,
+            actor_id=1,
+        )
+    assert repo.states[30].quantity == 12
+    assert repo.states[30].stock_version == 1
+
     # Conflicting quantity on same reference_id must raise DuplicateMovementError
     with pytest.raises(DuplicateMovementError):
         service.increase(
             session,  # type: ignore[arg-type]
-            items=[StockChangeItem(product_id=10, quantity=99)],
+            items=[
+                StockChangeItem(product_id=10, quantity=99),
+                StockChangeItem(product_id=20, quantity=3),
+            ],
             reference_id=101,
             actor_id=1,
         )
@@ -361,7 +454,7 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
         )
 
 
-def test_negative_stock_inactive_product_and_cross_session_lock_guards() -> None:
+def test_negative_stock_inactive_product_and_lock_lifecycle_guards() -> None:
     repo = FakeInventoryMovementRepository(
         [
             _InMemoryProductState(
@@ -370,7 +463,7 @@ def test_negative_stock_inactive_product_and_cross_session_lock_guards() -> None
                 name="Active Product",
                 status=ProductStatus.ACTIVE.value,
                 sale_price_vnd=20_000,
-                quantity=2,
+                quantity=5,
                 stock_version=1,
             ),
             _InMemoryProductState(
@@ -391,13 +484,13 @@ def test_negative_stock_inactive_product_and_cross_session_lock_guards() -> None
     with pytest.raises(InsufficientStockError) as exc_info:
         service.decrease(
             session,  # type: ignore[arg-type]
-            items=[StockChangeItem(product_id=1, quantity=3)],
+            items=[StockChangeItem(product_id=1, quantity=6)],
             reference_id=900,
             actor_id=1,
         )
     assert exc_info.value.status_code == 409
     assert exc_info.value.code == "INSUFFICIENT_STOCK"
-    assert repo.states[1].quantity == 2
+    assert repo.states[1].quantity == 5
     assert repo.states[1].stock_version == 1
 
     # INACTIVE product is rejected for receipt/checkout but allowed for adjustment
@@ -416,9 +509,12 @@ def test_negative_stock_inactive_product_and_cross_session_lock_guards() -> None
             actor_id=1,
         )
 
+    # Lock lifecycle check 1: passing StockLockSet uses it directly without re-locking
+    locks = service.lock_for_mutation(session, product_ids=[2])  # type: ignore[arg-type]
+    lock_calls_before = len(repo.lock_history)
     adj_inactive = service.adjust_to_count(
         session,  # type: ignore[arg-type]
-        locks=service.lock_for_mutation(session, product_ids=[2]),  # type: ignore[arg-type]
+        locks=locks,
         actor_id=1,
         adjustment=CountAdjustment(
             product_id=2,
@@ -427,10 +523,49 @@ def test_negative_stock_inactive_product_and_cross_session_lock_guards() -> None
             reason="Kiểm kê hàng ngừng kinh doanh",
         ),
     )
+    assert len(repo.lock_history) == lock_calls_before
     assert adj_inactive.stock.quantity == 4
     assert adj_inactive.stock.stock_version == 2
+    assert locks.is_consumed is True
 
-    # Cross-session StockLockSet reuse is rejected
+    # Lock lifecycle check 2: reusing an already-consumed StockLockSet is rejected
+    with pytest.raises(StockConflictError):
+        service.adjust_to_count(
+            session,  # type: ignore[arg-type]
+            locks=locks,
+            actor_id=1,
+            adjustment=CountAdjustment(
+                product_id=2,
+                counted_quantity=3,
+                expected_stock_version=2,
+                reason="Tái dùng lockset cũ",
+            ),
+        )
+
+    # Lock lifecycle check 3: StockLockSet across transaction rotation is rejected
+    tx_locks = service.lock_for_mutation(session, product_ids=[1])  # type: ignore[arg-type]
+    session.rotate_transaction()
+    with pytest.raises(StockConflictError):
+        service.decrease_for_checkout(
+            session,  # type: ignore[arg-type]
+            locks=tx_locks,
+            order_id=997,
+            actor_id=1,
+            lines=[StockLine(product_id=1, quantity=1)],
+        )
+
+    # Lock lifecycle check 4: Forged StockLockSet without session_identity is rejected
+    forged_locks = StockLockSet(rows=tx_locks.rows)
+    with pytest.raises(StockConflictError):
+        service.decrease_for_checkout(
+            session,  # type: ignore[arg-type]
+            locks=forged_locks,
+            order_id=998,
+            actor_id=1,
+            lines=[StockLine(product_id=1, quantity=1)],
+        )
+
+    # Lock lifecycle check 5: Cross-session StockLockSet reuse is rejected
     other_session = GuardedUnitSession()
     foreign_locks = service.lock_for_mutation(other_session, product_ids=[1])  # type: ignore[arg-type]
     with pytest.raises(StockConflictError):

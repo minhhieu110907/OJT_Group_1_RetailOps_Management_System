@@ -1,17 +1,24 @@
-"""SQLAlchemy repository for Inventory locking, guarded updates, and Stock Movements."""
+"""Database query and persistence primitives for the Inventory module.
+
+Transaction invariant:
+- Neither ``InventoryQueryRepository`` nor ``InventoryMovementRepository`` ever
+  calls ``commit()``, ``rollback()``, ``close()``, ``begin()``, or ``begin_nested()``.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.exceptions import (
     StockConflictError,
     StockItemNotFoundError,
+    is_mysql_lock_conflict_error,
 )
 from app.modules.inventory.models import (
     Inventory,
@@ -22,18 +29,98 @@ from app.modules.inventory.models import (
 )
 from app.modules.inventory.schemas import LockedStock, StockLockSet
 
-MYSQL_LOCK_WAIT_TIMEOUT_CODE = 1205
-MYSQL_DEADLOCK_CODE = 1213
+
+def get_session_transaction_identity(session: object) -> int:
+    """Return a non-zero identity token for the session's active transaction.
+
+    For real SQLAlchemy ``Session`` objects, returns ``id(tx)`` if a transaction
+    is currently active, or ``0`` if no transaction is active (e.g. after a
+    ``commit()`` or ``rollback()``). For lightweight unit-test session doubles
+    that do not implement ``get_transaction()``, falls back to ``id(session)``.
+    """
+    get_tx = getattr(session, "get_transaction", None)
+    if callable(get_tx):
+        tx = get_tx()
+        return id(tx) if tx is not None else 0
+    return id(session)
 
 
-def is_mysql_lock_conflict_error(error: DBAPIError) -> bool:
-    """Return True when MySQL reports InnoDB deadlock (1213) or lock timeout (1205)."""
-    orig = getattr(error, "orig", None)
-    args = getattr(orig, "args", ())
-    if args and isinstance(args[0], int):
-        return args[0] in {MYSQL_LOCK_WAIT_TIMEOUT_CODE, MYSQL_DEADLOCK_CODE}
-    text_msg = str(orig if orig is not None else error).lower()
-    return "deadlock" in text_msg or "lock wait timeout" in text_msg
+class InventoryQueryRepository:
+    """Read repository for querying inventory records joined with products."""
+
+    def list_inventory(
+        self,
+        session: Session,
+        page: int,
+        page_size: int,
+        category_id: int | None = None,
+        status: str | None = None,
+        in_stock: bool | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Query paginated inventory records joined with products.
+
+        Applies filters and tie-breaker sorting by Product.id ASC.
+        """
+        stmt = select(
+            Product.id.label("product_id"),
+            Product.sku.label("sku"),
+            Product.name.label("name"),
+            Product.category_id.label("category_id"),
+            Product.status.label("status"),
+            Inventory.quantity.label("quantity"),
+            Inventory.stock_version.label("stock_version"),
+            Inventory.first_stocked_at.label("first_stocked_at"),
+        ).join(Inventory, Product.id == Inventory.product_id)
+
+        count_stmt = select(func.count(Product.id)).join(
+            Inventory, Product.id == Inventory.product_id
+        )
+
+        if category_id is not None:
+            stmt = stmt.where(Product.category_id == category_id)
+            count_stmt = count_stmt.where(Product.category_id == category_id)
+
+        if status is not None:
+            status_val = status.value if hasattr(status, "value") else str(status)
+            stmt = stmt.where(Product.status == status_val)
+            count_stmt = count_stmt.where(Product.status == status_val)
+
+        if in_stock is True:
+            stmt = stmt.where(Inventory.quantity > 0)
+            count_stmt = count_stmt.where(Inventory.quantity > 0)
+        elif in_stock is False:
+            stmt = stmt.where(Inventory.quantity == 0)
+            count_stmt = count_stmt.where(Inventory.quantity == 0)
+
+        total = session.scalar(count_stmt) or 0
+
+        offset = (page - 1) * page_size
+        stmt = stmt.order_by(Product.id.asc()).offset(offset).limit(page_size)
+
+        rows = session.execute(stmt).mappings().all()
+        items = [dict(row) for row in rows]
+        return items, total
+
+    def get_by_product_id(
+        self, session: Session, product_id: int
+    ) -> dict[str, Any] | None:
+        """Query a single inventory record joined with product by product_id."""
+        stmt = (
+            select(
+                Product.id.label("product_id"),
+                Product.sku.label("sku"),
+                Product.name.label("name"),
+                Product.category_id.label("category_id"),
+                Product.status.label("status"),
+                Inventory.quantity.label("quantity"),
+                Inventory.stock_version.label("stock_version"),
+                Inventory.first_stocked_at.label("first_stocked_at"),
+            )
+            .join(Inventory, Product.id == Inventory.product_id)
+            .where(Product.id == product_id)
+        )
+        row = session.execute(stmt).mappings().first()
+        return dict(row) if row is not None else None
 
 
 class InventoryMovementRepository:
@@ -51,7 +138,11 @@ class InventoryMovementRepository:
     ) -> StockLockSet:
         """Acquire FOR UPDATE locks in order: Product ID ASC -> Inventory ID ASC."""
         if not sorted_product_ids:
-            return StockLockSet(rows={}, session_identity=id(session))
+            return StockLockSet(
+                rows={},
+                session_identity=id(session),
+                transaction_identity=get_session_transaction_identity(session),
+            )
 
         ordered_ids = list(sorted_product_ids)
         try:
@@ -108,7 +199,11 @@ class InventoryMovementRepository:
                 stock_version=inv.stock_version,
             )
 
-        return StockLockSet(rows=locked_rows, session_identity=id(session))
+        return StockLockSet(
+            rows=locked_rows,
+            session_identity=id(session),
+            transaction_identity=get_session_transaction_identity(session),
+        )
 
     def guarded_update_balance(
         self,
@@ -119,17 +214,16 @@ class InventoryMovementRepository:
         new_quantity: int,
         now: datetime,
     ) -> bool:
-        """Atomically update inventory balance with version and non-negative guards."""
+        """Atomically update inventory balance and increment stock_version by +1."""
         if new_quantity < 0:
             return False
 
-        first_stocked_expr = (
-            case(
-                (Inventory.first_stocked_at.is_(None), now),
-                else_=Inventory.first_stocked_at,
-            )
-            if new_quantity > 0
-            else Inventory.first_stocked_at
+        first_stocked_expr = case(
+            (
+                (Inventory.first_stocked_at.is_(None)) & (new_quantity > 0),
+                now,
+            ),
+            else_=Inventory.first_stocked_at,
         )
 
         stmt = (
@@ -149,11 +243,10 @@ class InventoryMovementRepository:
         )
         try:
             result = session.execute(stmt)
-            session.flush()
         except (OperationalError, DBAPIError) as error:
             if is_mysql_lock_conflict_error(error):
                 raise StockConflictError(
-                    "Xung đột cập nhật tồn kho đồng thời, vui lòng thử lại."
+                    "Xung đột khóa dữ liệu tồn kho khi cập nhật số dư."
                 ) from error
             raise
 
@@ -169,40 +262,45 @@ class InventoryMovementRepository:
         order_id: int | None = None,
         adjustment_id: int | None = None,
     ) -> StockMovement | None:
-        """Look up an already-recorded movement for the same business reference."""
-        if kind == MovementKind.PURCHASE_CONFIRM and receipt_id is not None:
-            return session.scalar(
-                select(StockMovement).where(
-                    StockMovement.receipt_id == receipt_id,
-                    StockMovement.product_id == product_id,
-                )
-            )
-        if (
-            kind in {MovementKind.SALE, MovementKind.ORDER_CANCEL}
-            and order_id is not None
-        ):
-            return session.scalar(
-                select(StockMovement).where(
-                    StockMovement.order_id == order_id,
-                    StockMovement.product_id == product_id,
-                    StockMovement.kind == kind.value,
-                )
-            )
-        if kind == MovementKind.ADJUSTMENT and adjustment_id is not None:
-            return session.scalar(
-                select(StockMovement).where(
-                    StockMovement.adjustment_id == adjustment_id,
-                    StockMovement.product_id == product_id,
-                )
-            )
-        return None
+        """Look up an existing StockMovement for a single product and source ref."""
+        stmt = select(StockMovement).where(
+            StockMovement.product_id == product_id,
+            StockMovement.kind == kind.value,
+        )
+        if kind == MovementKind.PURCHASE_CONFIRM:
+            stmt = stmt.where(StockMovement.receipt_id == receipt_id)
+        elif kind in {MovementKind.SALE, MovementKind.ORDER_CANCEL}:
+            stmt = stmt.where(StockMovement.order_id == order_id)
+        elif kind == MovementKind.ADJUSTMENT:
+            stmt = stmt.where(StockMovement.adjustment_id == adjustment_id)
+
+        return session.scalar(stmt)
+
+    def find_movements_by_reference(
+        self,
+        session: Session,
+        *,
+        kind: MovementKind,
+        reference_id: int,
+    ) -> list[StockMovement]:
+        """Look up all StockMovement rows recorded for a document reference."""
+        stmt = select(StockMovement).where(StockMovement.kind == kind.value)
+        if kind == MovementKind.PURCHASE_CONFIRM:
+            stmt = stmt.where(StockMovement.receipt_id == reference_id)
+        elif kind in {MovementKind.SALE, MovementKind.ORDER_CANCEL}:
+            stmt = stmt.where(StockMovement.order_id == reference_id)
+        else:
+            stmt = stmt.where(StockMovement.adjustment_id == reference_id)
+
+        stmt = stmt.order_by(StockMovement.product_id.asc(), StockMovement.id.asc())
+        return list(session.scalars(stmt))
 
     def add_adjustment(
         self,
         session: Session,
         adjustment: InventoryAdjustment,
     ) -> InventoryAdjustment:
-        """Persist an InventoryAdjustment audit row and flush to obtain its ID."""
+        """Stage and flush an InventoryAdjustment audit row."""
         session.add(adjustment)
         session.flush()
         return adjustment
@@ -212,7 +310,14 @@ class InventoryMovementRepository:
         session: Session,
         movement: StockMovement,
     ) -> StockMovement:
-        """Persist a StockMovement ledger row and flush to obtain its ID."""
+        """Stage and flush a StockMovement ledger row."""
         session.add(movement)
         session.flush()
         return movement
+
+
+__all__ = [
+    "InventoryMovementRepository",
+    "InventoryQueryRepository",
+    "get_session_transaction_identity",
+]

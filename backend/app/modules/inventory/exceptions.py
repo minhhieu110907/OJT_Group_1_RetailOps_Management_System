@@ -112,6 +112,19 @@ class InventoryValidationError(DomainValidationError):
     """Raised when stock change input fails business validation rules."""
 
 
+MYSQL_LOCK_CONFLICT_ERRNOS = frozenset({1205, 1213})
+
+
+def is_mysql_lock_conflict_error(error: BaseException) -> bool:
+    """Return True if a DBAPI/SQLAlchemy error is a MySQL lock timeout or deadlock."""
+    orig = getattr(error, "orig", None)
+    args = getattr(orig, "args", ())
+    if args and isinstance(args[0], int) and args[0] in MYSQL_LOCK_CONFLICT_ERRNOS:
+        return True
+    msg = str(error).lower()
+    return "deadlock found" in msg or "lock wait timeout exceeded" in msg
+
+
 __all__ = [
     "DuplicateMovementError",
     "InactiveProductStockError",
@@ -120,4 +133,5 @@ __all__ = [
     "StaleStockVersionError",
     "StockConflictError",
     "StockItemNotFoundError",
+    "is_mysql_lock_conflict_error",
 ]
