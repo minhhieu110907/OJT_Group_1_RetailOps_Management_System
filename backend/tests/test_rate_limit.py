@@ -71,13 +71,13 @@ async def test_fixed_window_allows_limit_and_returns_atomic_ttl() -> None:
     limiter = RedisFixedWindowRateLimiter(redis, "retailops:test")  # type: ignore[arg-type]
 
     first = await limiter.check(
-        policy="register", identity="203.0.113.1", limit=5, window_seconds=60, now=0
+        policy="register", identity="203.0.113.1", limit=5, window_seconds=60
     )
     fifth = await limiter.check(
-        policy="register", identity="203.0.113.1", limit=5, window_seconds=60, now=1
+        policy="register", identity="203.0.113.1", limit=5, window_seconds=60
     )
     sixth = await limiter.check(
-        policy="register", identity="203.0.113.1", limit=5, window_seconds=60, now=2
+        policy="register", identity="203.0.113.1", limit=5, window_seconds=60
     )
 
     assert first.allowed is True
@@ -85,6 +85,31 @@ async def test_fixed_window_allows_limit_and_returns_atomic_ttl() -> None:
     assert sixth.allowed is False
     assert sixth.retry_after == 22
     assert all(call[1] == 1 for call in redis.calls)
+
+
+@pytest.mark.anyio
+async def test_bucket_key_is_anchored_to_first_request_not_wall_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Requests straddling a minute boundary must share one bucket and full TTL."""
+    redis = FakeRedis([[1, 60], [2, 59]])
+    limiter = RedisFixedWindowRateLimiter(redis, "retailops:test")  # type: ignore[arg-type]
+
+    # 0.1s before a minute boundary (1_800_000_000 is divisible by 60).
+    monkeypatch.setattr("time.time", lambda: 1_799_999_999.9)
+    await limiter.check(
+        policy="register", identity="203.0.113.1", limit=5, window_seconds=60
+    )
+    # 0.1s after the same boundary.
+    monkeypatch.setattr("time.time", lambda: 1_800_000_000.1)
+    await limiter.check(
+        policy="register", identity="203.0.113.1", limit=5, window_seconds=60
+    )
+
+    first_key, second_key = redis.calls[0][2], redis.calls[1][2]
+    assert first_key == second_key
+    assert str(first_key).startswith("retailops:test:register:")
+    assert all(call[3] == 60 for call in redis.calls)
 
 
 @pytest.mark.anyio
