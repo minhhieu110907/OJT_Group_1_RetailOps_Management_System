@@ -11,12 +11,15 @@ from app.modules.sales.service import CheckoutService
 
 
 class FakeSession:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_commit: bool = False) -> None:
         self.commits = 0
         self.rollbacks = 0
+        self.fail_commit = fail_commit
 
     def commit(self) -> None:
         self.commits += 1
+        if self.fail_commit:
+            raise RuntimeError("commit failure")
 
     def rollback(self) -> None:
         self.rollbacks += 1
@@ -260,4 +263,20 @@ def test_inventory_failure_after_order_insert_rolls_back_outer_transaction() -> 
     assert repo.calls == 1
     assert inventory.decrease_calls == 1
     assert session.commits == 0
+    assert session.rollbacks == 1
+
+
+def test_commit_failure_triggers_rollback_and_is_not_reported_as_success() -> None:
+    session = FakeSession(fail_commit=True)
+    inventory = FakeInventory({1: stock()})
+
+    with pytest.raises(RuntimeError, match="commit failure"):
+        service(inventory, MemoryIdempotency(), FakeOrderRepository()).checkout(
+            session,  # type: ignore[arg-type]
+            actor_id=7,
+            idempotency_key="checkout-key-0007",
+            items=[line()],
+        )
+
+    assert session.commits == 1
     assert session.rollbacks == 1

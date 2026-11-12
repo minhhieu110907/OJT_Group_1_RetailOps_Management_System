@@ -5,10 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, status
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import DependencyUnavailableError
 from app.db.session import get_db_session
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.models import User
+from app.modules.inventory.service import InventoryService
 from app.modules.sales.inventory_port import InventoryServicePort
 from app.modules.sales.schemas import CheckoutRequest, OrderRead
 from app.modules.sales.service import CheckoutService
@@ -17,8 +17,8 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 
 
 def get_inventory_service() -> InventoryServicePort:
-    """Fail closed until the reviewed CF-02 provider is merged."""
-    raise DependencyUnavailableError()
+    """Provide the merged CF-02 InventoryService implementation."""
+    return InventoryService()
 
 
 def get_checkout_service(

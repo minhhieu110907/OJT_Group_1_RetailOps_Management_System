@@ -205,7 +205,8 @@ class CheckoutService:
             "cancel_reason": None,
             "items": snapshots,
         }
-        return CommandOutcome(201, body)
+        serialized = OrderRead.model_validate(body).model_dump(mode="json")
+        return CommandOutcome(201, serialized)
 
     @staticmethod
     def _require_complete_locks(

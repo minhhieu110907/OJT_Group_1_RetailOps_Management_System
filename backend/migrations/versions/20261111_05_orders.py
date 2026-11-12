@@ -1,7 +1,7 @@
 """Create orders and immutable order item snapshots.
 
-Revision ID: 20261111_04
-Revises: 20261111_03
+Revision ID: 20261111_05
+Revises: 20261111_04
 Create Date: 2026-11-12
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
 
-revision: str = "20261111_04"
-down_revision: str | None = "20261111_03"
+revision: str = "20261111_05"
+down_revision: str | None = "20261111_04"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -76,9 +76,21 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("order_id", "product_id", name="pk_order_items"),
     )
+    op.create_foreign_key(
+        "fk_stock_movements_order_item",
+        "stock_movements",
+        "order_items",
+        ["order_id", "product_id"],
+        ["order_id", "product_id"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(
+        "fk_stock_movements_order_item",
+        "stock_movements",
+        type_="foreignkey",
+    )
     op.drop_table("order_items")
     op.drop_index("ix_orders_status_sold_at_id", table_name="orders")
     op.drop_index("ix_orders_sold_at_id", table_name="orders")
