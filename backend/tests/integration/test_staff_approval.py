@@ -418,6 +418,19 @@ async def test_real_http_registration_approval_and_login_flow(
                 assert approval is not None
                 approval_id = approval.id
 
+            listed = await client.get(
+                "/api/v1/staff-approvals?status=PENDING&page=1&page_size=20",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+            assert listed.status_code == 200
+            matching_items = [
+                item for item in listed.json()["items"] if item["id"] == approval_id
+            ]
+            assert len(matching_items) == 1
+            assert matching_items[0]["email"] == email
+            assert matching_items[0]["user_id"] == staff_id
+            assert "password_hash" not in str(listed.json())
+
             approved = await client.post(
                 f"/api/v1/staff-approvals/{approval_id}/approve",
                 headers={"Authorization": f"Bearer {admin_token}"},

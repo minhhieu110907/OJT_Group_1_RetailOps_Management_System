@@ -14,18 +14,20 @@ class StaffApprovalRepository:
         status: str | None,
         page: int,
         page_size: int,
-    ) -> tuple[list[StaffApprovalRequest], int]:
+    ) -> tuple[list[tuple[StaffApprovalRequest, str]], int]:
         predicate = (
             StaffApprovalRequest.status == status if status is not None else None
         )
         count_query = select(func.count()).select_from(StaffApprovalRequest)
-        item_query = select(StaffApprovalRequest)
+        item_query = select(StaffApprovalRequest, User.email_normalized).join(
+            User, User.id == StaffApprovalRequest.user_id
+        )
         if predicate is not None:
             count_query = count_query.where(predicate)
             item_query = item_query.where(predicate)
         total = int(session.scalar(count_query) or 0)
         items = list(
-            session.scalars(
+            session.execute(
                 item_query.order_by(
                     StaffApprovalRequest.requested_at.desc(),
                     StaffApprovalRequest.id.desc(),
