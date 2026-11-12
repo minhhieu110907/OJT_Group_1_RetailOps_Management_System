@@ -17,6 +17,7 @@ import {
 import {
   formatApprovalDateTimeVN,
   getEmailInitials,
+  parsePositiveApprovalId,
   staffApprovalsApi,
   validateApprovalListItemRead,
   validateApprovalRead,
@@ -539,7 +540,124 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
       }
     });
 
-    test('StaffApprovalList.jsx uses Modal, real staffApprovalsApi, and excludes multi-admin conflict banner', () => {
+    test('parsePositiveApprovalId strictly accepts positive integers only', () => {
+      assert.equal(parsePositiveApprovalId('123'), 123);
+      assert.equal(parsePositiveApprovalId(45), 45);
+      assert.equal(parsePositiveApprovalId('0'), null);
+      assert.equal(parsePositiveApprovalId('-5'), null);
+      assert.equal(parsePositiveApprovalId('12.5'), null);
+      assert.equal(parsePositiveApprovalId('abc'), null);
+      assert.equal(parsePositiveApprovalId(null), null);
+    });
+
+    test('findApprovalByIdBounded locates item on current page, other page, or APPROVED/REJECTED tab with bounded requests', async () => {
+      let getCount = 0;
+      const approvedTarget = {
+        ...VALID_PENDING_APPROVAL_LIST_ITEM,
+        id: 77,
+        status: 'APPROVED',
+        decided_by: 1,
+        decided_at: '2026-11-11T10:00:00Z',
+        email: 'approved77@retailops.vn',
+      };
+      const page2Target = {
+        ...VALID_PENDING_APPROVAL_LIST_ITEM,
+        id: 88,
+        email: 'page2@retailops.vn',
+      };
+
+      axiosClient.get = async (_url, config = {}) => {
+        getCount += 1;
+        const { status, page } = config.params;
+        if (status === 'PENDING' && page === 1) {
+          return {
+            data: {
+              items: [VALID_PENDING_APPROVAL_LIST_ITEM],
+              total: 60,
+              page: 1,
+              page_size: 50,
+            },
+          };
+        }
+        if (status === 'PENDING' && page === 2) {
+          return {
+            data: {
+              items: [page2Target],
+              total: 60,
+              page: 2,
+              page_size: 50,
+            },
+          };
+        }
+        if (status === 'APPROVED' && page === 1) {
+          return {
+            data: {
+              items: [approvedTarget],
+              total: 1,
+              page: 1,
+              page_size: 50,
+            },
+          };
+        }
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 50,
+          },
+        };
+      };
+
+      // 1. Found on currentItems -> 0 network requests
+      getCount = 0;
+      const localFound = await staffApprovalsApi.findApprovalByIdBounded({
+        isMockMode: false,
+        approvalId: 1,
+        currentItems: [VALID_PENDING_APPROVAL_LIST_ITEM],
+        activeStatus: 'PENDING',
+      });
+      assert.equal(getCount, 0);
+      assert.equal(localFound.fromCurrentPage, true);
+      assert.equal(localFound.item.id, 1);
+
+      // 2. Found on page 2 of PENDING
+      getCount = 0;
+      const page2Found = await staffApprovalsApi.findApprovalByIdBounded({
+        isMockMode: false,
+        approvalId: 88,
+        currentItems: [VALID_PENDING_APPROVAL_LIST_ITEM],
+        activeStatus: 'PENDING',
+      });
+      assert.equal(page2Found.status, 'PENDING');
+      assert.equal(page2Found.page, 2);
+      assert.equal(page2Found.item.email, 'page2@retailops.vn');
+
+      // 3. Found in APPROVED tab when starting from PENDING
+      getCount = 0;
+      const approvedFound = await staffApprovalsApi.findApprovalByIdBounded({
+        isMockMode: false,
+        approvalId: 77,
+        currentItems: [VALID_PENDING_APPROVAL_LIST_ITEM],
+        activeStatus: 'PENDING',
+      });
+      assert.equal(approvedFound.status, 'APPROVED');
+      assert.equal(approvedFound.item.id, 77);
+
+      // 4. Not found -> returns null within bounded requests
+      getCount = 0;
+      const missing = await staffApprovalsApi.findApprovalByIdBounded({
+        isMockMode: false,
+        approvalId: 9999,
+        currentItems: [VALID_PENDING_APPROVAL_LIST_ITEM],
+        activeStatus: 'PENDING',
+        maxPagesPerStatus: 2,
+      });
+      assert.equal(missing, null);
+      assert.ok(getCount <= 6);
+    });
+
+    test('StaffApprovalList.jsx uses Modal, real staffApprovalsApi, deep-link bounded lookup, stale-modal lock on 409, and honest current-page search', () => {
       const staffSource = fs.readFileSync(
         path.resolve('src/pages/Staff/StaffApprovalList.jsx'),
         'utf-8'
@@ -547,6 +665,10 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
       assert.match(staffSource, /staffApprovalsApi\.getApprovals/);
       assert.match(staffSource, /staffApprovalsApi\.approveStaff/);
       assert.match(staffSource, /staffApprovalsApi\.rejectStaff/);
+      assert.match(staffSource, /staffApprovalsApi\s*\.findApprovalByIdBounded/);
+      assert.match(staffSource, /parsePositiveApprovalId/);
+      assert.match(staffSource, /isModalStale/);
+      assert.match(staffSource, /Tìm trong trang hiện tại/);
       assert.match(staffSource, /item\.email/);
       assert.match(staffSource, /selectedApproval\.email/);
       assert.match(staffSource, /<Modal/);
@@ -556,6 +678,16 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
         staffSource,
         /Hồ sơ đã được xử lý bởi Admin khác/
       );
+    });
+
+    test('Header.jsx resets notification state on logout or non-admin session', () => {
+      const headerSource = fs.readFileSync(
+        path.resolve('src/layouts/MainLayout/Header.jsx'),
+        'utf-8'
+      );
+      assert.match(headerSource, /setNotifications\(\[\]\)/);
+      assert.match(headerSource, /setUnreadCount\(0\)/);
+      assert.match(headerSource, /badgeGenRef/);
     });
   });
 });

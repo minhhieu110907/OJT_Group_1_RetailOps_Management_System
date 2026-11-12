@@ -7,6 +7,7 @@ import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   formatApprovalDateTimeVN,
   getEmailInitials,
+  parsePositiveApprovalId,
   staffApprovalsApi,
   validateRejectReason,
 } from '../../api/staffApprovalsApi';
@@ -52,46 +53,58 @@ export default function StaffApprovalList() {
   const [selectedApproval, setSelectedApproval] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [modalError, setModalError] = useState('');
+  const [isModalStale, setIsModalStale] = useState(false);
   const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
 
   const requestIdRef = useRef(0);
+  const deepLinkGenRef = useRef(0);
+  const lastFetchedCountsRefreshRef = useRef(-1);
   const isDecisionPendingRef = useRef(false);
   const reasonInputRef = useRef(null);
 
   const targetRequestIdParam = urlSearchParams.get('approval_request_id');
 
-  // Tải danh sách yêu cầu duyệt nhân viên + số lượng từng tab từ API thật
+  // Tải danh sách yêu cầu duyệt nhân viên + đồng bộ số lượng từng tab (chỉ fetch 3 tab counts khi khởi tạo hoặc refresh)
   useEffect(() => {
     if (isMock) return undefined;
 
     const currentReqId = ++requestIdRef.current;
+    const shouldFetchCounts =
+      lastFetchedCountsRefreshRef.current !== refreshTrigger;
 
-    Promise.all([
+    const requests = [
       staffApprovalsApi.getApprovals({
         isMockMode: isMock,
         status: activeStatus,
         page: pagination.page,
         pageSize: pagination.page_size,
       }),
-      staffApprovalsApi.getApprovals({
-        isMockMode: isMock,
-        status: 'PENDING',
-        page: 1,
-        pageSize: 1,
-      }),
-      staffApprovalsApi.getApprovals({
-        isMockMode: isMock,
-        status: 'APPROVED',
-        page: 1,
-        pageSize: 1,
-      }),
-      staffApprovalsApi.getApprovals({
-        isMockMode: isMock,
-        status: 'REJECTED',
-        page: 1,
-        pageSize: 1,
-      }),
-    ])
+    ];
+
+    if (shouldFetchCounts) {
+      requests.push(
+        staffApprovalsApi.getApprovals({
+          isMockMode: isMock,
+          status: 'PENDING',
+          page: 1,
+          pageSize: 1,
+        }),
+        staffApprovalsApi.getApprovals({
+          isMockMode: isMock,
+          status: 'APPROVED',
+          page: 1,
+          pageSize: 1,
+        }),
+        staffApprovalsApi.getApprovals({
+          isMockMode: isMock,
+          status: 'REJECTED',
+          page: 1,
+          pageSize: 1,
+        })
+      );
+    }
+
+    Promise.all(requests)
       .then(([mainPage, pendingRes, approvedRes, rejectedRes]) => {
         if (currentReqId !== requestIdRef.current) return;
 
@@ -110,11 +123,20 @@ export default function StaffApprovalList() {
           total,
           totalPages,
         }));
-        setTabCounts({
-          PENDING: pendingRes.total || 0,
-          APPROVED: approvedRes.total || 0,
-          REJECTED: rejectedRes.total || 0,
-        });
+
+        if (shouldFetchCounts && pendingRes && approvedRes && rejectedRes) {
+          lastFetchedCountsRefreshRef.current = refreshTrigger;
+          setTabCounts({
+            PENDING: pendingRes.total || 0,
+            APPROVED: approvedRes.total || 0,
+            REJECTED: rejectedRes.total || 0,
+          });
+        } else {
+          setTabCounts((prev) => ({
+            ...prev,
+            [activeStatus]: total,
+          }));
+        }
         setLoadError('');
 
         const nowTime = new Intl.DateTimeFormat('vi-VN', {
@@ -123,17 +145,6 @@ export default function StaffApprovalList() {
           minute: '2-digit',
         }).format(new Date());
         setLastUpdatedLabel(`Lúc ${nowTime}`);
-
-        // Nếu người dùng bấm từ Chuông thông báo (?approval_request_id=X) -> tự động mở Modal hồ sơ đó
-        if (targetRequestIdParam) {
-          const numericTarget = Number(targetRequestIdParam);
-          const matched = fetchedItems.find((it) => it.id === numericTarget);
-          if (matched) {
-            setSelectedApproval(matched);
-            setRejectReason(matched.decision_reason || '');
-            setModalError('');
-          }
-        }
       })
       .catch((error) => {
         if (currentReqId !== requestIdRef.current) return;
@@ -168,7 +179,92 @@ export default function StaffApprovalList() {
     pagination.page,
     pagination.page_size,
     refreshTrigger,
+  ]);
+
+  // Xử lý deep-link ?approval_request_id=<id> (tìm trên trang hiện tại hoặc tìm có giới hạn across statuses/pages)
+  useEffect(() => {
+    if (isMock || !targetRequestIdParam || isLoading || loadError) {
+      return undefined;
+    }
+
+    const parsedId = parsePositiveApprovalId(targetRequestIdParam);
+    const currentDeepLinkGen = ++deepLinkGenRef.current;
+
+    if (!parsedId) {
+      Promise.resolve().then(() => {
+        if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+        toast.warning('Mã hồ sơ trên đường dẫn không hợp lệ.');
+        const nextParams = new URLSearchParams(urlSearchParams);
+        nextParams.delete('approval_request_id');
+        setUrlSearchParams(nextParams, { replace: true });
+      });
+      return () => {
+        deepLinkGenRef.current += 1;
+      };
+    }
+
+    if (selectedApproval?.id === parsedId) {
+      return undefined;
+    }
+
+    staffApprovalsApi
+      .findApprovalByIdBounded({
+        isMockMode: isMock,
+        approvalId: parsedId,
+        currentItems: items,
+        activeStatus,
+        maxPagesPerStatus: 3,
+        pageSize: 50,
+      })
+      .then((found) => {
+        if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+
+        if (!found) {
+          toast.warning(
+            `Không tìm thấy hồ sơ #${parsedId} trong hàng đợi xét duyệt gần đây.`
+          );
+          const nextParams = new URLSearchParams(urlSearchParams);
+          nextParams.delete('approval_request_id');
+          setUrlSearchParams(nextParams, { replace: true });
+          return;
+        }
+
+        if (found.status !== activeStatus) {
+          setActiveStatus(found.status);
+          setPagination((prev) => ({ ...prev, page: 1 }));
+        }
+
+        setSelectedApproval(found.item);
+        setRejectReason(found.item.decision_reason || '');
+        setIsModalStale(false);
+        setModalError('');
+      })
+      .catch((error) => {
+        if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+        const status = error?.response?.status;
+        if (status === 401 || status === 403) {
+          return;
+        }
+        toast.error(
+          getApiErrorMessage(error) ||
+            `Không thể mở hồ sơ #${parsedId} từ liên kết thông báo.`
+        );
+      });
+
+    return () => {
+      deepLinkGenRef.current += 1;
+    };
+  }, [
+    activeStatus,
+    isLoading,
+    isMock,
+    items,
+    loadError,
+    selectedApproval?.id,
+    setUrlSearchParams,
     targetRequestIdParam,
+    toast,
+    urlSearchParams,
   ]);
 
   // Lọc theo từ khóa tìm kiếm trên trang hiện tại dựa trên các trường thực tế từ API (Email, Mã hồ sơ, User ID, Lần gửi, Lý do)
@@ -221,6 +317,7 @@ export default function StaffApprovalList() {
   const handleOpenDetailModal = (item) => {
     setSelectedApproval(item);
     setRejectReason(item.decision_reason || '');
+    setIsModalStale(false);
     setModalError('');
   };
 
@@ -229,6 +326,7 @@ export default function StaffApprovalList() {
     if (isSubmittingDecision) return;
     setSelectedApproval(null);
     setRejectReason('');
+    setIsModalStale(false);
     setModalError('');
     if (targetRequestIdParam) {
       const nextParams = new URLSearchParams(urlSearchParams);
@@ -239,7 +337,9 @@ export default function StaffApprovalList() {
 
   // Xử lý Phê duyệt (Chấp nhận) hồ sơ Staff — POST /api/v1/staff-approvals/{id}/approve
   const handleApproveStaff = async () => {
-    if (!selectedApproval || isDecisionPendingRef.current) return;
+    if (!selectedApproval || isModalStale || isDecisionPendingRef.current) {
+      return;
+    }
 
     isDecisionPendingRef.current = true;
     setIsSubmittingDecision(true);
@@ -262,13 +362,15 @@ export default function StaffApprovalList() {
     } catch (error) {
       const status = error?.response?.status;
       if (status === 409) {
+        setIsModalStale(true);
         setModalError(
-          'Hồ sơ này không còn ở trạng thái chờ duyệt (HTTP 409 Conflict). Danh sách đã được làm mới.'
+          'Hồ sơ này không còn ở trạng thái chờ duyệt (HTTP 409 Conflict). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
         );
         handleRefresh();
       } else if (status === 404) {
+        setIsModalStale(true);
         setModalError(
-          'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới.'
+          'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
         );
         handleRefresh();
       } else if (status === 403) {
@@ -293,7 +395,9 @@ export default function StaffApprovalList() {
 
   // Xử lý Từ chối hồ sơ Staff — POST /api/v1/staff-approvals/{id}/reject
   const handleRejectStaff = async () => {
-    if (!selectedApproval || isDecisionPendingRef.current) return;
+    if (!selectedApproval || isModalStale || isDecisionPendingRef.current) {
+      return;
+    }
 
     const reasonValidation = validateRejectReason(rejectReason);
     if (!reasonValidation.isValid) {
@@ -326,13 +430,15 @@ export default function StaffApprovalList() {
     } catch (error) {
       const status = error?.response?.status;
       if (status === 409) {
+        setIsModalStale(true);
         setModalError(
-          'Hồ sơ này đã được xử lý trước đó (HTTP 409 Conflict). Danh sách đã được làm mới.'
+          'Hồ sơ này đã được xử lý trước đó (HTTP 409 Conflict). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
         );
         handleRefresh();
       } else if (status === 404) {
+        setIsModalStale(true);
         setModalError(
-          'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới.'
+          'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
         );
         handleRefresh();
       } else if (status === 403) {
@@ -492,7 +598,8 @@ export default function StaffApprovalList() {
             type="text"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="Tìm theo email, mã hồ sơ (#id), User ID hoặc lý do..."
+            placeholder="Tìm trong trang hiện tại (email, mã hồ sơ, User ID)..."
+            aria-label="Tìm trong trang hiện tại"
             className={styles.searchInput}
           />
         </div>
@@ -501,8 +608,18 @@ export default function StaffApprovalList() {
       {/* 3. Dòng tóm tắt số lượng & thời gian cập nhật */}
       <div className={styles.summaryStrip}>
         <span>
-          Hiển thị <strong>{filteredItems.length}</strong> hồ sơ đăng ký{' '}
-          {statusSummaryLabel}
+          {keyword.trim() ? (
+            <>
+              Khớp <strong>{filteredItems.length}</strong>/{items.length} hồ sơ
+              trên trang hiện tại (Tổng mục: <strong>{pagination.total}</strong>
+              )
+            </>
+          ) : (
+            <>
+              Hiển thị <strong>{items.length}</strong>/{pagination.total} hồ sơ{' '}
+              {statusSummaryLabel}
+            </>
+          )}
         </span>
         <span className={styles.summaryRight}>
           <svg
@@ -544,7 +661,7 @@ export default function StaffApprovalList() {
             Thử lại
           </button>
         </div>
-      ) : filteredItems.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className={styles.stateCard}>
           <h3 className={styles.stateTitle}>
             Chưa có hồ sơ nhân viên nào trong mục này
@@ -553,6 +670,23 @@ export default function StaffApprovalList() {
             Khi có nhân viên mới gửi yêu cầu đăng ký tài khoản tại trang
             /register, hồ sơ sẽ xuất hiện tại đây để Quản trị viên xét duyệt.
           </p>
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <div className={styles.stateCard}>
+          <h3 className={styles.stateTitle}>
+            Không tìm thấy hồ sơ khớp từ khóa trên trang hiện tại
+          </h3>
+          <p className={styles.stateDesc}>
+            Tìm kiếm chỉ lọc trong {items.length} hồ sơ của trang đang hiển thị.
+            Hãy thử chuyển trang hoặc xóa từ khóa tìm kiếm.
+          </p>
+          <button
+            type="button"
+            className={styles.refreshBtn}
+            onClick={() => setKeyword('')}
+          >
+            Xóa từ khóa tìm kiếm
+          </button>
         </div>
       ) : (
         <div className={styles.cardList}>
@@ -713,7 +847,7 @@ export default function StaffApprovalList() {
                 Đóng
               </button>
 
-              {selectedApproval.status === 'PENDING' && (
+              {selectedApproval.status === 'PENDING' && !isModalStale && (
                 <>
                   <button
                     type="button"
@@ -900,8 +1034,8 @@ export default function StaffApprovalList() {
               </div>
             </div>
 
-            {/* Khối 3: Lý do từ chối (Khi hồ sơ đang ở trạng thái PENDING) */}
-            {selectedApproval.status === 'PENDING' && (
+            {/* Khối 3: Lý do từ chối (Khi hồ sơ đang ở trạng thái PENDING và chưa bị stale) */}
+            {selectedApproval.status === 'PENDING' && !isModalStale && (
               <div className={styles.decisionFormSection}>
                 <label
                   htmlFor="staff-reject-reason"

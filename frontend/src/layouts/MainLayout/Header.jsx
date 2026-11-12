@@ -35,6 +35,7 @@ export default function Header() {
   const dropdownRef = useRef(null);
   const notificationRef = useRef(null);
   const fetchGenRef = useRef(0);
+  const badgeGenRef = useRef(0);
   const markingIdsRef = useRef(new Set());
   const isMarkingAllRef = useRef(false);
 
@@ -116,17 +117,25 @@ export default function Header() {
     }
   }, [isAdmin, isMockMode]);
 
-  // Đồng bộ badge chưa đọc từ API thật khi Admin đăng nhập hoặc chuyển trang
+  // Đồng bộ badge chưa đọc từ API thật khi Admin đăng nhập hoặc chuyển trang; xóa sạch state khi đăng xuất / không phải Admin
   useEffect(() => {
     if (!isAdmin || isMockMode) {
-      return;
+      fetchGenRef.current += 1;
+      badgeGenRef.current += 1;
+      Promise.resolve().then(() => {
+        setNotifications([]);
+        setUnreadCount(0);
+        setNotificationError('');
+        setIsNotificationOpen(false);
+      });
+      return undefined;
     }
-    let isCancelled = false;
+    const badgeGen = ++badgeGenRef.current;
     notificationsApi
       .getUnreadCount({ isMockMode })
       .then((res) => {
-        if (!isCancelled) {
-          setUnreadCount(res.count);
+        if (badgeGen === badgeGenRef.current) {
+          setUnreadCount(Math.max(0, res.count));
         }
       })
       .catch(() => {
@@ -134,9 +143,9 @@ export default function Header() {
       });
 
     return () => {
-      isCancelled = true;
+      badgeGenRef.current += 1;
     };
-  }, [isAdmin, isMockMode, location.pathname]);
+  }, [isAdmin, isMockMode, location.pathname, user?.id]);
 
   // Bấm vào nút Chuông thông báo
   const handleToggleNotification = () => {

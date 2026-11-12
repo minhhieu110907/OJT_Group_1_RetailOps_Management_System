@@ -8,6 +8,25 @@ import {
 export const ALLOWED_APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 
 /**
+ * Strictly parse a positive integer approval request ID from URL/query params.
+ * Returns positive integer or null if invalid.
+ */
+export function parsePositiveApprovalId(rawValue) {
+  if (typeof rawValue === 'number') {
+    return Number.isSafeInteger(rawValue) && rawValue > 0 ? rawValue : null;
+  }
+  if (typeof rawValue !== 'string') {
+    return null;
+  }
+  const trimmed = rawValue.trim();
+  if (!/^[1-9]\d*$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
  * Validate a single ApprovalRead DTO from FastAPI Backend (/api/v1/staff-approvals).
  * Contract (backend/app/modules/auth/schemas.py):
  * - id: positive integer (> 0)
@@ -293,5 +312,69 @@ export const staffApprovalsApi = {
       { reason: reasonCheck.normalized }
     );
     return validateApprovalRead(response.data);
+  },
+
+  /**
+   * Bounded deep-link lookup for /staff?approval_request_id=<id> when backend has no GET /staff-approvals/{id}.
+   * Checks currentItems first (0 requests), then searches across statuses with strict page cap.
+   */
+  async findApprovalByIdBounded({
+    isMockMode,
+    approvalId,
+    currentItems = [],
+    activeStatus = 'PENDING',
+    maxPagesPerStatus = 3,
+    pageSize = 50,
+  } = {}) {
+    assertRealApiMode(isMockMode);
+
+    const targetId = parsePositiveApprovalId(approvalId);
+    if (!targetId) {
+      return null;
+    }
+
+    if (Array.isArray(currentItems)) {
+      const localMatch = currentItems.find((item) => item?.id === targetId);
+      if (localMatch) {
+        return {
+          item: localMatch,
+          status: localMatch.status,
+          page: null,
+          fromCurrentPage: true,
+        };
+      }
+    }
+
+    const orderedStatuses = ALLOWED_APPROVAL_STATUSES.includes(activeStatus)
+      ? [
+          activeStatus,
+          ...ALLOWED_APPROVAL_STATUSES.filter((s) => s !== activeStatus),
+        ]
+      : [...ALLOWED_APPROVAL_STATUSES];
+
+    for (const status of orderedStatuses) {
+      for (let page = 1; page <= maxPagesPerStatus; page += 1) {
+        const res = await this.getApprovals({
+          isMockMode,
+          status,
+          page,
+          pageSize,
+        });
+        const matched = res.items.find((item) => item.id === targetId);
+        if (matched) {
+          return {
+            item: matched,
+            status,
+            page,
+            fromCurrentPage: false,
+          };
+        }
+        if (res.items.length === 0 || page * pageSize >= res.total) {
+          break;
+        }
+      }
+    }
+
+    return null;
   },
 };
