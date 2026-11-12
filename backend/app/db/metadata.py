@@ -16,6 +16,7 @@ from app.modules.purchasing.models import (
     PurchaseReceipt,
     PurchaseReceiptItem,
 )
+from app.modules.sales.models import Order, OrderItem
 from app.modules.suppliers.models import Supplier
 
 REGISTERED_MODELS = (
@@ -32,6 +33,8 @@ REGISTERED_MODELS = (
     PurchaseReceipt,
     PurchaseReceiptItem,
     IdempotencyRecord,
+    Order,
+    OrderItem,
 )
 metadata = Base.metadata
 
