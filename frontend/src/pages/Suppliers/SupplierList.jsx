@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
@@ -80,6 +80,8 @@ export default function SupplierList() {
   });
 
   // 2. State Modal Chi tiết / Thêm / Cập nhật
+  const supplierFormId = useId();
+  const isSubmittingRef = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [supplierForm, setSupplierForm] = useState(INITIAL_SUPPLIER_FORM);
@@ -203,11 +205,16 @@ export default function SupplierList() {
 
   // Submit form (Thêm mới hoặc Cập nhật - chỉ ADMIN)
   const handleSubmitForm = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     if (!isAdmin) {
       const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
+      return;
+    }
+    if (isSubmittingRef.current) {
       return;
     }
 
@@ -241,6 +248,7 @@ export default function SupplierList() {
     }
 
     setFormError('');
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -273,6 +281,7 @@ export default function SupplierList() {
       setFormError(errorMsg);
       toast.error(errorMsg);
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -498,9 +507,9 @@ export default function SupplierList() {
             </button>
             {isAdmin && (
               <button
-                type="button"
+                type="submit"
+                form={supplierFormId}
                 className={modalStyles.confirmBtn}
-                onClick={handleSubmitForm}
                 disabled={!isAdmin || isSubmitting}
               >
                 {isSubmitting
@@ -513,7 +522,11 @@ export default function SupplierList() {
           </>
         }
       >
-        <form onSubmit={handleSubmitForm} className={styles.modalForm}>
+        <form
+          id={supplierFormId}
+          onSubmit={handleSubmitForm}
+          className={styles.modalForm}
+        >
           {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
           {/* Tên nhà cung cấp */}

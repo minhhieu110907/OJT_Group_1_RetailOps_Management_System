@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
@@ -40,6 +40,8 @@ export default function CategoryList() {
   });
 
   // 2. State Modal Thêm mới / Chỉnh sửa
+  const categoryFormId = useId();
+  const isSubmittingRef = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [categoryForm, setCategoryForm] = useState(INITIAL_FORM);
@@ -179,11 +181,16 @@ export default function CategoryList() {
 
   // Submit form tạo / sửa danh mục (chỉ gửi name theo contract backend extra="forbid", chỉ ADMIN)
   const handleSubmitForm = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     if (!isAdmin) {
       const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
+      return;
+    }
+    if (isSubmittingRef.current) {
       return;
     }
     setFormError('');
@@ -198,6 +205,7 @@ export default function CategoryList() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       if (modalMode === 'create') {
@@ -216,6 +224,7 @@ export default function CategoryList() {
     } catch (err) {
       setFormError(getApiErrorMessage(err, 'Lỗi lưu thông tin danh mục.'));
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -450,9 +459,9 @@ export default function CategoryList() {
             </button>
             {isAdmin && (
               <button
-                type="button"
+                type="submit"
+                form={categoryFormId}
                 className={modalStyles.confirmBtn}
-                onClick={handleSubmitForm}
                 disabled={!isAdmin || isSubmitting}
               >
                 {isSubmitting
@@ -465,7 +474,11 @@ export default function CategoryList() {
           </>
         }
       >
-        <form onSubmit={handleSubmitForm} className={styles.modalForm}>
+        <form
+          id={categoryFormId}
+          onSubmit={handleSubmitForm}
+          className={styles.modalForm}
+        >
           {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
           <div className={styles.formField}>
