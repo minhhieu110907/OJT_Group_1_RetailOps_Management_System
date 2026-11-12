@@ -328,13 +328,25 @@ def test_idempotent_retry_and_unique_movement_per_reference(
         )
         session1.commit()
 
-    # Retry with the exact same reference_id=3001 and quantity=3
+    # Under default idempotent_replay=False, repeated call raises DuplicateMovementError
+    with Session(migrated_integration_engine) as session_dup:
+        with pytest.raises(DuplicateMovementError):
+            service.decrease(
+                session_dup,
+                items=[StockChangeItem(product_id=product_id, quantity=3)],
+                reference_id=3001,
+                actor_id=actor_id,
+            )
+        session_dup.rollback()
+
+    # Retry with exact same reference_id=3001 and quantity=3 (idempotent_replay=True)
     with Session(migrated_integration_engine) as session2:
         second = service.decrease(
             session2,
             items=[StockChangeItem(product_id=product_id, quantity=3)],
             reference_id=3001,
             actor_id=actor_id,
+            idempotent_replay=True,
         )
         session2.commit()
 
