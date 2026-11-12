@@ -12,7 +12,6 @@ import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
 import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
-import PurchaseList from './pages/Purchases/PurchaseList';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -111,7 +110,9 @@ export default function App() {
                   />
                   <Route
                     path="/purchases"
-                    element={<PurchaseList />}
+                    element={
+                      <PlaceholderPage title="Màn hình Quản lý Nhập hàng" />
+                    }
                   />
                   <Route
                     path="/analytics"
