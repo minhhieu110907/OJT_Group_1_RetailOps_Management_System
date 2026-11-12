@@ -23,6 +23,10 @@ import {
   validateApprovalRead,
   validateRejectReason,
 } from '../api/staffApprovalsApi.js';
+import {
+  canUserCloseApprovalModal,
+  executeStaffApprovalDecision,
+} from '../pages/Staff/staffApprovalModalHelpers.js';
 
 const TEST_DEV_ENV = { DEV: true, PROD: false, VITE_USE_MOCK: 'true' };
 
@@ -662,9 +666,15 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
         path.resolve('src/pages/Staff/StaffApprovalList.jsx'),
         'utf-8'
       );
+      const helpersSource = fs.readFileSync(
+        path.resolve('src/pages/Staff/staffApprovalModalHelpers.js'),
+        'utf-8'
+      );
       assert.match(staffSource, /staffApprovalsApi\.getApprovals/);
-      assert.match(staffSource, /staffApprovalsApi\.approveStaff/);
-      assert.match(staffSource, /staffApprovalsApi\.rejectStaff/);
+      assert.match(helpersSource, /staffApprovalsApi\.approveStaff/);
+      assert.match(helpersSource, /staffApprovalsApi\.rejectStaff/);
+      assert.match(staffSource, /closeDetailModalProgrammatic/);
+      assert.match(staffSource, /canUserCloseApprovalModal/);
       assert.match(staffSource, /staffApprovalsApi\s*\.findApprovalByIdBounded/);
       assert.match(staffSource, /parsePositiveApprovalId/);
       assert.match(staffSource, /isModalStale/);
@@ -688,6 +698,316 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
       assert.match(headerSource, /setNotifications\(\[\]\)/);
       assert.match(headerSource, /setUnreadCount\(0\)/);
       assert.match(headerSource, /badgeGenRef/);
+    });
+  });
+
+  describe('Approval Modal Lifecycle & Decision Regression (PR #40 Hotfix)', () => {
+    const SAMPLE_PENDING_APPROVAL = {
+      id: 42,
+      user_id: 108,
+      email: 'staff.new@retailops.local',
+      status: 'PENDING',
+      attempt_no: 1,
+      decision_reason: null,
+    };
+
+    function createModalHarness(initial = {}) {
+      const state = {
+        selectedApproval:
+          initial.selectedApproval !== undefined
+            ? initial.selectedApproval
+            : { ...SAMPLE_PENDING_APPROVAL },
+        rejectReason: initial.rejectReason ?? '',
+        isModalStale: initial.isModalStale ?? false,
+        modalError: initial.modalError ?? '',
+        isSubmittingDecision: false,
+        urlParams: new URLSearchParams(initial.search ?? ''),
+        refreshCount: 0,
+        toasts: [],
+        deepLinkGenRef: { current: initial.deepLinkGen ?? 1 },
+        isDecisionPendingRef: { current: false },
+      };
+
+      const closeModalProgrammatic = () => {
+        state.deepLinkGenRef.current += 1;
+        state.selectedApproval = null;
+        state.rejectReason = '';
+        state.isModalStale = false;
+        state.modalError = '';
+        if (state.urlParams.has('approval_request_id')) {
+          state.urlParams.delete('approval_request_id');
+        }
+      };
+
+      const handleUserClose = () => {
+        if (
+          !canUserCloseApprovalModal({
+            isSubmittingDecision: state.isSubmittingDecision,
+            isDecisionPending: state.isDecisionPendingRef.current,
+          })
+        ) {
+          return false;
+        }
+        closeModalProgrammatic();
+        return true;
+      };
+
+      return {
+        state,
+        isDecisionPendingRef: state.isDecisionPendingRef,
+        closeModalProgrammatic,
+        handleUserClose,
+        setIsSubmittingDecision: (v) => {
+          state.isSubmittingDecision = v;
+        },
+        setModalError: (v) => {
+          state.modalError = v;
+        },
+        setIsModalStale: (v) => {
+          state.isModalStale = v;
+        },
+        onRefresh: () => {
+          state.refreshCount += 1;
+        },
+        onSuccessToast: (approval) => {
+          state.toasts.push(approval.id);
+        },
+      };
+    }
+
+    test('Approve thành công: đóng modal dù isSubmittingDecision đang true, toast 1 lần, refresh', async () => {
+      const h = createModalHarness({ search: 'approval_request_id=42' });
+      let closeObservedWhileSubmitting = false;
+      const origClose = h.closeModalProgrammatic;
+      const spyClose = () => {
+        closeObservedWhileSubmitting = h.state.isSubmittingDecision === true;
+        origClose();
+      };
+
+      const res = await executeStaffApprovalDecision({
+        action: 'approve',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        staffApprovalsApi: {
+          approveStaff: async () => ({ status: 'APPROVED' }),
+        },
+        getApiErrorMessage: () => 'err',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: spyClose,
+        onRefresh: h.onRefresh,
+      });
+
+      assert.equal(res.status, 'success');
+      assert.equal(closeObservedWhileSubmitting, true);
+      assert.equal(h.state.selectedApproval, null);
+      assert.equal(h.state.rejectReason, '');
+      assert.equal(h.state.modalError, '');
+      assert.equal(h.state.isModalStale, false);
+      assert.equal(h.state.isSubmittingDecision, false);
+      assert.equal(h.state.isDecisionPendingRef.current, false);
+      assert.equal(h.state.urlParams.has('approval_request_id'), false);
+      assert.deepEqual(h.state.toasts, [SAMPLE_PENDING_APPROVAL.id]);
+      assert.equal(h.state.refreshCount, 1);
+    });
+
+    test('Reject thành công: đóng modal, reset rejectReason, refresh', async () => {
+      const h = createModalHarness({ rejectReason: 'Không thuộc danh sách nhân sự' });
+      const res = await executeStaffApprovalDecision({
+        action: 'reject',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        rejectReason: h.state.rejectReason,
+        validateRejectReason,
+        staffApprovalsApi: {
+          rejectStaff: async () => ({ status: 'REJECTED' }),
+        },
+        getApiErrorMessage: () => 'err',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: h.closeModalProgrammatic,
+        onRefresh: h.onRefresh,
+      });
+
+      assert.equal(res.status, 'success');
+      assert.equal(h.state.selectedApproval, null);
+      assert.equal(h.state.rejectReason, '');
+      assert.equal(h.state.refreshCount, 1);
+      assert.equal(h.state.toasts.length, 1);
+    });
+
+    test('POST đang pending: chặn user đóng modal và chặn double-submit', async () => {
+      const h = createModalHarness();
+      let resolvePost;
+      let postCalls = 0;
+
+      const firstPromise = executeStaffApprovalDecision({
+        action: 'approve',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        staffApprovalsApi: {
+          approveStaff: () =>
+            new Promise((resolve) => {
+              postCalls += 1;
+              resolvePost = resolve;
+            }),
+        },
+        getApiErrorMessage: () => 'err',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: h.closeModalProgrammatic,
+        onRefresh: h.onRefresh,
+      });
+
+      // Trong lúc request đang pending:
+      assert.equal(h.state.isSubmittingDecision, true);
+      assert.equal(h.handleUserClose(), false);
+      assert.notEqual(h.state.selectedApproval, null);
+
+      const secondRes = await executeStaffApprovalDecision({
+        action: 'approve',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        staffApprovalsApi: {
+          approveStaff: async () => {
+            postCalls += 1;
+            return {};
+          },
+        },
+        getApiErrorMessage: () => 'err',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: h.closeModalProgrammatic,
+        onRefresh: h.onRefresh,
+      });
+      assert.equal(secondRes.status, 'ignored');
+      assert.equal(postCalls, 1);
+
+      resolvePost({ status: 'APPROVED' });
+      await firstPromise;
+      assert.equal(h.state.selectedApproval, null);
+      assert.equal(h.state.isSubmittingDecision, false);
+    });
+
+    test('POST trả 409: đánh dấu modal stale, không đóng, refresh danh sách và không retry POST', async () => {
+      const h = createModalHarness();
+      let postCalls = 0;
+      const res = await executeStaffApprovalDecision({
+        action: 'approve',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        staffApprovalsApi: {
+          approveStaff: async () => {
+            postCalls += 1;
+            const err = new Error('Conflict');
+            err.response = { status: 409 };
+            throw err;
+          },
+        },
+        getApiErrorMessage: () => 'Conflict',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: h.closeModalProgrammatic,
+        onRefresh: h.onRefresh,
+      });
+
+      assert.equal(res.status, 'conflict');
+      assert.equal(postCalls, 1);
+      assert.equal(h.state.isModalStale, true);
+      assert.notEqual(h.state.selectedApproval, null);
+      assert.match(h.state.modalError, /409 Conflict/);
+      assert.equal(h.state.refreshCount, 1);
+      assert.equal(h.state.toasts.length, 0);
+    });
+
+    test('POST trả 422: giữ nguyên rejectReason để người dùng chỉnh sửa', async () => {
+      const originalReason = 'Lý do cần giữ nguyên khi server trả 422';
+      const h = createModalHarness({ rejectReason: originalReason });
+      const res = await executeStaffApprovalDecision({
+        action: 'reject',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        rejectReason: h.state.rejectReason,
+        validateRejectReason,
+        staffApprovalsApi: {
+          rejectStaff: async () => {
+            const err = new Error('Unprocessable');
+            err.response = { status: 422 };
+            throw err;
+          },
+        },
+        getApiErrorMessage: () => 'Dữ liệu lý do không hợp lệ',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: h.closeModalProgrammatic,
+        onRefresh: h.onRefresh,
+      });
+
+      assert.equal(res.status, 'error');
+      assert.equal(h.state.rejectReason, originalReason);
+      assert.equal(h.state.isModalStale, false);
+      assert.notEqual(h.state.selectedApproval, null);
+      assert.equal(h.state.modalError, 'Dữ liệu lý do không hợp lệ');
+    });
+
+    test('Thành công từ deep-link và stale async response không mở lại modal đã đóng', async () => {
+      const h = createModalHarness({
+        search: 'approval_request_id=42',
+        deepLinkGen: 10,
+      });
+      const inFlightDeepLinkGen = h.state.deepLinkGenRef.current;
+
+      await executeStaffApprovalDecision({
+        action: 'approve',
+        isMockMode: false,
+        selectedApproval: h.state.selectedApproval,
+        isModalStale: h.state.isModalStale,
+        isDecisionPendingRef: h.isDecisionPendingRef,
+        staffApprovalsApi: {
+          approveStaff: async () => ({ status: 'APPROVED' }),
+        },
+        getApiErrorMessage: () => 'err',
+        setIsSubmittingDecision: h.setIsSubmittingDecision,
+        setModalError: h.setModalError,
+        setIsModalStale: h.setIsModalStale,
+        onSuccessToast: h.onSuccessToast,
+        closeModalProgrammatic: h.closeModalProgrammatic,
+        onRefresh: h.onRefresh,
+      });
+
+      assert.equal(h.state.urlParams.has('approval_request_id'), false);
+      assert.equal(h.state.selectedApproval, null);
+      assert.ok(h.state.deepLinkGenRef.current > inFlightDeepLinkGen);
+
+      // Giả lập một promise deep-link cũ hoàn thành trễ sau khi modal đã đóng
+      if (inFlightDeepLinkGen === h.state.deepLinkGenRef.current) {
+        h.state.selectedApproval = { ...SAMPLE_PENDING_APPROVAL };
+      }
+      assert.equal(h.state.selectedApproval, null);
     });
   });
 });

@@ -11,6 +11,10 @@ import {
   staffApprovalsApi,
   validateRejectReason,
 } from '../../api/staffApprovalsApi';
+import {
+  canUserCloseApprovalModal,
+  executeStaffApprovalDecision,
+} from './staffApprovalModalHelpers';
 import styles from './StaffApprovalList.module.css';
 
 const STATUS_TABS = [
@@ -321,145 +325,85 @@ export default function StaffApprovalList() {
     setModalError('');
   };
 
-  // Đóng Modal (khi bấm dấu X, nút Đóng hoặc bấm ra ngoài nền mờ)
-  const handleCloseDetailModal = () => {
-    if (isSubmittingDecision) return;
+  // Đóng Modal nội bộ (dùng cho cả programmatic close sau khi POST thành công và user close sau khi qua guard)
+  const closeDetailModalProgrammatic = useCallback(() => {
+    deepLinkGenRef.current += 1;
     setSelectedApproval(null);
     setRejectReason('');
     setIsModalStale(false);
     setModalError('');
-    if (targetRequestIdParam) {
+    if (urlSearchParams.has('approval_request_id')) {
       const nextParams = new URLSearchParams(urlSearchParams);
       nextParams.delete('approval_request_id');
       setUrlSearchParams(nextParams, { replace: true });
     }
+  }, [setUrlSearchParams, urlSearchParams]);
+
+  // Đóng Modal do người dùng thao tác (X, nút Đóng, Escape hoặc click nền mờ) — bị chặn khi đang gửi POST
+  const handleCloseDetailModal = () => {
+    if (
+      !canUserCloseApprovalModal({
+        isSubmittingDecision,
+        isDecisionPending: isDecisionPendingRef.current,
+      })
+    ) {
+      return;
+    }
+    closeDetailModalProgrammatic();
   };
 
   // Xử lý Phê duyệt (Chấp nhận) hồ sơ Staff — POST /api/v1/staff-approvals/{id}/approve
-  const handleApproveStaff = async () => {
-    if (!selectedApproval || isModalStale || isDecisionPendingRef.current) {
-      return;
-    }
-
-    isDecisionPendingRef.current = true;
-    setIsSubmittingDecision(true);
-    setModalError('');
-
-    try {
-      await staffApprovalsApi.approveStaff({
-        isMockMode: isMock,
-        id: selectedApproval.id,
-      });
-
-      const targetEmail =
-        selectedApproval.email || `User #${selectedApproval.user_id}`;
-
-      toast.success(
-        `Đã chấp nhận phê duyệt tài khoản ${targetEmail} (Hồ sơ #${selectedApproval.id} • Trạng thái: ACTIVE).`
-      );
-      handleCloseDetailModal();
-      handleRefresh();
-    } catch (error) {
-      const status = error?.response?.status;
-      if (status === 409) {
-        setIsModalStale(true);
-        setModalError(
-          'Hồ sơ này không còn ở trạng thái chờ duyệt (HTTP 409 Conflict). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
+  const handleApproveStaff = () =>
+    executeStaffApprovalDecision({
+      action: 'approve',
+      isMockMode: isMock,
+      selectedApproval,
+      isModalStale,
+      isDecisionPendingRef,
+      staffApprovalsApi,
+      getApiErrorMessage,
+      setIsSubmittingDecision,
+      setModalError,
+      setIsModalStale,
+      onSuccessToast: (approval) => {
+        const targetEmail = approval.email || `User #${approval.user_id}`;
+        toast.success(
+          `Đã chấp nhận phê duyệt tài khoản ${targetEmail} (Hồ sơ #${approval.id} • Trạng thái: ACTIVE).`
         );
-        handleRefresh();
-      } else if (status === 404) {
-        setIsModalStale(true);
-        setModalError(
-          'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
-        );
-        handleRefresh();
-      } else if (status === 403) {
-        setModalError(
-          'Bạn không có quyền thực hiện phê duyệt nhân viên (HTTP 403 Forbidden).'
-        );
-      } else if (status === 401) {
-        setModalError(
-          'Phiên đăng nhập đã hết hạn (HTTP 401). Vui lòng đăng nhập lại.'
-        );
-      } else {
-        setModalError(
-          getApiErrorMessage(error) ||
-            'Không thể phê duyệt hồ sơ nhân viên. Vui lòng thử lại.'
-        );
-      }
-    } finally {
-      isDecisionPendingRef.current = false;
-      setIsSubmittingDecision(false);
-    }
-  };
+      },
+      closeModalProgrammatic: closeDetailModalProgrammatic,
+      onRefresh: handleRefresh,
+    });
 
   // Xử lý Từ chối hồ sơ Staff — POST /api/v1/staff-approvals/{id}/reject
-  const handleRejectStaff = async () => {
-    if (!selectedApproval || isModalStale || isDecisionPendingRef.current) {
-      return;
-    }
-
-    const reasonValidation = validateRejectReason(rejectReason);
-    if (!reasonValidation.isValid) {
-      setModalError(reasonValidation.error);
-      if (reasonInputRef.current) {
-        reasonInputRef.current.focus();
-      }
-      return;
-    }
-
-    isDecisionPendingRef.current = true;
-    setIsSubmittingDecision(true);
-    setModalError('');
-
-    try {
-      await staffApprovalsApi.rejectStaff({
-        isMockMode: isMock,
-        id: selectedApproval.id,
-        reason: reasonValidation.normalized,
-      });
-
-      const targetEmail =
-        selectedApproval.email || `User #${selectedApproval.user_id}`;
-
-      toast.info(
-        `Đã từ chối hồ sơ đăng ký của ${targetEmail} (Hồ sơ #${selectedApproval.id}).`
-      );
-      handleCloseDetailModal();
-      handleRefresh();
-    } catch (error) {
-      const status = error?.response?.status;
-      if (status === 409) {
-        setIsModalStale(true);
-        setModalError(
-          'Hồ sơ này đã được xử lý trước đó (HTTP 409 Conflict). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
+  const handleRejectStaff = () =>
+    executeStaffApprovalDecision({
+      action: 'reject',
+      isMockMode: isMock,
+      selectedApproval,
+      isModalStale,
+      isDecisionPendingRef,
+      rejectReason,
+      validateRejectReason,
+      staffApprovalsApi,
+      getApiErrorMessage,
+      setIsSubmittingDecision,
+      setModalError,
+      setIsModalStale,
+      onInvalidReason: () => {
+        if (reasonInputRef.current) {
+          reasonInputRef.current.focus();
+        }
+      },
+      onSuccessToast: (approval) => {
+        const targetEmail = approval.email || `User #${approval.user_id}`;
+        toast.info(
+          `Đã từ chối hồ sơ đăng ký của ${targetEmail} (Hồ sơ #${approval.id}).`
         );
-        handleRefresh();
-      } else if (status === 404) {
-        setIsModalStale(true);
-        setModalError(
-          'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
-        );
-        handleRefresh();
-      } else if (status === 403) {
-        setModalError(
-          'Bạn không có quyền từ chối hồ sơ nhân viên (HTTP 403 Forbidden).'
-        );
-      } else if (status === 401) {
-        setModalError(
-          'Phiên đăng nhập đã hết hạn (HTTP 401). Vui lòng đăng nhập lại.'
-        );
-      } else {
-        setModalError(
-          getApiErrorMessage(error) ||
-            'Không thể từ chối hồ sơ nhân viên. Vui lòng thử lại.'
-        );
-      }
-    } finally {
-      isDecisionPendingRef.current = false;
-      setIsSubmittingDecision(false);
-    }
-  };
+      },
+      closeModalProgrammatic: closeDetailModalProgrammatic,
+      onRefresh: handleRefresh,
+    });
 
   const statusSummaryLabel =
     activeStatus === 'PENDING'
