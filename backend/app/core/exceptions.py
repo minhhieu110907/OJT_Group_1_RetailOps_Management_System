@@ -91,6 +91,22 @@ class ConflictError(AppException):
         super().__init__(code, message, 409, details)
 
 
+class IdempotencyKeyReusedError(ConflictError):
+    def __init__(self) -> None:
+        super().__init__(
+            "IDEMPOTENCY_KEY_REUSED",
+            "Idempotency key was already used for a different request.",
+        )
+
+
+class RequestInProgressError(ConflictError):
+    def __init__(self) -> None:
+        super().__init__(
+            "REQUEST_IN_PROGRESS",
+            "A request with this idempotency key is still in progress.",
+        )
+
+
 class DuplicateSkuError(ConflictError):
     def __init__(
         self,
