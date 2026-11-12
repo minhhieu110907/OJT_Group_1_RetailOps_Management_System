@@ -1,7 +1,6 @@
 """Integration tests for POST /api/v1/inventory/{product_id}/adjustments (T04A758)."""
 
 from collections.abc import Generator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -85,7 +84,6 @@ def _cleanup(engine: Engine) -> None:
             session.execute(
                 delete(AuthSession).where(
                     AuthSession.user_id == admin.id,
-                    AuthSession.created_at >= datetime(2026, 11, 12, 0, 0, 0),
                 )
             )
 
@@ -154,14 +152,14 @@ def _setup_test_context(
     initial_quantity: int = 10,
     initial_version: int = 0,
 ) -> AdjustmentApiContext:
-    now = datetime(2026, 11, 12, 10, 0, 0)
+    now = datetime.now(UTC).replace(tzinfo=None)
     suffix = uuid4().hex[:8]
     settings = _make_test_settings()
     auth_srv = AuthService(settings, password_hasher=PasswordHasher(work_factor=4))
 
     admin_sid = uuid4()
     staff_sid = uuid4()
-    session_expires = now + timedelta(hours=2)
+    session_expires = now + timedelta(hours=24)
 
     with Session(engine) as session:
         admin = session.scalar(select(User).where(User.admin_slot == 1))
@@ -487,7 +485,8 @@ async def test_adjust_stale_stock_version_returns_409(
         assert len(audits) == 0
 
 
-def test_adjust_concurrent_same_expected_version_one_winner(
+@pytest.mark.anyio
+async def test_adjust_concurrent_same_expected_version_one_winner(
     migrated_integration_engine: Engine,
 ) -> None:
     """Test 5: Concurrent requests with same expected version -> 1 wins (200), 1 409."""
@@ -495,11 +494,13 @@ def test_adjust_concurrent_same_expected_version_one_winner(
         migrated_integration_engine, initial_quantity=10, initial_version=0
     )
 
-    def _send(counted: int, key: str) -> tuple[int, dict[str, Any]]:
-        with httpx.Client(
+    results: list[tuple[int, dict[str, Any]]] = []
+
+    async def _send(counted: int, key: str) -> None:
+        async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
         ) as c:
-            r = c.post(
+            r = await c.post(
                 f"/api/v1/inventory/{ctx.product_id}/adjustments",
                 headers={**ctx.admin_headers, "Idempotency-Key": key},
                 json={
@@ -508,15 +509,15 @@ def test_adjust_concurrent_same_expected_version_one_winner(
                     "reason": f"Concurrent count {counted}",
                 },
             )
-            return r.status_code, r.json()
+            results.append((r.status_code, r.json()))
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        f1 = pool.submit(_send, 12, "adj-conc-key-001a")
-        f2 = pool.submit(_send, 14, "adj-conc-key-002b")
-        status1, data1 = f1.result()
-        status2, data2 = f2.result()
+    import anyio
 
-    statuses = {status1, status2}
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_send, 12, "adj-conc-key-001a")
+        tg.start_soon(_send, 14, "adj-conc-key-002b")
+
+    statuses = {s for s, _ in results}
     assert 200 in statuses
     assert 409 in statuses
 
