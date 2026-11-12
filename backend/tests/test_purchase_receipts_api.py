@@ -516,3 +516,250 @@ async def test_create_and_update_purchase_receipt_integer_bounds_returns_422():
         )
         assert r3.status_code == 422
         assert r3.json()["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.anyio
+async def test_cancel_purchase_receipt_by_admin_success_200():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        create_resp = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [{"product_id": 1, "quantity": 2, "unit_cost_vnd": 50000}],
+            },
+        )
+        assert create_resp.status_code == 201
+        receipt_id = create_resp.json()["id"]
+
+        cancel_resp = await client.post(
+            f"/api/v1/purchase-receipts/{receipt_id}/cancel",
+            json={"expected_draft_version": 1},
+        )
+        assert cancel_resp.status_code == 200
+        data = cancel_resp.json()
+        assert data["status"] == "CANCELLED"
+        assert data["draft_version"] == 2
+        assert data["closed_by"] == 1
+        assert data["closed_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_cancel_purchase_receipt_stale_version_returns_409():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        create_resp = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}],
+            },
+        )
+        receipt_id = create_resp.json()["id"]
+
+        cancel_resp = await client.post(
+            f"/api/v1/purchase-receipts/{receipt_id}/cancel",
+            json={"expected_draft_version": 99},
+        )
+        assert cancel_resp.status_code == 409
+        err = cancel_resp.json()
+        assert err["code"] == "RECEIPT_VERSION_CONFLICT"
+
+
+@pytest.mark.anyio
+async def test_cancel_purchase_receipt_terminal_returns_409():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        create_resp = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 50000}],
+            },
+        )
+        receipt_id = create_resp.json()["id"]
+
+        cancel_resp1 = await client.post(
+            f"/api/v1/purchase-receipts/{receipt_id}/cancel",
+            json={"expected_draft_version": 1},
+        )
+        assert cancel_resp1.status_code == 200
+
+        # Attempt to cancel again
+        cancel_resp2 = await client.post(
+            f"/api/v1/purchase-receipts/{receipt_id}/cancel",
+            json={"expected_draft_version": 2},
+        )
+        assert cancel_resp2.status_code == 409
+        err = cancel_resp2.json()
+        assert err["code"] == "INVALID_STATE"
+
+
+@pytest.mark.anyio
+async def test_cancel_purchase_receipt_not_found_returns_404():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/v1/purchase-receipts/99999/cancel",
+            json={"expected_draft_version": 1},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_cancel_purchase_receipt_roles_and_auth():
+    engine = build_test_db()
+
+    # Unauthenticated
+    unauth_app = build_app(None, engine)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=unauth_app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/v1/purchase-receipts/1/cancel",
+            json={"expected_draft_version": 1},
+        )
+        assert resp.status_code == 401
+
+    # Staff forbidden
+    staff_app = build_app(UserRole.STAFF, engine)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=staff_app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/v1/purchase-receipts/1/cancel",
+            json={"expected_draft_version": 1},
+        )
+        assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_list_purchase_receipts_by_admin_success_200():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # Create 2 receipts
+        r1 = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 20000}],
+            },
+        )
+        r2 = await client.post(
+            "/api/v1/purchase-receipts",
+            json={
+                "supplier_id": 1,
+                "items": [{"product_id": 2, "quantity": 2, "unit_cost_vnd": 30000}],
+            },
+        )
+        assert r1.status_code == 201
+        assert r2.status_code == 201
+
+        # Cancel r2
+        r2_id = r2.json()["id"]
+        await client.post(
+            f"/api/v1/purchase-receipts/{r2_id}/cancel",
+            json={"expected_draft_version": 1},
+        )
+
+        # List all
+        resp = await client.get("/api/v1/purchase-receipts")
+        assert resp.status_code == 200
+        page = resp.json()
+        assert page["total"] == 2
+        assert len(page["items"]) == 2
+
+        # Filter by status CANCELLED
+        resp_cancelled = await client.get("/api/v1/purchase-receipts?status=CANCELLED")
+        assert resp_cancelled.status_code == 200
+        cpage = resp_cancelled.json()
+        assert cpage["total"] == 1
+        assert cpage["items"][0]["id"] == r2_id
+        assert cpage["items"][0]["status"] == "CANCELLED"
+
+        # Filter by status DRAFT
+        resp_draft = await client.get("/api/v1/purchase-receipts?status=DRAFT")
+        assert resp_draft.status_code == 200
+        dpage = resp_draft.json()
+        assert dpage["total"] == 1
+        assert dpage["items"][0]["id"] == r1.json()["id"]
+
+
+@pytest.mark.anyio
+async def test_list_purchase_receipts_roles_and_auth():
+    engine = build_test_db()
+
+    # Unauthenticated -> 401
+    unauth_app = build_app(None, engine)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=unauth_app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/v1/purchase-receipts")
+        assert resp.status_code == 401
+
+    # Staff -> 403
+    staff_app = build_app(UserRole.STAFF, engine)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=staff_app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/v1/purchase-receipts")
+        assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_list_purchase_receipts_validation_errors():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # Invalid date range
+        resp1 = await client.get(
+            "/api/v1/purchase-receipts?from_date=2026-12-01&to_date=2026-11-01"
+        )
+        assert resp1.status_code == 422
+        assert resp1.json()["code"] == "VALIDATION_ERROR"
+
+        # Invalid status
+        resp2 = await client.get("/api/v1/purchase-receipts?status=NOT_A_STATUS")
+        assert resp2.status_code == 422
+        assert resp2.json()["code"] == "VALIDATION_ERROR"
+
+        # Invalid page
+        resp3 = await client.get("/api/v1/purchase-receipts?page=0")
+        assert resp3.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_get_purchase_receipt_not_found_returns_404():
+    engine = build_test_db()
+    app = build_app(UserRole.ADMIN, engine)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/v1/purchase-receipts/99999")
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "RESOURCE_NOT_FOUND"
