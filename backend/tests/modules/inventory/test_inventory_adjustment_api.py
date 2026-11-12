@@ -202,7 +202,6 @@ def _setup_test_context(
             category_id=cat.id,
             status=ProductStatus.ACTIVE.value,
             sale_price_vnd=50_000,
-            cost_price_vnd=30_000,
             created_at=now,
             updated_at=now,
         )
