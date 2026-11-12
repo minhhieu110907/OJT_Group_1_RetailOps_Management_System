@@ -24,7 +24,14 @@ def validate_idempotency_key(value: str) -> str:
     return value
 
 
-def _json_safe(value: object, *, reject_sensitive_names: bool) -> object:
+def _field_name_parts(value: str) -> set[str]:
+    with_camel_boundaries = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    return set(re.split(r"[^a-z0-9]+", with_camel_boundaries.casefold()))
+
+
+def _json_safe(
+    value: object, *, reject_sensitive_names: bool, sensitive_context: str
+) -> object:
     if value is None or isinstance(value, (str, bool)):
         return value
     if isinstance(value, int) and not isinstance(value, bool):
@@ -36,18 +43,24 @@ def _json_safe(value: object, *, reject_sensitive_names: bool) -> object:
         for key, item in value.items():
             if not isinstance(key, str):
                 raise DomainValidationError("JSON object keys must be strings.")
-            name_parts = set(re.split(r"[^a-z0-9]+", key.casefold()))
+            name_parts = _field_name_parts(key)
             if reject_sensitive_names and name_parts & SENSITIVE_NAMES:
                 raise DomainValidationError(
-                    "Request identity contains a forbidden sensitive field."
+                    f"{sensitive_context} contains a forbidden sensitive field."
                 )
             normalized[key] = _json_safe(
-                item, reject_sensitive_names=reject_sensitive_names
+                item,
+                reject_sensitive_names=reject_sensitive_names,
+                sensitive_context=sensitive_context,
             )
         return normalized
     if isinstance(value, (list, tuple)):
         return [
-            _json_safe(item, reject_sensitive_names=reject_sensitive_names)
+            _json_safe(
+                item,
+                reject_sensitive_names=reject_sensitive_names,
+                sensitive_context=sensitive_context,
+            )
             for item in value
         ]
     raise DomainValidationError("Value is not JSON-safe.")
@@ -56,7 +69,11 @@ def _json_safe(value: object, *, reject_sensitive_names: bool) -> object:
 def canonical_json(value: Mapping[str, object]) -> bytes:
     if not isinstance(value, Mapping):
         raise DomainValidationError("Request identity must be an object.")
-    normalized = _json_safe(value, reject_sensitive_names=True)
+    normalized = _json_safe(
+        value,
+        reject_sensitive_names=True,
+        sensitive_context="Request identity",
+    )
     return json.dumps(
         normalized,
         ensure_ascii=False,
@@ -80,7 +97,11 @@ def key_digest(key: str, secret: bytes) -> bytes:
 def serialize_response_body(
     value: Any, *, max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES
 ) -> object:
-    normalized = _json_safe(value, reject_sensitive_names=False)
+    normalized = _json_safe(
+        value,
+        reject_sensitive_names=True,
+        sensitive_context="Response body",
+    )
     encoded = json.dumps(
         normalized, ensure_ascii=False, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")

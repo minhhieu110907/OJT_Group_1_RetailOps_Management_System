@@ -33,6 +33,15 @@ class IdempotencyOperation(StrEnum):
     INVENTORY_ADJUSTMENT = "INVENTORY_ADJUSTMENT"
 
 
+_RESOURCE_OPERATIONS = frozenset(
+    {
+        IdempotencyOperation.CONFIRM_RECEIPT,
+        IdempotencyOperation.CANCEL_ORDER,
+        IdempotencyOperation.INVENTORY_ADJUSTMENT,
+    }
+)
+
+
 @dataclass(frozen=True)
 class CommandOutcome(Generic[T]):  # noqa: UP046 - frozen CF-01 runtime contract
     status_code: int
@@ -73,6 +82,22 @@ class IdempotencyExecutor:
             )
         if "body" not in request_identity:
             raise DomainValidationError("Request identity must include body.")
+        expected_fields = {"operation", "body"}
+        if operation in _RESOURCE_OPERATIONS:
+            expected_fields.add("resource_id")
+            resource_id = request_identity.get("resource_id")
+            if (
+                not isinstance(resource_id, int)
+                or isinstance(resource_id, bool)
+                or resource_id <= 0
+            ):
+                raise DomainValidationError(
+                    "Request identity resource_id must be a positive integer."
+                )
+        if set(request_identity) != expected_fields:
+            raise DomainValidationError(
+                "Request identity fields do not match the operation contract."
+            )
 
         secret = self._secret or get_settings().require_idempotency_secret()
         key_fingerprint = key_digest(idempotency_key, secret)
@@ -92,6 +117,8 @@ class IdempotencyExecutor:
         if not claimed:
             if record.completed_at is None:
                 raise RequestInProgressError()
+            # Expiry controls cleanup eligibility, not replay in place. Until a
+            # cleanup transaction deletes the row, the committed result wins.
             return CommandOutcome(
                 status_code=cast(int, record.response_status),
                 body=cast(T, record.response_body),

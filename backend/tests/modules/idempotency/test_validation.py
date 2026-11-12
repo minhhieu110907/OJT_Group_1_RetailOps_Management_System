@@ -65,6 +65,32 @@ def test_response_rejects_non_json_safe_values(value: object) -> None:
         serialize_response_body(value)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"access_token": "forbidden"},
+        {"nested": {"password": "forbidden"}},
+        {"credentials": ["forbidden"]},
+        {"client-secret": "forbidden"},
+        {"accessToken": "forbidden"},
+        {"refreshToken": "forbidden"},
+    ],
+)
+def test_response_rejects_sensitive_fields(value: object) -> None:
+    with pytest.raises(DomainValidationError, match="Response body"):
+        serialize_response_body(value)
+
+
+def test_response_allows_contract_dto_fields() -> None:
+    dto = {
+        "id": 17,
+        "status": "COMPLETED",
+        "stock_version": 4,
+        "changed_items": [{"product_id": 9, "sale_price_vnd": 12000}],
+    }
+    assert serialize_response_body(dto) == dto
+
+
 def test_response_size_is_bounded() -> None:
     with pytest.raises(DomainValidationError, match="size limit"):
         serialize_response_body({"value": "x" * 100}, max_bytes=32)

@@ -94,6 +94,52 @@ def test_completed_record_replays_without_command() -> None:
     assert result.body == {"id": 9, "status": "CANCELLED"}
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        IdempotencyOperation.CONFIRM_RECEIPT,
+        IdempotencyOperation.CANCEL_ORDER,
+        IdempotencyOperation.INVENTORY_ADJUSTMENT,
+    ],
+)
+def test_resource_operation_replays_only_same_resource(
+    operation: IdempotencyOperation,
+) -> None:
+    original = {"operation": operation.value, "resource_id": 9, "body": {}}
+    record = record_for(original)
+    record.completed_at = datetime(2026, 11, 11)
+    record.response_status = 200
+    record.response_body = {"id": 9}
+    executor = IdempotencyExecutor(
+        secret=b"s" * 32,
+        repository=FakeRepository(record, False),  # type: ignore[arg-type]
+    )
+
+    replay = executor.execute(
+        FakeSession(),  # type: ignore[arg-type]
+        actor_id=4,
+        operation=operation,
+        idempotency_key="0123456789abcdef",
+        request_identity=original,
+        command=lambda: pytest.fail("replay executed command"),
+    )
+    assert replay.body == {"id": 9}
+
+    with pytest.raises(IdempotencyKeyReusedError):
+        executor.execute(
+            FakeSession(),  # type: ignore[arg-type]
+            actor_id=4,
+            operation=operation,
+            idempotency_key="0123456789abcdef",
+            request_identity={
+                "operation": operation.value,
+                "resource_id": 10,
+                "body": {},
+            },
+            command=lambda: pytest.fail("collision executed command"),
+        )
+
+
 def test_reused_key_with_different_payload_is_conflict() -> None:
     original = {"operation": "CHECKOUT", "body": {"quantity": 1}}
     executor = IdempotencyExecutor(
@@ -140,6 +186,45 @@ def test_request_identity_must_match_operation_and_include_body(
             FakeSession(),  # type: ignore[arg-type]
             actor_id=1,
             operation=IdempotencyOperation.CHECKOUT,
+            idempotency_key="0123456789abcdef",
+            request_identity=identity,
+            command=lambda: CommandOutcome(200, {}),
+        )
+
+
+@pytest.mark.parametrize(
+    ("operation", "identity"),
+    [
+        (
+            IdempotencyOperation.CONFIRM_RECEIPT,
+            {"operation": "CONFIRM_RECEIPT", "body": {}},
+        ),
+        (
+            IdempotencyOperation.CANCEL_ORDER,
+            {"operation": "CANCEL_ORDER", "resource_id": 0, "body": {}},
+        ),
+        (
+            IdempotencyOperation.INVENTORY_ADJUSTMENT,
+            {
+                "operation": "INVENTORY_ADJUSTMENT",
+                "resource_id": True,
+                "body": {},
+            },
+        ),
+        (
+            IdempotencyOperation.CHECKOUT,
+            {"operation": "CHECKOUT", "resource_id": 9, "body": {}},
+        ),
+    ],
+)
+def test_request_identity_resource_binding_is_strict(
+    operation: IdempotencyOperation, identity: dict[str, object]
+) -> None:
+    with pytest.raises(DomainValidationError, match="resource_id|fields"):
+        IdempotencyExecutor(secret=b"s" * 32).execute(
+            FakeSession(),  # type: ignore[arg-type]
+            actor_id=1,
+            operation=operation,
             idempotency_key="0123456789abcdef",
             request_identity=identity,
             command=lambda: CommandOutcome(200, {}),

@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 
-from sqlalchemy import delete, insert, select, text
+from sqlalchemy import delete, insert, select, text, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,10 @@ class IdempotencyRepository:
         request_digest: bytes,
         created_at: datetime,
     ) -> tuple[IdempotencyRecord, bool]:
+        if session.new or session.dirty or session.deleted:
+            raise RuntimeError(
+                "Idempotency claim must precede pending business mutations"
+            )
         with self._bounded_lock_wait(session):
             return self._claim_or_lock(
                 session,
@@ -101,25 +105,27 @@ class IdempotencyRepository:
     def delete_expired(
         self, session: Session, *, before: datetime, limit: int = 500
     ) -> int:
-        keys = list(
+        """Lock and delete a bounded batch; active replay rows are skipped."""
+        records = list(
             session.execute(
-                select(
-                    IdempotencyRecord.user_id,
-                    IdempotencyRecord.operation,
-                    IdempotencyRecord.key_digest,
-                )
+                select(IdempotencyRecord)
                 .where(IdempotencyRecord.expires_at < before)
                 .order_by(IdempotencyRecord.expires_at)
                 .limit(limit)
+                .with_for_update(skip_locked=True)
+            ).scalars()
+        )
+        if not records:
+            return 0
+        keys = [(row.user_id, row.operation, row.key_digest) for row in records]
+        result = session.execute(
+            delete(IdempotencyRecord).where(
+                tuple_(
+                    IdempotencyRecord.user_id,
+                    IdempotencyRecord.operation,
+                    IdempotencyRecord.key_digest,
+                ).in_(keys),
+                IdempotencyRecord.expires_at < before,
             )
         )
-        for user_id, operation, digest in keys:
-            session.execute(
-                delete(IdempotencyRecord).where(
-                    IdempotencyRecord.user_id == user_id,
-                    IdempotencyRecord.operation == operation,
-                    IdempotencyRecord.key_digest == digest,
-                    IdempotencyRecord.expires_at < before,
-                )
-            )
-        return len(keys)
+        return result.rowcount or 0

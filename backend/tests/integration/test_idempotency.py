@@ -155,6 +155,47 @@ def test_actor_and_operation_are_independent_namespaces(
     assert effect_count(migrated_integration_engine, actor_b) == 1
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        IdempotencyOperation.CONFIRM_RECEIPT,
+        IdempotencyOperation.CANCEL_ORDER,
+        IdempotencyOperation.INVENTORY_ADJUSTMENT,
+    ],
+)
+def test_resource_identity_replay_and_collision_on_mysql(
+    migrated_integration_engine: Engine, operation: IdempotencyOperation
+) -> None:
+    actor_id = create_actor(migrated_integration_engine, operation.value.casefold())
+    identity = {"operation": operation.value, "resource_id": 41, "body": {}}
+    first = execute_and_commit(
+        migrated_integration_engine,
+        actor_id=actor_id,
+        operation=operation,
+        identity=identity,
+    )
+    replay = execute_and_commit(
+        migrated_integration_engine,
+        actor_id=actor_id,
+        operation=operation,
+        identity=identity,
+        marker="must-not-run",
+    )
+    assert first == replay
+    with pytest.raises(IdempotencyKeyReusedError):
+        execute_and_commit(
+            migrated_integration_engine,
+            actor_id=actor_id,
+            operation=operation,
+            identity={
+                "operation": operation.value,
+                "resource_id": 42,
+                "body": {},
+            },
+        )
+    assert effect_count(migrated_integration_engine, actor_id) == 1
+
+
 def test_concurrent_duplicate_proves_lock_wait_and_one_command(
     migrated_integration_engine: Engine,
 ) -> None:
@@ -253,6 +294,150 @@ def test_autobegin_expiry_and_bounded_cleanup(
             ),
         )
         session.commit()
+
+
+def test_expired_record_replays_until_cleanup_then_key_can_be_reclaimed(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id = create_actor(migrated_integration_engine, "expiry")
+    completed_at = datetime(2026, 11, 10, 12)
+    clock_values = iter([completed_at, completed_at])
+    identity = {"operation": "CHECKOUT", "body": {}}
+    with Session(migrated_integration_engine) as session:
+        first = IdempotencyExecutor(
+            secret=SECRET, clock=lambda: next(clock_values)
+        ).execute(
+            session,
+            actor_id=actor_id,
+            operation=IdempotencyOperation.CHECKOUT,
+            idempotency_key="expired-replay-key",
+            request_identity=identity,
+            command=lambda: (
+                append_effect(session, actor_id, "before-cleanup")
+                or CommandOutcome(201, {"generation": 1})
+            ),
+        )
+        session.commit()
+    assert first == CommandOutcome(201, {"generation": 1})
+
+    replay = execute_and_commit(
+        migrated_integration_engine,
+        actor_id=actor_id,
+        key="expired-replay-key",
+        identity=identity,
+        marker="must-not-run",
+    )
+    assert replay == first
+    with Session(migrated_integration_engine) as session, session.begin():
+        assert (
+            IdempotencyRepository().delete_expired(
+                session,
+                before=completed_at + timedelta(hours=24, microseconds=1),
+            )
+            == 1
+        )
+
+    reclaimed = execute_and_commit(
+        migrated_integration_engine,
+        actor_id=actor_id,
+        key="expired-replay-key",
+        identity=identity,
+        marker="after-cleanup",
+    )
+    assert reclaimed == CommandOutcome(201, {"marker": "after-cleanup"})
+    assert effect_count(migrated_integration_engine, actor_id) == 2
+
+
+def test_cleanup_skips_expired_record_locked_by_replay(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id = create_actor(migrated_integration_engine, "cleanup_race")
+    completed_at = datetime(2026, 11, 10, 12)
+    clock_values = iter([completed_at, completed_at])
+    identity = {"operation": "CHECKOUT", "body": {}}
+    with Session(migrated_integration_engine) as session:
+        IdempotencyExecutor(secret=SECRET, clock=lambda: next(clock_values)).execute(
+            session,
+            actor_id=actor_id,
+            operation=IdempotencyOperation.CHECKOUT,
+            idempotency_key="cleanup-race-key",
+            request_identity=identity,
+            command=lambda: CommandOutcome(200, {"generation": 1}),
+        )
+        session.commit()
+
+    with Session(migrated_integration_engine) as replay_session:
+        replay = IdempotencyExecutor(secret=SECRET).execute(
+            replay_session,
+            actor_id=actor_id,
+            operation=IdempotencyOperation.CHECKOUT,
+            idempotency_key="cleanup-race-key",
+            request_identity=identity,
+            command=lambda: pytest.fail("locked replay executed command"),
+        )
+        assert replay == CommandOutcome(200, {"generation": 1})
+        assert replay_session.is_active
+
+        with Session(migrated_integration_engine) as cleanup_session:
+            assert (
+                IdempotencyRepository().delete_expired(
+                    cleanup_session,
+                    before=completed_at + timedelta(hours=24, microseconds=1),
+                )
+                == 0
+            )
+            cleanup_session.commit()
+        replay_session.commit()
+
+    with Session(migrated_integration_engine) as cleanup_session:
+        assert (
+            IdempotencyRepository().delete_expired(
+                cleanup_session,
+                before=completed_at + timedelta(hours=24, microseconds=1),
+            )
+            == 1
+        )
+        cleanup_session.commit()
+
+
+def test_pending_business_mutation_is_not_autoflushed_before_claim(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id = create_actor(migrated_integration_engine, "autoflush_guard")
+    with Session(migrated_integration_engine) as session:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        session.add(
+            OutboxEvent(
+                id=uuid4().bytes,
+                subject_user_id=actor_id,
+                event_type="STAFF_APPROVED",
+                payload={"marker": "must-not-flush"},
+                created_at=now,
+                available_at=now,
+            )
+        )
+        with pytest.raises(RuntimeError, match="claim must precede"):
+            IdempotencyExecutor(secret=SECRET).execute(
+                session,
+                actor_id=actor_id,
+                operation=IdempotencyOperation.CHECKOUT,
+                idempotency_key="autoflush-guard-key",
+                request_identity={"operation": "CHECKOUT", "body": {}},
+                command=lambda: pytest.fail("command ran after pending mutation"),
+            )
+        assert session.is_active
+        session.rollback()
+
+    assert effect_count(migrated_integration_engine, actor_id) == 0
+    with Session(migrated_integration_engine) as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(IdempotencyRecord)
+                .where(IdempotencyRecord.user_id == actor_id)
+            )
+            == 0
+        )
 
 
 def test_duplicate_lock_timeout_rolls_back_then_retry_replays(
