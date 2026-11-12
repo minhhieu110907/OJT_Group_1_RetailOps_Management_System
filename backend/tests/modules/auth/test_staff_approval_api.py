@@ -17,7 +17,7 @@ from app.main import create_app
 from app.modules.auth.approval_router import get_staff_approval_service
 from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
 from app.modules.auth.models import User
-from app.modules.auth.schemas import ApprovalRead
+from app.modules.auth.schemas import ApprovalListItemRead, ApprovalRead
 
 
 def settings() -> Settings:
@@ -52,8 +52,9 @@ def principal(role: str) -> CurrentPrincipal:
 class FakeApprovalService:
     def list(
         self, _session: object, *, status: str | None, page: int, page_size: int
-    ) -> Page[ApprovalRead]:
-        item = ApprovalRead(
+    ) -> Page[ApprovalListItemRead]:
+        item = ApprovalListItemRead(
+            email="staff@example.com",
             id=10,
             user_id=2,
             attempt_no=1,
@@ -127,6 +128,16 @@ def test_generated_openapi_matches_frozen_approval_contract() -> None:
         "page",
         "page_size",
     }
+    runtime_schemas = runtime["components"]["schemas"]
+    frozen_schemas = frozen["components"]["schemas"]
+    assert runtime_schemas["ApprovalPage"]["properties"]["items"]["items"]["$ref"] == (
+        "#/components/schemas/ApprovalListItemRead"
+    )
+    assert frozen_schemas["ApprovalPage"]["properties"]["items"]["items"]["$ref"] == (
+        "#/components/schemas/ApprovalListItemRead"
+    )
+    assert "email" in runtime_schemas["ApprovalListItemRead"]["required"]
+    assert "email" in frozen_schemas["ApprovalListItemRead"]["required"]
 
 
 @pytest.mark.anyio
@@ -174,6 +185,10 @@ async def test_approval_api_success_errors_filter_and_validation() -> None:
     assert listed.status_code == 200
     assert listed.json()["page"] == 2
     assert listed.json()["items"][0]["status"] == "APPROVED"
+    assert listed.json()["items"][0]["email"] == "staff@example.com"
+    assert "email" not in approved.json()
+    assert "email" not in rejected.json()
+    assert "password_hash" not in str(listed.json())
     assert approved.status_code == 200
     assert approved.json()["status"] == "APPROVED"
     assert rejected.status_code == 200

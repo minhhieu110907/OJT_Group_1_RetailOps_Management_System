@@ -1,7 +1,7 @@
 """Create shared idempotency records.
 
-Revision ID: 20261111_02
-Revises: 20261111_01
+Revision ID: 20261111_03
+Revises: 20261111_02
 Create Date: 2026-11-11
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
 
-revision: str = "20261111_02"
-down_revision: str | None = "20261111_01"
+revision: str = "20261111_03"
+down_revision: str | None = "20261111_02"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

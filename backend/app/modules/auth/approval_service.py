@@ -13,7 +13,7 @@ from app.core.exceptions import (
 from app.core.pagination import Page
 from app.modules.auth.approval_repository import StaffApprovalRepository
 from app.modules.auth.models import ApprovalStatus, UserRole, UserStatus
-from app.modules.auth.schemas import ApprovalRead
+from app.modules.auth.schemas import ApprovalListItemRead, ApprovalRead
 from app.modules.auth.service import utc_now_naive
 from app.modules.outbox.writer import OutboxWriter
 
@@ -36,12 +36,18 @@ class StaffApprovalService:
         status: str | None,
         page: int,
         page_size: int,
-    ) -> Page[ApprovalRead]:
+    ) -> Page[ApprovalListItemRead]:
         items, total = self.repository.list_page(
             session, status=status, page=page, page_size=page_size
         )
         return Page(
-            items=tuple(ApprovalRead.model_validate(item) for item in items),
+            items=tuple(
+                ApprovalListItemRead(
+                    **ApprovalRead.model_validate(approval).model_dump(),
+                    email=email,
+                )
+                for approval, email in items
+            ),
             total=total,
             page=page,
             page_size=page_size,

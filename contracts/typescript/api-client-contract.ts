@@ -25,6 +25,11 @@ export type OrderRead = {
 };
 export type ReceiptLine = {product_id:number;quantity:number;unit_cost_vnd:number};
 export type ReceiptDraftRequest = {supplier_id:number;items:ReceiptLine[]};
+export type ReceiptUpdateRequest = {
+  expected_draft_version: number;
+  supplier_id?: number;
+  items?: ReceiptLine[];
+};
 export type ReceiptRead = {
   id:number;supplier_id:number;supplier_name_snapshot:string|null;
   status:'DRAFT'|'CONFIRMED'|'CANCELLED';draft_version:number;
@@ -43,6 +48,7 @@ export interface RetailOpsApi {
   checkout(payload:CheckoutRequest, idempotencyKey:string):Promise<OrderRead>;
   cancelOrder(orderId:number, reason:string, idempotencyKey:string):Promise<OrderRead>;
   createReceipt(payload:ReceiptDraftRequest):Promise<ReceiptRead>;
+  updateReceipt(receiptId:number, payload:ReceiptUpdateRequest):Promise<ReceiptRead>;
   confirmReceipt(receiptId:number, expectedDraftVersion:number, idempotencyKey:string):Promise<ReceiptRead>;
   getSalesAnalytics(query?:URLSearchParams):Promise<SalesSummary>;
   askAI(message:string):Promise<AIAnswer>;
