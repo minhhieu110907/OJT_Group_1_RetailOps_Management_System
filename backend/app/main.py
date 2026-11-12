@@ -39,4 +39,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.include_router(api_router, prefix=resolved_settings.api_v1_prefix)
     return application
-
