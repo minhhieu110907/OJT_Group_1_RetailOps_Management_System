@@ -22,6 +22,7 @@ from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import AuthService
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
+from app.modules.idempotency.service import IdempotencyOperation
 from app.modules.inventory.models import (
     Inventory,
     InventoryAdjustment,
@@ -59,19 +60,33 @@ def clean_adjustment_test_rows(migrated_integration_engine: Engine) -> Generator
 
 def _cleanup(engine: Engine) -> None:
     with Session(engine) as session, session.begin():
+        session.execute(
+            delete(IdempotencyRecord).where(
+                IdempotencyRecord.operation
+                == IdempotencyOperation.INVENTORY_ADJUSTMENT.value
+            )
+        )
+
         user_ids = list(
             session.scalars(
                 select(User.id).where(
-                    User.email_normalized.like(f"{TEST_EMAIL_PREFIX}%")
+                    User.email_normalized.like(f"{TEST_EMAIL_PREFIX}%"),
+                    User.admin_slot.is_(None),
                 )
             )
         )
         if user_ids:
             session.execute(
-                delete(IdempotencyRecord).where(IdempotencyRecord.user_id.in_(user_ids))
-            )
-            session.execute(
                 delete(AuthSession).where(AuthSession.user_id.in_(user_ids))
+            )
+
+        admin = session.scalar(select(User).where(User.admin_slot == 1))
+        if admin is not None:
+            session.execute(
+                delete(AuthSession).where(
+                    AuthSession.user_id == admin.id,
+                    AuthSession.created_at >= datetime(2026, 11, 12, 0, 0, 0),
+                )
             )
 
         product_ids = list(
@@ -149,15 +164,20 @@ def _setup_test_context(
     session_expires = now + timedelta(hours=2)
 
     with Session(engine) as session:
-        admin = User(
-            email_normalized=f"{TEST_EMAIL_PREFIX}admin_{suffix}@example.com",
-            password_hash="$2b$04$test.actor.hash",
-            role=UserRole.ADMIN,
-            status=UserStatus.ACTIVE,
-            admin_slot=None,
-            created_at=now,
-            updated_at=now,
-        )
+        admin = session.scalar(select(User).where(User.admin_slot == 1))
+        if admin is None:
+            admin = User(
+                email_normalized=f"{TEST_EMAIL_PREFIX}admin@example.com",
+                password_hash="$2b$04$test.actor.hash",
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+                admin_slot=1,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(admin)
+            session.flush()
+
         staff = User(
             email_normalized=f"{TEST_EMAIL_PREFIX}staff_{suffix}@example.com",
             password_hash="$2b$04$test.actor.hash",
@@ -173,7 +193,7 @@ def _setup_test_context(
             created_at=now,
             updated_at=now,
         )
-        session.add_all((admin, staff, cat))
+        session.add_all((staff, cat))
         session.flush()
 
         prod = Product(
