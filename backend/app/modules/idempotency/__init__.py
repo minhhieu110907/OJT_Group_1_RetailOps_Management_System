@@ -5,5 +5,11 @@ from app.modules.idempotency.service import (
     IdempotencyExecutor,
     IdempotencyOperation,
 )
+from app.modules.idempotency.validation import validate_idempotency_key
 
-__all__ = ["CommandOutcome", "IdempotencyExecutor", "IdempotencyOperation"]
+__all__ = [
+    "CommandOutcome",
+    "IdempotencyExecutor",
+    "IdempotencyOperation",
+    "validate_idempotency_key",
+]
