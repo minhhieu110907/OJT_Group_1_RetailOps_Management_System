@@ -715,3 +715,66 @@ def test_all_four_operations_and_before_after_movement_ledger_in_mysql(
             (15, 12, 3),
             (12, 12, 4),
         ]
+
+
+def test_receipt_item_composite_foreign_key_in_mysql(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Validate that stock_movements enforces composite FK to purchase_receipt_items."""
+    service = InventoryService()
+    with Session(migrated_integration_engine) as setup_session:
+        actor_id, [p1, p2] = _seed_actor_and_products(
+            setup_session, "fk_test", quantities=[10, 10]
+        )
+        receipt_id = _seed_receipt_and_item(setup_session, actor_id, p1, quantity=5)
+        setup_session.commit()
+
+    # 1. Nonexistent receipt_id -> rejected by MySQL FK, NOT DuplicateMovementError
+    with Session(migrated_integration_engine) as session:
+        with pytest.raises(IntegrityError) as exc_info:
+            service.increase(
+                session,
+                items=[StockChangeItem(product_id=p1, quantity=5)],
+                reference_id=999_999_999,
+                actor_id=actor_id,
+            )
+        assert not isinstance(exc_info.value, DuplicateMovementError)
+        assert "fk_stock_movements_receipt_item" in str(exc_info.value)
+        session.rollback()
+
+    # 2. Receipt exists, but p2 was not part of this receipt -> rejected by FK
+    # Rollback must restore inventory balance and leave movement ledger empty.
+    with Session(migrated_integration_engine) as session:
+        with pytest.raises(IntegrityError) as exc_info2:
+            service.increase(
+                session,
+                items=[StockChangeItem(product_id=p2, quantity=5)],
+                reference_id=receipt_id,
+                actor_id=actor_id,
+            )
+        assert not isinstance(exc_info2.value, DuplicateMovementError)
+        assert "fk_stock_movements_receipt_item" in str(exc_info2.value)
+        session.rollback()
+
+    with Session(migrated_integration_engine) as verify_session:
+        inv2 = verify_session.get(Inventory, p2)
+        assert inv2 is not None and inv2.quantity == 10 and inv2.stock_version == 1
+        movements2 = list(
+            verify_session.scalars(
+                select(StockMovement).where(StockMovement.product_id == p2)
+            )
+        )
+        assert movements2 == []
+
+    # 3. Matching (receipt_id, product_id) -> succeeds
+    with Session(migrated_integration_engine) as session:
+        results = service.increase(
+            session,
+            items=[StockChangeItem(product_id=p1, quantity=5)],
+            reference_id=receipt_id,
+            actor_id=actor_id,
+        )
+        session.commit()
+
+    assert len(results) == 1
+    assert results[0].quantity_after == 15
