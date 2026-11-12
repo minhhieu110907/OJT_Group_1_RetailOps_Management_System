@@ -177,7 +177,10 @@ def test_list_returns_frozen_contract_page_with_tuple_items() -> None:
             staff=user(2, "STAFF", "PENDING_APPROVAL"),
         )
     )
-    service.repository.list_page = lambda *_args, **_kwargs: ([(approval(), "u2@example.com")], 1)  # type: ignore[method-assign]
+    service.repository.list_page = lambda *_args, **_kwargs: (
+        [(approval(), "u2@example.com")],
+        1,
+    )  # type: ignore[method-assign]
 
     result = service.list(object(), status="PENDING", page=1, page_size=20)  # type: ignore[arg-type]
 
