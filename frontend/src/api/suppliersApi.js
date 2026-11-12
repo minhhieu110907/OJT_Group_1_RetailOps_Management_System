@@ -127,6 +127,10 @@ export const suppliersApi = {
     return validateSupplierListResponse(response.data);
   },
 
+  async getActiveSuppliers({ page = 1, pageSize = 100, search = '' } = {}) {
+    return this.getSuppliers({ page, pageSize, status: 'ACTIVE', search });
+  },
+
   async getSupplier(id) {
     if (!id || typeof id !== 'number' || id <= 0) {
       throw new Error('Invalid supplier ID.');

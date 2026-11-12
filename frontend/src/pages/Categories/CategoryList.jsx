@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { categoriesApi } from '../../api/categoriesApi';
@@ -12,6 +13,8 @@ const INITIAL_FORM = {
 };
 
 export default function CategoryList() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const toast = useToast();
 
   // 1. State tìm kiếm, tab trạng thái & phân trang (Server-side)
@@ -100,16 +103,24 @@ export default function CategoryList() {
     loadCategories();
   }, [loadCategories, refreshTrigger]);
 
-  // Xử lý mở Drawer tạo mới
-  const handleOpenCreateDrawer = () => {
+  // Xử lý mở Drawer tạo mới (chỉ ADMIN)
+  const handleOpenCreateDrawer = useCallback(() => {
+    if (!isAdmin) {
+      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm danh mục.');
+      return;
+    }
     setDrawerMode('create');
     setCategoryForm({ ...INITIAL_FORM });
     setFormError('');
     setIsDrawerOpen(true);
-  };
+  }, [isAdmin, toast]);
 
-  // Xử lý mở Drawer chỉnh sửa
-  const handleOpenEditDrawer = (category) => {
+  // Xử lý mở Drawer chỉnh sửa (chỉ ADMIN)
+  const handleOpenEditDrawer = useCallback((category) => {
+    if (!isAdmin) {
+      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa danh mục.');
+      return;
+    }
     setDrawerMode('edit');
     setCategoryForm({
       id: category.id,
@@ -119,21 +130,21 @@ export default function CategoryList() {
     });
     setFormError('');
     setIsDrawerOpen(true);
-  };
+  }, [isAdmin, toast]);
 
-  const handleCloseDrawer = () => {
+  const handleCloseDrawer = useCallback(() => {
     if (isSubmitting) return;
     setIsDrawerOpen(false);
     setFormError('');
-  };
+  }, [isSubmitting]);
 
-  // Lắng nghe phím tắt: F2 (Focus tìm kiếm), F3 (Thêm mới), Esc (Đóng drawer)
+  // Lắng nghe phím tắt: F2 (Focus tìm kiếm), F3 (Thêm mới - chỉ ADMIN), Esc (Đóng drawer)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'F2') {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if (e.key === 'F3') {
+      } else if (e.key === 'F3' && isAdmin) {
         e.preventDefault();
         handleOpenCreateDrawer();
       } else if (e.key === 'Escape' && isDrawerOpen) {
@@ -143,10 +154,14 @@ export default function CategoryList() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawerOpen, isSubmitting]);
+  }, [isAdmin, isDrawerOpen, isSubmitting, handleCloseDrawer, handleOpenCreateDrawer]);
 
-  // Toggle trạng thái ACTIVE / INACTIVE (PROD-02)
-  const handleToggleStatus = async (category) => {
+  // Toggle trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
+  const handleToggleStatus = useCallback(async (category) => {
+    if (!isAdmin) {
+      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái danh mục.');
+      return;
+    }
     const nextStatus = category.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
       await categoriesApi.updateCategoryStatus(category.id, nextStatus);
@@ -159,11 +174,17 @@ export default function CategoryList() {
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Không thể thay đổi trạng thái danh mục.'));
     }
-  };
+  }, [isAdmin, toast]);
 
-  // Submit form tạo / sửa danh mục (chỉ gửi name theo contract backend extra="forbid")
+  // Submit form tạo / sửa danh mục (chỉ gửi name theo contract backend extra="forbid", chỉ ADMIN)
   const handleSubmitForm = async (e) => {
     e.preventDefault();
+    if (!isAdmin) {
+      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      setFormError(msg);
+      toast.error(msg);
+      return;
+    }
     setFormError('');
 
     const trimmedName = categoryForm.name.trim();
@@ -199,8 +220,8 @@ export default function CategoryList() {
   };
 
   // Cấu hình Cột Table chuẩn component common/Table
-  const columns = useMemo(
-    () => [
+  const columns = useMemo(() => {
+    const cols = [
       {
         key: 'name',
         title: 'TÊN DANH MỤC',
@@ -240,7 +261,10 @@ export default function CategoryList() {
           );
         },
       },
-      {
+    ];
+
+    if (isAdmin) {
+      cols.push({
         key: 'actions',
         title: 'THAO TÁC',
         align: 'center',
@@ -286,10 +310,11 @@ export default function CategoryList() {
             </div>
           );
         },
-      },
-    ],
-    []
-  );
+      });
+    }
+
+    return cols;
+  }, [isAdmin, handleToggleStatus, handleOpenEditDrawer]);
 
   const startRecord = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.page_size + 1;
   const endRecord = Math.min(pagination.page * pagination.page_size, pagination.total);
@@ -305,17 +330,19 @@ export default function CategoryList() {
           </p>
         </div>
 
-        <button
-          type="button"
-          className={styles.primaryBtn}
-          onClick={handleOpenCreateDrawer}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span>Thêm danh mục</span>
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            className={styles.primaryBtn}
+            onClick={handleOpenCreateDrawer}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Thêm danh mục</span>
+          </button>
+        )}
       </div>
 
       {/* 2. Thanh tìm kiếm và bộ lọc Tab Trạng thái */}
@@ -447,6 +474,7 @@ export default function CategoryList() {
                   onChange={(e) =>
                     setCategoryForm((prev) => ({ ...prev, name: e.target.value }))
                   }
+                  disabled={!isAdmin || isSubmitting}
                   autoFocus
                 />
                 <p className={styles.fieldHelp}>
@@ -465,6 +493,7 @@ export default function CategoryList() {
                   onChange={(e) =>
                     setCategoryForm((prev) => ({ ...prev, description: e.target.value }))
                   }
+                  disabled={!isAdmin || isSubmitting}
                 />
                 <p className={styles.fieldHelp}>
                   Giúp nhân viên bán hàng nhận diện nhóm hàng nhanh tại quầy POS.
@@ -480,18 +509,20 @@ export default function CategoryList() {
                   onClick={handleCloseDrawer}
                   disabled={isSubmitting}
                 >
-                  Hủy bỏ
+                  {isAdmin ? 'Hủy bỏ' : 'Đóng'}
                 </button>
-                <button
-                  type="submit"
-                  className={styles.submitBtn}
-                  disabled={isSubmitting}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>{isSubmitting ? 'Đang lưu...' : 'Lưu danh mục'}</span>
-                </button>
+                {isAdmin && (
+                  <button
+                    type="submit"
+                    className={styles.submitBtn}
+                    disabled={isSubmitting}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span>{isSubmitting ? 'Đang lưu...' : 'Lưu danh mục'}</span>
+                  </button>
+                )}
               </div>
             </form>
           </div>

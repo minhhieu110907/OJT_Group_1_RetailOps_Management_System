@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { suppliersApi } from '../../api/suppliersApi';
@@ -53,11 +54,12 @@ const INITIAL_SUPPLIER_FORM = {
   name: '',
   contact_phone: '',
   contact_email: '',
-  address: '',
   status: 'ACTIVE',
 };
 
 export default function SupplierList() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const toast = useToast();
 
   // 1. State tìm kiếm, lọc & phân trang
@@ -66,6 +68,7 @@ export default function SupplierList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [data, setData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isForbidden, setIsForbidden] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [pagination, setPagination] = useState({
@@ -100,6 +103,7 @@ export default function SupplierList() {
     setIsLoading(true);
 
     try {
+      setIsForbidden(false);
       const res = await suppliersApi.getSuppliers({
         page: pagination.page,
         pageSize: pagination.page_size,
@@ -117,6 +121,9 @@ export default function SupplierList() {
       }
     } catch (err) {
       if (currentRequestId === requestIdRef.current) {
+        if (err?.response?.status === 403) {
+          setIsForbidden(true);
+        }
         const errorMsg = getApiErrorMessage(err, 'Không thể tải danh sách nhà cung cấp.');
         toast.error(errorMsg);
       }
@@ -131,28 +138,35 @@ export default function SupplierList() {
     loadSuppliers();
   }, [loadSuppliers, refreshTrigger]);
 
-  // Xử lý mở drawer thêm mới
+  // Xử lý mở drawer thêm mới (chỉ ADMIN)
   const handleOpenCreateDrawer = () => {
+    if (!isAdmin) {
+      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm nhà cung cấp.');
+      return;
+    }
     setDrawerMode('create');
     setSupplierForm({ ...INITIAL_SUPPLIER_FORM });
     setFormError('');
     setIsDrawerOpen(true);
   };
 
-  // Xử lý mở drawer xem chi tiết / cập nhật
-  const handleOpenEditDrawer = (supplier) => {
+  // Xử lý mở drawer xem chi tiết / cập nhật (chỉ ADMIN)
+  const handleOpenEditDrawer = useCallback((supplier) => {
+    if (!isAdmin) {
+      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa nhà cung cấp.');
+      return;
+    }
     setDrawerMode('edit');
     setSupplierForm({
       id: supplier.id,
       name: supplier.name || '',
       contact_phone: supplier.contact_phone || '',
       contact_email: supplier.contact_email || '',
-      address: supplier.address || '',
       status: supplier.status || 'ACTIVE',
     });
     setFormError('');
     setIsDrawerOpen(true);
-  };
+  }, [isAdmin, toast]);
 
   const handleCloseDrawer = () => {
     if (isSubmitting) return;
@@ -160,8 +174,12 @@ export default function SupplierList() {
     setFormError('');
   };
 
-  // Chuyển đổi trạng thái Đang hợp tác / Ngừng hợp tác
+  // Chuyển đổi trạng thái Đang hợp tác / Ngừng hợp tác (chỉ ADMIN)
   const handleToggleStatus = async () => {
+    if (!isAdmin) {
+      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái đối tác.');
+      return;
+    }
     if (drawerMode !== 'edit' || !supplierForm.id) return;
     const newStatus = supplierForm.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     setIsSubmitting(true);
@@ -182,13 +200,43 @@ export default function SupplierList() {
     }
   };
 
-  // Submit form (Thêm mới hoặc Cập nhật)
+  // Submit form (Thêm mới hoặc Cập nhật - chỉ ADMIN)
   const handleSubmitForm = async (e) => {
     e.preventDefault();
+    if (!isAdmin) {
+      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      setFormError(msg);
+      toast.error(msg);
+      return;
+    }
+
     const trimmedName = supplierForm.name.trim();
     if (!trimmedName) {
       setFormError('Tên nhà cung cấp là bắt buộc.');
       return;
+    }
+    if (trimmedName.length > 160) {
+      setFormError('Tên nhà cung cấp không được vượt quá 160 ký tự.');
+      return;
+    }
+
+    const trimmedPhone = supplierForm.contact_phone?.trim() || null;
+    if (trimmedPhone && trimmedPhone.length > 32) {
+      setFormError('Số điện thoại không được vượt quá 32 ký tự.');
+      return;
+    }
+
+    const trimmedEmail = supplierForm.contact_email?.trim() || null;
+    if (trimmedEmail) {
+      if (trimmedEmail.length > 254) {
+        setFormError('Email không được vượt quá 254 ký tự.');
+        return;
+      }
+      const emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        setFormError('Email kinh doanh không đúng định dạng.');
+        return;
+      }
     }
 
     setFormError('');
@@ -198,8 +246,8 @@ export default function SupplierList() {
       if (drawerMode === 'create') {
         await suppliersApi.createSupplier({
           name: trimmedName,
-          contact_email: supplierForm.contact_email?.trim() || null,
-          contact_phone: supplierForm.contact_phone?.trim() || null,
+          contact_email: trimmedEmail,
+          contact_phone: trimmedPhone,
         });
         toast.success('Thêm nhà cung cấp mới thành công.');
         setIsDrawerOpen(false);
@@ -207,8 +255,8 @@ export default function SupplierList() {
       } else {
         await suppliersApi.updateSupplier(supplierForm.id, {
           name: trimmedName,
-          contact_email: supplierForm.contact_email?.trim() || null,
-          contact_phone: supplierForm.contact_phone?.trim() || null,
+          contact_email: trimmedEmail,
+          contact_phone: trimmedPhone,
         });
         toast.success('Cập nhật thông tin nhà cung cấp thành công.');
         setIsDrawerOpen(false);
@@ -229,12 +277,12 @@ export default function SupplierList() {
   };
 
   // Định nghĩa các cột cho Table component từ common
-  const columns = useMemo(
-    () => [
+  const columns = useMemo(() => {
+    const cols = [
       {
         key: 'name',
         title: 'TÊN NHÀ CUNG CẤP',
-        width: '30%',
+        width: isAdmin ? '28%' : '34%',
         render: (row) => (
           <div className={styles.supplierNameCol}>
             <span className={styles.supplierNameText}>{row.name}</span>
@@ -253,19 +301,28 @@ export default function SupplierList() {
       {
         key: 'contact_email',
         title: 'EMAIL',
-        width: '22%',
+        width: '20%',
         render: (row) => row.contact_email || '—',
+      },
+      {
+        key: 'status',
+        title: 'TRẠNG THÁI',
+        width: '16%',
+        render: (row) => <SupplierStatusBadge status={row.status} />,
       },
       {
         key: 'created_at',
         title: 'NGÀY TẠO',
-        width: '16%',
+        width: isAdmin ? '10%' : '14%',
         render: (row) => formatCreatedAt(row.created_at),
       },
-      {
+    ];
+
+    if (isAdmin) {
+      cols.push({
         key: 'actions',
         title: 'THAO TÁC',
-        width: '16%',
+        width: '10%',
         align: 'right',
         render: (row) => (
           <div className={styles.actionCell} style={{ justifyContent: 'flex-end' }}>
@@ -281,10 +338,11 @@ export default function SupplierList() {
             </button>
           </div>
         ),
-      },
-    ],
-    []
-  );
+      });
+    }
+
+    return cols;
+  }, [isAdmin, handleOpenEditDrawer]);
 
   return (
     <div className={styles.container}>
@@ -296,17 +354,19 @@ export default function SupplierList() {
             Quản lý đối tác cung ứng cho hoạt động nhập hàng · Một kho duy nhất
           </p>
         </div>
-        <button
-          type="button"
-          className={styles.primaryBtn}
-          onClick={handleOpenCreateDrawer}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          Thêm nhà cung cấp
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            className={styles.primaryBtn}
+            onClick={handleOpenCreateDrawer}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Thêm nhà cung cấp
+          </button>
+        )}
       </div>
 
       {/* 2. Banner PUR-01: RÀNG BUỘC NGHIỆP VỤ NHÀ CUNG CẤP */}
@@ -318,8 +378,34 @@ export default function SupplierList() {
             <path d="M12 8h.01" />
           </svg>
         </div>
-       
       </div>
+
+      {/* Thông báo quyền hạn nếu bị 403 Forbidden */}
+      {isForbidden && (
+        <div
+          style={{
+            padding: '12px 16px',
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FCA5A5',
+            borderRadius: '8px',
+            color: '#991B1B',
+            marginBottom: '16px',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>
+            <strong>Truy cập bị giới hạn (403):</strong> Bạn không có quyền Quản trị viên (ADMIN) để thao tác trên danh mục nhà cung cấp.
+          </span>
+        </div>
+      )}
 
       {/* 3. Thanh tìm kiếm & lọc */}
       <div className={styles.filterBar}>
@@ -459,6 +545,7 @@ export default function SupplierList() {
                   value={supplierForm.name}
                   onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })}
                   maxLength={160}
+                  disabled={!isAdmin || isSubmitting}
                   required
                 />
                 <span className={styles.formSubtext}>
@@ -483,6 +570,7 @@ export default function SupplierList() {
                     value={supplierForm.contact_phone}
                     onChange={(e) => setSupplierForm({ ...supplierForm, contact_phone: e.target.value })}
                     maxLength={32}
+                    disabled={!isAdmin || isSubmitting}
                   />
                 </div>
               </div>
@@ -505,6 +593,7 @@ export default function SupplierList() {
                     value={supplierForm.contact_email}
                     onChange={(e) => setSupplierForm({ ...supplierForm, contact_email: e.target.value })}
                     maxLength={254}
+                    disabled={!isAdmin || isSubmitting}
                   />
                 </div>
               </div>
@@ -516,14 +605,16 @@ export default function SupplierList() {
                     <span className={styles.statusCardLabel}>Tình trạng đối tác</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <SupplierStatusBadge status={supplierForm.status} />
-                      <button
-                        type="button"
-                        className={styles.statusToggleBtn}
-                        onClick={handleToggleStatus}
-                        disabled={isSubmitting}
-                      >
-                        {supplierForm.status === 'ACTIVE' ? 'Ngừng hợp tác' : 'Kích hoạt lại'}
-                      </button>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className={styles.statusToggleBtn}
+                          onClick={handleToggleStatus}
+                          disabled={isSubmitting}
+                        >
+                          {supplierForm.status === 'ACTIVE' ? 'Ngừng hợp tác' : 'Kích hoạt lại'}
+                        </button>
+                      )}
                     </div>
                   </div>
                   <p className={styles.statusCardDesc}>
@@ -544,24 +635,26 @@ export default function SupplierList() {
                 >
                   Đóng
                 </button>
-                <button
-                  type="submit"
-                  className={styles.submitBtn}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    'Đang xử lý...'
-                  ) : drawerMode === 'create' ? (
-                    'Thêm nhà cung cấp'
-                  ) : (
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                      Cập nhật thông tin
-                    </>
-                  )}
-                </button>
+                {isAdmin && (
+                  <button
+                    type="submit"
+                    className={styles.submitBtn}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      'Đang xử lý...'
+                    ) : drawerMode === 'create' ? (
+                      'Thêm nhà cung cấp'
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        Cập nhật thông tin
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </form>
           </aside>
