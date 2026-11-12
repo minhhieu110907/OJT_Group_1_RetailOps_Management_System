@@ -213,7 +213,6 @@ def _setup_test_context(
             quantity=initial_quantity,
             stock_version=initial_version,
             first_stocked_at=now,
-            last_counted_at=None,
             updated_at=now,
         )
         session.add(inv)
