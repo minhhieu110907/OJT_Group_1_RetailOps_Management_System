@@ -2469,7 +2469,6 @@ components:
         email:
           type: string
           format: email
-          maxLength: 254
         attempt_no:
           type: integer
           format: int64
