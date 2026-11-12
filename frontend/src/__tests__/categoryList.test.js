@@ -282,4 +282,153 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
       );
     });
   });
+
+  // ==========================================================================
+  // 5. F05: Modal Refactor, Responsive Overflow & Native Form Submission Regression
+  // ==========================================================================
+  describe('F05: Modal Refactor, Responsive Overflow & Native Form Submission Regression', () => {
+    const categoryListPath = path.resolve(__dirname, '../pages/Categories/CategoryList.jsx');
+    const categoryCssPath = path.resolve(__dirname, '../pages/Categories/CategoryList.module.css');
+    const modalComponentPath = path.resolve(__dirname, '../components/common/Modal/Modal.jsx');
+    const modalCssPath = path.resolve(__dirname, '../components/common/Modal/Modal.module.css');
+
+    test('CategoryList imports shared Modal and modalStyles cleanly', () => {
+      const content = fs.readFileSync(categoryListPath, 'utf8');
+      assert.ok(content.includes("import { Modal, Pagination, Table, useToast } from '../../components/common';"));
+      assert.ok(content.includes("import modalStyles from '../../components/common/Modal/Modal.module.css';"));
+    });
+
+    test('CategoryList completely removes obsolete Drawer CSS classes and DOM structures', () => {
+      const jsxContent = fs.readFileSync(categoryListPath, 'utf8');
+      const cssContent = fs.readFileSync(categoryCssPath, 'utf8');
+
+      // Obsolete drawer class names must not exist
+      assert.equal(jsxContent.includes('styles.drawerOverlay'), false, 'drawerOverlay must be removed from JSX');
+      assert.equal(jsxContent.includes('styles.drawerHeader'), false, 'drawerHeader must be removed from JSX');
+      assert.equal(jsxContent.includes('styles.drawerBody'), false, 'drawerBody must be removed from JSX');
+      assert.equal(jsxContent.includes('styles.drawerFooter'), false, 'drawerFooter must be removed from JSX');
+
+      assert.equal(cssContent.includes('.drawerOverlay'), false, 'drawerOverlay must be removed from CSS');
+      assert.equal(cssContent.includes('.drawerHeader'), false, 'drawerHeader must be removed from CSS');
+      assert.equal(cssContent.includes('.drawerBody'), false, 'drawerBody must be removed from CSS');
+      assert.equal(cssContent.includes('.drawerFooter'), false, 'drawerFooter must be removed from CSS');
+    });
+
+    test('CategoryList associates footer submit button to native form via useId() and form attribute', () => {
+      const content = fs.readFileSync(categoryListPath, 'utf8');
+
+      // Must import useId
+      assert.ok(content.includes('useId'), 'Must import useId from react');
+      assert.ok(content.includes('const categoryFormId = useId();'), 'Must declare categoryFormId with useId()');
+
+      // Form must have id={categoryFormId}
+      assert.ok(
+        content.includes('id={categoryFormId}'),
+        'Form must be bound to categoryFormId'
+      );
+      assert.ok(
+        content.includes('onSubmit={handleSubmitForm}'),
+        'Form must handle native onSubmit'
+      );
+
+      // Confirm button must have type="submit" and form={categoryFormId}
+      assert.ok(
+        content.includes('type="submit"'),
+        'Submit button must be type="submit"'
+      );
+      assert.ok(
+        content.includes('form={categoryFormId}'),
+        'Submit button must reference form via form={categoryFormId}'
+      );
+
+      // Submit button must not have redundant onClick={handleSubmitForm}
+      assert.equal(
+        content.includes('onClick={handleSubmitForm}'),
+        false,
+        'Submit button must not have redundant onClick handler'
+      );
+    });
+
+    test('Double-submit guard prevents duplicate API requests during synchronous event dispatch', async () => {
+      const content = fs.readFileSync(categoryListPath, 'utf8');
+      assert.ok(
+        content.includes('const isSubmittingRef = useRef(false);'),
+        'Must define isSubmittingRef for synchronous submission locking'
+      );
+      assert.ok(
+        content.includes('if (isSubmittingRef.current)'),
+        'Must check isSubmittingRef.current before proceeding'
+      );
+      assert.ok(
+        content.includes('isSubmittingRef.current = true;'),
+        'Must set isSubmittingRef.current = true on submit'
+      );
+      assert.ok(
+        content.includes('isSubmittingRef.current = false;'),
+        'Must reset isSubmittingRef.current in finally block'
+      );
+
+      // Simulate concurrency lock logic
+      let callCount = 0;
+      axiosClient.post = async () => {
+        callCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { data: VALID_CATEGORY_FIXTURE };
+      };
+
+      const isSubmittingRef = { current: false };
+      const simulatedSubmit = async (name) => {
+        if (isSubmittingRef.current) return null;
+        isSubmittingRef.current = true;
+        try {
+          return await categoriesApi.createCategory({ name });
+        } finally {
+          isSubmittingRef.current = false;
+        }
+      };
+
+      // Concurrent invocations in same tick
+      const [res1, res2] = await Promise.all([
+        simulatedSubmit('Đồ dùng nhà bếp'),
+        simulatedSubmit('Đồ dùng nhà bếp'),
+      ]);
+
+      assert.equal(callCount, 1, 'Only one API request should be made');
+      assert.ok(res1 !== null || res2 !== null);
+      assert.ok(res1 === null || res2 === null);
+      assert.equal(isSubmittingRef.current, false, 'Lock must be released');
+    });
+
+    test('Shared Modal CSS guarantees responsive overflow protection and pinned header/footer', () => {
+      const modalCss = fs.readFileSync(modalCssPath, 'utf8');
+      const modalJsx = fs.readFileSync(modalComponentPath, 'utf8');
+
+      // Pinned container with max-height
+      assert.ok(modalCss.includes('max-height'), 'Modal box must constrain max-height');
+      assert.ok(modalCss.includes('display: flex'), 'Modal box must use flex layout');
+      assert.ok(modalCss.includes('flex-direction: column'), 'Modal box must use column direction');
+
+      // Scrollable content area
+      assert.ok(modalCss.includes('overflow-y: auto'), 'Content area must have overflow-y: auto');
+      assert.ok(modalCss.includes('min-height: 0'), 'Scroll container must have min-height: 0');
+      assert.ok(modalCss.includes('overscroll-behavior: contain'), 'Content area must contain overscroll');
+
+      // Non-shrinking footer and header
+      assert.ok(modalCss.includes('flex-shrink: 0'), 'Header/Footer must not shrink under low viewport height');
+
+      // Background scroll lock and Esc handling
+      assert.ok(modalJsx.includes("document.body.style.overflow = 'hidden'"), 'Must lock body scroll when open');
+      assert.ok(modalJsx.includes('Escape'), 'Must support Escape key to close modal');
+      assert.ok(modalJsx.includes('handleBackdropClick'), 'Must support backdrop click to close modal');
+    });
+
+    test('Category form client validation strictly validates input length and whitespace', () => {
+      const content = fs.readFileSync(categoryListPath, 'utf8');
+
+      assert.ok(content.includes('trimmedName.length > 120'));
+      assert.ok(content.includes('Vui lòng nhập tên danh mục.'));
+      assert.ok(content.includes('Tên danh mục không được vượt quá 120 ký tự.'));
+      assert.ok(content.includes('handleCloseModal'));
+    });
+  });
 });

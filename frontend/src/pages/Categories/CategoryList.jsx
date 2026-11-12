@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Pagination, Table, useToast } from '../../components/common';
+import { Modal, Pagination, Table, useToast } from '../../components/common';
+import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { categoriesApi } from '../../api/categoriesApi';
 import styles from './CategoryList.module.css';
@@ -38,9 +39,11 @@ export default function CategoryList() {
     totalPages: 1,
   });
 
-  // 2. State Drawer Thêm mới / Chỉnh sửa
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState('create'); // 'create' | 'edit'
+  // 2. State Modal Thêm mới / Chỉnh sửa
+  const categoryFormId = useId();
+  const isSubmittingRef = useRef(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [categoryForm, setCategoryForm] = useState(INITIAL_FORM);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -103,25 +106,25 @@ export default function CategoryList() {
     loadCategories();
   }, [loadCategories, refreshTrigger]);
 
-  // Xử lý mở Drawer tạo mới (chỉ ADMIN)
-  const handleOpenCreateDrawer = useCallback(() => {
+  // Xử lý mở Modal tạo mới (chỉ ADMIN)
+  const handleOpenCreateModal = useCallback(() => {
     if (!isAdmin) {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm danh mục.');
       return;
     }
-    setDrawerMode('create');
+    setModalMode('create');
     setCategoryForm({ ...INITIAL_FORM });
     setFormError('');
-    setIsDrawerOpen(true);
+    setIsModalOpen(true);
   }, [isAdmin, toast]);
 
-  // Xử lý mở Drawer chỉnh sửa (chỉ ADMIN)
-  const handleOpenEditDrawer = useCallback((category) => {
+  // Xử lý mở Modal chỉnh sửa (chỉ ADMIN)
+  const handleOpenEditModal = useCallback((category) => {
     if (!isAdmin) {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa danh mục.');
       return;
     }
-    setDrawerMode('edit');
+    setModalMode('edit');
     setCategoryForm({
       id: category.id,
       name: category.name || '',
@@ -129,16 +132,16 @@ export default function CategoryList() {
       status: category.status || 'ACTIVE',
     });
     setFormError('');
-    setIsDrawerOpen(true);
+    setIsModalOpen(true);
   }, [isAdmin, toast]);
 
-  const handleCloseDrawer = useCallback(() => {
+  const handleCloseModal = useCallback(() => {
     if (isSubmitting) return;
-    setIsDrawerOpen(false);
+    setIsModalOpen(false);
     setFormError('');
   }, [isSubmitting]);
 
-  // Lắng nghe phím tắt: F2 (Focus tìm kiếm), F3 (Thêm mới - chỉ ADMIN), Esc (Đóng drawer)
+  // Lắng nghe phím tắt: F2 (Focus tìm kiếm), F3 (Thêm mới - chỉ ADMIN), Esc (Đóng modal)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'F2') {
@@ -146,15 +149,15 @@ export default function CategoryList() {
         searchInputRef.current?.focus();
       } else if (e.key === 'F3' && isAdmin) {
         e.preventDefault();
-        handleOpenCreateDrawer();
-      } else if (e.key === 'Escape' && isDrawerOpen) {
+        handleOpenCreateModal();
+      } else if (e.key === 'Escape' && isModalOpen) {
         e.preventDefault();
-        handleCloseDrawer();
+        handleCloseModal();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAdmin, isDrawerOpen, isSubmitting, handleCloseDrawer, handleOpenCreateDrawer]);
+  }, [isAdmin, isModalOpen, isSubmitting, handleCloseModal, handleOpenCreateModal]);
 
   // Toggle trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
   const handleToggleStatus = useCallback(async (category) => {
@@ -178,11 +181,16 @@ export default function CategoryList() {
 
   // Submit form tạo / sửa danh mục (chỉ gửi name theo contract backend extra="forbid", chỉ ADMIN)
   const handleSubmitForm = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     if (!isAdmin) {
       const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
+      return;
+    }
+    if (isSubmittingRef.current) {
       return;
     }
     setFormError('');
@@ -197,9 +205,10 @@ export default function CategoryList() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
-      if (drawerMode === 'create') {
+      if (modalMode === 'create') {
         await categoriesApi.createCategory({
           name: trimmedName,
         });
@@ -210,11 +219,12 @@ export default function CategoryList() {
         });
         toast.success(`Đã cập nhật danh mục "${trimmedName}" thành công!`);
       }
-      setIsDrawerOpen(false);
+      setIsModalOpen(false);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       setFormError(getApiErrorMessage(err, 'Lỗi lưu thông tin danh mục.'));
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -277,7 +287,7 @@ export default function CategoryList() {
               <button
                 type="button"
                 className={styles.iconBtn}
-                onClick={() => handleOpenEditDrawer(row)}
+                onClick={() => handleOpenEditModal(row)}
                 title="Chỉnh sửa danh mục"
                 aria-label="Chỉnh sửa danh mục"
               >
@@ -314,7 +324,7 @@ export default function CategoryList() {
     }
 
     return cols;
-  }, [isAdmin, handleToggleStatus, handleOpenEditDrawer]);
+  }, [isAdmin, handleToggleStatus, handleOpenEditModal]);
 
   const startRecord = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.page_size + 1;
   const endRecord = Math.min(pagination.page * pagination.page_size, pagination.total);
@@ -334,7 +344,7 @@ export default function CategoryList() {
           <button
             type="button"
             className={styles.primaryBtn}
-            onClick={handleOpenCreateDrawer}
+            onClick={handleOpenCreateModal}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -431,103 +441,86 @@ export default function CategoryList() {
         </div>
       </div>
 
-      {isDrawerOpen && (
-        <div className={styles.drawerOverlay} onClick={handleCloseDrawer}>
-          <div
-            className={styles.drawer}
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className={styles.drawerHeader}>
-              <div className={styles.drawerTitleWrap}>
-                <svg className={styles.drawerIcon} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-                </svg>
-                <h2 className={styles.drawerTitle}>
-                  {drawerMode === 'create' ? 'Thêm danh mục mới' : 'Chỉnh sửa danh mục'}
-                </h2>
-              </div>
+      {/* 5. Modal Thêm mới / Chỉnh sửa danh mục */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        title={modalMode === 'create' ? 'Thêm danh mục mới' : 'Chỉnh sửa danh mục'}
+        maxWidth="500px"
+        footer={
+          <>
+            <button
+              type="button"
+              className={modalStyles.cancelBtn}
+              onClick={handleCloseModal}
+              disabled={isSubmitting}
+            >
+              Hủy
+            </button>
+            {isAdmin && (
               <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={handleCloseDrawer}
-                disabled={isSubmitting}
-                aria-label="Đóng"
+                type="submit"
+                form={categoryFormId}
+                className={modalStyles.confirmBtn}
+                disabled={!isAdmin || isSubmitting}
               >
-                ✕
+                {isSubmitting
+                  ? 'Đang lưu...'
+                  : modalMode === 'create'
+                  ? 'Thêm danh mục'
+                  : 'Lưu thay đổi'}
               </button>
-            </div>
+            )}
+          </>
+        }
+      >
+        <form
+          id={categoryFormId}
+          onSubmit={handleSubmitForm}
+          className={styles.modalForm}
+        >
+          {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
-            <form onSubmit={handleSubmitForm} className={styles.drawerBody}>
-              {formError && <div className={styles.formError}>{formError}</div>}
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  Tên danh mục <span className={styles.requiredStar}>*</span>
-                </label>
-                <input
-                  type="text"
-                  className={styles.formInput}
-                  placeholder="Ví dụ: Đồ uống đóng chai"
-                  value={categoryForm.name}
-                  onChange={(e) =>
-                    setCategoryForm((prev) => ({ ...prev, name: e.target.value }))
-                  }
-                  disabled={!isAdmin || isSubmitting}
-                  autoFocus
-                />
-                <p className={styles.fieldHelp}>
-                  Tên danh mục là duy nhất trong toàn bộ hệ thống kho &amp; bán hàng.
-                </p>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  Mô tả danh mục <span style={{ color: '#9CA3AF', fontWeight: 'normal' }}>(tùy chọn)</span>
-                </label>
-                <textarea
-                  className={styles.formTextarea}
-                  placeholder="Nhập mô tả chi tiết danh mục hoặc hướng dẫn phân loại nội bộ..."
-                  value={categoryForm.description}
-                  onChange={(e) =>
-                    setCategoryForm((prev) => ({ ...prev, description: e.target.value }))
-                  }
-                  disabled={!isAdmin || isSubmitting}
-                />
-                <p className={styles.fieldHelp}>
-                  Giúp nhân viên bán hàng nhận diện nhóm hàng nhanh tại quầy POS.
-                </p>
-              </div>
-
-              <div style={{ marginTop: 'auto' }} />
-
-              <div className={styles.drawerFooter}>
-                <button
-                  type="button"
-                  className={styles.cancelBtn}
-                  onClick={handleCloseDrawer}
-                  disabled={isSubmitting}
-                >
-                  {isAdmin ? 'Hủy bỏ' : 'Đóng'}
-                </button>
-                {isAdmin && (
-                  <button
-                    type="submit"
-                    className={styles.submitBtn}
-                    disabled={isSubmitting}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <span>{isSubmitting ? 'Đang lưu...' : 'Lưu danh mục'}</span>
-                  </button>
-                )}
-              </div>
-            </form>
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>
+              Tên danh mục <span className={styles.requiredMark}>*</span>
+            </label>
+            <input
+              type="text"
+              className={styles.formInput}
+              placeholder="Ví dụ: Đồ uống đóng chai"
+              value={categoryForm.name}
+              onChange={(e) =>
+                setCategoryForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+              disabled={!isAdmin || isSubmitting}
+              autoFocus
+            />
+            <p className={styles.fieldHelp}>
+              Tên danh mục là duy nhất trong toàn bộ hệ thống kho &amp; bán hàng.
+            </p>
           </div>
-        </div>
-      )}
+
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>
+              Mô tả danh mục <span className={styles.optionalMark}>(tùy chọn)</span>
+            </label>
+            <textarea
+              className={styles.formTextarea}
+              placeholder="Nhập mô tả chi tiết danh mục hoặc hướng dẫn phân loại nội bộ..."
+              value={categoryForm.description}
+              onChange={(e) =>
+                setCategoryForm((prev) => ({ ...prev, description: e.target.value }))
+              }
+              disabled={!isAdmin || isSubmitting}
+              rows={3}
+            />
+            <p className={styles.fieldHelp}>
+              Giúp nhân viên bán hàng nhận diện nhóm hàng nhanh tại quầy POS.
+            </p>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
