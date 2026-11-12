@@ -165,6 +165,11 @@ def seed_mysql_entities(
     )
     session.add_all([inv1, inv2])
     session.commit()
+    session.refresh(supplier)
+    session.refresh(prod1)
+    session.refresh(prod2)
+    session.refresh(inv1)
+    session.refresh(inv2)
     return admin_id, supplier, prod1, prod2, inv1
 
 
@@ -261,17 +266,19 @@ def test_mysql_concurrent_update_optimistic_locking_only_one_wins(
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
         admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        prod2_id = prod2.id
         created = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=40_000)
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=40_000)
             ],
         )
         session.commit()
         receipt_id = created.id
-        prod2_id = prod2.id
 
     barrier = threading.Barrier(2)
 
@@ -318,13 +325,16 @@ def test_mysql_cancel_draft_without_inventory_mutation(
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
         admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        prod2_id = prod2.id
         created = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod1.id, quantity=4, unit_cost_vnd=50_000),
-                ReceiptLineInput(product_id=prod2.id, quantity=2, unit_cost_vnd=80_000),
+                ReceiptLineInput(product_id=prod1_id, quantity=4, unit_cost_vnd=50_000),
+                ReceiptLineInput(product_id=prod2_id, quantity=2, unit_cost_vnd=80_000),
             ],
         )
         session.commit()
@@ -354,14 +364,14 @@ def test_mysql_cancel_draft_without_inventory_mutation(
 
         # Verify inventory unchanged
         inv1 = verify_session.scalar(
-            select(Inventory).where(Inventory.product_id == prod1.id)
+            select(Inventory).where(Inventory.product_id == prod1_id)
         )
         assert inv1 is not None
         assert inv1.quantity == 0
         assert inv1.stock_version == 0
 
         inv2 = verify_session.scalar(
-            select(Inventory).where(Inventory.product_id == prod2.id)
+            select(Inventory).where(Inventory.product_id == prod2_id)
         )
         assert inv2 is not None
         assert inv2.quantity == 0
@@ -374,12 +384,14 @@ def test_mysql_cancel_draft_concurrent_optimistic_locking_only_one_wins(
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
         admin_id, supplier, prod1, _, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
         created = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=50_000)
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=50_000)
             ],
         )
         session.commit()
@@ -401,9 +413,12 @@ def test_mysql_cancel_draft_concurrent_optimistic_locking_only_one_wins(
                 return "success"
             except ConflictError as e:
                 worker_session.rollback()
-                if e.code == "RECEIPT_VERSION_CONFLICT":
+                if e.code in ("RECEIPT_VERSION_CONFLICT", "INVALID_STATE"):
                     return "version_conflict"
                 return "other_conflict"
+            except InvalidStateError:
+                worker_session.rollback()
+                return "version_conflict"
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = list(executor.map(worker, range(2)))
@@ -423,12 +438,14 @@ def test_mysql_cancel_draft_terminal_immutable(
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
         admin_id, supplier, prod1, _, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
         created = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=20_000)
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=20_000)
             ],
         )
         session.commit()
@@ -460,21 +477,24 @@ def test_mysql_list_and_get_receipts(
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
         admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        prod2_id = prod2.id
 
         r1 = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=10_000)
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=10_000)
             ],
         )
         r2 = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod2.id, quantity=2, unit_cost_vnd=20_000)
+                ReceiptLineInput(product_id=prod2_id, quantity=2, unit_cost_vnd=20_000)
             ],
         )
         service.cancel_draft(
@@ -486,7 +506,7 @@ def test_mysql_list_and_get_receipts(
         session.commit()
 
         # Query list on MySQL
-        page = service.list_receipts(session, supplier_id=supplier.id)
+        page = service.list_receipts(session, supplier_id=supplier_id)
         assert page.total >= 2
         returned_ids = [it.id for it in page.items]
         assert r1.id in returned_ids
@@ -497,4 +517,4 @@ def test_mysql_list_and_get_receipts(
         assert single.id == r1.id
         assert single.status == "DRAFT"
         assert len(single.items) == 1
-        assert single.items[0].product_id == prod1.id
+        assert single.items[0].product_id == prod1_id

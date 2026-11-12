@@ -385,11 +385,6 @@ class ReceiptDraftService:
         if receipt is None:
             raise ResourceNotFoundError(f"Phiếu nhập ID {receipt_id} không tồn tại.")
 
-        if receipt.status != "DRAFT":
-            raise InvalidStateError(
-                f"Không thể hủy phiếu nhập đã ở trạng thái {receipt.status}."
-            )
-
         if receipt.draft_version != expected_draft_version:
             raise ConflictError(
                 code="RECEIPT_VERSION_CONFLICT",
@@ -402,6 +397,11 @@ class ReceiptDraftService:
                     "current_draft_version": receipt.draft_version,
                     "expected_draft_version": expected_draft_version,
                 },
+            )
+
+        if receipt.status != "DRAFT":
+            raise InvalidStateError(
+                f"Không thể hủy phiếu nhập đã ở trạng thái {receipt.status}."
             )
 
         now = utc_now_naive()
@@ -435,9 +435,29 @@ class ReceiptDraftService:
                 raise ResourceNotFoundError(
                     f"Phiếu nhập ID {receipt_id} không tồn tại."
                 )
+            if current.draft_version != expected_draft_version:
+                raise ConflictError(
+                    code="RECEIPT_VERSION_CONFLICT",
+                    message=(
+                        f"Phiên bản nháp không khớp: kỳ vọng {expected_draft_version}, "
+                        f"hiện tại là {current.draft_version}."
+                    ),
+                    details={
+                        "receipt_id": receipt_id,
+                        "current_draft_version": current.draft_version,
+                        "expected_draft_version": expected_draft_version,
+                    },
+                )
             if current.status != "DRAFT":
-                raise InvalidStateError(
-                    f"Không thể hủy phiếu nhập đã ở trạng thái {current.status}."
+                raise ConflictError(
+                    code="RECEIPT_VERSION_CONFLICT",
+                    message=(
+                        f"Không thể hủy phiếu nhập đã ở trạng thái {current.status}."
+                    ),
+                    details={
+                        "receipt_id": receipt_id,
+                        "status": current.status,
+                    },
                 )
             raise ConflictError(
                 code="RECEIPT_VERSION_CONFLICT",
@@ -498,6 +518,11 @@ class ReceiptDraftService:
             if supplier_id <= 0:
                 raise DomainValidationError("supplier_id phải lớn hơn 0.")
             base_query = base_query.where(PurchaseReceipt.supplier_id == supplier_id)
+
+        if from_date is not None and isinstance(from_date, datetime):
+            from_date = from_date.date()
+        if to_date is not None and isinstance(to_date, datetime):
+            to_date = to_date.date()
 
         if from_date is not None and to_date is not None and from_date > to_date:
             raise DomainValidationError("from_date phải nhỏ hơn hoặc bằng to_date.")

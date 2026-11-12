@@ -19,7 +19,7 @@ from app.db.base import Base
 from app.modules.auth.models import User
 from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
-from app.modules.purchasing.draft_service import ReceiptDraftService
+from app.modules.purchasing.draft_service import VN_TZ, ReceiptDraftService
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.purchasing.schemas import (
     MAX_SQL_INT,
@@ -726,10 +726,11 @@ def test_list_receipts_filters_and_pagination():
         assert sup2_page.total == 1
         assert sup2_page.items[0].id == r3.id
 
-        # Test date filter matching today
-        today = date.today()
-        date_page = service.list_receipts(session, from_date=today, to_date=today)
+        # Test date filter matching today (Vietnam business time)
+        today_vn = datetime.now(VN_TZ).date()
+        date_page = service.list_receipts(session, from_date=today_vn, to_date=today_vn)
         assert date_page.total == 3
+        assert len(date_page.items) == 3
 
         # Test date filter in the past
         past_date = date(2020, 1, 1)
