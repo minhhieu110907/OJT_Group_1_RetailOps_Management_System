@@ -37,6 +37,7 @@ from app.modules.inventory.exceptions import (
     StaleStockVersionError,
     StockConflictError,
     StockItemNotFoundError,
+    classify_movement_integrity_error,
 )
 from app.modules.inventory.models import (
     InventoryAdjustment,
@@ -437,13 +438,23 @@ class InventoryService:
             try:
                 self._repository.add_movement(session, movement)
             except IntegrityError as error:
-                raise DuplicateMovementError(
-                    details={
-                        "product_id": item.product_id,
-                        "kind": kind.value,
-                        "reference_id": reference_id,
-                    }
-                ) from error
+                classification = classify_movement_integrity_error(error)
+                if classification == "duplicate_movement":
+                    raise DuplicateMovementError(
+                        details={
+                            "product_id": item.product_id,
+                            "kind": kind.value,
+                            "reference_id": reference_id,
+                        }
+                    ) from error
+                if classification == "version_conflict":
+                    raise StockConflictError(
+                        details={
+                            "product_id": item.product_id,
+                            "stock_version": new_version,
+                        }
+                    ) from error
+                raise
 
             results.append(
                 StockMovementResult(
@@ -848,7 +859,26 @@ class InventoryService:
                 stock_version_after=new_version,
                 occurred_at=now,
             )
-            self._repository.add_movement(session, movement)
+            try:
+                self._repository.add_movement(session, movement)
+            except IntegrityError as error:
+                classification = classify_movement_integrity_error(error)
+                if classification == "duplicate_movement":
+                    raise DuplicateMovementError(
+                        details={
+                            "product_id": item.product_id,
+                            "kind": MovementKind.ADJUSTMENT.value,
+                            "reference_id": audit.id,
+                        }
+                    ) from error
+                if classification == "version_conflict":
+                    raise StockConflictError(
+                        details={
+                            "product_id": item.product_id,
+                            "stock_version": new_version,
+                        }
+                    ) from error
+                raise
 
             results.append(
                 StockMovementResult(

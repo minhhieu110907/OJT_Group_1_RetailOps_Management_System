@@ -8,6 +8,7 @@ from app.modules.inventory.exceptions import (
     StaleStockVersionError,
     StockConflictError,
     StockItemNotFoundError,
+    classify_movement_integrity_error,
     is_mysql_lock_conflict_error,
 )
 from app.modules.inventory.models import (
@@ -74,6 +75,7 @@ __all__ = [
     "StockMovement",
     "StockMovementResult",
     "StockResult",
+    "classify_movement_integrity_error",
     "get_session_transaction_identity",
     "is_mysql_lock_conflict_error",
     "merge_and_sort_stock_lines",

@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.inventory import (
     CountAdjustment,
@@ -29,6 +30,7 @@ from app.modules.inventory import (
     StockLine,
     StockLockSet,
     StockMovement,
+    classify_movement_integrity_error,
     get_session_transaction_identity,
     merge_and_sort_stock_lines,
     normalize_lock_order,
@@ -688,3 +690,141 @@ def test_inventory_module_never_calls_transaction_boundary_methods() -> None:
                     f"{py_file.name}:{node.lineno} calls forbidden transaction "
                     f"method '{node.func.attr}()'"
                 )
+
+
+def _make_mock_integrity_error(errno: int, msg: str) -> IntegrityError:
+    class MockDBAPIError(Exception):
+        pass
+
+    orig = MockDBAPIError(errno, msg)
+    return IntegrityError("INSERT INTO stock_movements ...", {}, orig)
+
+
+def test_classify_movement_integrity_error() -> None:
+    # 1. Duplicate movement constraints -> "duplicate_movement"
+    dup_receipt = _make_mock_integrity_error(
+        1062,
+        "Duplicate entry '1-10' for key "
+        "'stock_movements.uq_stock_movements_receipt_product'",
+    )
+    assert classify_movement_integrity_error(dup_receipt) == "duplicate_movement"
+
+    dup_order = _make_mock_integrity_error(
+        1062,
+        "Duplicate entry '1-10-SALE' for key 'uq_stock_movements_order_product_kind'",
+    )
+    assert classify_movement_integrity_error(dup_order) == "duplicate_movement"
+
+    dup_adj = _make_mock_integrity_error(
+        1062,
+        "Duplicate entry '1-10' for key "
+        "'stock_movements.uq_stock_movements_adjustment_product'",
+    )
+    assert classify_movement_integrity_error(dup_adj) == "duplicate_movement"
+
+    # 2. Version conflict constraint -> "version_conflict"
+    version_conflict = _make_mock_integrity_error(
+        1062,
+        "Duplicate entry '1-2' for key "
+        "'stock_movements.uq_stock_movements_product_version_after'",
+    )
+    assert classify_movement_integrity_error(version_conflict) == "version_conflict"
+
+    # 3. Foreign key violation (1452) -> "other"
+    fk_error = _make_mock_integrity_error(
+        1452,
+        "Cannot add or update a child row: a foreign key constraint fails "
+        "(`stock_movements`, CONSTRAINT `fk_stock_movements_receipt_item`)",
+    )
+    assert classify_movement_integrity_error(fk_error) == "other"
+
+    # 4. Check constraint violation (3819) -> "other"
+    check_error = _make_mock_integrity_error(
+        3819,
+        "Check constraint 'ck_stock_movements_quantities_and_version' is violated.",
+    )
+    assert classify_movement_integrity_error(check_error) == "other"
+
+    # 5. Non-MySQL or unknown error -> "other"
+    unknown_error = IntegrityError(
+        "INSERT ...", {}, Exception("database integrity failure")
+    )
+    assert classify_movement_integrity_error(unknown_error) == "other"
+
+
+def test_service_integrity_error_propagation_and_classification() -> None:
+    repo = FakeInventoryMovementRepository(
+        [
+            _InMemoryProductState(
+                product_id=1,
+                sku="SKU-ERR",
+                name="Error Product",
+                status=ProductStatus.ACTIVE.value,
+                sale_price_vnd=10_000,
+                quantity=10,
+                stock_version=1,
+            )
+        ]
+    )
+    session = GuardedUnitSession()
+
+    # Case A: Unknown / FK IntegrityError is NOT converted to DuplicateMovementError.
+    # It must propagate up as IntegrityError without masking.
+    class FailingRepo(FakeInventoryMovementRepository):
+        def add_movement(self, session: object, movement: StockMovement) -> None:
+            raise _make_mock_integrity_error(
+                1452,
+                "Cannot add or update a child row: a foreign key constraint fails",
+            )
+
+    failing_service = InventoryService(
+        repository=FailingRepo(list(repo.states.values()))
+    )
+    with pytest.raises(IntegrityError) as exc_info:
+        failing_service.increase(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=1, quantity=5)],
+            reference_id=101,
+            actor_id=1,
+        )
+    assert not isinstance(exc_info.value, DuplicateMovementError)
+
+    # Case B: Version conflict on movement insert raises StockConflictError.
+    class VersionConflictRepo(FakeInventoryMovementRepository):
+        def add_movement(self, session: object, movement: StockMovement) -> None:
+            raise _make_mock_integrity_error(
+                1062,
+                "Duplicate entry '1-2' for key "
+                "'stock_movements.uq_stock_movements_product_version_after'",
+            )
+
+    vc_service = InventoryService(
+        repository=VersionConflictRepo(list(repo.states.values()))
+    )
+    with pytest.raises(StockConflictError):
+        vc_service.increase(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=1, quantity=5)],
+            reference_id=102,
+            actor_id=1,
+        )
+
+    # Case C: Duplicate document constraint raises DuplicateMovementError.
+    class DuplicateMovementRepo(FakeInventoryMovementRepository):
+        def add_movement(self, session: object, movement: StockMovement) -> None:
+            raise _make_mock_integrity_error(
+                1062,
+                "Duplicate entry '103-1' for key "
+                "'stock_movements.uq_stock_movements_receipt_product'",
+            )
+
+    dup_service = InventoryService(
+        repository=DuplicateMovementRepo(list(repo.states.values()))
+    )
+    with pytest.raises(DuplicateMovementError):
+        dup_service.increase(
+            session,  # type: ignore[arg-type]
+            items=[StockChangeItem(product_id=1, quantity=5)],
+            reference_id=103,
+            actor_id=1,
+        )

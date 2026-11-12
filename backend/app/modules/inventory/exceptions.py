@@ -1,6 +1,6 @@
 """Domain exceptions for the Inventory Service module."""
 
-from typing import Any
+from typing import Any, Literal
 
 from app.core.exceptions import (
     ConflictError,
@@ -113,6 +113,17 @@ class InventoryValidationError(DomainValidationError):
 
 
 MYSQL_LOCK_CONFLICT_ERRNOS = frozenset({1205, 1213})
+MYSQL_DUPLICATE_ENTRY_ERRNO = 1062
+
+MOVEMENT_DOCUMENT_DUPLICATE_CONSTRAINTS = frozenset(
+    {
+        "uq_stock_movements_receipt_product",
+        "uq_stock_movements_order_product_kind",
+        "uq_stock_movements_adjustment_product",
+    }
+)
+
+MOVEMENT_VERSION_CONFLICT_CONSTRAINT = "uq_stock_movements_product_version_after"
 
 
 def is_mysql_lock_conflict_error(error: BaseException) -> bool:
@@ -125,6 +136,38 @@ def is_mysql_lock_conflict_error(error: BaseException) -> bool:
     return "deadlock found" in msg or "lock wait timeout exceeded" in msg
 
 
+def classify_movement_integrity_error(
+    error: BaseException,
+) -> Literal["duplicate_movement", "version_conflict", "other"]:
+    """Classify an IntegrityError from inserting into stock_movements.
+
+    Distinguishes real duplicate movement documents from version collisions,
+    foreign key violations (e.g. invalid receipt_id/product_id), and check constraints.
+    """
+    orig = getattr(error, "orig", None)
+    args = getattr(orig, "args", ())
+
+    # PyMySQL supplies (1062, "Duplicate entry '...' for key '...'")
+    has_dup_code = bool(
+        args and isinstance(args[0], int) and args[0] == MYSQL_DUPLICATE_ENTRY_ERRNO
+    )
+    msg = (
+        str(args[1]) if len(args) > 1 else str(orig if orig is not None else error)
+    ).lower()
+
+    if not has_dup_code and "duplicate" not in msg and "unique" not in msg:
+        return "other"
+
+    for constraint in MOVEMENT_DOCUMENT_DUPLICATE_CONSTRAINTS:
+        if constraint in msg:
+            return "duplicate_movement"
+
+    if MOVEMENT_VERSION_CONFLICT_CONSTRAINT in msg:
+        return "version_conflict"
+
+    return "other"
+
+
 __all__ = [
     "DuplicateMovementError",
     "InactiveProductStockError",
@@ -133,5 +176,6 @@ __all__ = [
     "StaleStockVersionError",
     "StockConflictError",
     "StockItemNotFoundError",
+    "classify_movement_integrity_error",
     "is_mysql_lock_conflict_error",
 ]
