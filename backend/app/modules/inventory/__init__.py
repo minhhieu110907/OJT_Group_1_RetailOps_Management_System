@@ -1,1 +1,83 @@
 """Inventory module for querying and managing product inventory balances."""
+
+from app.modules.inventory.exceptions import (
+    DuplicateMovementError,
+    InactiveProductStockError,
+    InsufficientStockError,
+    InventoryValidationError,
+    StaleStockVersionError,
+    StockConflictError,
+    StockItemNotFoundError,
+    classify_movement_integrity_error,
+    is_mysql_lock_conflict_error,
+)
+from app.modules.inventory.models import (
+    Inventory,
+    InventoryAdjustment,
+    MovementKind,
+    MovementType,
+    Product,
+    ProductStatus,
+    ReferenceType,
+    StockMovement,
+)
+from app.modules.inventory.repository import (
+    InventoryMovementRepository,
+    InventoryQueryRepository,
+    get_session_transaction_identity,
+)
+from app.modules.inventory.schemas import (
+    AdjustmentResult,
+    CountAdjustment,
+    InventoryPage,
+    InventoryRead,
+    LockedStock,
+    StockChangeItem,
+    StockLine,
+    StockLockSet,
+    StockMovementResult,
+    StockResult,
+)
+from app.modules.inventory.service import (
+    InventoryQueryService,
+    InventoryService,
+    merge_and_sort_stock_lines,
+    normalize_lock_order,
+)
+
+__all__ = [
+    "AdjustmentResult",
+    "CountAdjustment",
+    "DuplicateMovementError",
+    "InactiveProductStockError",
+    "InsufficientStockError",
+    "Inventory",
+    "InventoryAdjustment",
+    "InventoryMovementRepository",
+    "InventoryPage",
+    "InventoryQueryRepository",
+    "InventoryQueryService",
+    "InventoryRead",
+    "InventoryService",
+    "InventoryValidationError",
+    "LockedStock",
+    "MovementKind",
+    "MovementType",
+    "Product",
+    "ProductStatus",
+    "ReferenceType",
+    "StaleStockVersionError",
+    "StockChangeItem",
+    "StockConflictError",
+    "StockItemNotFoundError",
+    "StockLine",
+    "StockLockSet",
+    "StockMovement",
+    "StockMovementResult",
+    "StockResult",
+    "classify_movement_integrity_error",
+    "get_session_transaction_identity",
+    "is_mysql_lock_conflict_error",
+    "merge_and_sort_stock_lines",
+    "normalize_lock_order",
+]
