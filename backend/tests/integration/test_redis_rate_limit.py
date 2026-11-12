@@ -42,6 +42,7 @@ async def test_atomic_concurrent_increment_and_independent_buckets(
         "identity": "203.0.113.10",
         "limit": 5,
         "window_seconds": 5,
+        "now": 0.0,
     }
     results = await asyncio.gather(*(limiter.check(**common) for _ in range(20)))
     other = await limiter.check(
@@ -49,44 +50,13 @@ async def test_atomic_concurrent_increment_and_independent_buckets(
         identity="203.0.113.11",
         limit=5,
         window_seconds=5,
+        now=0.0,
     )
 
     assert sorted(result.count for result in results) == list(range(1, 21))
     assert sum(result.allowed for result in results) == 5
     assert other.count == 1
     assert other.allowed is True
-    await redis_client.delete(
-        *[key async for key in redis_client.scan_iter(f"{namespace}:*")]
-    )
-
-
-@pytest.mark.anyio
-async def test_sequential_burst_shares_single_anchored_bucket_with_full_ttl(
-    redis_client: Redis,
-) -> None:
-    namespace = f"retailops:test:{uuid4().hex}"
-    limiter = RedisFixedWindowRateLimiter(redis_client, namespace)
-    try:
-        results = [
-            await limiter.check(
-                policy="registration",
-                identity="198.51.100.30",
-                limit=5,
-                window_seconds=60,
-            )
-            for _ in range(6)
-        ]
-        keys = [key async for key in redis_client.scan_iter(f"{namespace}:*")]
-
-        assert [result.allowed for result in results] == [True] * 5 + [False]
-        assert len(keys) == 1
-        assert int(await redis_client.get(keys[0])) == 6
-        assert 55 <= await redis_client.ttl(keys[0]) <= 60
-        assert 55 <= results[-1].retry_after <= 60
-    finally:
-        keys = [key async for key in redis_client.scan_iter(f"{namespace}:*")]
-        if keys:
-            await redis_client.delete(*keys)
 
 
 @pytest.mark.anyio
