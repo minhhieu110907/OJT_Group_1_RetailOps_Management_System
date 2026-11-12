@@ -159,7 +159,7 @@ def _setup_test_context(
 
     admin_sid = uuid4()
     staff_sid = uuid4()
-    session_expires = now + timedelta(hours=24)
+    session_expires = now + timedelta(hours=2)
 
     with Session(engine) as session:
         admin = session.scalar(select(User).where(User.admin_slot == 1))
