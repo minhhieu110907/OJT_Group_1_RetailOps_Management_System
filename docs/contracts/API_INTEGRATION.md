@@ -127,7 +127,7 @@
 
 ## A. Duyệt tài khoản Staff — Hiếu → Lâm; Hiếu cung cấp Outbox Writer
 
-- **Code đang có:** `User`, `StaffApprovalRequest`, `UserRole`, `UserStatus` trong `backend/app/modules/auth/models.py`; `CurrentPrincipal`, `require_active_admin` trong `auth/dependencies.py`. S1 có register/login; phần approve/reject chưa có ở commit được kiểm tra.
+- **Code đang có:** `User`, `StaffApprovalRequest`, `UserRole`, `UserStatus` trong `backend/app/modules/auth/models.py`; `CurrentPrincipal`, `require_active_admin` trong `auth/dependencies.py`. S1 có register/login; approve/reject/list đã có trong mã nguồn AUTH-03 trên `develop` (đọc code thật trước khi tích hợp).
 - **HTTP:** `GET /api/v1/staff-approvals?status=PENDING&page=1&page_size=20`, `POST /staff-approvals/{id}/approve` body `{}`, `POST .../{id}/reject` body `{reason:string}`. `200 ApprovalRead` theo OpenAPI; 401 chưa đăng nhập, 403 không ADMIN, 404 ID không tồn tại, 409 khi đã quyết định/stale. Không tự phát minh vai trò MANAGER hoặc khóa/mở khóa Staff.
 - **Service port (đề xuất chữ ký chính thức):** `StaffApprovalService.list(session, *, status, page, page_size) -> ApprovalPage`; `decide(session, *, actor_id, approval_id, decision: Literal['APPROVED','REJECTED'], reason: str | None) -> ApprovalRead`.
 - **Transaction:** lock approval request + Staff user theo thứ tự cố định, kiểm tra pending, đổi trạng thái User tương ứng, đóng approval request, `OutboxWriter.append(..., event_type='STAFF_APPROVED'/'STAFF_REJECTED')`, một commit ở `StaffApprovalService`. Race 2 ADMIN: chính xác một transition thành công, một 409; event không nhân đôi. Broker/email offline không rollback quyết định đã commit.
