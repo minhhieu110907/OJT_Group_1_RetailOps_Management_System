@@ -10,6 +10,7 @@ import ForgotPassword from './pages/Auth/ForgotPassword';
 import ResetPassword from './pages/Auth/ResetPassword';
 import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
+import StaffApprovalList from './pages/Staff/StaffApprovalList';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -116,10 +117,7 @@ export default function App() {
                       <PlaceholderPage title="Báo cáo & Phân tích Doanh thu" />
                     }
                   />
-                  <Route
-                    path="/staff"
-                    element={<PlaceholderPage title="Quản lý & Xét duyệt Nhân viên" />}
-                  />
+                  <Route path="/staff" element={<StaffApprovalList />} />
                   <Route
                     path="/ai-assistant"
                     element={<PlaceholderPage title="Trợ lý AI (RetailOps AI)" />}

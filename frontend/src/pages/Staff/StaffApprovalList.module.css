@@ -1,0 +1,762 @@
+/* Container chính của trang Duyệt tài khoản nhân viên (Đồng bộ cấu trúc với ProductList) */
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+/* Cảnh báo khi đang bật Mock Mode */
+.mockWarningBanner {
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 8px;
+  padding: 14px 16px;
+  color: #991B1B;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.mockWarningTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+/* 1. Header trang: Tiêu đề bên trái, Quy chuẩn + Nút Làm mới bên phải */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.authCodeBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background-color: #E2E8F0;
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #6B7280;
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.policyBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  background-color: #FFFFFF;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.policyBadge strong {
+  font-weight: 700;
+  color: #111827;
+}
+
+.refreshBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #D1D5DB;
+  background-color: #FFFFFF;
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.refreshBtn:hover:not(:disabled) {
+  background-color: #F9FAFB;
+  border-color: #9CA3AF;
+}
+
+.refreshBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 2. Thanh Bộ lọc & Tab trạng thái cân đối hài hòa (Giống khung Filter của Sản phẩm) */
+.filterBar {
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.statusTabs {
+  display: inline-flex;
+  align-items: center;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 4px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.statusTabBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: none;
+  background-color: transparent;
+  color: #475569;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.statusTabBtn:hover {
+  color: #0F172A;
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+.statusTabBtnActive {
+  background-color: #FFFFFF;
+  color: var(--color-primary, #087F5B);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.tabCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: #E2E8F0;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.tabCountBadgeActive {
+  background-color: #E6FCF5;
+  color: var(--color-primary, #087F5B);
+}
+
+.searchBox {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9CA3AF;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid #E5E7EB;
+  border-radius: 7px;
+  font-size: 13.5px;
+  color: #1F2937;
+  background-color: #FFFFFF;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1);
+}
+
+/* 3. Dòng thông tin tóm tắt danh sách */
+.summaryStrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 13px;
+  color: #64748B;
+}
+
+.summaryRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748B;
+}
+
+/* 4. Danh sách thẻ hồ sơ nhân viên */
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.staffCard {
+  background-color: #FFFFFF;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.staffCard:hover {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 4px 12px rgba(8, 127, 91, 0.08);
+}
+
+.staffCardSelected {
+  border-color: var(--color-primary, #087F5B);
+  background-color: #FAFDFC;
+  box-shadow: 0 0 0 2px rgba(8, 127, 91, 0.12);
+}
+
+.cardTopRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.applicantIdentity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.avatarCircle {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background-color: #E6FCF5;
+  color: var(--color-primary, #087F5B);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.avatarCircleNeutral {
+  background-color: #F1F5F9;
+  color: #475569;
+}
+
+.applicantTexts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.applicantNameRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.applicantName {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.requestCodePill {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: #F1F5F9;
+  color: #475569;
+}
+
+.applicantEmail {
+  font-size: 13.5px;
+  color: #64748B;
+  word-break: break-word;
+}
+
+/* Badge trạng thái trên thẻ */
+.statusPillPending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background-color: #FFF4E6;
+  color: #B45309;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.statusDotPending {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #D97706;
+}
+
+.statusPillApproved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background-color: #ECFDF5;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.statusPillRejected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background-color: #FEF2F2;
+  color: #B91C1C;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cardDivider {
+  height: 1px;
+  background-color: #F1F5F9;
+  width: 100%;
+}
+
+.cardBottomRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.timeInfo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeInfo strong {
+  color: #0F172A;
+  font-weight: 700;
+}
+
+.cardBottomRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.storeScopeLabel {
+  font-size: 12.5px;
+  color: #64748B;
+}
+
+.viewProfileLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary, #087F5B);
+}
+
+/* Khung trạng thái Đang tải / Trống / Lỗi */
+.stateCard {
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  padding: 40px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.stateTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0;
+}
+
+.stateDesc {
+  font-size: 13.5px;
+  color: #64748B;
+  margin: 0;
+  max-width: 460px;
+}
+
+.errorText {
+  font-size: 13.5px;
+  color: #B91C1C;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Hộp ghi chú quy chuẩn AUTH-01 dưới chân danh sách */
+.complianceNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 16px;
+  border-radius: 8px;
+  border: 1px solid #E2E8F0;
+  background-color: #F8FAFC;
+  color: #475569;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.complianceIcon {
+  color: #64748B;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* --- Nội dung bên trong Modal Chi tiết hồ sơ nhân viên --- */
+.modalContentWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.modalSubheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.modalRecordIdBadge {
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background-color: #F1F5F9;
+  color: #334155;
+}
+
+.sectionBox {
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 16px;
+  background-color: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sectionTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.sectionTag {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  color: #475569;
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.infoField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.infoFieldFull {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.infoLabel {
+  font-size: 12px;
+  color: #64748B;
+}
+
+.infoValue {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0F172A;
+  word-break: break-word;
+}
+
+.scopeValueRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.scopeIcon {
+  color: var(--color-primary, #087F5B);
+}
+
+/* Khối Vai trò hệ thống sẽ cấp (ROLE_STAFF) */
+.roleBox {
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 14px;
+  background-color: #F8FAFC;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.roleBoxHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.roleBoxTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.roleCodePill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background-color: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #334155;
+}
+
+.roleDescParagraph {
+  font-size: 12.5px;
+  color: #334155;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.roleNoteText {
+  font-size: 12px;
+  font-style: italic;
+  color: #64748B;
+  margin: 0;
+}
+
+/* Ô nhập Lý do từ chối trong Modal */
+.decisionFormSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reasonLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+.reasonHint {
+  font-weight: 400;
+  color: #64748B;
+  font-size: 12px;
+}
+
+.reasonTextarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: #0F172A;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.reasonTextarea:focus {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1);
+}
+
+.modalErrorAlert {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #B91C1C;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rejectionReasonBox {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Các nút trong Footer Modal */
+.approveModalBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--color-primary, #087F5B);
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.approveModalBtn:hover:not(:disabled) {
+  background-color: #066649;
+}
+
+.rejectModalBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #FECACA;
+  background-color: #FEF2F2;
+  color: #B91C1C;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.rejectModalBtn:hover:not(:disabled) {
+  background-color: #FEE2E2;
+  border-color: #FCA5A5;
+}
+
+.approveModalBtn:disabled,
+.rejectModalBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .infoGrid {
+    grid-template-columns: 1fr;
+  }
+}
