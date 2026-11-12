@@ -80,16 +80,15 @@ class InventoryQueryService:
             page_size=page_size,
         )
 
-    def list_stock_movements(
+    def list_stock_movements_admin(
         self,
         session: Session,
         page: int,
         page_size: int,
         product_id: int | None = None,
         kind: str | None = None,
-        is_admin: bool = False,
-    ) -> StockMovementPage | StockMovementAdminPage:
-        """Fetch stock movement history with role-appropriate projection."""
+    ) -> StockMovementAdminPage:
+        """Fetch audited stock movement history for ADMIN."""
         items, total = self._repository.list_stock_movements(
             session=session,
             page=page,
@@ -97,15 +96,29 @@ class InventoryQueryService:
             product_id=product_id,
             kind=kind,
         )
+        return StockMovementAdminPage(
+            items=[StockMovementAdminRead.model_validate(item) for item in items],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
 
-        if is_admin:
-            return StockMovementAdminPage(
-                items=[StockMovementAdminRead.model_validate(item) for item in items],
-                total=total,
-                page=page,
-                page_size=page_size,
-            )
-
+    def list_stock_movements_staff(
+        self,
+        session: Session,
+        page: int,
+        page_size: int,
+        product_id: int | None = None,
+        kind: str | None = None,
+    ) -> StockMovementPage:
+        """Fetch safe public stock movement history for STAFF."""
+        items, total = self._repository.list_stock_movements(
+            session=session,
+            page=page,
+            page_size=page_size,
+            product_id=product_id,
+            kind=kind,
+        )
         staff_items: list[StockMovementRead] = []
         for item in items:
             item_data = {
@@ -126,4 +139,30 @@ class InventoryQueryService:
             total=total,
             page=page,
             page_size=page_size,
+        )
+
+    def list_stock_movements(
+        self,
+        session: Session,
+        page: int,
+        page_size: int,
+        product_id: int | None = None,
+        kind: str | None = None,
+        is_admin: bool = False,
+    ) -> StockMovementPage | StockMovementAdminPage:
+        """Fetch stock movement history with role-appropriate projection."""
+        if is_admin:
+            return self.list_stock_movements_admin(
+                session=session,
+                page=page,
+                page_size=page_size,
+                product_id=product_id,
+                kind=kind,
+            )
+        return self.list_stock_movements_staff(
+            session=session,
+            page=page,
+            page_size=page_size,
+            product_id=product_id,
+            kind=kind,
         )

@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from sqlalchemy import func, inspect, literal, select, text
+from sqlalchemy import func, literal, select, text
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
@@ -153,17 +153,9 @@ class InventoryQueryRepository:
         product_id: int | None = None,
         kind: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Query append-only stock movement history with safe runtime fallback."""
+        """Query append-only stock movement history from database."""
         if self._movement_provider is not None:
             return self._movement_provider(session, page, page_size, product_id, kind)
-
-        try:
-            has_table = inspect(session.connection()).has_table("stock_movements")
-        except Exception:
-            has_table = False
-
-        if not has_table:
-            return [], 0
 
         where_clauses: list[str] = []
         params: dict[str, Any] = {
@@ -181,57 +173,27 @@ class InventoryQueryRepository:
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
-        has_adj_table = False
-        try:
-            has_adj_table = inspect(session.connection()).has_table(
-                "inventory_adjustments"
-            )
-        except Exception:
-            has_adj_table = False
-
-        if has_adj_table:
-            query_sql = f"""
-                SELECT
-                    sm.id,
-                    sm.product_id,
-                    sm.sku_snapshot AS sku,
-                    sm.kind,
-                    sm.quantity_before,
-                    sm.quantity_after,
-                    sm.stock_version_after,
-                    COALESCE(
-                        sm.receipt_id, sm.order_id, sm.adjustment_id
-                    ) AS reference_id,
-                    sm.occurred_at,
-                    sm.actor_id,
-                    adj.reason AS adjustment_reason
-                FROM stock_movements sm
-                LEFT JOIN inventory_adjustments adj ON sm.adjustment_id = adj.id
-                {where_sql}
-                ORDER BY sm.occurred_at DESC, sm.id DESC
-                LIMIT :limit OFFSET :offset
-            """
-        else:
-            query_sql = f"""
-                SELECT
-                    sm.id,
-                    sm.product_id,
-                    sm.sku_snapshot AS sku,
-                    sm.kind,
-                    sm.quantity_before,
-                    sm.quantity_after,
-                    sm.stock_version_after,
-                    COALESCE(
-                        sm.receipt_id, sm.order_id, sm.adjustment_id
-                    ) AS reference_id,
-                    sm.occurred_at,
-                    sm.actor_id,
-                    NULL AS adjustment_reason
-                FROM stock_movements sm
-                {where_sql}
-                ORDER BY sm.occurred_at DESC, sm.id DESC
-                LIMIT :limit OFFSET :offset
-            """
+        query_sql = f"""
+            SELECT
+                sm.id,
+                sm.product_id,
+                sm.sku_snapshot AS sku,
+                sm.kind,
+                sm.quantity_before,
+                sm.quantity_after,
+                sm.stock_version_after,
+                COALESCE(
+                    sm.receipt_id, sm.order_id, sm.adjustment_id
+                ) AS reference_id,
+                sm.occurred_at,
+                sm.actor_id,
+                adj.reason AS adjustment_reason
+            FROM stock_movements sm
+            LEFT JOIN inventory_adjustments adj ON sm.adjustment_id = adj.id
+            {where_sql}
+            ORDER BY sm.occurred_at DESC, sm.id DESC
+            LIMIT :limit OFFSET :offset
+        """
 
         count_sql = f"SELECT COUNT(*) FROM stock_movements sm {where_sql}"
 

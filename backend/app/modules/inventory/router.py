@@ -112,11 +112,18 @@ def list_stock_movements(
     is_admin = (
         _current_user.role == UserRole.ADMIN or str(_current_user.role) == "ADMIN"
     )
-    return service.list_stock_movements(
+    if is_admin:
+        return service.list_stock_movements_admin(
+            session=session,
+            page=page,
+            page_size=page_size,
+            product_id=product_id,
+            kind=kind,
+        )
+    return service.list_stock_movements_staff(
         session=session,
         page=page,
         page_size=page_size,
         product_id=product_id,
         kind=kind,
-        is_admin=is_admin,
     )

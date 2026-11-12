@@ -7,7 +7,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -72,6 +72,45 @@ def _build_sqlite_session() -> Session:
     Category.__table__.create(engine)
     Product.__table__.create(engine)
     Inventory.__table__.create(engine)
+
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS inventory_adjustments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id INTEGER NOT NULL,
+                    actor_id INTEGER NOT NULL,
+                    reason VARCHAR(500) NOT NULL,
+                    quantity_before INTEGER NOT NULL,
+                    counted_quantity INTEGER NOT NULL,
+                    version_before INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS stock_movements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id INTEGER NOT NULL,
+                    actor_id INTEGER NOT NULL,
+                    kind VARCHAR(16) NOT NULL,
+                    receipt_id INTEGER,
+                    order_id INTEGER,
+                    adjustment_id INTEGER,
+                    sku_snapshot VARCHAR(64) NOT NULL,
+                    quantity_before INTEGER NOT NULL,
+                    quantity_after INTEGER NOT NULL,
+                    stock_version_after INTEGER NOT NULL,
+                    occurred_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        conn.commit()
 
     session = Session(engine)
     now = datetime(2026, 11, 11, 8, 0, 0)
@@ -312,8 +351,8 @@ async def test_low_stock_auth_guards(app: object) -> None:
 
 
 @pytest.mark.anyio
-async def test_stock_movements_empty_fallback_when_table_missing(app: object) -> None:
-    """Verify movements endpoint returns empty page gracefully when table absent."""
+async def test_stock_movements_empty_ledger_returns_empty_page(app: object) -> None:
+    """Verify movements endpoint returns empty page when ledger has no rows."""
     application = app  # type: ignore[assignment]
     application.dependency_overrides[get_current_principal] = lambda: make_principal(
         UserRole.STAFF
@@ -329,6 +368,132 @@ async def test_stock_movements_empty_fallback_when_table_missing(app: object) ->
     assert body["items"] == []
     assert body["page"] == 1
     assert body["page_size"] == 20
+
+
+@pytest.mark.anyio
+async def test_stock_movements_missing_table_fails_closed_without_fake_success(
+    app: object, db_session: Session
+) -> None:
+    """Verify missing table fails closed with 500 error instead of false 200 success."""
+    application = app  # type: ignore[assignment]
+    application.dependency_overrides[get_current_principal] = lambda: make_principal(
+        UserRole.ADMIN
+    )
+
+    # Drop the table to simulate unmigrated dependency or database failure
+    db_session.execute(text("DROP TABLE stock_movements"))
+    db_session.commit()
+
+    transport = httpx.ASGITransport(
+        app=application,
+        raise_app_exceptions=False,  # type: ignore[arg-type]
+    )
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/v1/stock-movements")
+
+    # MUST NOT return 200 with empty items (no silent fallback)
+    assert res.status_code == 500
+    body = res.json()
+    assert body["code"] == "INTERNAL_SERVER_ERROR"
+    # MUST NOT leak raw SQL or table names to the client
+    assert "stock_movements" not in str(body).lower()
+    assert "syntax" not in str(body).lower()
+
+
+@pytest.mark.anyio
+async def test_stock_movements_real_db_queries_and_role_projection(
+    app: object, db_session: Session
+) -> None:
+    """Verify real SQL query without mocks correctly projects STAFF vs ADMIN data."""
+    application = app  # type: ignore[assignment]
+
+    # Insert real adjustments and movements into SQLite tables
+    now_str = "2026-11-11 10:30:00"
+    db_session.execute(
+        text(
+            """
+            INSERT INTO inventory_adjustments (
+                id, product_id, actor_id, reason, quantity_before,
+                counted_quantity, version_before, created_at
+            )
+            VALUES (1, 2, 12, 'Hao hụt kiểm kê cuối tháng', 5, 0, 1, :created_at)
+            """
+        ),
+        {"created_at": now_str},
+    )
+    db_session.execute(
+        text(
+            """
+            INSERT INTO stock_movements (
+                id, product_id, actor_id, kind, receipt_id, order_id,
+                adjustment_id, sku_snapshot, quantity_before, quantity_after,
+                stock_version_after, occurred_at
+            )
+            VALUES
+                (1, 1, 10, 'PURCHASE_CONFIRM', 101, NULL, NULL,
+                 'SKU-001', 0, 20, 1, '2026-11-11 08:00:00'),
+                (2, 1, 10, 'SALE', NULL, 202, NULL,
+                 'SKU-001', 20, 15, 2, '2026-11-11 09:00:00'),
+                (3, 2, 12, 'ADJUSTMENT', NULL, NULL, 1,
+                 'SKU-002', 5, 0, 2, '2026-11-11 10:30:00')
+            """
+        )
+    )
+    db_session.commit()
+
+    transport = httpx.ASGITransport(app=application)  # type: ignore[arg-type]
+
+    # 1. STAFF check: only public fields, no actor_id or adjustment_reason
+    application.dependency_overrides[get_current_principal] = lambda: make_principal(
+        UserRole.STAFF
+    )
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_staff = await client.get("/api/v1/stock-movements")
+
+    assert res_staff.status_code == 200
+    b_staff = res_staff.json()
+    assert b_staff["total"] == 3
+    assert len(b_staff["items"]) == 3
+    # Check ordering by occurred_at DESC, id DESC -> id 3, 2, 1
+    assert [i["id"] for i in b_staff["items"]] == [3, 2, 1]
+
+    for item in b_staff["items"]:
+        assert "actor_id" not in item
+        assert "adjustment_reason" not in item
+        assert "unit_cost_vnd" not in item
+        assert "cost_price" not in item
+        assert "sale_price_vnd" not in item
+        assert item["occurred_at"].endswith("Z")
+
+    # 2. ADMIN check: includes actor_id and adjustment_reason
+    application.dependency_overrides[get_current_principal] = lambda: make_principal(
+        UserRole.ADMIN
+    )
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_admin = await client.get("/api/v1/stock-movements")
+
+    assert res_admin.status_code == 200
+    b_admin = res_admin.json()
+    adj_item = b_admin["items"][0]
+    assert adj_item["id"] == 3
+    assert adj_item["actor_id"] == 12
+    assert adj_item["adjustment_reason"] == "Hao hụt kiểm kê cuối tháng"
+    assert adj_item["reference_id"] == 1
+    assert adj_item["occurred_at"].endswith("Z")
+
+    # 3. Real filter by product_id
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_filt_p = await client.get("/api/v1/stock-movements?product_id=2")
+    assert res_filt_p.status_code == 200
+    assert res_filt_p.json()["total"] == 1
+    assert res_filt_p.json()["items"][0]["product_id"] == 2
+
+    # 4. Real filter by kind
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_filt_k = await client.get("/api/v1/stock-movements?kind=SALE")
+    assert res_filt_k.status_code == 200
+    assert res_filt_k.json()["total"] == 1
+    assert res_filt_k.json()["items"][0]["kind"] == "SALE"
 
 
 def _sample_movements() -> list[dict[str, Any]]:
