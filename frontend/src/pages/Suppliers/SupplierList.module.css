@@ -1,0 +1,394 @@
+/* Container chính của trang Quản lý Nhà cung cấp */
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+/* Header trang: Tiêu đề bên trái, nút Thêm nhà cung cấp bên phải */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #6B7280;
+  margin: 0;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 6px;
+  border: none;
+  background-color: var(--color-primary, #087F5B);
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.primaryBtn:hover {
+  background-color: #066649;
+}
+
+/* Banner PUR-01: Ràng buộc nghiệp vụ nhà cung cấp */
+.businessBanner {
+  background-color: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.bannerIcon {
+  color: #087F5B;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.bannerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #374151;
+}
+
+.bannerTitle {
+  font-weight: 700;
+  color: #065F46;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+
+/* Thanh bộ lọc & Tìm kiếm */
+.filterBar {
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.filterLeft {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1;
+}
+
+.searchBox {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9CA3AF;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #111827;
+  outline: none;
+  background-color: #FFFFFF;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: #087F5B;
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.12);
+}
+
+.statusSelect {
+  padding: 8px 12px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #374151;
+  outline: none;
+  background-color: #FFFFFF;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.statusSelect:focus {
+  border-color: #087F5B;
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.12);
+}
+
+.totalBadge {
+  font-size: 13.5px;
+  color: #4B5563;
+  font-weight: 500;
+}
+
+.totalBadge strong {
+  color: #111827;
+}
+
+/* Layout 2 cột khi mở Drawer Chi tiết / Thêm mới bên phải */
+.contentLayout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  width: 100%;
+  transition: all 0.2s ease;
+}
+
+.tableSection {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* Modal form & Form Fields Thêm / Cập nhật nhà cung cấp */
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.formErrorBox {
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #DC2626;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.formLabel {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.requiredMark {
+  color: #DC2626;
+  margin-left: 2px;
+}
+
+.optionalBadge {
+  font-size: 12px;
+  color: #9CA3AF;
+  font-weight: 400;
+}
+
+.formSubtext {
+  font-size: 12px;
+  color: #6B7280;
+  margin-top: -2px;
+}
+
+.formInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inputIcon {
+  position: absolute;
+  left: 12px;
+  color: #9CA3AF;
+  pointer-events: none;
+}
+
+.formInput {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #111827;
+  outline: none;
+  background-color: #FFFFFF;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.formInputWithIcon {
+  padding-left: 36px;
+}
+
+.formInput:focus {
+  border-color: #087F5B;
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.12);
+}
+
+.statusCard {
+  background-color: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statusCardRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statusCardLabel {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.statusCardDesc {
+  font-size: 12px;
+  color: #6B7280;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.statusToggleBtn {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  border: 1px solid #D1D5DB;
+  background-color: #FFFFFF;
+  color: #374151;
+  transition: all 0.15s ease;
+}
+
+.statusToggleBtn:hover {
+  background-color: #F3F4F6;
+}
+
+/* Bảng tùy chỉnh dữ liệu cho cột Nhà cung cấp */
+.supplierNameCol {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.supplierNameText {
+  font-weight: 600;
+  color: #111827;
+  font-size: 14px;
+}
+
+.supplierCodeText {
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.tableRowClickable {
+  cursor: pointer;
+}
+
+.tableRowSelected {
+  background-color: #F0FDF4 !important;
+}
+
+.actionCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editRowBtn {
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #087F5B;
+  background-color: #E6FCF5;
+  border: 1px solid #C3FAE8;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.editRowBtn:hover {
+  background-color: #C3FAE8;
+}
+
+/* Footer bảng: thông tin phân trang & text cam kết */
+.tableFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #F3F4F6;
+}
+
+.pageInfo {
+  font-size: 13px;
+  color: #6B7280;
+}
+
+.bottomDisclaimer {
+  font-size: 12.5px;
+  color: #9CA3AF;
+  text-align: center;
+  padding: 10px 0;
+}
+
