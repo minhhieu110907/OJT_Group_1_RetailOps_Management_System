@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     jwt_secret: SecretStr | None = None
     csrf_secret: SecretStr | None = None
+    idempotency_secret: SecretStr | None = None
     jwt_issuer: str = "retailops-api"
     jwt_audience: str = "retailops-api"
     access_token_ttl_seconds: int = 900
@@ -106,6 +107,12 @@ class Settings(BaseSettings):
                     raise ValueError(
                         f"{name} secret must be a non-placeholder of at least 32 bytes"
                     )
+        if self.idempotency_secret is not None:
+            secret_value = self.idempotency_secret.get_secret_value()
+            if len(secret_value.encode()) < 32 or secret_value.startswith("CHANGE_ME"):
+                raise ValueError(
+                    "Idempotency secret must be a non-placeholder of at least 32 bytes"
+                )
         if self.environment.casefold() == "production":
             if self.jwt_secret is None or self.csrf_secret is None:
                 raise ValueError("Production requires JWT and CSRF secrets")
@@ -137,6 +144,12 @@ class Settings(BaseSettings):
             self.jwt_secret.get_secret_value().encode(),
             self.csrf_secret.get_secret_value().encode(),
         )
+
+    def require_idempotency_secret(self) -> bytes:
+        """Return the HMAC key or fail closed before processing a command."""
+        if self.idempotency_secret is None:
+            raise RuntimeError("Idempotency secret is not configured")
+        return self.idempotency_secret.get_secret_value().encode()
 
     @property
     def database_url(self) -> URL:

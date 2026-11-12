@@ -11,6 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.inventory.models import MovementKind, MovementType, ReferenceType
 
+# inventory.quantity / stock_movements.quantity_* are signed MySQL INT columns.
+MAX_STOCK_QUANTITY = 2_147_483_647
+
 
 class InventoryRead(BaseModel):
     """Public inventory view for active ADMIN and STAFF."""

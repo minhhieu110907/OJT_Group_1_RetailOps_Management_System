@@ -32,6 +32,8 @@ from app.modules.inventory import (
     StockLine,
     StockMovement,
 )
+from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
+from app.modules.suppliers.models import Supplier, SupplierStatus
 from tests.integration.conftest import (
     integration_database_url,
     integration_engine,
@@ -43,6 +45,7 @@ pytestmark = pytest.mark.integration
 TEST_SKU_PREFIX = "T04A653-SKU-"
 TEST_CAT_PREFIX = "T04A653_CAT_"
 TEST_EMAIL_PREFIX = "t04a653_inv_"
+TEST_SUPPLIER_PREFIX = "T04A653_SUP_"
 
 __all__ = [
     "integration_database_url",
@@ -66,6 +69,11 @@ def clean_inventory_test_rows(migrated_integration_engine: Engine) -> None:
                 delete(StockMovement).where(StockMovement.product_id.in_(product_ids))
             )
             session.execute(
+                delete(PurchaseReceiptItem).where(
+                    PurchaseReceiptItem.product_id.in_(product_ids)
+                )
+            )
+            session.execute(
                 delete(InventoryAdjustment).where(
                     InventoryAdjustment.product_id.in_(product_ids)
                 )
@@ -75,12 +83,73 @@ def clean_inventory_test_rows(migrated_integration_engine: Engine) -> None:
             )
             session.execute(delete(Product).where(Product.id.in_(product_ids)))
 
+        user_ids = list(
+            session.scalars(
+                select(User.id).where(
+                    User.email_normalized.like(f"{TEST_EMAIL_PREFIX}%")
+                )
+            )
+        )
+        if user_ids:
+            session.execute(
+                delete(PurchaseReceipt).where(PurchaseReceipt.created_by.in_(user_ids))
+            )
+            session.execute(delete(User).where(User.id.in_(user_ids)))
+
         session.execute(
             delete(Category).where(Category.name.like(f"{TEST_CAT_PREFIX}%"))
         )
         session.execute(
-            delete(User).where(User.email_normalized.like(f"{TEST_EMAIL_PREFIX}%"))
+            delete(Supplier).where(Supplier.name.like(f"{TEST_SUPPLIER_PREFIX}%"))
         )
+
+
+def _seed_receipt_and_item(
+    session: Session,
+    actor_id: int,
+    product_id: int,
+    *,
+    quantity: int = 15,
+) -> int:
+    """Seed supplier, purchase receipt, and receipt item satisfying composite FK."""
+    now = datetime(2026, 11, 11, 8, 0, 0)
+    product = session.get(Product, product_id)
+    assert product is not None
+
+    supplier = Supplier(
+        name=f"{TEST_SUPPLIER_PREFIX}{product_id}",
+        status=SupplierStatus.ACTIVE.value,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(supplier)
+    session.flush()
+
+    receipt = PurchaseReceipt(
+        supplier_id=supplier.id,
+        supplier_name_snapshot=supplier.name,
+        status="DRAFT",
+        draft_version=1,
+        total_vnd=quantity * 10_000,
+        created_by=actor_id,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(receipt)
+    session.flush()
+
+    item = PurchaseReceiptItem(
+        receipt_id=receipt.id,
+        product_id=product_id,
+        sku_snapshot=product.sku,
+        product_name_snapshot=product.name,
+        quantity=quantity,
+        unit_cost_vnd=10_000,
+        line_total_vnd=quantity * 10_000,
+    )
+    session.add(item)
+    session.flush()
+    return receipt.id
 
 
 def _seed_actor_and_products(
@@ -449,6 +518,9 @@ def test_all_four_operations_and_before_after_movement_ledger_in_mysql(
         actor_id, [product_id] = _seed_actor_and_products(
             setup_session, "lifecycle", quantities=[0]
         )
+        receipt_id = _seed_receipt_and_item(
+            setup_session, actor_id, product_id, quantity=15
+        )
         setup_session.commit()
 
     with Session(migrated_integration_engine) as session:
@@ -458,7 +530,7 @@ def test_all_four_operations_and_before_after_movement_ledger_in_mysql(
             items=[StockChangeItem(product_id=product_id, quantity=15)],
             movement_type=MovementType.INCREASE,
             reference_type=ReferenceType.RECEIPT,
-            reference_id=6001,
+            reference_id=receipt_id,
             actor_id=actor_id,
         )
         assert inc[0].quantity_before == 0

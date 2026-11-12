@@ -1,8 +1,13 @@
 """Create inventory_adjustments and stock_movements tables.
 
-Revision ID: 20261111_02
-Revises: 20261111_01
+Revision ID: 20261111_04
+Revises: 20261111_03
 Create Date: 2026-11-11
+
+Depends on ``purchase_receipt_items`` (20261111_02) for the composite FK
+``stock_movements(receipt_id, product_id) -> purchase_receipt_items``. The
+ERD reference to ``order_items(order_id, product_id)`` is deferred until the
+``order_items`` table is created by the Checkout/Order task.
 """
 
 from collections.abc import Sequence
@@ -11,8 +16,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
 
-revision: str = "20261111_02"
-down_revision: str | None = "20261111_01"
+revision: str = "20261111_04"
+down_revision: str | None = "20261111_03"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -101,6 +106,11 @@ def upgrade() -> None:
             ["adjustment_id", "product_id"],
             ["inventory_adjustments.id", "inventory_adjustments.product_id"],
             name="fk_stock_movements_adjustment_product",
+        ),
+        sa.ForeignKeyConstraint(
+            ["receipt_id", "product_id"],
+            ["purchase_receipt_items.receipt_id", "purchase_receipt_items.product_id"],
+            name="fk_stock_movements_receipt_item",
         ),
         sa.ForeignKeyConstraint(
             ["product_id"],

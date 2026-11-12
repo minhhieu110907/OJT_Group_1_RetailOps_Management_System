@@ -8,10 +8,15 @@ from app.modules.auth.models import (
     User,
 )
 from app.modules.categories.models import Category
+from app.modules.idempotency.models import IdempotencyRecord
 from app.modules.inventory.models import InventoryAdjustment, StockMovement
 from app.modules.notifications.models import AdminNotification
 from app.modules.outbox.models import OutboxEvent
 from app.modules.products.models import Inventory, Product
+from app.modules.purchasing.models import (
+    PurchaseReceipt,
+    PurchaseReceiptItem,
+)
 from app.modules.suppliers.models import Supplier
 
 REGISTERED_MODELS = (
@@ -25,6 +30,9 @@ REGISTERED_MODELS = (
     Supplier,
     Product,
     Inventory,
+    PurchaseReceipt,
+    PurchaseReceiptItem,
+    IdempotencyRecord,
     InventoryAdjustment,
     StockMovement,
 )

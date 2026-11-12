@@ -52,6 +52,7 @@ from app.modules.inventory.repository import (
     get_session_transaction_identity,
 )
 from app.modules.inventory.schemas import (
+    MAX_STOCK_QUANTITY,
     AdjustmentResult,
     CountAdjustment,
     InventoryPage,
@@ -95,6 +96,18 @@ def _is_strict_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _ensure_merged_quantity_in_int_range(product_id: int, quantity: int) -> None:
+    """Reject a merged line quantity that cannot be stored in a SQL INT column."""
+    if quantity > MAX_STOCK_QUANTITY:
+        raise InventoryValidationError(
+            "Tổng số lượng sau khi gộp vượt quá giới hạn SQL INT.",
+            details={
+                "product_id": product_id,
+                "max_quantity": MAX_STOCK_QUANTITY,
+            },
+        )
+
+
 def normalize_lock_order(product_ids: Sequence[int]) -> list[int]:
     """Validate, deduplicate, and sort product IDs in ascending lock order."""
     if not product_ids:
@@ -131,6 +144,7 @@ def merge_and_sort_stock_lines(lines: Sequence[StockLine]) -> list[StockLine]:
                 "Số lượng biến động (quantity) phải là số nguyên dương (> 0)."
             )
         merged[line.product_id] = merged.get(line.product_id, 0) + line.quantity
+        _ensure_merged_quantity_in_int_range(line.product_id, merged[line.product_id])
 
     return [
         StockLine(product_id=pid, quantity=merged[pid]) for pid in sorted(merged.keys())
@@ -220,7 +234,7 @@ class InventoryService:
         actor_id: int,
         note: str | None = None,
         locks: StockLockSet | None = None,
-        idempotent_replay: bool = True,
+        idempotent_replay: bool = False,
     ) -> list[StockMovementResult]:
         """Unified entry point for INCREASE, DECREASE, RETURN, and ADJUST changes."""
         if not _is_strict_int(actor_id) or actor_id <= 0:
@@ -363,6 +377,16 @@ class InventoryService:
                     requested_quantity=item.quantity,
                     available_quantity=locked.quantity,
                 )
+            if locked.quantity + signed_delta > MAX_STOCK_QUANTITY:
+                raise InventoryValidationError(
+                    "Số lượng tồn kho sau biến động vượt quá giới hạn SQL INT.",
+                    details={
+                        "product_id": item.product_id,
+                        "current_quantity": locked.quantity,
+                        "requested_quantity": item.quantity,
+                        "max_quantity": MAX_STOCK_QUANTITY,
+                    },
+                )
 
         now = self._normalize_timestamp(self._clock())
         results: list[StockMovementResult] = []
@@ -453,7 +477,7 @@ class InventoryService:
         reference_type: ReferenceType | str = ReferenceType.RECEIPT,
         note: str | None = None,
         locks: StockLockSet | None = None,
-        idempotent_replay: bool = True,
+        idempotent_replay: bool = False,
     ) -> list[StockMovementResult]:
         """Thin wrapper to increase stock (Receipt confirmation)."""
         return self.apply_stock_change(
@@ -478,7 +502,7 @@ class InventoryService:
         reference_type: ReferenceType | str = ReferenceType.ORDER,
         note: str | None = None,
         locks: StockLockSet | None = None,
-        idempotent_replay: bool = True,
+        idempotent_replay: bool = False,
     ) -> list[StockMovementResult]:
         """Thin wrapper to decrease stock (POS Checkout)."""
         return self.apply_stock_change(
@@ -503,7 +527,7 @@ class InventoryService:
         reference_type: ReferenceType | str = ReferenceType.ORDER,
         note: str | None = None,
         locks: StockLockSet | None = None,
-        idempotent_replay: bool = True,
+        idempotent_replay: bool = False,
     ) -> list[StockMovementResult]:
         """Thin wrapper to restore stock on order cancellation."""
         return self.apply_stock_change(
@@ -716,10 +740,11 @@ class InventoryService:
                 item.counted_quantity is None
                 or not _is_strict_int(item.counted_quantity)
                 or item.counted_quantity < 0
+                or item.counted_quantity > MAX_STOCK_QUANTITY
             ):
                 raise InventoryValidationError(
                     "Số lượng kiểm kê thực tế (counted_quantity) "
-                    "phải là số nguyên >= 0."
+                    "phải là số nguyên trong khoảng 0..2147483647."
                 )
             if (
                 item.expected_stock_version is None
@@ -990,6 +1015,7 @@ class InventoryService:
                 expected_versions.setdefault(pid, None)
 
             merged_quantities[pid] = merged_quantities.get(pid, 0) + item.quantity
+            _ensure_merged_quantity_in_int_range(pid, merged_quantities[pid])
 
         return [
             StockChangeItem(

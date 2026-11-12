@@ -16,6 +16,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.exceptions import (
+    InventoryValidationError,
     StockConflictError,
     StockItemNotFoundError,
     is_mysql_lock_conflict_error,
@@ -27,7 +28,7 @@ from app.modules.inventory.models import (
     Product,
     StockMovement,
 )
-from app.modules.inventory.schemas import LockedStock, StockLockSet
+from app.modules.inventory.schemas import MAX_STOCK_QUANTITY, LockedStock, StockLockSet
 
 
 def get_session_transaction_identity(session: object) -> int:
@@ -217,6 +218,15 @@ class InventoryMovementRepository:
         """Atomically update inventory balance and increment stock_version by +1."""
         if new_quantity < 0:
             return False
+        if new_quantity > MAX_STOCK_QUANTITY:
+            # Defense in depth: never send an out-of-range INT to MySQL.
+            raise InventoryValidationError(
+                "Số lượng tồn kho sau biến động vượt quá giới hạn SQL INT.",
+                details={
+                    "product_id": product_id,
+                    "max_quantity": MAX_STOCK_QUANTITY,
+                },
+            )
 
         first_stocked_expr = case(
             (

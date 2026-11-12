@@ -128,6 +128,13 @@ class StockMovement(Base):
             ["inventory_adjustments.id", "inventory_adjustments.product_id"],
             name="fk_stock_movements_adjustment_product",
         ),
+        # ERD V1.0: stock_movements.(receipt_id, product_id) > purchase_receipt_items.
+        # The order_items reference is added once the order_items table exists.
+        ForeignKeyConstraint(
+            ["receipt_id", "product_id"],
+            ["purchase_receipt_items.receipt_id", "purchase_receipt_items.product_id"],
+            name="fk_stock_movements_receipt_item",
+        ),
         UniqueConstraint(
             "product_id",
             "stock_version_after",

@@ -313,7 +313,23 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
     assert [r.stock_version_after for r in inc_results] == [1, 3]
     assert repo.states[10].first_stocked_at == fixed_now
 
-    # 2. Idempotent retry with identical reference + quantities -> no second movement
+    # 2a. Default (idempotent_replay=False): HTTP replay belongs to the shared
+    # IdempotencyExecutor, so a repeated reference is rejected without mutation.
+    with pytest.raises(DuplicateMovementError):
+        service.increase(
+            session,  # type: ignore[arg-type]
+            items=[
+                StockChangeItem(product_id=10, quantity=10),
+                StockChangeItem(product_id=20, quantity=3),
+            ],
+            reference_id=101,
+            actor_id=1,
+        )
+    assert repo.states[10].quantity == 10
+    assert repo.states[10].stock_version == 1
+    assert len(repo.movements) == 2
+
+    # 2b. Explicit opt-in replay with identical reference + quantities
     retry_results = service.increase(
         session,  # type: ignore[arg-type]
         items=[
@@ -330,6 +346,7 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
         ],
         reference_id=101,
         actor_id=1,
+        idempotent_replay=True,
     )
     assert [r.movement_created for r in retry_results] == [False, False]
     assert repo.states[10].quantity == 10
@@ -343,6 +360,7 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
             items=[StockChangeItem(product_id=10, quantity=10)],
             reference_id=101,
             actor_id=1,
+            idempotent_replay=True,
         )
 
     # Mixed batch replay (existing product 10 + unrecorded product 30 on ref 101)
@@ -357,6 +375,7 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
             ],
             reference_id=101,
             actor_id=1,
+            idempotent_replay=True,
         )
     assert repo.states[30].quantity == 12
     assert repo.states[30].stock_version == 1
@@ -371,6 +390,7 @@ def test_unified_apply_stock_change_merges_sorts_and_handles_all_four_types() ->
             ],
             reference_id=101,
             actor_id=1,
+            idempotent_replay=True,
         )
 
     # 3. DECREASE (Checkout)
@@ -576,6 +596,86 @@ def test_negative_stock_inactive_product_and_lock_lifecycle_guards() -> None:
             actor_id=1,
             lines=[StockLine(product_id=1, quantity=1)],
         )
+
+
+def test_quantity_overflow_beyond_sql_int_is_rejected_without_mutation() -> None:
+    max_int = 2_147_483_647
+    repo = FakeInventoryMovementRepository(
+        [
+            _InMemoryProductState(
+                product_id=1,
+                sku="SKU-NEAR-MAX",
+                name="Near max product",
+                status=ProductStatus.ACTIVE.value,
+                sale_price_vnd=1_000,
+                quantity=max_int - 5,
+                stock_version=4,
+            ),
+        ]
+    )
+    service = InventoryService(repository=repo)
+    session = GuardedUnitSession()
+
+    # (a) Merged duplicate lines exceeding SQL INT -> 422 before any lock
+    lock_calls_before = len(repo.lock_history)
+    with pytest.raises(InventoryValidationError) as merged_exc:
+        service.increase(
+            session,  # type: ignore[arg-type]
+            items=[
+                StockChangeItem(product_id=1, quantity=max_int),
+                StockChangeItem(product_id=1, quantity=1),
+            ],
+            reference_id=7001,
+            actor_id=1,
+        )
+    assert merged_exc.value.status_code == 422
+    assert len(repo.lock_history) == lock_calls_before
+    with pytest.raises(InventoryValidationError):
+        merge_and_sort_stock_lines(
+            [
+                StockLine(product_id=1, quantity=max_int),
+                StockLine(product_id=1, quantity=1),
+            ]
+        )
+
+    # (b) Current balance + delta exceeding SQL INT -> 422, no row/movement written
+    with pytest.raises(InventoryValidationError) as result_exc:
+        service.increase_for_receipt(
+            session,  # type: ignore[arg-type]
+            locks=service.lock_for_mutation(session, product_ids=[1]),  # type: ignore[arg-type]
+            receipt_id=7002,
+            actor_id=1,
+            lines=[StockLine(product_id=1, quantity=6)],
+        )
+    assert result_exc.value.details["max_quantity"] == max_int
+    assert repo.states[1].quantity == max_int - 5
+    assert repo.states[1].stock_version == 4
+    assert repo.movements == []
+
+    # Exactly reaching SQL INT max is allowed
+    reached = service.increase(
+        session,  # type: ignore[arg-type]
+        items=[StockChangeItem(product_id=1, quantity=5)],
+        reference_id=7003,
+        actor_id=1,
+    )
+    assert reached[0].quantity_after == max_int
+
+    # (c) Physical count above SQL INT -> 422
+    with pytest.raises(InventoryValidationError):
+        service.adjust(
+            session,  # type: ignore[arg-type]
+            items=[
+                StockChangeItem(
+                    product_id=1,
+                    counted_quantity=max_int + 1,
+                    expected_stock_version=5,
+                )
+            ],
+            actor_id=1,
+            note="Kiểm kê vượt giới hạn",
+        )
+    assert repo.states[1].quantity == max_int
 
 
 def test_inventory_module_never_calls_transaction_boundary_methods() -> None:

@@ -1,0 +1,11 @@
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Sản phẩm ID 12 có nhiều đơn giá khác nhau trong cùng một phiếu (47000 và 50000).",
+  "details": {
+    "code": "RECEIPT_ITEM_COST_CONFLICT",
+    "product_id": 12,
+    "existing_unit_cost_vnd": 47000,
+    "conflicting_unit_cost_vnd": 50000
+  }
+}
+
