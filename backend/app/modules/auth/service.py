@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.exceptions import (
+    AccountPendingError,
+    AccountRejectedError,
     AppException,
     CsrfRejectedError,
     InvalidCredentialsError,
@@ -185,7 +187,16 @@ class AuthService:
         user = self.repository.find_user_by_email(session, normalized)
         password_hash = user.password_hash if user is not None else DUMMY_BCRYPT_HASH
         password_matches = self.password_hasher.verify(password, password_hash)
-        if user is None or not password_matches or user.status != UserStatus.ACTIVE:
+        if user is None or not password_matches:
+            session.rollback()
+            raise InvalidCredentialsError()
+        if user.status == UserStatus.PENDING_APPROVAL:
+            session.rollback()
+            raise AccountPendingError()
+        if user.status == UserStatus.REJECTED:
+            session.rollback()
+            raise AccountRejectedError()
+        if user.status != UserStatus.ACTIVE:
             session.rollback()
             raise InvalidCredentialsError()
 
