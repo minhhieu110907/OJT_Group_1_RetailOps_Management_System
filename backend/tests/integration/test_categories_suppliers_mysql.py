@@ -764,7 +764,7 @@ async def test_categories_and_suppliers_api_end_to_end_in_mysql(
             )
             assert sup_patch_name.status_code == 200
             assert sup_patch_name.json()["contact_email"] == "mysql-sup@example.com"
-            assert sup_patch_name.json()["contact_phone"] == "0905556666"
+            assert sup_patch_name.json()["contact_phone"] == "+84905556666"
 
             # Explicit null clears contact_email & contact_phone in MySQL
             sup_patch_null = await client.patch(
