@@ -85,6 +85,7 @@ export default function SupplierList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [supplierForm, setSupplierForm] = useState(INITIAL_SUPPLIER_FORM);
+  const [initialStatus, setInitialStatus] = useState('ACTIVE');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -149,6 +150,7 @@ export default function SupplierList() {
     }
     setModalMode('create');
     setSupplierForm({ ...INITIAL_SUPPLIER_FORM });
+    setInitialStatus('ACTIVE');
     setFormError('');
     setIsModalOpen(true);
   };
@@ -160,13 +162,15 @@ export default function SupplierList() {
       return;
     }
     setModalMode('edit');
+    const status = supplier.status || 'ACTIVE';
     setSupplierForm({
       id: supplier.id,
       name: supplier.name || '',
       contact_phone: supplier.contact_phone || '',
       contact_email: supplier.contact_email || '',
-      status: supplier.status || 'ACTIVE',
+      status,
     });
+    setInitialStatus(status);
     setFormError('');
     setIsModalOpen(true);
   }, [isAdmin, toast]);
@@ -177,30 +181,17 @@ export default function SupplierList() {
     setFormError('');
   };
 
-  // Chuyển đổi trạng thái Đang hợp tác / Ngừng hợp tác (chỉ ADMIN)
-  const handleToggleStatus = async () => {
+  // Đảo trạng thái tạm thời trong form modal (chưa lưu xuống database cho đến khi bấm "Lưu thay đổi")
+  const handleToggleStatus = () => {
     if (!isAdmin) {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái đối tác.');
       return;
     }
     if (modalMode !== 'edit' || !supplierForm.id) return;
-    const newStatus = supplierForm.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    setIsSubmitting(true);
-    try {
-      const updated = await suppliersApi.updateSupplierStatus(supplierForm.id, newStatus);
-      setSupplierForm((prev) => ({ ...prev, status: updated.status }));
-      toast.success(
-        `Đã chuyển trạng thái nhà cung cấp thành: ${
-          updated.status === 'ACTIVE' ? 'Đang hợp tác' : 'Ngừng hợp tác'
-        }`
-      );
-      setRefreshTrigger((prev) => prev + 1);
-    } catch (err) {
-      const errorMsg = getApiErrorMessage(err, 'Không thể cập nhật trạng thái nhà cung cấp.');
-      toast.error(errorMsg);
-    } finally {
-      setIsSubmitting(false);
-    }
+    setSupplierForm((prev) => ({
+      ...prev,
+      status: prev.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+    }));
   };
 
   // Submit form (Thêm mới hoặc Cập nhật - chỉ ADMIN)
@@ -267,6 +258,12 @@ export default function SupplierList() {
           contact_email: trimmedEmail,
           contact_phone: trimmedPhone,
         });
+
+        // Nếu trạng thái có sự thay đổi so với ban đầu, cập nhật status
+        if (supplierForm.status !== initialStatus) {
+          await suppliersApi.updateSupplierStatus(supplierForm.id, supplierForm.status);
+        }
+
         toast.success('Cập nhật thông tin nhà cung cấp thành công.');
         setIsModalOpen(false);
         setRefreshTrigger((prev) => prev + 1);
@@ -469,9 +466,9 @@ export default function SupplierList() {
               {pagination.total === 0
                 ? '0'
                 : `${(pagination.page - 1) * pagination.page_size + 1} - ${Math.min(
-                    pagination.page * pagination.page_size,
-                    pagination.total
-                  )}`}{' '}
+                  pagination.page * pagination.page_size,
+                  pagination.total
+                )}`}{' '}
               trong tổng số {pagination.total} đối tác
             </span>
             <Pagination
@@ -515,8 +512,8 @@ export default function SupplierList() {
                 {isSubmitting
                   ? 'Đang xử lý...'
                   : modalMode === 'create'
-                  ? 'Thêm nhà cung cấp'
-                  : 'Lưu thay đổi'}
+                    ? 'Thêm nhà cung cấp'
+                    : 'Lưu thay đổi'}
               </button>
             )}
           </>
