@@ -182,27 +182,14 @@
   color: #111827;
 }
 
-/* Bố cục 2 cột Split layout */
-.splitLayout {
-  display: grid;
-  grid-template-columns: 1fr 480px;
-  gap: 20px;
-  align-items: start;
-}
-
-@media (max-width: 1200px) {
-  .splitLayout {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Cột trái: Card bảng danh sách */
-.leftCard {
+/* Bảng danh sách phiếu nhập */
+.tableCard {
   background: #FFFFFF;
   border: 1px solid #E5E7EB;
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  width: 100%;
 }
 
 .selectedRow {
@@ -673,12 +660,32 @@
   box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1);
 }
 
+.lineHeaderRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1.2fr) 32px;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .lineInputRow {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr auto;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1.2fr) 32px;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
+  width: 100%;
+}
+
+.lineInputRow select,
+.lineInputRow input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .removeLineBtn {

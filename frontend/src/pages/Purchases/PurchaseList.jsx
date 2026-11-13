@@ -62,6 +62,7 @@ export default function PurchaseList() {
   // 4. Phiếu đang chọn & Chi tiết phiếu (Gọi GET /purchase-receipts/:id)
   const [selectedReceiptId, setSelectedReceiptId] = useState(null);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [conflictError, setConflictError] = useState(null); // Lưu thông tin 409
@@ -129,20 +130,22 @@ export default function PurchaseList() {
           totalPages: res.total_pages || 1,
         }));
 
-        // Nếu chưa chọn phiếu nào, tự động chọn dòng đầu tiên nếu có
-        if (res.items && res.items.length > 0) {
-          setSelectedReceiptId((prevId) => {
-            if (prevId && res.items.some((r) => r.id === prevId)) return prevId;
-            return res.items[0].id;
-          });
-        } else {
-          setSelectedReceiptId(null);
-          setSelectedReceipt(null);
-        }
+        // Không tự động set selectedReceiptId khi load danh sách
+        // Chỉ load chi tiết khi người dùng chủ động click xem/sửa
+        setSelectedReceiptId((prevId) => {
+          if (prevId && res.items && res.items.some((r) => r.id === prevId)) return prevId;
+          return null;
+        });
       }
     } catch (err) {
       if (currentRequestId === requestIdRef.current) {
-        toast.error(getApiErrorMessage(err, 'Không thể tải danh sách phiếu nhập.'));
+        // Nếu Backend chưa có endpoint GET list (404/405), coi danh sách là rỗng và không spam toast lỗi đỏ
+        if (err.response?.status === 404 || err.response?.status === 405) {
+          setData([]);
+          setPagination((prev) => ({ ...prev, total: 0, totalPages: 1 }));
+        } else {
+          toast.error(getApiErrorMessage(err, 'Không thể tải danh sách phiếu nhập.'));
+        }
       }
     } finally {
       if (currentRequestId === requestIdRef.current) {
@@ -350,6 +353,7 @@ export default function PurchaseList() {
       toast.success(`Đã hủy phiếu nhập nháp #${cancelled.id}.`);
       setSelectedReceipt(cancelled);
       setIsCancelModalOpen(false);
+      setIsDetailModalOpen(false);
       setIsEditingDraft(false);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
@@ -421,19 +425,21 @@ export default function PurchaseList() {
         align: 'center',
         width: '110px',
         render: (row) => {
-          const isSelected = selectedReceipt?.id === row.id;
           return (
             <button
               type="button"
-              className={`${styles.viewDetailBtn} ${isSelected ? styles.viewDetailBtnActive : ''}`}
-              onClick={() => setSelectedReceiptId(row.id)}
+              className={styles.viewDetailBtn}
+              onClick={() => {
+                setSelectedReceiptId(row.id);
+                setIsDetailModalOpen(true);
+              }}
               title="Xem / Thao tác phiếu nhập"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
-              <span>{isSelected ? 'Đang chọn' : row.status === 'DRAFT' ? 'Sửa nháp' : 'Chi tiết'}</span>
+              <span>{row.status === 'DRAFT' ? 'Sửa nháp' : 'Chi tiết'}</span>
             </button>
           );
         },
@@ -587,73 +593,118 @@ export default function PurchaseList() {
         )}
       </div>
 
-      {/* 4. Bố cục 2 Cột Split Layout */}
-      <div className={styles.splitLayout}>
-        {/* CỘT TRÁI: Bảng danh sách phiếu */}
-        <div className={styles.leftCard}>
-          <Table
-            columns={columns}
-            data={data}
-            rowKey="id"
-            isLoading={isLoading}
-            emptyText="Không tìm thấy phiếu nhập nào"
-          />
+      {/* 4. Bảng danh sách phiếu nhập */}
+      <div className={styles.tableCard}>
+        <Table
+          columns={columns}
+          data={data}
+          rowKey="id"
+          isLoading={isLoading}
+          emptyText="Không tìm thấy phiếu nhập nào"
+        />
 
-          <div className={styles.paginationBar}>
-            <span className={styles.paginationSummary}>
-              Hiển thị <strong>{startRecord} - {endRecord}</strong> trên <strong>{pagination.total}</strong> phiếu nhập
-            </span>
+        <div className={styles.paginationBar}>
+          <span className={styles.paginationSummary}>
+            Hiển thị <strong>{startRecord} - {endRecord}</strong> trên <strong>{pagination.total}</strong> phiếu nhập
+          </span>
 
-            <div className={styles.paginationRight}>
-              <Pagination
-                currentPage={pagination.page}
-                totalPages={pagination.totalPages}
-                onPageChange={(nextPage) =>
-                  setPagination((prev) => ({ ...prev, page: nextPage }))
-                }
-              />
-            </div>
+          <div className={styles.paginationRight}>
+            <Pagination
+              currentPage={pagination.page}
+              totalPages={pagination.totalPages}
+              onPageChange={(nextPage) =>
+                setPagination((prev) => ({ ...prev, page: nextPage }))
+              }
+            />
           </div>
         </div>
+      </div>
 
-        {/* CỘT PHẢI: Khung chi tiết phiếu đang được chọn (ReceiptEditor) */}
+      {/* 5. Modal Chi tiết & Thao tác Phiếu nhập kho (Tái sử dụng common/Modal) */}
+      <Modal
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          if (!isActionLoading) {
+            setIsDetailModalOpen(false);
+            setSelectedReceiptId(null);
+            setSelectedReceipt(null);
+            setIsEditingDraft(false);
+            setConflictError(null);
+          }
+        }}
+        title={
+          selectedReceipt
+            ? `Chi tiết phiếu nhập #${selectedReceipt.id}`
+            : 'Chi tiết phiếu nhập kho'
+        }
+        maxWidth="780px"
+        footer={
+          selectedReceipt && selectedReceipt.status === 'DRAFT' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <button
+                type="button"
+                className={modalStyles.dangerBtn}
+                onClick={handleOpenCancelModal}
+                disabled={isActionLoading}
+              >
+                Hủy phiếu
+              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={modalStyles.cancelBtn}
+                  onClick={handleSaveDraft}
+                  disabled={isActionLoading}
+                >
+                  {isActionLoading ? 'Đang lưu...' : 'Lưu nháp'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  onClick={handleConfirmPurchase}
+                  disabled={isActionLoading}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{isActionLoading ? 'Đang xử lý...' : 'Xác nhận nhập kho'}</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={modalStyles.cancelBtn}
+              onClick={() => {
+                setIsDetailModalOpen(false);
+                setSelectedReceiptId(null);
+                setSelectedReceipt(null);
+              }}
+            >
+              Đóng
+            </button>
+          )
+        }
+      >
         {isDetailLoading ? (
-          <div className={styles.rightPanel} style={{ alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: '#6B7280' }}>
+          <div style={{ padding: '32px 0', textAlign: 'center', color: '#6B7280' }}>
             <span>Đang tải chi tiết phiếu nhập...</span>
           </div>
         ) : selectedReceipt ? (
-          <div className={styles.rightPanel}>
-            {/* Header chi tiết */}
-            <div className={styles.detailHeader}>
-              <div>
-                <div className={styles.detailTitleRow}>
-                  <h2 className={styles.detailTitle}>Phiếu nhập #{selectedReceipt.id}</h2>
-                  {selectedReceipt.status === 'CONFIRMED' && (
-                    <span className={styles.statusBadgeConfirmed}>ĐÃ NHẬP (CONFIRMED)</span>
-                  )}
-                  {selectedReceipt.status === 'CANCELLED' && (
-                    <span className={styles.statusBadgeCancelled}>ĐÃ HỦY (CANCELLED)</span>
-                  )}
-                  {selectedReceipt.status === 'DRAFT' && (
-                    <span className={styles.statusBadgeDraft}>BẢN NHÁP (DRAFT)</span>
-                  )}
-                </div>
+          <div>
+            {/* Header trạng thái */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {selectedReceipt.status === 'CONFIRMED' && (
+                  <span className={styles.statusBadgeConfirmed}>ĐÃ NHẬP (CONFIRMED)</span>
+                )}
+                {selectedReceipt.status === 'CANCELLED' && (
+                  <span className={styles.statusBadgeCancelled}>ĐÃ HỦY (CANCELLED)</span>
+                )}
+                {selectedReceipt.status === 'DRAFT' && (
+                  <span className={styles.statusBadgeDraft}>BẢN NHÁP (DRAFT)</span>
+                )}
               </div>
-
-              {selectedReceipt.status === 'DRAFT' && (
-                <button
-                  type="button"
-                  className={styles.deleteIconBtn}
-                  onClick={handleOpenCancelModal}
-                  title="Hủy phiếu nhập nháp"
-                  aria-label="Hủy phiếu"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-              )}
             </div>
 
             {/* Banner cảnh báo xung đột phiên bản 409 Conflict */}
@@ -742,6 +793,13 @@ export default function PurchaseList() {
               {selectedReceipt.status === 'DRAFT' && isEditingDraft ? (
                 // Chế độ chỉnh sửa dòng mặt hàng
                 <div>
+                  <div className={styles.lineHeaderRow}>
+                    <span>Sản phẩm</span>
+                    <span>Số lượng</span>
+                    <span>Đơn giá nhập (đ)</span>
+                    <span></span>
+                  </div>
+
                   {editLines.map((line, idx) => (
                     <div key={idx} className={styles.lineInputRow}>
                       <select
@@ -761,7 +819,7 @@ export default function PurchaseList() {
                         type="number"
                         min="1"
                         className={styles.formInput}
-                        placeholder="Số lượng"
+                        placeholder="Số lượng nhập"
                         value={line.quantity}
                         onChange={(e) => handleUpdateEditLine(idx, 'quantity', e.target.value)}
                       />
@@ -855,52 +913,16 @@ export default function PurchaseList() {
                 Chứng từ này đã ở trạng thái <strong>{selectedReceipt.status}</strong> (Terminal State). Mọi thông tin đã được khóa bất biến và không thể chỉnh sửa hay hủy bỏ.
               </div>
             )}
-
-            {/* Các nút bấm thao tác chỉ hiển thị khi là DRAFT */}
-            {selectedReceipt.status === 'DRAFT' && (
-              <div className={styles.detailFooter}>
-                <button
-                  type="button"
-                  className={styles.cancelDraftBtn}
-                  onClick={handleOpenCancelModal}
-                  disabled={isActionLoading}
-                >
-                  Hủy phiếu
-                </button>
-                <button
-                  type="button"
-                  className={styles.saveDraftBtn}
-                  onClick={handleSaveDraft}
-                  disabled={isActionLoading}
-                >
-                  {isActionLoading ? 'Đang lưu...' : 'Lưu nháp'}
-                </button>
-                <button
-                  type="button"
-                  className={styles.confirmBtn}
-                  onClick={handleConfirmPurchase}
-                  disabled={isActionLoading}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>{isActionLoading ? 'Đang xử lý...' : 'Xác nhận nhập kho'}</span>
-                </button>
-              </div>
-            )}
           </div>
-        ) : (
-          <div className={styles.rightPanel} style={{ alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: '#6B7280' }}>
-            <span>Chọn một phiếu nhập từ bảng bên trái để xem chi tiết</span>
-          </div>
-        )}
-      </div>
+        ) : null}
+      </Modal>
 
       {/* 5. Modal Tạo mới phiếu nhập nháp (Create Mode) */}
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => !isActionLoading && setIsCreateModalOpen(false)}
         title="Tạo mới phiếu nhập hàng (DRAFT)"
+        maxWidth="680px"
         footer={
           <>
             <button
@@ -913,11 +935,11 @@ export default function PurchaseList() {
             </button>
             <button
               type="button"
-              className={modalStyles.primaryBtn}
+              className={modalStyles.confirmBtn}
               onClick={handleSubmitCreateDraft}
               disabled={isActionLoading}
             >
-              {isActionLoading ? 'Đang tạo...' : 'Lưu bản nháp'}
+              {isActionLoading ? 'Đang tạo...' : 'Tạo bản nháp'}
             </button>
           </>
         }
@@ -946,6 +968,14 @@ export default function PurchaseList() {
             <label className={styles.formLabel}>
               Danh sách sản phẩm nhập <span style={{ color: '#DC2626' }}>*</span>
             </label>
+
+            <div className={styles.lineHeaderRow}>
+              <span>Sản phẩm</span>
+              <span>Số lượng</span>
+              <span>Đơn giá nhập (đ)</span>
+              <span></span>
+            </div>
+
             {createLines.map((line, idx) => (
               <div key={idx} className={styles.lineInputRow}>
                 <select
@@ -966,7 +996,7 @@ export default function PurchaseList() {
                   type="number"
                   min="1"
                   className={styles.formInput}
-                  placeholder="Số lượng"
+                  placeholder="Số lượng nhập"
                   value={line.quantity}
                   onChange={(e) => handleUpdateCreateLine(idx, 'quantity', e.target.value)}
                   required
@@ -976,7 +1006,7 @@ export default function PurchaseList() {
                   type="number"
                   min="0"
                   className={styles.formInput}
-                  placeholder="Đơn giá (đ)"
+                  placeholder="Đơn giá nhập"
                   value={line.unit_cost_vnd}
                   onChange={(e) => handleUpdateCreateLine(idx, 'unit_cost_vnd', e.target.value)}
                   required
