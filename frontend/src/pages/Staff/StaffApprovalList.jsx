@@ -62,6 +62,7 @@ export default function StaffApprovalList() {
 
   const requestIdRef = useRef(0);
   const deepLinkGenRef = useRef(0);
+  const handledDeepLinkParamRef = useRef(null);
   const lastFetchedCountsRefreshRef = useRef(-1);
   const isDecisionPendingRef = useRef(false);
   const reasonInputRef = useRef(null);
@@ -187,7 +188,16 @@ export default function StaffApprovalList() {
 
   // Xử lý deep-link ?approval_request_id=<id> (tìm trên trang hiện tại hoặc tìm có giới hạn across statuses/pages)
   useEffect(() => {
-    if (isMock || !targetRequestIdParam || isLoading || loadError) {
+    if (!targetRequestIdParam) {
+      handledDeepLinkParamRef.current = null;
+      return undefined;
+    }
+
+    if (isMock || isLoading || loadError) {
+      return undefined;
+    }
+
+    if (handledDeepLinkParamRef.current === targetRequestIdParam) {
       return undefined;
     }
 
@@ -195,6 +205,7 @@ export default function StaffApprovalList() {
     const currentDeepLinkGen = ++deepLinkGenRef.current;
 
     if (!parsedId) {
+      handledDeepLinkParamRef.current = targetRequestIdParam;
       Promise.resolve().then(() => {
         if (currentDeepLinkGen !== deepLinkGenRef.current) return;
         toast.warning('Mã hồ sơ trên đường dẫn không hợp lệ.');
@@ -205,10 +216,6 @@ export default function StaffApprovalList() {
       return () => {
         deepLinkGenRef.current += 1;
       };
-    }
-
-    if (selectedApproval?.id === parsedId) {
-      return undefined;
     }
 
     staffApprovalsApi
@@ -222,6 +229,8 @@ export default function StaffApprovalList() {
       })
       .then((found) => {
         if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+
+        handledDeepLinkParamRef.current = targetRequestIdParam;
 
         if (!found) {
           toast.warning(
@@ -245,6 +254,7 @@ export default function StaffApprovalList() {
       })
       .catch((error) => {
         if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+        handledDeepLinkParamRef.current = targetRequestIdParam;
         const status = error?.response?.status;
         if (status === 401 || status === 403) {
           return;
@@ -264,7 +274,6 @@ export default function StaffApprovalList() {
     isMock,
     items,
     loadError,
-    selectedApproval?.id,
     setUrlSearchParams,
     targetRequestIdParam,
     toast,
@@ -327,6 +336,9 @@ export default function StaffApprovalList() {
 
   // Đóng Modal nội bộ (dùng cho cả programmatic close sau khi POST thành công và user close sau khi qua guard)
   const closeDetailModalProgrammatic = useCallback(() => {
+    if (targetRequestIdParam) {
+      handledDeepLinkParamRef.current = targetRequestIdParam;
+    }
     deepLinkGenRef.current += 1;
     setSelectedApproval(null);
     setRejectReason('');
@@ -337,7 +349,7 @@ export default function StaffApprovalList() {
       nextParams.delete('approval_request_id');
       setUrlSearchParams(nextParams, { replace: true });
     }
-  }, [setUrlSearchParams, urlSearchParams]);
+  }, [setUrlSearchParams, targetRequestIdParam, urlSearchParams]);
 
   // Đóng Modal do người dùng thao tác (X, nút Đóng, Escape hoặc click nền mờ) — bị chặn khi đang gửi POST
   const handleCloseDetailModal = () => {
