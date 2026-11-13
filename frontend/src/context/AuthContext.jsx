@@ -53,7 +53,7 @@ const INITIAL_USERS = [
     password: 'DemoPassword123',
     role: 'STAFF',
     status: 'PENDING',
-    submittedAt: '09:30 - 07/11/2026 (Asia/Ha_Noi)',
+    submittedAt: '09:30 - 07/11/2026 (Asia/Ho_Chi_Minh)',
   },
   {
     id: 'usr_staff_rejected_locked',
@@ -63,7 +63,7 @@ const INITIAL_USERS = [
     role: 'STAFF',
     status: 'REJECTED',
     rejectSubState: 'LOCKED_24H',
-    submittedAt: '15:20 - 07/11/2026 (Asia/Ha_Noi)',
+    submittedAt: '15:20 - 07/11/2026 (Asia/Ho_Chi_Minh)',
     rejectReason:
       'Email đăng ký chưa nằm trong danh sách nhân sự tại cửa hàng. Vui lòng xác nhận lại với Quản trị viên trước khi gửi lại yêu cầu.',
   },
@@ -75,7 +75,7 @@ const INITIAL_USERS = [
     role: 'STAFF',
     status: 'REJECTED',
     rejectSubState: 'ELIGIBLE',
-    submittedAt: '08:00 - 06/11/2026 (Asia/Ha_Noi)',
+    submittedAt: '08:00 - 06/11/2026 (Asia/Ho_Chi_Minh)',
     rejectReason:
       'Thông tin đăng ký trước đó chưa khớp hồ sơ nội bộ. Thời gian chờ 24 giờ đã hoàn tất, bạn có thể xác minh và gửi lại yêu cầu xét duyệt.',
   },
@@ -437,10 +437,14 @@ export function AuthProvider({ children }) {
     } catch (error) {
       // TUYỆT ĐỐI KHÔNG can thiệp hoặc fallback sang mock usersList khi ở Real API mode
       const msg = getApiErrorMessage(error) || error?.message;
-      throw new Error(
+      const authError = new Error(
         msg ||
           'Thông tin đăng nhập không chính xác hoặc tài khoản chưa sẵn sàng.'
       );
+      if (error?.response?.data?.code) {
+        authError.code = error.response.data.code;
+      }
+      throw authError;
     }
   };
 
@@ -464,7 +468,7 @@ export function AuthProvider({ children }) {
         password: userData.password,
         role: 'STAFF',
         status: userData.status || 'PENDING',
-        submittedAt: `${nowFormatted} (Asia/Ha_Noi)`,
+        submittedAt: `${nowFormatted} (Asia/Ho_Chi_Minh)`,
         isMock: true,
       };
 
@@ -499,7 +503,7 @@ export function AuthProvider({ children }) {
         status: 'SUBMITTED',
         fullName: (userData.fullName || '').trim(),
         email: normalizedEmail,
-        submittedAt: `${nowFormatted} (Asia/Ha_Noi)`,
+        submittedAt: `${nowFormatted} (Asia/Ho_Chi_Minh)`,
         message:
           res?.data?.message ||
           'Nếu thông tin đăng ký hợp lệ, Quản trị viên sẽ xem xét yêu cầu của bạn.',

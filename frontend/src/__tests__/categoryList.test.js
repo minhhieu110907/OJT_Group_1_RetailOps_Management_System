@@ -40,9 +40,26 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
   // 1. F01: CategoryRead Schema Validation & Invariants (Fail-Closed)
   // ==========================================================================
   describe('F01: CategoryRead Schema Validation & Invariants (Fail-Closed)', () => {
-    test('validates valid CategoryRead contract accurately', () => {
+    test('validates valid CategoryRead contract accurately including optional description', () => {
       const result = validateCategoryRead(VALID_CATEGORY_FIXTURE);
       assert.deepEqual(result, VALID_CATEGORY_FIXTURE);
+
+      const withDesc = validateCategoryRead({
+        ...VALID_CATEGORY_FIXTURE,
+        description: 'Các loại nước ngọt, nước suối',
+      });
+      assert.equal(withDesc.description, 'Các loại nước ngọt, nước suối');
+
+      const withNullDesc = validateCategoryRead({
+        ...VALID_CATEGORY_FIXTURE,
+        description: null,
+      });
+      assert.equal(withNullDesc.description, null);
+
+      assert.throws(
+        () => validateCategoryRead({ ...VALID_CATEGORY_FIXTURE, description: 123 }),
+        /invalid description/i
+      );
     });
 
     test('validates VALID_CATALOG_STATUSES correctly (ACTIVE, INACTIVE)', () => {
@@ -124,7 +141,7 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
       assert.equal(res.id, 1);
     });
 
-    test('createCategory sends only name to satisfy backend extra="forbid"', async () => {
+    test('createCategory sends trimmed name and optional description (null when empty)', async () => {
       let capturedPayload = null;
       axiosClient.post = async (url, payload) => {
         capturedPayload = payload;
@@ -132,21 +149,33 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
           data: {
             ...VALID_CATEGORY_FIXTURE,
             name: payload.name,
+            description: payload.description ?? null,
           },
         };
       };
 
-      await categoriesApi.createCategory({
+      const created = await categoriesApi.createCategory({
         name: '   Bánh kẹo các loại   ',
-        description: 'Mô tả không được gửi lên server',
+        description: '   Mô tả danh mục   ',
       });
 
       assert.deepEqual(capturedPayload, {
         name: 'Bánh kẹo các loại',
+        description: 'Mô tả danh mục',
+      });
+      assert.equal(created.description, 'Mô tả danh mục');
+
+      await categoriesApi.createCategory({
+        name: '   Đồ khô   ',
+        description: '   ',
+      });
+      assert.deepEqual(capturedPayload, {
+        name: 'Đồ khô',
+        description: null,
       });
     });
 
-    test('updateCategory sends only name to satisfy backend extra="forbid"', async () => {
+    test('updateCategory sends trimmed name and supports explicit null to clear description', async () => {
       let capturedUrl = null;
       let capturedPayload = null;
       axiosClient.patch = async (url, payload) => {
@@ -156,17 +185,20 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
           data: {
             ...VALID_CATEGORY_FIXTURE,
             name: payload.name,
+            description: payload.description ?? null,
           },
         };
       };
 
       await categoriesApi.updateCategory(1, {
         name: '   Bánh kẹo nhập khẩu   ',
+        description: null,
       });
 
       assert.equal(capturedUrl, '/categories/1');
       assert.deepEqual(capturedPayload, {
         name: 'Bánh kẹo nhập khẩu',
+        description: null,
       });
     });
 
