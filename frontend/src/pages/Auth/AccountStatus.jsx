@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
+import {
+  deriveRejectSubState,
+  evaluateAccountVerificationClick,
+  evaluateResubmitAction,
+} from './accountStatusHelpers';
 import styles from './AccountStatus.module.css';
 
-// Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ha_Noi (HH:mm)
+// Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ho_Chi_Minh (HH:mm)
 function getHaNoiCurrentTime() {
   return new Intl.DateTimeFormat('vi-VN', {
     timeZone: 'Asia/Ho_Chi_Minh',
@@ -14,13 +19,14 @@ function getHaNoiCurrentTime() {
   }).format(new Date());
 }
 
-// Dữ liệu hồ sơ mẫu không nhạy cảm khi truy cập trực tiếp /account-status
-const FALLBACK_PROFILE = {
+// Dữ liệu hồ sơ mẫu chỉ dùng khi bật chế độ Mock Demo
+const MOCK_DEMO_FALLBACK_PROFILE = {
   fullName: 'Nhân viên Mẫu (Chưa xác thực)',
   email: 'nhanvien.demo@retailops.local',
-  submittedAt: '09:30 - 07/11/2026 (Asia/Ha_Noi)',
+  submittedAt: '09:30 - 07/11/2026 (Asia/Ho_Chi_Minh)',
   rejectReason:
     'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
+  retryAfterLabel: '15:20 - 08/11/2026 (Asia/Ho_Chi_Minh)',
 };
 
 export default function AccountStatus() {
@@ -30,20 +36,35 @@ export default function AccountStatus() {
   const { isMockMode, canUseMock, checkBackendConnection } = useAuth();
   const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
-  // Lấy dữ liệu truyền từ Register.jsx / Login.jsx qua location.state hoặc dùng fallback
+  // Lấy dữ liệu truyền từ Register.jsx / Login.jsx qua location.state
+  // Lưu ý: location.state chỉ phục vụ hiển thị thông báo, tuyệt đối không cấp quyền authorization.
   const incomingState = location.state || {};
+  const isDirectUnverifiedVisit = !isMockDemoActive && !incomingState.status;
   const isUnverifiedSubmission =
     !isMockDemoActive &&
     (incomingState.isUnverifiedSubmission !== false ||
       incomingState.status === 'SUBMITTED' ||
       !incomingState.status);
 
-  const profile = {
-    fullName: incomingState.fullName || FALLBACK_PROFILE.fullName,
-    email: incomingState.email || FALLBACK_PROFILE.email,
-    submittedAt: incomingState.submittedAt || FALLBACK_PROFILE.submittedAt,
-    rejectReason: incomingState.rejectReason || FALLBACK_PROFILE.rejectReason,
-  };
+  const profile = isMockDemoActive
+    ? {
+        fullName: incomingState.fullName || MOCK_DEMO_FALLBACK_PROFILE.fullName,
+        email: incomingState.email || MOCK_DEMO_FALLBACK_PROFILE.email,
+        submittedAt:
+          incomingState.submittedAt || MOCK_DEMO_FALLBACK_PROFILE.submittedAt,
+        rejectReason:
+          incomingState.rejectReason || MOCK_DEMO_FALLBACK_PROFILE.rejectReason,
+        retryAfterLabel:
+          incomingState.retryAfterLabel ||
+          MOCK_DEMO_FALLBACK_PROFILE.retryAfterLabel,
+      }
+    : {
+        fullName: incomingState.fullName || null,
+        email: incomingState.email || null,
+        submittedAt: incomingState.submittedAt || null,
+        rejectReason: incomingState.rejectReason || null,
+        retryAfterLabel: incomingState.retryAfterLabel || null,
+      };
 
   // Trạng thái chính của hồ sơ: 'PENDING' | 'APPROVED' | 'REJECTED'
   // Chuẩn hóa tương thích với Backend enum (PENDING_APPROVAL / SUBMITTED -> PENDING, ACTIVE -> APPROVED)
@@ -57,14 +78,17 @@ export default function AccountStatus() {
   const [status, setStatus] = useState(initialStatus);
 
   // Trạng thái con của mục Gửi lại khi REJECTED:
-  // - 'LOCKED_24H' (Mặc định khi lần đầu mở: Tạm khóa trong vòng 24h)
-  // - 'ELIGIBLE' (Sau 24h: Đủ điều kiện gửi lại)
-  const [rejectSubState] = useState(incomingState.rejectSubState || 'LOCKED_24H');
+  // - Real API mode: 'UNAVAILABLE' (không tự mặc định khóa 24h và không tin location.state)
+  // - Mock Demo mode: 'LOCKED_24H' | 'ELIGIBLE'
+  const rejectSubState = deriveRejectSubState({
+    isMockDemoActive,
+    incomingState,
+  });
 
   // Cờ xác minh quyền kiểm soát tài khoản (ở trạng thái REJECTED - Đủ điều kiện)
   const [isAccountVerified, setIsAccountVerified] = useState(false);
 
-  // Thời gian cập nhật lần cuối (HH:mm Asia/Ha_Noi)
+  // Thời gian cập nhật lần cuối (HH:mm Asia/Ho_Chi_Minh)
   const [lastUpdated, setLastUpdated] = useState(() => getHaNoiCurrentTime());
 
   // Hiệu ứng loading khi bấm kiểm tra trạng thái
@@ -122,19 +146,14 @@ export default function AccountStatus() {
     toast.success('Đã khôi phục kết nối máy chủ thành công (Chế độ Mock Demo).');
   };
 
-  // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Đủ điều kiện)
+  // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Chỉ giả lập ở Mock Demo mode)
   const handleResubmitRequest = async () => {
-    if (!isAccountVerified) {
-      toast.warning(
-        'Vui lòng bấm "Xác minh quyền kiểm soát tài khoản" trước khi gửi lại yêu cầu.'
-      );
-      return;
-    }
-
-    if (!isMockDemoActive) {
-      toast.info(
-        'Chức năng gửi lại yêu cầu tự động thuộc phạm vi phát triển tiếp theo. Vui lòng liên hệ Quản trị viên để được mở lại hồ sơ.'
-      );
+    const decision = evaluateResubmitAction({
+      isMockDemoActive,
+      isAccountVerified,
+    });
+    if (!decision.allowed) {
+      toast[decision.toastType || 'info'](decision.message);
       return;
     }
 
@@ -142,8 +161,8 @@ export default function AccountStatus() {
     await new Promise((resolve) => setTimeout(resolve, 400));
     setIsChecking(false);
     setLastUpdated(getHaNoiCurrentTime());
-    setStatus('PENDING');
-    toast.success('Đã gửi lại yêu cầu xét duyệt hồ sơ thành công (Chế độ Mock Demo)!');
+    setStatus(decision.nextStatus);
+    toast[decision.toastType || 'success'](decision.message);
   };
 
   // Xác định class viền cho thẻ Card duy nhất
@@ -156,14 +175,14 @@ export default function AccountStatus() {
 
   return (
     <div className={styles.statusWrapper}>
-      {/* 1. Góc trên cùng bên phải: Nhãn Cập nhật lần cuối (Asia/Ha_Noi) */}
+      {/* 1. Góc trên cùng bên phải: Nhãn Cập nhật lần cuối (Asia/Ho_Chi_Minh) */}
       <div className={styles.topMetaRow}>
         <span className={styles.lastUpdatedTag}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          <span>Cập nhật lần cuối: {lastUpdated} (Asia/Ha_Noi)</span>
+          <span>Cập nhật lần cuối: {lastUpdated} (Asia/Ho_Chi_Minh)</span>
         </span>
       </div>
 
@@ -204,7 +223,9 @@ export default function AccountStatus() {
               <span className={`${styles.statusBadge} ${styles.badgePending}`}>
                 <span className={`${styles.dot} ${styles.dotAmber}`} />
                 <span>
-                  {isUnverifiedSubmission
+                  {isDirectUnverifiedVisit
+                    ? 'Chưa xác minh trạng thái'
+                    : isUnverifiedSubmission
                     ? 'Đã tiếp nhận yêu cầu'
                     : 'Đang chờ phê duyệt'}
                 </span>
@@ -213,35 +234,47 @@ export default function AccountStatus() {
 
             <div className={styles.headerBlock}>
               <h1 className={styles.stateTitle}>
-                {isUnverifiedSubmission
+                {isDirectUnverifiedVisit
+                  ? 'Chưa có dữ liệu trạng thái tài khoản'
+                  : isUnverifiedSubmission
                   ? 'Yêu cầu đăng ký đã được ghi nhận'
-                  : 'Hồ sơ đã được tiếp nhận'}
+                  : 'Tài khoản đang chờ phê duyệt'}
               </h1>
               <p className={styles.stateDesc}>
-                {isUnverifiedSubmission
+                {isDirectUnverifiedVisit
+                  ? 'Truy cập trực tiếp trang này không thể xác minh trạng thái tài khoản. Vui lòng đăng nhập tại trang Đăng nhập hoặc liên hệ Quản trị viên.'
+                  : isUnverifiedSubmission
                   ? 'Nếu thông tin đăng ký hợp lệ và email chưa tồn tại trên hệ thống, Quản trị viên sẽ xem xét phê duyệt tài khoản của bạn trước khi cấp quyền truy cập POS.'
                   : 'Tài khoản chưa được kích hoạt quyền truy cập vào các tính năng bán hàng hoặc kho. Quản trị viên đang xem xét hồ sơ của bạn.'}
               </p>
             </div>
 
-            <div className={styles.infoTable}>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Họ tên</span>
-                <span className={styles.infoValue}>{profile.fullName}</span>
+            {!isDirectUnverifiedVisit && (
+              <div className={styles.infoTable}>
+                {profile.fullName && (
+                  <div className={styles.infoRow}>
+                    <span className={styles.infoLabel}>Họ tên</span>
+                    <span className={styles.infoValue}>{profile.fullName}</span>
+                  </div>
+                )}
+                <div className={styles.infoRow}>
+                  <span className={styles.infoLabel}>Email đăng ký</span>
+                  <span className={styles.infoValue}>
+                    {profile.email || 'Chưa có thông tin'}
+                  </span>
+                </div>
+                {profile.submittedAt && (
+                  <div className={styles.infoRow}>
+                    <span className={styles.infoLabel}>Thời điểm gửi</span>
+                    <span className={styles.infoValue}>{profile.submittedAt}</span>
+                  </div>
+                )}
+                <div className={styles.infoRow}>
+                  <span className={styles.infoLabel}>Vai trò dự kiến</span>
+                  <span className={styles.rolePill}>Nhân viên (STAFF)</span>
+                </div>
               </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Email đăng ký</span>
-                <span className={styles.infoValue}>{profile.email}</span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Thời điểm gửi</span>
-                <span className={styles.infoValue}>{profile.submittedAt}</span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Vai trò dự kiến</span>
-                <span className={styles.rolePill}>Nhân viên (STAFF)</span>
-              </div>
-            </div>
+            )}
 
             <div className={styles.mailNoteBox}>
               <span className={styles.noteIcon} aria-hidden="true">
@@ -322,13 +355,17 @@ export default function AccountStatus() {
             </div>
 
             <div className={styles.infoTable}>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Họ tên</span>
-                <span className={styles.infoValue}>{profile.fullName}</span>
-              </div>
+              {profile.fullName && (
+                <div className={styles.infoRow}>
+                  <span className={styles.infoLabel}>Họ tên</span>
+                  <span className={styles.infoValue}>{profile.fullName}</span>
+                </div>
+              )}
               <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Tài khoản</span>
-                <span className={styles.infoValue}>{profile.email}</span>
+                <span className={styles.infoValue}>
+                  {profile.email || 'Chưa có thông tin'}
+                </span>
               </div>
               <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Vai trò hệ thống</span>
@@ -392,12 +429,36 @@ export default function AccountStatus() {
               <span className={styles.rejectReasonLabel}>
                 Lý do từ Quản trị viên:
               </span>
-              <p className={styles.rejectReasonText}>{profile.rejectReason}</p>
+              <p className={styles.rejectReasonText}>
+                {profile.rejectReason ||
+                  'Chưa có thông tin lý do từ chối từ máy chủ. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.'}
+              </p>
             </div>
 
-            {/* Mục Gửi lại yêu cầu (2 trạng thái con: Tạm khóa 24h & Đủ điều kiện) */}
+            {/* Mục Gửi lại yêu cầu (Real API: Chưa khả dụng; Mock Demo: Tạm khóa 24h & Đủ điều kiện) */}
             <div className={styles.resubmitSection}>
-              {rejectSubState === 'LOCKED_24H' ? (
+              {rejectSubState === 'UNAVAILABLE' ? (
+                <>
+                  <div className={styles.resubmitHeader}>
+                    <span className={styles.resubmitTitle}>
+                      Gửi lại yêu cầu xét duyệt
+                    </span>
+                    <span className={styles.subBadgeLocked}>Chưa khả dụng</span>
+                  </div>
+                  <p className={styles.resubmitDesc}>
+                    Hệ thống hiện chưa cung cấp quy trình xác minh và gửi lại hồ sơ
+                    tự động từ máy chủ. Không áp dụng thời hạn khóa giả định 24 giờ;
+                    vui lòng liên hệ Quản trị viên để được xem xét mở lại tài khoản.
+                  </p>
+                  <button
+                    type="button"
+                    className={styles.primaryActionBtn}
+                    disabled
+                  >
+                    <span>Gửi lại yêu cầu (chưa hỗ trợ)</span>
+                  </button>
+                </>
+              ) : rejectSubState === 'LOCKED_24H' ? (
                 <>
                   <div className={styles.resubmitHeader}>
                     <span className={styles.resubmitTitle}>
@@ -411,7 +472,9 @@ export default function AccountStatus() {
                     từ chối.
                   </p>
                   <div className={styles.cooldownTag}>
-                    Có thể gửi lại sau: 15:20 - 08/11/2026 (Asia/Ha_Noi)
+                    {profile.retryAfterLabel
+                      ? `Có thể gửi lại sau: ${profile.retryAfterLabel}`
+                      : 'Chưa có thông tin thời hạn gửi lại từ máy chủ.'}
                   </div>
                   <button
                     type="button"
@@ -439,15 +502,14 @@ export default function AccountStatus() {
                       isAccountVerified ? styles.verifyControlActive : ''
                     }`}
                     onClick={() => {
-                      setIsAccountVerified((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          toast.success(
-                            'Đã xác minh quyền kiểm soát tài khoản thành công.'
-                          );
-                        }
-                        return next;
+                      const decision = evaluateAccountVerificationClick({
+                        isMockDemoActive,
+                        prevVerified: isAccountVerified,
                       });
+                      setIsAccountVerified(decision.nextVerified);
+                      if (decision.toastType && decision.message) {
+                        toast[decision.toastType](decision.message);
+                      }
                     }}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

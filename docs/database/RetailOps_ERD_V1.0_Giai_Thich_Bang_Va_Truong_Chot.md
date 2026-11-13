@@ -185,7 +185,7 @@ TD-01 dùng `STAFF_REAPPLY` để chứng minh quyền kiểm soát email sau kh
 
 Lưu danh mục, nhà cung cấp và thông tin sản phẩm hiện tại.
 
-#### `categories` — 5 trường
+#### `categories` — 6 trường
 
 DBML hiện **không** đặt UNIQUE tên danh mục; không tự suy ra hai danh mục cùng tên bị DB chặn. Trạng thái INACTIVE được backend dùng để chặn gán mới.
 
@@ -193,6 +193,7 @@ DBML hiện **không** đặt UNIQUE tên danh mục; không tự suy ra hai dan
 |---|---|---|
 | `id` | `bigint` — **PK** | Mã danh mục sản phẩm. |
 | `name` | `varchar(120)` — **NOT NULL** | Tên danh mục, ví dụ “Đồ uống”. |
+| `description` | `text` — **NULL** | Mô tả tùy chọn của danh mục; API giới hạn tối đa 2.000 ký tự. |
 | `status` | `varchar(8)` — **NOT NULL, mặc định 'ACTIVE'** | ACTIVE hoặc INACTIVE; ngừng sử dụng mà vẫn giữ lịch sử. |
 | `created_at` | `datetime(6)` — **NOT NULL** | Thời điểm tạo danh mục. |
 | `updated_at` | `datetime(6)` — **NOT NULL** | Thời điểm sửa gần nhất. |

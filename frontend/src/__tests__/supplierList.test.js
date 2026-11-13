@@ -10,7 +10,18 @@ import {
   validateSupplierListResponse,
   isValidIsoTimestamp,
   VALID_SUPPLIER_STATUSES,
+  normalizeSupplierSnapshot,
+  detectSupplierChanges,
 } from '../api/suppliersApi.js';
+import {
+  getAllCountryOptions,
+  getCountryOptionByIso,
+  filterCountryOptions,
+  getPhonePlaceholder,
+  parseAndValidateSupplierPhone,
+  hydrateSupplierPhoneField,
+  parsePastedInternationalPhone,
+} from '../utils/phoneUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -674,12 +685,391 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.ok(content.includes('Tên nhà cung cấp là bắt buộc.'));
       assert.ok(content.includes('trimmedName.length > 160'));
       assert.ok(content.includes('Tên nhà cung cấp không được vượt quá 160 ký tự.'));
-      assert.ok(content.includes('trimmedPhone.length > 32'));
-      assert.ok(content.includes('Số điện thoại không được vượt quá 32 ký tự.'));
+      assert.ok(content.includes('parseAndValidateSupplierPhone('));
+      assert.ok(content.includes('setPhoneError(phoneValidation.error);'));
       assert.ok(content.includes('trimmedEmail.length > 254'));
       assert.ok(content.includes('Email không được vượt quá 254 ký tự.'));
       assert.ok(content.includes('Email kinh doanh không đúng định dạng.'));
       assert.ok(content.includes('handleCloseModal'));
+    });
+  });
+
+  // ==========================================================================
+  // 8. F08: Dirty-State Detection & Partial Failure Handling (PR #46 Corrective Patch)
+  // ==========================================================================
+  describe('F08: Dirty-State Detection & Partial Failure Handling (PR #46 Corrective Patch)', () => {
+    const supplierListPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+
+    test('normalizeSupplierSnapshot correctly trims whitespace and maps empty contacts to null', () => {
+      const raw = {
+        id: 5,
+        name: '   Công ty Cổ phần ABC   ',
+        contact_phone: '   0901234567   ',
+        contact_email: '   abc@company.vn   ',
+        status: 'ACTIVE',
+      };
+      const normalized = normalizeSupplierSnapshot(raw);
+      assert.deepEqual(normalized, {
+        id: 5,
+        name: 'Công ty Cổ phần ABC',
+        contact_phone: '0901234567',
+        contact_email: 'abc@company.vn',
+        status: 'ACTIVE',
+      });
+
+      const rawEmpty = {
+        id: 6,
+        name: 'XYZ Corp',
+        contact_phone: '   ',
+        contact_email: '',
+        status: 'INACTIVE',
+      };
+      const normalizedEmpty = normalizeSupplierSnapshot(rawEmpty);
+      assert.deepEqual(normalizedEmpty, {
+        id: 6,
+        name: 'XYZ Corp',
+        contact_phone: null,
+        contact_email: null,
+        status: 'INACTIVE',
+      });
+    });
+
+    test('Decision Matrix: 0 changes -> hasInfoChanges=false, hasStatusChange=false', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formSame = {
+        id: VALID_SUPPLIER_FIXTURE.id,
+        name: '  ' + VALID_SUPPLIER_FIXTURE.name + '  ', // whitespace difference only
+        contact_phone: VALID_SUPPLIER_FIXTURE.contact_phone,
+        contact_email: VALID_SUPPLIER_FIXTURE.contact_email,
+        status: VALID_SUPPLIER_FIXTURE.status,
+      };
+
+      const changes = detectSupplierChanges(formSame, snapshot);
+      assert.equal(changes.hasInfoChanges, false, 'Whitespace difference should not be dirty');
+      assert.equal(changes.hasStatusChange, false);
+    });
+
+    test('Decision Matrix: only status changed -> hasInfoChanges=false, hasStatusChange=true', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formStatusChanged = {
+        ...VALID_SUPPLIER_FIXTURE,
+        status: 'INACTIVE',
+      };
+
+      const changes = detectSupplierChanges(formStatusChanged, snapshot);
+      assert.equal(changes.hasInfoChanges, false);
+      assert.equal(changes.hasStatusChange, true);
+    });
+
+    test('Decision Matrix: only info changed -> hasInfoChanges=true, hasStatusChange=false', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formInfoChanged = {
+        ...VALID_SUPPLIER_FIXTURE,
+        name: 'Vinamilk Mới',
+      };
+
+      const changes = detectSupplierChanges(formInfoChanged, snapshot);
+      assert.equal(changes.hasInfoChanges, true);
+      assert.equal(changes.hasStatusChange, false);
+    });
+
+    test('Decision Matrix: both info and status changed -> hasInfoChanges=true, hasStatusChange=true', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formBothChanged = {
+        ...VALID_SUPPLIER_FIXTURE,
+        name: 'Vinamilk Mới',
+        status: 'INACTIVE',
+      };
+
+      const changes = detectSupplierChanges(formBothChanged, snapshot);
+      assert.equal(changes.hasInfoChanges, true);
+      assert.equal(changes.hasStatusChange, true);
+    });
+
+    test('SupplierList source code enforces Decision Matrix, sequential mutations, and partial failure recovery', () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+
+      // Dirty state detection and no-op exit
+      assert.ok(content.includes('detectSupplierChanges('));
+      assert.ok(content.includes('initialSnapshot'));
+      assert.ok(content.includes("toast.info('Không có thay đổi nào để lưu.');"));
+
+      // Sequential mutations: info first, then status
+      assert.ok(content.includes('if (hasInfoChanges) {'));
+      assert.ok(content.includes('await suppliersApi.updateSupplier('));
+      assert.ok(content.includes('infoUpdated = true;'));
+      assert.ok(content.includes('if (hasStatusChange) {'));
+      assert.ok(content.includes('await suppliersApi.updateSupplierStatus('));
+
+      // Partial failure handling with GET sync
+      assert.ok(content.includes('if (infoUpdated) {'));
+      assert.ok(content.includes('await suppliersApi.getSupplier(supplierForm.id)'));
+      assert.ok(content.includes('setInitialSnapshot(newSnapshot);'));
+      assert.ok(content.includes('setSupplierForm({'));
+
+      // Status toggle button guarded by isSubmitting
+      assert.ok(content.includes('if (isSubmitting || modalMode !=='));
+    });
+
+    test('Mutation flow: info failure halts before status PATCH', async () => {
+      let infoCalls = 0;
+      let statusCalls = 0;
+
+      axiosClient.patch = async (url) => {
+        if (url.endsWith('/status')) {
+          statusCalls += 1;
+          return { data: VALID_SUPPLIER_FIXTURE };
+        }
+        infoCalls += 1;
+        const err = new Error('Database locked');
+        err.response = { status: 500, data: { detail: 'Database locked' } };
+        throw err;
+      };
+
+      const executeMutationFlow = async ({ hasInfoChanges, hasStatusChange, id, payload }) => {
+        let infoUpdated = false;
+        if (hasInfoChanges) {
+          await suppliersApi.updateSupplier(id, payload);
+          infoUpdated = true;
+        }
+        if (hasStatusChange) {
+          try {
+            await suppliersApi.updateSupplierStatus(id, payload.status);
+          } catch (statusErr) {
+            if (infoUpdated) {
+              return { partial: true, error: statusErr };
+            }
+            throw statusErr;
+          }
+        }
+        return { success: true };
+      };
+
+      await assert.rejects(
+        executeMutationFlow({
+          hasInfoChanges: true,
+          hasStatusChange: true,
+          id: 1,
+          payload: { name: 'New Name', status: 'INACTIVE' },
+        }),
+        (err) => err.message.includes('Database locked')
+      );
+
+      assert.equal(infoCalls, 1, 'Info PATCH was called once');
+      assert.equal(statusCalls, 0, 'Status PATCH was never called after info failure');
+    });
+
+    test('Mutation flow: info success + status failure triggers partial failure handling', async () => {
+      let infoCalls = 0;
+      let statusCalls = 0;
+      let getCalls = 0;
+
+      const updatedSupplier = {
+        ...VALID_SUPPLIER_FIXTURE,
+        name: 'Công ty Cổ phần Sữa Vinamilk Mới',
+        status: 'ACTIVE', // status update failed, still ACTIVE
+      };
+
+      axiosClient.patch = async (url) => {
+        if (url.endsWith('/status')) {
+          statusCalls += 1;
+          const err = new Error('Status transition conflict');
+          err.response = { status: 409, data: { detail: 'Status transition conflict' } };
+          throw err;
+        }
+        infoCalls += 1;
+        return { data: updatedSupplier };
+      };
+
+      axiosClient.get = async (url) => {
+        if (url.includes('/suppliers/1')) {
+          getCalls += 1;
+          return { data: updatedSupplier };
+        }
+        return { data: { items: [], total: 0, page: 1, page_size: 10 } };
+      };
+
+      const executeMutationFlow = async ({ hasInfoChanges, hasStatusChange, id, payload }) => {
+        let infoUpdated = false;
+        if (hasInfoChanges) {
+          await suppliersApi.updateSupplier(id, payload);
+          infoUpdated = true;
+        }
+        if (hasStatusChange) {
+          try {
+            await suppliersApi.updateSupplierStatus(id, payload.status);
+          } catch (statusErr) {
+            if (infoUpdated) {
+              const latest = await suppliersApi.getSupplier(id);
+              return { partial: true, latest, error: statusErr };
+            }
+            throw statusErr;
+          }
+        }
+        return { success: true };
+      };
+
+      const result = await executeMutationFlow({
+        hasInfoChanges: true,
+        hasStatusChange: true,
+        id: 1,
+        payload: { name: updatedSupplier.name, status: 'INACTIVE' },
+      });
+
+      assert.equal(infoCalls, 1);
+      assert.equal(statusCalls, 1);
+      assert.equal(getCalls, 1, 'GET supplier was called to synchronize after partial failure');
+      assert.equal(result.partial, true);
+      assert.equal(result.latest.name, 'Công ty Cổ phần Sữa Vinamilk Mới');
+      assert.equal(result.latest.status, 'ACTIVE');
+    });
+  });
+
+  // ==========================================================================
+  // 9. F09: Supplier Phone Input Refinement & E.164 Validation
+  // ==========================================================================
+  describe('F09: Supplier Phone Input Refinement & E.164 Validation', () => {
+    const supplierListPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+    const phoneInputPath = path.resolve(__dirname, '../pages/Suppliers/SupplierPhoneInput.jsx');
+    const phoneInputCssPath = path.resolve(__dirname, '../pages/Suppliers/SupplierPhoneInput.module.css');
+
+    test('Country metadata uses full libphonenumber-js list (>200 countries) with VN +84 default', () => {
+      const countries = getAllCountryOptions();
+      assert.ok(countries.length > 200, 'Must not hardcode a tiny 6-country list');
+      const vn = getCountryOptionByIso('VN');
+      assert.equal(vn.isoCode, 'VN');
+      assert.equal(vn.dialCode, '+84');
+      assert.equal(countries[0].isoCode, 'VN');
+      assert.equal(getPhonePlaceholder('VN'), '912 345 678');
+      assert.equal(getPhonePlaceholder('US'), '202 555 0123');
+    });
+
+    test('Country search filters by Vietnamese name, English name, calling code, and handles empty state', () => {
+      const countries = getAllCountryOptions();
+
+      const byVi = filterCountryOptions(countries, 'Nhật Bản');
+      assert.ok(byVi.some((c) => c.isoCode === 'JP'));
+
+      const byNoAccent = filterCountryOptions(countries, 'viet nam');
+      assert.ok(byNoAccent.some((c) => c.isoCode === 'VN'));
+
+      const byDial = filterCountryOptions(countries, '+82');
+      assert.ok(byDial.some((c) => c.isoCode === 'KR'));
+
+      const bySharedDial = filterCountryOptions(countries, '+1');
+      assert.ok(bySharedDial.some((c) => c.isoCode === 'US'));
+      assert.ok(bySharedDial.some((c) => c.isoCode === 'CA'));
+
+      const empty = filterCountryOptions(countries, 'khongtontaixyz123');
+      assert.equal(empty.length, 0);
+    });
+
+    test('Validates Vietnamese phone numbers (with or without leading 0, spaces, hyphens) and normalizes to E.164', () => {
+      const res1 = parseAndValidateSupplierPhone('0912 345 678', 'VN');
+      assert.equal(res1.isValid, true);
+      assert.equal(res1.e164, '+84912345678');
+
+      const res2 = parseAndValidateSupplierPhone('912-345-678', 'VN');
+      assert.equal(res2.isValid, true);
+      assert.equal(res2.e164, '+84912345678');
+
+      const landline = parseAndValidateSupplierPhone('028 5415 5555', 'VN');
+      assert.equal(landline.isValid, true);
+      assert.equal(landline.e164, '+842854155555');
+    });
+
+    test('Validates international phone numbers using country numbering plan and differentiates shared +1 (US vs CA)', () => {
+      const usRes = parseAndValidateSupplierPhone('202 555 0123', 'US');
+      assert.equal(usRes.isValid, true);
+      assert.equal(usRes.e164, '+12025550123');
+      assert.equal(usRes.detectedCountry, 'US');
+
+      const caRes = parseAndValidateSupplierPhone('416 555 0123', 'CA');
+      assert.equal(caRes.isValid, true);
+      assert.equal(caRes.e164, '+14165550123');
+      assert.equal(caRes.detectedCountry, 'CA');
+
+      const jpRes = parseAndValidateSupplierPhone('90 1234 5678', 'JP');
+      assert.equal(jpRes.isValid, true);
+      assert.equal(jpRes.e164, '+819012345678');
+    });
+
+    test('Accepts empty or whitespace-only phone as optional (maps to null)', () => {
+      const emptyRes = parseAndValidateSupplierPhone('', 'VN');
+      assert.equal(emptyRes.isValid, true);
+      assert.equal(emptyRes.e164, null);
+
+      const spacesRes = parseAndValidateSupplierPhone('    ', 'VN');
+      assert.equal(spacesRes.isValid, true);
+      assert.equal(spacesRes.e164, null);
+    });
+
+    test('Blocks invalid phone numbers and revalidates when switching country', () => {
+      const invalidChars = parseAndValidateSupplierPhone('0912abc678', 'VN');
+      assert.equal(invalidChars.isValid, false);
+      assert.ok(invalidChars.error.length > 0);
+
+      const tooShort = parseAndValidateSupplierPhone('12345', 'VN');
+      assert.equal(tooShort.isValid, false);
+
+      // Valid VN number becomes invalid when country is switched to US (+1)
+      const vnNumberUnderUs = parseAndValidateSupplierPhone('0912 345 678', 'US');
+      assert.equal(vnNumberUnderUs.isValid, false);
+    });
+
+    test('Parses pasted full E.164 international phone numbers and detects ISO country', () => {
+      const pastedUs = parsePastedInternationalPhone('+1 202 555 0123');
+      assert.ok(pastedUs);
+      assert.equal(pastedUs.countryIso, 'US');
+      assert.equal(pastedUs.e164, '+12025550123');
+
+      const pastedCa = parsePastedInternationalPhone('+1 416 555 0123');
+      assert.ok(pastedCa);
+      assert.equal(pastedCa.countryIso, 'CA');
+      assert.equal(pastedCa.e164, '+14165550123');
+
+      const pastedNonIntl = parsePastedInternationalPhone('0912345678');
+      assert.equal(pastedNonIntl, null);
+    });
+
+    test('Hydrates existing E.164 and legacy phone numbers cleanly when opening Edit modal', () => {
+      const hydratedVn = hydrateSupplierPhoneField('+84912345678');
+      assert.equal(hydratedVn.countryIso, 'VN');
+      assert.ok(hydratedVn.nationalInput.includes('912'));
+
+      const hydratedUs = hydrateSupplierPhoneField('+12025550123');
+      assert.equal(hydratedUs.countryIso, 'US');
+      assert.ok(hydratedUs.nationalInput.includes('202'));
+
+      const hydratedEmpty = hydrateSupplierPhoneField(null);
+      assert.equal(hydratedEmpty.countryIso, 'VN');
+      assert.equal(hydratedEmpty.nationalInput, '');
+
+      // Legacy unparseable phone is preserved so edit never loses existing data
+      const hydratedLegacy = hydrateSupplierPhoneField('ext-999');
+      assert.equal(hydratedLegacy.countryIso, 'VN');
+      assert.equal(hydratedLegacy.nationalInput, 'ext-999');
+    });
+
+    test('SupplierPhoneInput uses Portal, keyboard navigation, SVG flags, and SupplierList submits E.164 or null', () => {
+      const listSource = fs.readFileSync(supplierListPath, 'utf8');
+      const phoneSource = fs.readFileSync(phoneInputPath, 'utf8');
+      const phoneCss = fs.readFileSync(phoneInputCssPath, 'utf8');
+
+      // Portal & Escape stopPropagation so Modal overflow never clips dropdown and Esc closes dropdown first
+      assert.ok(phoneSource.includes('createPortal'));
+      assert.ok(phoneSource.includes('e.stopPropagation') || phoneSource.includes('event.stopPropagation'));
+      assert.ok(phoneSource.includes('ArrowDown'));
+      assert.ok(phoneSource.includes('ArrowUp'));
+      assert.ok(phoneSource.includes('Không tìm thấy quốc gia phù hợp'));
+      assert.ok(phoneCss.includes('white-space: nowrap'));
+      assert.ok(phoneCss.includes('z-index: 1100'));
+
+      // SupplierList integrates SupplierPhoneInput and E.164 normalization without altering other fields
+      assert.ok(listSource.includes('<SupplierPhoneInput'));
+      assert.ok(listSource.includes('parseAndValidateSupplierPhone'));
+      assert.ok(listSource.includes('hydrateSupplierPhoneField'));
+      assert.ok(listSource.includes('contact_phone: normalizedPhone'));
     });
   });
 });
