@@ -22,6 +22,7 @@ from app.modules.auth.service import AuthService
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
 from app.modules.idempotency.service import IdempotencyOperation
+from app.modules.idempotency.validation import key_digest
 from app.modules.inventory.models import (
     Inventory,
     InventoryAdjustment,
@@ -49,23 +50,35 @@ __all__ = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def clean_adjustment_test_rows(migrated_integration_engine: Engine) -> Generator[None]:
-    """Clean up test rows created under T04A758 prefixes before and after test."""
-    _cleanup(migrated_integration_engine)
-    yield
-    _cleanup(migrated_integration_engine)
+class _TrackedCleanup:
+    def __init__(self) -> None:
+        self.session_ids: list[bytes] = []
+        self.idempotency_digests: list[bytes] = []
+        self.user_ids: list[int] = []
+        self.product_ids: list[int] = []
+        self.category_ids: list[int] = []
+        self.created_admin_id: int | None = None
 
 
-def _cleanup(engine: Engine) -> None:
+@pytest.fixture
+def tracked_cleanup(
+    migrated_integration_engine: Engine,
+) -> Generator[_TrackedCleanup]:
+    """Clean up only rows created by this test.
+
+    Never touches shared admin sessions or other tests' idempotency records.
+    """
+    tracker = _TrackedCleanup()
+    _cleanup_prefixed_fixtures(migrated_integration_engine)
+    try:
+        yield tracker
+    finally:
+        _cleanup_tracked(migrated_integration_engine, tracker)
+        _cleanup_prefixed_fixtures(migrated_integration_engine)
+
+
+def _cleanup_prefixed_fixtures(engine: Engine) -> None:
     with Session(engine) as session, session.begin():
-        session.execute(
-            delete(IdempotencyRecord).where(
-                IdempotencyRecord.operation
-                == IdempotencyOperation.INVENTORY_ADJUSTMENT.value
-            )
-        )
-
         user_ids = list(
             session.scalars(
                 select(User.id).where(
@@ -77,14 +90,6 @@ def _cleanup(engine: Engine) -> None:
         if user_ids:
             session.execute(
                 delete(AuthSession).where(AuthSession.user_id.in_(user_ids))
-            )
-
-        admin = session.scalar(select(User).where(User.admin_slot == 1))
-        if admin is not None:
-            session.execute(
-                delete(AuthSession).where(
-                    AuthSession.user_id == admin.id,
-                )
             )
 
         product_ids = list(
@@ -114,6 +119,58 @@ def _cleanup(engine: Engine) -> None:
         )
 
 
+def _cleanup_tracked(engine: Engine, tracker: _TrackedCleanup) -> None:
+    with Session(engine) as session, session.begin():
+        if tracker.idempotency_digests:
+            session.execute(
+                delete(IdempotencyRecord).where(
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.INVENTORY_ADJUSTMENT.value,
+                    IdempotencyRecord.key_digest.in_(tracker.idempotency_digests),
+                )
+            )
+
+        if tracker.session_ids:
+            session.execute(
+                delete(AuthSession).where(AuthSession.id.in_(tracker.session_ids))
+            )
+
+        if tracker.product_ids:
+            session.execute(
+                delete(StockMovement).where(
+                    StockMovement.product_id.in_(tracker.product_ids)
+                )
+            )
+            session.execute(
+                delete(InventoryAdjustment).where(
+                    InventoryAdjustment.product_id.in_(tracker.product_ids)
+                )
+            )
+            session.execute(
+                delete(Inventory).where(Inventory.product_id.in_(tracker.product_ids))
+            )
+            session.execute(delete(Product).where(Product.id.in_(tracker.product_ids)))
+
+        if tracker.user_ids:
+            session.execute(
+                delete(AuthSession).where(AuthSession.user_id.in_(tracker.user_ids))
+            )
+            session.execute(delete(User).where(User.id.in_(tracker.user_ids)))
+
+        if tracker.created_admin_id is not None:
+            session.execute(
+                delete(AuthSession).where(
+                    AuthSession.user_id == tracker.created_admin_id
+                )
+            )
+            session.execute(delete(User).where(User.id == tracker.created_admin_id))
+
+        if tracker.category_ids:
+            session.execute(
+                delete(Category).where(Category.id.in_(tracker.category_ids))
+            )
+
+
 def _make_test_settings() -> Settings:
     return Settings(
         db_host="unused",
@@ -131,6 +188,8 @@ class AdjustmentApiContext:
         self,
         engine: Engine,
         app: Any,
+        settings: Settings,
+        tracker: _TrackedCleanup,
         admin_id: int,
         admin_headers: dict[str, str],
         staff_id: int,
@@ -139,15 +198,27 @@ class AdjustmentApiContext:
     ) -> None:
         self.engine = engine
         self.app = app
+        self.settings = settings
+        self.tracker = tracker
         self.admin_id = admin_id
         self.admin_headers = admin_headers
         self.staff_id = staff_id
         self.staff_headers = staff_headers
         self.product_id = product_id
 
+    def track_key(self, idempotency_key: str) -> str:
+        digest = key_digest(idempotency_key, self.settings.require_idempotency_secret())
+        if digest not in self.tracker.idempotency_digests:
+            self.tracker.idempotency_digests.append(digest)
+        return idempotency_key
+
+    def key_digest_for(self, idempotency_key: str) -> bytes:
+        return key_digest(idempotency_key, self.settings.require_idempotency_secret())
+
 
 def _setup_test_context(
     engine: Engine,
+    tracker: _TrackedCleanup,
     *,
     initial_quantity: int = 10,
     initial_version: int = 0,
@@ -163,6 +234,7 @@ def _setup_test_context(
 
     with Session(engine) as session:
         admin = session.scalar(select(User).where(User.admin_slot == 1))
+        created_admin = False
         if admin is None:
             admin = User(
                 email_normalized=f"{TEST_EMAIL_PREFIX}admin@example.com",
@@ -175,6 +247,7 @@ def _setup_test_context(
             )
             session.add(admin)
             session.flush()
+            created_admin = True
 
         staff = User(
             email_normalized=f"{TEST_EMAIL_PREFIX}staff_{suffix}@example.com",
@@ -237,6 +310,14 @@ def _setup_test_context(
         admin_id = admin.id
         staff_id = staff.id
         product_id = prod.id
+        category_id = cat.id
+
+    tracker.session_ids.extend([admin_sid.bytes, staff_sid.bytes])
+    tracker.user_ids.append(staff_id)
+    tracker.product_ids.append(product_id)
+    tracker.category_ids.append(category_id)
+    if created_admin:
+        tracker.created_admin_id = admin_id
 
     admin_token, _ = auth_srv.jwt.issue(
         user_id=admin_id,
@@ -268,6 +349,8 @@ def _setup_test_context(
     return AdjustmentApiContext(
         engine=engine,
         app=app,
+        settings=settings,
+        tracker=tracker,
         admin_id=admin_id,
         admin_headers={"Authorization": f"Bearer {admin_token}"},
         staff_id=staff_id,
@@ -279,12 +362,16 @@ def _setup_test_context(
 @pytest.mark.anyio
 async def test_admin_adjust_success_creates_movement_and_audit(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 1: Admin adjusts stock increase -> 200, creates movement and audit."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=0
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=0,
     )
-    idem_key = "adj-key-success-001"
+    idem_key = ctx.track_key("adj-key-success-001")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -343,12 +430,16 @@ async def test_admin_adjust_success_creates_movement_and_audit(
 @pytest.mark.anyio
 async def test_admin_adjust_decrease_success(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 2: Admin adjusts stock decrease -> 200, movement delta negative."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=1
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=1,
     )
-    idem_key = "adj-key-decrease-002"
+    idem_key = ctx.track_key("adj-key-decrease-002")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -390,12 +481,16 @@ async def test_admin_adjust_decrease_success(
 @pytest.mark.anyio
 async def test_admin_adjust_no_op_audit_only(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 3: No-op adjustment (counted == current) -> 200, Audit only, no Movement."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=3
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=3,
     )
-    idem_key = "adj-key-noop-003"
+    idem_key = ctx.track_key("adj-key-noop-003")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -444,12 +539,16 @@ async def test_admin_adjust_no_op_audit_only(
 @pytest.mark.anyio
 async def test_adjust_stale_stock_version_returns_409(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 4: Stale expected version -> 409 STALE_STOCK_VERSION, no writes."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=2
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=2,
     )
-    idem_key = "adj-key-stale-004"
+    idem_key = ctx.track_key("adj-key-stale-004")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -488,11 +587,17 @@ async def test_adjust_stale_stock_version_returns_409(
 @pytest.mark.anyio
 async def test_adjust_concurrent_same_expected_version_one_winner(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 5: Concurrent requests with same expected version -> 1 wins (200), 1 409."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=0
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=0,
     )
+    key_a = ctx.track_key("adj-conc-key-001a")
+    key_b = ctx.track_key("adj-conc-key-002b")
 
     results: list[tuple[int, dict[str, Any]]] = []
 
@@ -514,12 +619,13 @@ async def test_adjust_concurrent_same_expected_version_one_winner(
     import anyio
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(_send, 12, "adj-conc-key-001a")
-        tg.start_soon(_send, 14, "adj-conc-key-002b")
+        tg.start_soon(_send, 12, key_a)
+        tg.start_soon(_send, 14, key_b)
 
-    statuses = {s for s, _ in results}
-    assert 200 in statuses
-    assert 409 in statuses
+    assert sorted(s for s, _ in results) == [200, 409]
+    conflict_bodies = [body for status_code, body in results if status_code == 409]
+    assert len(conflict_bodies) == 1
+    assert conflict_bodies[0]["code"] in {"STALE_STOCK_VERSION", "STOCK_CONFLICT"}
 
     with Session(ctx.engine) as session:
         inv = session.scalar(
@@ -528,6 +634,15 @@ async def test_adjust_concurrent_same_expected_version_one_winner(
         assert inv is not None
         assert inv.stock_version == 1
         assert inv.quantity in {12, 14}
+
+        audits = list(
+            session.scalars(
+                select(InventoryAdjustment).where(
+                    InventoryAdjustment.product_id == ctx.product_id
+                )
+            )
+        )
+        assert len(audits) == 1
 
         movements = list(
             session.scalars(
@@ -540,12 +655,16 @@ async def test_adjust_concurrent_same_expected_version_one_winner(
 @pytest.mark.anyio
 async def test_adjust_rbac_permissions(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 6: ADMIN -> 200, STAFF -> 403, Unauthenticated -> 401."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=0
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=0,
     )
-    idem_key = "adj-rbac-key-001"
+    idem_key = ctx.track_key("adj-rbac-key-001")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -593,12 +712,16 @@ async def test_adjust_rbac_permissions(
 @pytest.mark.anyio
 async def test_adjust_idempotency_replay_identical_response(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 7: Same Idempotency-Key + same payload replays identical 200 response."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=0
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=0,
     )
-    idem_key = "adj-idem-replay-001"
+    idem_key = ctx.track_key("adj-idem-replay-001")
     payload = {
         "counted_quantity": 18,
         "expected_stock_version": 0,
@@ -654,12 +777,16 @@ async def test_adjust_idempotency_replay_identical_response(
 @pytest.mark.anyio
 async def test_adjust_idempotency_different_payload_returns_409(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 8: Reused key with different payload returns 409 IDEMPOTENCY_KEY_REUSED."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=0
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=0,
     )
-    idem_key = "adj-idem-conflict-002"
+    idem_key = ctx.track_key("adj-idem-conflict-002")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -691,12 +818,16 @@ async def test_adjust_idempotency_different_payload_returns_409(
 @pytest.mark.anyio
 async def test_adjust_validation_errors_return_422(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 9: Invalid request schemas and headers return 422 VALIDATION_ERROR."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=10, initial_version=0
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=10,
+        initial_version=0,
     )
-    valid_key = "adj-valid-key-42200"
+    valid_key = ctx.track_key("adj-valid-key-42200")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -757,10 +888,11 @@ async def test_adjust_validation_errors_return_422(
 @pytest.mark.anyio
 async def test_adjust_nonexistent_product_returns_404(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
 ) -> None:
     """Test 10: Nonexistent product_id -> 404 RESOURCE_NOT_FOUND."""
-    ctx = _setup_test_context(migrated_integration_engine)
-    idem_key = "adj-key-notfound-404"
+    ctx = _setup_test_context(migrated_integration_engine, tracked_cleanup)
+    idem_key = ctx.track_key("adj-key-notfound-404")
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
@@ -781,29 +913,43 @@ async def test_adjust_nonexistent_product_returns_404(
 @pytest.mark.anyio
 async def test_adjust_transaction_atomicity_on_failure(
     migrated_integration_engine: Engine,
+    tracked_cleanup: _TrackedCleanup,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test 11: Mid-transaction rollback leaves no partial writes."""
+    """Test 11: Mid-transaction failure after partial writes rolls back atomically."""
     ctx = _setup_test_context(
-        migrated_integration_engine, initial_quantity=20, initial_version=5
+        migrated_integration_engine,
+        tracked_cleanup,
+        initial_quantity=20,
+        initial_version=5,
     )
-    idem_key = "adj-atomicity-fail-001"
+    idem_key = ctx.track_key("adj-atomicity-fail-001")
+
+    # Inject a failure AFTER IdempotencyRecord claim, InventoryAdjustment insert,
+    # and Inventory balance update have been flushed to the MySQL transaction.
+    from app.modules.inventory.repository import InventoryMovementRepository
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("Simulated mid-transaction failure after partial writes")
+
+    monkeypatch.setattr(InventoryMovementRepository, "add_movement", _boom)
 
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
+        transport=httpx.ASGITransport(app=ctx.app, raise_app_exceptions=False),
+        base_url="http://test",
     ) as client:
-        # Request with stale version intentionally triggers rollback
         resp = await client.post(
             f"/api/v1/inventory/{ctx.product_id}/adjustments",
             headers={**ctx.admin_headers, "Idempotency-Key": idem_key},
             json={
                 "counted_quantity": 30,
-                "expected_stock_version": 4,  # Stale: actual is 5
-                "reason": "Atomicity test",
+                "expected_stock_version": 5,
+                "reason": "Atomicity rollback test",
             },
         )
-        assert resp.status_code == 409
+        assert resp.status_code == 500
 
-    # Verify no partial changes were saved in MySQL
+    # Verify partial writes (Inventory, Audit, Movement, IdempotencyRecord) rolled back
     with Session(ctx.engine) as session:
         inv = session.scalar(
             select(Inventory).where(Inventory.product_id == ctx.product_id)
@@ -831,7 +977,9 @@ async def test_adjust_transaction_atomicity_on_failure(
         records = list(
             session.scalars(
                 select(IdempotencyRecord).where(
-                    IdempotencyRecord.user_id == ctx.admin_id
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.INVENTORY_ADJUSTMENT.value,
+                    IdempotencyRecord.key_digest == ctx.key_digest_for(idem_key),
                 )
             )
         )
