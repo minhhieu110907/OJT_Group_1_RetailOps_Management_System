@@ -7,11 +7,15 @@ import axiosClient, { isSafeToReplayRequest } from '../api/axiosClient.js';
 import { ordersApi, generateCheckoutIdempotencyKey } from '../api/ordersApi.js';
 import {
   DEFAULT_POS_PRODUCT_LIMIT,
+  PENDING_CHECKOUT_STORAGE_KEY,
+  PENDING_CHECKOUT_TTL_MS,
   addProductToCart,
   buildCheckoutPayload,
+  buildPendingCheckoutOwnerScope,
   calculateCartTotals,
   classifyCheckoutError,
   clearPendingCheckout,
+  executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
@@ -290,7 +294,8 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     assert.ok(posContent.includes('isCheckingOutRef.current'));
     assert.ok(posContent.includes('isCartLocked'));
     assert.ok(posContent.includes('if (isCartLocked || isCheckingOutRef.current) return;'));
-    assert.ok(posContent.includes('setPendingCheckout(nextPending)'));
+    assert.ok(posContent.includes('executeSafePosCheckout'));
+    assert.ok(posContent.includes('buildPendingCheckoutOwnerScope'));
     assert.ok(posContent.includes('resolvePendingCheckoutAction'));
     assert.ok(posContent.includes('beforeunload'));
     assert.ok(posContent.includes('Kiểm tra lại kết quả đơn này'));
@@ -304,6 +309,136 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       }),
       false
     );
+  });
+
+  test('Crash-safety: persists snapshot+key BEFORE request, recovers after mid-flight crash/reload, blocks on persist failure, isolates users, and clears on success', async () => {
+    const backingStore = new Map();
+    const fakeSessionStorage = {
+      getItem: (k) => (backingStore.has(k) ? backingStore.get(k) : null),
+      setItem: (k, v) => backingStore.set(k, String(v)),
+      removeItem: (k) => backingStore.delete(k),
+    };
+
+    const staffA = { id: 101, role: 'STAFF', status: 'ACTIVE' };
+    const staffB = { id: 202, role: 'STAFF', status: 'ACTIVE' };
+    const scopeA = buildPendingCheckoutOwnerScope(staffA, false);
+    const scopeB = buildPendingCheckoutOwnerScope(staffB, false);
+    assert.equal(scopeA, 'api:101');
+    assert.equal(scopeB, 'api:202');
+
+    const snapshot = [{ product_id: 1, quantity: 2, viewed_unit_price_vnd: 28000 }];
+    const cartSnap = [
+      { productId: 1, sku: 'SP0001', name: 'Sữa tươi 1L', unitPriceVnd: 28000, quantity: 2 },
+    ];
+    const key = generateCheckoutIdempotencyKey();
+
+    // 1. Persist failure BEFORE checkout blocks sending checkoutOrderFn completely
+    let blockedCalls = 0;
+    const failingStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+      removeItem: () => {},
+    };
+    const persistFailResult = await executeSafePosCheckout({
+      storage: failingStorage,
+      ownerScope: scopeA,
+      isMockMode: false,
+      itemsSnapshot: snapshot,
+      cartSnapshot: cartSnap,
+      totalVnd: 56000,
+      lineCount: 1,
+      idempotencyKey: key,
+      checkoutOrderFn: async () => {
+        blockedCalls += 1;
+        return { id: 1 };
+      },
+    });
+    assert.equal(persistFailResult.ok, false);
+    assert.equal(persistFailResult.outcome, 'PERSIST_FAILED');
+    assert.equal(blockedCalls, 0);
+
+    // 2. Crash/reload AFTER request starts (before response arrives):
+    // Verify storage was already written BEFORE checkoutOrderFn executed, and contains NO tokens
+    let persistedBeforeSend = null;
+    const midFlightRes = await executeSafePosCheckout({
+      storage: fakeSessionStorage,
+      ownerScope: scopeA,
+      isMockMode: false,
+      itemsSnapshot: snapshot,
+      cartSnapshot: cartSnap,
+      totalVnd: 56000,
+      lineCount: 1,
+      idempotencyKey: key,
+      nowMs: 1_700_000_000_000,
+      checkoutOrderFn: async () => {
+        persistedBeforeSend = fakeSessionStorage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+        const dropErr = new Error('tab crashed / network dropped');
+        dropErr.code = 'ERR_NETWORK';
+        throw dropErr;
+      },
+    });
+    assert.ok(persistedBeforeSend);
+    const parsedBeforeSend = JSON.parse(persistedBeforeSend);
+    assert.equal(parsedBeforeSend.status, 'IN_FLIGHT');
+    assert.equal(parsedBeforeSend.idempotencyKey, key);
+    assert.equal(parsedBeforeSend.ownerScope, scopeA);
+    assert.equal('access_token' in parsedBeforeSend, false);
+    assert.equal('refresh_token' in parsedBeforeSend, false);
+    assert.equal(midFlightRes.outcome, 'AMBIGUOUS');
+
+    // 3. Switching user on same browser (Staff B) MUST NOT inherit Staff A's pending checkout
+    assert.equal(loadPendingCheckout(fakeSessionStorage, scopeB, 1_700_000_010_000), null);
+    clearPendingCheckout(fakeSessionStorage, scopeB);
+    assert.ok(loadPendingCheckout(fakeSessionStorage, scopeA, 1_700_000_010_000));
+
+    // 4. Backend 24h TTL check: after 24h, retry is flagged as expired and blocked
+    const expiredLoad = loadPendingCheckout(
+      fakeSessionStorage,
+      scopeA,
+      1_700_000_000_000 + PENDING_CHECKOUT_TTL_MS + 1
+    );
+    assert.equal(expiredLoad.isExpired, true);
+    const expiredRetry = await executeSafePosCheckout({
+      storage: fakeSessionStorage,
+      ownerScope: scopeA,
+      isMockMode: false,
+      pendingCheckout: expiredLoad,
+      nowMs: 1_700_000_000_000 + PENDING_CHECKOUT_TTL_MS + 1,
+      checkoutOrderFn: async () => {
+        throw new Error('Should not send expired retry');
+      },
+    });
+    assert.equal(expiredRetry.ok, false);
+    assert.equal(expiredRetry.outcome, 'IDEMPOTENCY_EXPIRED');
+
+    // 5. Retry after reload within 24h preserves exact key & payload, and clears pending state on 201 success
+    const restoredA = loadPendingCheckout(
+      fakeSessionStorage,
+      scopeA,
+      1_700_000_010_000
+    );
+    assert.equal(restoredA.isExpired, false);
+    assert.equal(restoredA.idempotencyKey, key);
+
+    let retrySent = null;
+    const successRes = await executeSafePosCheckout({
+      storage: fakeSessionStorage,
+      ownerScope: scopeA,
+      isMockMode: false,
+      pendingCheckout: restoredA,
+      nowMs: 1_700_000_010_000,
+      checkoutOrderFn: async (args) => {
+        retrySent = args;
+        return { id: 105, total_vnd: 56000 };
+      },
+    });
+    assert.equal(successRes.ok, true);
+    assert.equal(successRes.outcome, 'SUCCESS');
+    assert.equal(retrySent.idempotencyKey, key);
+    assert.deepEqual(retrySent.items, snapshot);
+    assert.equal(loadPendingCheckout(fakeSessionStorage, scopeA, 1_700_000_010_000), null);
   });
 
   test('P1-A behavioral: server commits order while client loses response, unconfirmed abandon is blocked, reload preserves pendingCheckout, and retry recovers original order', async () => {
@@ -359,7 +494,10 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       (err) => classifyCheckoutError(err).outcome === 'AMBIGUOUS'
     );
 
+    const ownerScope = 'api:2';
+    const pendingCreatedMs = Date.parse('2026-11-14T01:00:00Z');
     const pending = {
+      ownerScope,
       idempotencyKey: key,
       itemsSnapshot: snapshot,
       cartSnapshot: [
@@ -370,13 +508,14 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       reasonMessage: 'Chưa xác định được kết quả đơn hàng',
       createdAt: '2026-11-14T01:00:00Z',
     };
-    assert.equal(savePendingCheckout(fakeSessionStorage, pending), true);
+    assert.equal(savePendingCheckout(fakeSessionStorage, pending, ownerScope), true);
 
     // 2. User attempts to click "Mở khóa giỏ hàng" / start new checkout WITHOUT manual reconciliation confirmation -> BLOCKED
     const blockedAbandon = resolvePendingCheckoutAction({
       action: 'ABANDON',
       pendingCheckout: pending,
       manualReconciliationConfirmed: false,
+      nowMs: pendingCreatedMs + 1000,
     });
     assert.equal(blockedAbandon.allowed, false);
     assert.equal(blockedAbandon.rotateKey, false);
@@ -387,12 +526,17 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       action: 'NEW_CHECKOUT',
       pendingCheckout: pending,
       manualReconciliationConfirmed: false,
+      nowMs: pendingCreatedMs + 1000,
     });
     assert.equal(blockedNew.allowed, false);
     assert.equal(blockedNew.rotateKey, false);
 
     // 3. Simulate page reload/navigation: restored pendingCheckout keeps exact key and snapshot
-    const restoredAfterReload = loadPendingCheckout(fakeSessionStorage);
+    const restoredAfterReload = loadPendingCheckout(
+      fakeSessionStorage,
+      ownerScope,
+      pendingCreatedMs + 1000
+    );
     assert.ok(restoredAfterReload);
     assert.equal(restoredAfterReload.idempotencyKey, key);
     assert.deepEqual(restoredAfterReload.itemsSnapshot, snapshot);
@@ -401,6 +545,7 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     const retryPlan = resolvePendingCheckoutAction({
       action: 'RETRY',
       pendingCheckout: restoredAfterReload,
+      nowMs: pendingCreatedMs + 1000,
     });
     assert.equal(retryPlan.allowed, true);
     assert.equal(retryPlan.idempotencyKey, key);
@@ -421,7 +566,10 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     });
     assert.equal(manualAbandon.allowed, true);
     assert.equal(manualAbandon.rotateKey, true);
-    clearPendingCheckout(fakeSessionStorage);
-    assert.equal(loadPendingCheckout(fakeSessionStorage), null);
+    clearPendingCheckout(fakeSessionStorage, ownerScope);
+    assert.equal(
+      loadPendingCheckout(fakeSessionStorage, ownerScope, pendingCreatedMs + 1000),
+      null
+    );
   });
 });

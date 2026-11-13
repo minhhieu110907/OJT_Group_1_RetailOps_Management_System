@@ -14,14 +14,14 @@ import {
   SEARCH_POS_PRODUCT_LIMIT,
   addProductToCart,
   buildCheckoutPayload,
+  buildPendingCheckoutOwnerScope,
   calculateCartTotals,
-  classifyCheckoutError,
   clearPendingCheckout,
+  executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
   resolvePendingCheckoutAction,
-  savePendingCheckout,
   updateCartItemQuantity,
 } from '../../utils/posUtils';
 import styles from './PosPage.module.css';
@@ -56,8 +56,9 @@ function ProductThumbnail({ product }) {
 }
 
 export default function PosPage() {
-  const { isMockMode } = useAuth();
+  const { user, isMockMode } = useAuth();
   const toast = useToast();
+  const ownerScope = buildPendingCheckoutOwnerScope(user, isMockMode);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -71,12 +72,15 @@ export default function PosPage() {
   const [loadError, setLoadError] = useState('');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  const [trackedOwnerScope, setTrackedOwnerScope] = useState(ownerScope);
   const [pendingCheckout, setPendingCheckout] = useState(() =>
-    typeof window !== 'undefined' ? loadPendingCheckout(window.sessionStorage) : null
+    typeof window !== 'undefined'
+      ? loadPendingCheckout(window.sessionStorage, ownerScope)
+      : null
   );
   const [cart, setCart] = useState(() =>
     typeof window !== 'undefined'
-      ? loadPendingCheckout(window.sessionStorage)?.cartSnapshot || []
+      ? loadPendingCheckout(window.sessionStorage, ownerScope)?.cartSnapshot || []
       : []
   );
   const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -87,6 +91,23 @@ export default function PosPage() {
     pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
   );
   const requestIdRef = useRef(0);
+
+  // Đồng bộ lại pendingCheckout/cart nếu đổi tài khoản hoặc đổi chế độ trên cùng trình duyệt
+  if (trackedOwnerScope !== ownerScope) {
+    setTrackedOwnerScope(ownerScope);
+    const restored =
+      typeof window !== 'undefined'
+        ? loadPendingCheckout(window.sessionStorage, ownerScope)
+        : null;
+    setPendingCheckout(restored);
+    setCart(restored?.cartSnapshot || []);
+    setManualReconciliationConfirmed(false);
+  }
+
+  useEffect(() => {
+    idempotencyKeyRef.current =
+      pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey();
+  }, [ownerScope, pendingCheckout?.idempotencyKey]);
 
   // Cảnh báo nếu người dùng reload hoặc rời trang khi có giao dịch đang xử lý / chưa xác định
   useEffect(() => {
@@ -260,7 +281,7 @@ export default function PosPage() {
     }
 
     if (typeof window !== 'undefined') {
-      clearPendingCheckout(window.sessionStorage);
+      clearPendingCheckout(window.sessionStorage, ownerScope);
     }
     setPendingCheckout(null);
     setManualReconciliationConfirmed(false);
@@ -270,17 +291,11 @@ export default function PosPage() {
 
   const handleConfirmCheckout = async () => {
     if (isCheckingOutRef.current) return;
-    const retryResolution = pendingCheckout
-      ? resolvePendingCheckoutAction({
-          action: 'RETRY',
-          pendingCheckout,
-        })
-      : null;
-    const snapshotItems = retryResolution
-      ? retryResolution.itemsSnapshot
+    const snapshotItems = pendingCheckout
+      ? pendingCheckout.itemsSnapshot
       : buildCheckoutPayload(cart);
-    const requestKey = retryResolution
-      ? retryResolution.idempotencyKey
+    const requestKey = pendingCheckout
+      ? pendingCheckout.idempotencyKey
       : idempotencyKeyRef.current;
 
     if (!snapshotItems || snapshotItems.length === 0) return;
@@ -288,59 +303,46 @@ export default function PosPage() {
     isCheckingOutRef.current = true;
     setIsCheckingOut(true);
     try {
-      const order = await ordersApi.checkoutOrder({
+      const result = await executeSafePosCheckout({
+        storage: typeof window !== 'undefined' ? window.sessionStorage : null,
+        ownerScope,
         isMockMode,
-        items: snapshotItems,
+        itemsSnapshot: snapshotItems,
+        cartSnapshot: cart,
+        totalVnd: cartTotals.totalVnd,
+        lineCount: cartTotals.lineCount,
         idempotencyKey: requestKey,
+        pendingCheckout,
+        checkoutOrderFn: ordersApi.checkoutOrder,
       });
 
-      toast.success(
-        `Thanh toán thành công đơn #${order.id} — Tổng ${formatVnd(order.total_vnd)}.`
-      );
-      if (typeof window !== 'undefined') {
-        clearPendingCheckout(window.sessionStorage);
-      }
-      setPendingCheckout(null);
-      setManualReconciliationConfirmed(false);
-      setCart([]);
-      idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
-      setRefreshTrigger((prev) => prev + 1);
-    } catch (err) {
-      const classified = classifyCheckoutError(err);
-      if (classified.outcome === 'AMBIGUOUS') {
-        const nextPending = {
-          idempotencyKey: requestKey,
-          itemsSnapshot: snapshotItems,
-          cartSnapshot:
-            pendingCheckout?.cartSnapshot?.length > 0
-              ? pendingCheckout.cartSnapshot
-              : cart,
-          totalVnd: pendingCheckout ? pendingCheckout.totalVnd : cartTotals.totalVnd,
-          lineCount: pendingCheckout ? pendingCheckout.lineCount : cartTotals.lineCount,
-          reasonMessage: classified.message,
-          createdAt: pendingCheckout?.createdAt || new Date().toISOString(),
-        };
-        if (typeof window !== 'undefined') {
-          savePendingCheckout(window.sessionStorage, nextPending);
-        }
-        setPendingCheckout(nextPending);
+      if (result.ok) {
+        toast.success(
+          `Thanh toán thành công đơn #${result.order.id} — Tổng ${formatVnd(result.order.total_vnd)}.`
+        );
+        setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
-        toast.warning(classified.message);
-      } else if (classified.outcome === 'IDEMPOTENCY_CONFLICT') {
-        if (typeof window !== 'undefined') {
-          clearPendingCheckout(window.sessionStorage);
-        }
+        setCart([]);
+        idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+        setRefreshTrigger((prev) => prev + 1);
+        return;
+      }
+
+      if (result.outcome === 'AMBIGUOUS' || result.outcome === 'IDEMPOTENCY_EXPIRED') {
+        setPendingCheckout(result.pendingCheckout);
+        setManualReconciliationConfirmed(false);
+        toast.warning(result.message);
+      } else if (result.outcome === 'PERSIST_FAILED') {
+        toast.error(result.message);
+      } else if (result.outcome === 'IDEMPOTENCY_CONFLICT') {
         setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
         idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
-        toast.error(classified.message);
+        toast.error(result.message);
       } else {
-        if (typeof window !== 'undefined') {
-          clearPendingCheckout(window.sessionStorage);
-        }
         setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
-        toast.error(classified.message);
+        toast.error(result.message);
         setRefreshTrigger((prev) => prev + 1);
       }
     } finally {
@@ -658,10 +660,9 @@ export default function PosPage() {
                 <strong>Trạng thái đơn hàng chưa xác định</strong>
                 <p>{pendingCheckout.reasonMessage}</p>
                 <span>
-                  Giỏ hàng đang bị khóa để tránh tạo đơn trùng. Hãy bấm &quot;Kiểm
-                  tra lại kết quả đơn này&quot; để gửi lại cùng mã giao dịch. Không
-                  tạo đơn mới nếu chưa đối soát thủ công với Quản trị viên / hóa đơn
-                  rằng đơn này chưa được ghi nhận.
+                  {pendingCheckout.isExpired
+                    ? 'Mã giao dịch đã quá thời hạn 24 giờ của máy chủ nên không thể tự kiểm tra lại. Vui lòng đối soát thủ công với Quản trị viên / hóa đơn trước khi mở khóa.'
+                    : 'Giỏ hàng đang bị khóa để tránh tạo đơn trùng. Hãy bấm "Kiểm tra lại kết quả đơn này" để gửi lại cùng mã giao dịch. Không tạo đơn mới nếu chưa đối soát thủ công với Quản trị viên / hóa đơn rằng đơn này chưa được ghi nhận.'}
                 </span>
                 <label className={styles.reconcileAckLabel}>
                   <input
@@ -692,7 +693,7 @@ export default function PosPage() {
               type="button"
               className={styles.checkoutBtn}
               onClick={handleConfirmCheckout}
-              disabled={isCheckingOut}
+              disabled={isCheckingOut || Boolean(pendingCheckout?.isExpired)}
             >
               {isCheckingOut
                 ? 'Đang xử lý đơn hàng...'

@@ -220,15 +220,33 @@ export function classifyCheckoutError(error) {
 }
 
 export const PENDING_CHECKOUT_STORAGE_KEY = 'retailops_pos_pending_checkout_v1';
+export const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Persist unresolved POS checkout snapshot/idempotency key so reload or navigation
- * cannot silently unlock the cart and cause a duplicate order.
+ * Build a non-sensitive owner scope for pending POS checkout without storing
+ * JWT, refresh token, CSRF token, or PII in browser storage.
  */
-export function savePendingCheckout(storage, pendingCheckout) {
+export function buildPendingCheckoutOwnerScope(user, isMockMode = false) {
+  if (isMockMode) {
+    return user?.id != null ? `mock:${String(user.id)}` : 'mock:demo';
+  }
+  if (user?.id == null) {
+    return null;
+  }
+  return `api:${String(user.id)}`;
+}
+
+/**
+ * Persist unresolved/in-flight POS checkout snapshot and idempotency key
+ * BEFORE sending the request so crash/reload cannot silently unlock the cart.
+ */
+export function savePendingCheckout(storage, pendingCheckout, ownerScopeArg) {
+  const ownerScope = ownerScopeArg || pendingCheckout?.ownerScope;
   if (
     !storage ||
     typeof storage.setItem !== 'function' ||
+    typeof ownerScope !== 'string' ||
+    !ownerScope.trim() ||
     !pendingCheckout ||
     typeof pendingCheckout.idempotencyKey !== 'string' ||
     !pendingCheckout.idempotencyKey.trim() ||
@@ -239,7 +257,17 @@ export function savePendingCheckout(storage, pendingCheckout) {
   }
 
   try {
+    const createdAt = pendingCheckout.createdAt || new Date().toISOString();
+    const createdMs = Date.parse(createdAt);
+    const expiresAt =
+      pendingCheckout.expiresAt ||
+      new Date(
+        (Number.isFinite(createdMs) ? createdMs : Date.now()) +
+          PENDING_CHECKOUT_TTL_MS
+      ).toISOString();
+
     const payload = {
+      ownerScope,
       idempotencyKey: pendingCheckout.idempotencyKey,
       itemsSnapshot: pendingCheckout.itemsSnapshot,
       cartSnapshot: Array.isArray(pendingCheckout.cartSnapshot)
@@ -255,7 +283,10 @@ export function savePendingCheckout(storage, pendingCheckout) {
         typeof pendingCheckout.reasonMessage === 'string'
           ? pendingCheckout.reasonMessage
           : '',
-      createdAt: pendingCheckout.createdAt || new Date().toISOString(),
+      status:
+        pendingCheckout.status === 'IN_FLIGHT' ? 'IN_FLIGHT' : 'AMBIGUOUS',
+      createdAt,
+      expiresAt,
     };
     storage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(payload));
     return true;
@@ -265,10 +296,16 @@ export function savePendingCheckout(storage, pendingCheckout) {
 }
 
 /**
- * Restore unresolved POS checkout from session storage if present and valid.
+ * Restore unresolved POS checkout from session storage only when ownerScope matches
+ * the active user/session, and annotate whether Backend's 24h TTL has expired.
  */
-export function loadPendingCheckout(storage) {
-  if (!storage || typeof storage.getItem !== 'function') {
+export function loadPendingCheckout(storage, ownerScope, nowMs = Date.now()) {
+  if (
+    !storage ||
+    typeof storage.getItem !== 'function' ||
+    typeof ownerScope !== 'string' ||
+    !ownerScope.trim()
+  ) {
     return null;
   }
 
@@ -278,6 +315,7 @@ export function loadPendingCheckout(storage) {
     const parsed = JSON.parse(raw);
     if (
       !parsed ||
+      parsed.ownerScope !== ownerScope ||
       typeof parsed.idempotencyKey !== 'string' ||
       !parsed.idempotencyKey.trim() ||
       !Array.isArray(parsed.itemsSnapshot) ||
@@ -285,7 +323,18 @@ export function loadPendingCheckout(storage) {
     ) {
       return null;
     }
+
+    const createdMs = Date.parse(parsed.createdAt || '');
+    const expiresMs = Date.parse(parsed.expiresAt || '');
+    const effectiveExpiresMs = Number.isFinite(expiresMs)
+      ? expiresMs
+      : Number.isFinite(createdMs)
+      ? createdMs + PENDING_CHECKOUT_TTL_MS
+      : 0;
+    const isExpired = !effectiveExpiresMs || nowMs >= effectiveExpiresMs;
+
     return {
+      ownerScope: parsed.ownerScope,
       idempotencyKey: parsed.idempotencyKey,
       itemsSnapshot: parsed.itemsSnapshot,
       cartSnapshot: Array.isArray(parsed.cartSnapshot) ? parsed.cartSnapshot : [],
@@ -294,8 +343,13 @@ export function loadPendingCheckout(storage) {
         ? parsed.lineCount
         : parsed.itemsSnapshot.length,
       reasonMessage:
-        typeof parsed.reasonMessage === 'string' ? parsed.reasonMessage : '',
+        typeof parsed.reasonMessage === 'string' && parsed.reasonMessage
+          ? parsed.reasonMessage
+          : 'Phát hiện giao dịch chưa hoàn tất trước khi tải lại trang. Vui lòng kiểm tra lại kết quả đơn hàng.',
+      status: parsed.status === 'IN_FLIGHT' ? 'IN_FLIGHT' : 'AMBIGUOUS',
       createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
+      expiresAt: typeof parsed.expiresAt === 'string' ? parsed.expiresAt : '',
+      isExpired,
     };
   } catch {
     return null;
@@ -303,13 +357,22 @@ export function loadPendingCheckout(storage) {
 }
 
 /**
- * Remove persisted unresolved POS checkout after confirmed resolution or manual reconciliation.
+ * Remove persisted unresolved POS checkout only if it belongs to ownerScope (or no scope filter).
  */
-export function clearPendingCheckout(storage) {
+export function clearPendingCheckout(storage, ownerScope) {
   if (!storage || typeof storage.removeItem !== 'function') {
     return;
   }
   try {
+    if (ownerScope && typeof storage.getItem === 'function') {
+      const raw = storage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.ownerScope && parsed.ownerScope !== ownerScope) {
+          return;
+        }
+      }
+    }
     storage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
   } catch {
     // Ignore storage removal errors
@@ -318,13 +381,14 @@ export function clearPendingCheckout(storage) {
 
 /**
  * Enforce unresolved checkout guard:
- * - RETRY always reuses exact itemsSnapshot + idempotencyKey.
+ * - RETRY always reuses exact itemsSnapshot + idempotencyKey unless 24h TTL expired.
  * - ABANDON / NEW_CHECKOUT is blocked unless manualReconciliationConfirmed === true.
  */
 export function resolvePendingCheckoutAction({
   action,
   pendingCheckout,
   manualReconciliationConfirmed = false,
+  nowMs = Date.now(),
 }) {
   if (!pendingCheckout) {
     if (action === 'RETRY') {
@@ -344,6 +408,22 @@ export function resolvePendingCheckoutAction({
   }
 
   if (action === 'RETRY') {
+    const expiresMs = Date.parse(pendingCheckout.expiresAt || '');
+    const isExpired =
+      Boolean(pendingCheckout.isExpired) ||
+      (Number.isFinite(expiresMs) && nowMs >= expiresMs);
+
+    if (isExpired) {
+      return {
+        allowed: false,
+        nextPendingCheckout: pendingCheckout,
+        rotateKey: false,
+        reason: 'IDEMPOTENCY_EXPIRED',
+        message:
+          'Mã giao dịch đã quá thời hạn 24 giờ của máy chủ nên không thể tự kiểm tra lại bằng khóa cũ. Vui lòng đối soát thủ công với Quản trị viên trước khi mở khóa.',
+      };
+    }
+
     return {
       allowed: true,
       itemsSnapshot: pendingCheckout.itemsSnapshot,
@@ -380,4 +460,148 @@ export function resolvePendingCheckoutAction({
     rotateKey: false,
     reason: 'UNKNOWN_ACTION',
   };
+}
+
+/**
+ * Crash-safe POS checkout executor:
+ * 1. Validates ownerScope & checks 24h TTL on retries.
+ * 2. Persists snapshot + Idempotency-Key BEFORE calling checkoutOrderFn.
+ * 3. Aborts checkout if persistence fails (never sends unprotected mutation).
+ * 4. Clears pending state on success / definite failure / conflict; preserves on ambiguous.
+ */
+export async function executeSafePosCheckout({
+  storage,
+  ownerScope,
+  isMockMode,
+  itemsSnapshot,
+  cartSnapshot = [],
+  totalVnd = 0,
+  lineCount = 0,
+  idempotencyKey,
+  pendingCheckout = null,
+  checkoutOrderFn,
+  nowMs = Date.now(),
+}) {
+  if (typeof ownerScope !== 'string' || !ownerScope.trim()) {
+    return {
+      ok: false,
+      outcome: 'DEFINITE_FAILURE',
+      pendingCheckout,
+      rotateKey: false,
+      message: 'Phiên đăng nhập chưa hợp lệ để thực hiện thanh toán.',
+    };
+  }
+
+  let effectiveItems = itemsSnapshot;
+  let effectiveKey = idempotencyKey;
+
+  if (pendingCheckout) {
+    const retryResolution = resolvePendingCheckoutAction({
+      action: 'RETRY',
+      pendingCheckout,
+      nowMs,
+    });
+    if (!retryResolution.allowed) {
+      return {
+        ok: false,
+        outcome: retryResolution.reason,
+        pendingCheckout,
+        rotateKey: false,
+        message: retryResolution.message,
+      };
+    }
+    effectiveItems = retryResolution.itemsSnapshot;
+    effectiveKey = retryResolution.idempotencyKey;
+  }
+
+  if (!Array.isArray(effectiveItems) || effectiveItems.length === 0) {
+    return {
+      ok: false,
+      outcome: 'DEFINITE_FAILURE',
+      pendingCheckout,
+      rotateKey: false,
+      message: 'Giỏ hàng trống, không thể thanh toán.',
+    };
+  }
+
+  const createdAt = pendingCheckout?.createdAt || new Date(nowMs).toISOString();
+  const createdMs = Date.parse(createdAt);
+  const expiresAt =
+    pendingCheckout?.expiresAt ||
+    new Date(
+      (Number.isFinite(createdMs) ? createdMs : nowMs) +
+        PENDING_CHECKOUT_TTL_MS
+    ).toISOString();
+
+  const inFlightPending = {
+    ownerScope,
+    idempotencyKey: effectiveKey,
+    itemsSnapshot: effectiveItems,
+    cartSnapshot:
+      pendingCheckout?.cartSnapshot?.length > 0
+        ? pendingCheckout.cartSnapshot
+        : cartSnapshot,
+    totalVnd: pendingCheckout ? pendingCheckout.totalVnd : totalVnd,
+    lineCount: pendingCheckout ? pendingCheckout.lineCount : lineCount,
+    reasonMessage:
+      pendingCheckout?.reasonMessage ||
+      'Giao dịch đang được gửi hoặc bị gián đoạn trước khi nhận phản hồi từ máy chủ.',
+    status: 'IN_FLIGHT',
+    createdAt,
+    expiresAt,
+  };
+
+  const persisted = savePendingCheckout(storage, inFlightPending, ownerScope);
+  if (!persisted) {
+    return {
+      ok: false,
+      outcome: 'PERSIST_FAILED',
+      pendingCheckout,
+      rotateKey: false,
+      message:
+        'Không thể lưu trạng thái an toàn trước khi thanh toán. Hệ thống đã chặn gửi đơn để tránh rủi ro tạo đơn trùng.',
+    };
+  }
+
+  try {
+    const order = await checkoutOrderFn({
+      isMockMode,
+      items: effectiveItems,
+      idempotencyKey: effectiveKey,
+    });
+    clearPendingCheckout(storage, ownerScope);
+    return {
+      ok: true,
+      outcome: 'SUCCESS',
+      order,
+      pendingCheckout: null,
+      rotateKey: true,
+    };
+  } catch (err) {
+    const classified = classifyCheckoutError(err);
+    if (classified.outcome === 'AMBIGUOUS') {
+      const nextPending = {
+        ...inFlightPending,
+        status: 'AMBIGUOUS',
+        reasonMessage: classified.message,
+      };
+      savePendingCheckout(storage, nextPending, ownerScope);
+      return {
+        ok: false,
+        outcome: 'AMBIGUOUS',
+        pendingCheckout: nextPending,
+        rotateKey: false,
+        message: classified.message,
+      };
+    }
+
+    clearPendingCheckout(storage, ownerScope);
+    return {
+      ok: false,
+      outcome: classified.outcome,
+      pendingCheckout: null,
+      rotateKey: classified.outcome === 'IDEMPOTENCY_CONFLICT',
+      message: classified.message,
+    };
+  }
 }
