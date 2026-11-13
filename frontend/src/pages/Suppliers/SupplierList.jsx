@@ -7,8 +7,12 @@ import { suppliersApi } from '../../api/suppliersApi';
 import styles from './SupplierList.module.css';
 
 // Component hiển thị tag trạng thái chuẩn thiết kế
-function SupplierStatusBadge({ status }) {
+function SupplierStatusBadge({ status, inModal = false }) {
   const isActive = status === 'ACTIVE';
+  const inactiveBg = inModal ? '#FEF2F2' : '#F3F4F6';
+  const inactiveColor = inModal ? '#DC2626' : '#4B5563';
+  const inactiveBorder = inModal ? '#FECACA' : '#E5E7EB';
+
   return (
     <span
       style={{
@@ -18,9 +22,9 @@ function SupplierStatusBadge({ status }) {
         borderRadius: '9999px',
         fontSize: '12.5px',
         fontWeight: '500',
-        backgroundColor: isActive ? '#DCFCE7' : '#F3F4F6',
-        color: isActive ? '#166534' : '#4B5563',
-        border: `1px solid ${isActive ? '#BBF7D0' : '#E5E7EB'}`,
+        backgroundColor: isActive ? '#DCFCE7' : inactiveBg,
+        color: isActive ? '#166534' : inactiveColor,
+        border: `1px solid ${isActive ? '#BBF7D0' : inactiveBorder}`,
       }}
     >
       {isActive ? 'Đang hợp tác' : 'Ngừng hợp tác'}
@@ -630,7 +634,7 @@ export default function SupplierList() {
               <div className={styles.statusCardRow}>
                 <span className={styles.statusCardLabel}>Tình trạng đối tác</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <SupplierStatusBadge status={supplierForm.status} />
+                  <SupplierStatusBadge status={supplierForm.status} inModal />
                   {isAdmin && (
                     <button
                       type="button"
