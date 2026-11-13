@@ -48,11 +48,13 @@ class FakeCheckoutService:
     def __init__(self) -> None:
         self.actor_id: int | None = None
         self.key: str | None = None
+        self.item_count: int | None = None
 
     def checkout(self, session: object, **kwargs: object) -> OrderRead:
         del session
         self.actor_id = kwargs["actor_id"]  # type: ignore[assignment]
         self.key = kwargs["idempotency_key"]  # type: ignore[assignment]
+        self.item_count = len(kwargs["items"])  # type: ignore[arg-type]
         item = kwargs["items"][0]  # type: ignore[index]
         return OrderRead(
             id=91,
@@ -182,3 +184,67 @@ async def test_checkout_requires_valid_idempotency_key() -> None:
         response = await client.post("/api/v1/orders/checkout", json=payload())
 
     assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_checkout_accepts_exactly_100_lines() -> None:
+    service = FakeCheckoutService()
+    body = {
+        "items": [
+            {
+                "product_id": product_id,
+                "quantity": 1,
+                "viewed_unit_price_vnd": 12_000,
+            }
+            for product_id in range(1, 101)
+        ]
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application(service)),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/v1/orders/checkout",
+            headers={"Idempotency-Key": "checkout-key-0100"},
+            json=body,
+        )
+
+    assert response.status_code == 201
+    assert service.item_count == 100
+
+
+@pytest.mark.anyio
+async def test_checkout_rejects_101_lines_before_service() -> None:
+    service = FakeCheckoutService()
+    body = {
+        "items": [
+            {
+                "product_id": product_id,
+                "quantity": 1,
+                "viewed_unit_price_vnd": 12_000,
+            }
+            for product_id in range(1, 102)
+        ]
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application(service)),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/v1/orders/checkout",
+            headers={"Idempotency-Key": "checkout-key-0101"},
+            json=body,
+        )
+
+    assert response.status_code == 422
+    assert service.item_count is None
+
+
+def test_checkout_runtime_openapi_exposes_100_line_limit() -> None:
+    schema = application(FakeCheckoutService()).openapi()
+
+    items_schema = schema["components"]["schemas"]["CheckoutRequest"]["properties"][
+        "items"
+    ]
+    assert items_schema["minItems"] == 1
+    assert items_schema["maxItems"] == 100

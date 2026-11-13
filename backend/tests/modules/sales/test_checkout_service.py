@@ -6,7 +6,7 @@ import pytest
 from app.core.exceptions import ConflictError, DomainValidationError
 from app.modules.idempotency.service import CommandOutcome
 from app.modules.sales.inventory_port import LockedStock, StockLockSet
-from app.modules.sales.schemas import CheckoutLine
+from app.modules.sales.schemas import MAX_SQL_INT, CheckoutLine
 from app.modules.sales.service import CheckoutService
 
 
@@ -160,6 +160,26 @@ def test_duplicate_product_with_different_viewed_price_is_rejected_before_claim(
 
     assert idempotency.command_calls == 0
     assert session.commits == 0
+
+
+def test_duplicate_product_aggregate_quantity_overflow_is_rejected_before_claim() -> (
+    None
+):
+    session = FakeSession()
+    idempotency = MemoryIdempotency()
+    checkout = service(FakeInventory({1: stock()}), idempotency, FakeOrderRepository())
+
+    with pytest.raises(DomainValidationError):
+        checkout.checkout(
+            session,  # type: ignore[arg-type]
+            actor_id=7,
+            idempotency_key="checkout-key-overflow-0001",
+            items=[line(quantity=MAX_SQL_INT), line(quantity=1)],
+        )
+
+    assert idempotency.command_calls == 0
+    assert session.commits == 0
+    assert session.rollbacks == 0
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 MAX_SQL_INT = 2_147_483_647
 MAX_SQL_BIGINT = 9_223_372_036_854_775_807
+MAX_CHECKOUT_LINES = 100
 
 
 class StrictRequest(BaseModel):
@@ -19,7 +20,7 @@ class CheckoutLine(StrictRequest):
 
 
 class CheckoutRequest(StrictRequest):
-    items: list[CheckoutLine] = Field(min_length=1)
+    items: list[CheckoutLine] = Field(min_length=1, max_length=MAX_CHECKOUT_LINES)
 
 
 class OrderLineRead(BaseModel):
