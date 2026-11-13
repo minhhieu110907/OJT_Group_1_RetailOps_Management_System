@@ -2,9 +2,18 @@
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from app.modules.categories.models import CategoryStatus
+
+MAX_DESCRIPTION_LENGTH = 2000
 
 
 def _ensure_utc_iso(dt: datetime) -> str:
@@ -20,6 +29,7 @@ class CategoryCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
 
     @field_validator("name")
     @classmethod
@@ -31,19 +41,28 @@ class CategoryCreate(BaseModel):
 
 
 class CategoryUpdate(BaseModel):
-    """Request payload for updating a category name."""
+    """Partial update supporting an explicit null description to clear it."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(..., min_length=1, max_length=120)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
 
     @field_validator("name")
     @classmethod
-    def validate_name(cls, value: str) -> str:
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         trimmed = value.strip()
         if not trimmed:
             raise ValueError("Tên danh mục không được để trống.")
         return trimmed
+
+    @model_validator(mode="after")
+    def reject_explicit_null_name(self) -> "CategoryUpdate":
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Category name cannot be null.")
+        return self
 
 
 class CategoryStatusUpdate(BaseModel):
@@ -61,6 +80,7 @@ class CategoryRead(BaseModel):
 
     id: int
     name: str
+    description: str | None
     status: str
     created_at: datetime
     updated_at: datetime
