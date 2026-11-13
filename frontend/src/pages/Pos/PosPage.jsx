@@ -16,8 +16,12 @@ import {
   buildCheckoutPayload,
   calculateCartTotals,
   classifyCheckoutError,
+  clearPendingCheckout,
   formatVnd,
+  loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
+  resolvePendingCheckoutAction,
+  savePendingCheckout,
   updateCartItemQuantity,
 } from '../../utils/posUtils';
 import styles from './PosPage.module.css';
@@ -67,12 +71,37 @@ export default function PosPage() {
   const [loadError, setLoadError] = useState('');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const [cart, setCart] = useState([]);
+  const [pendingCheckout, setPendingCheckout] = useState(() =>
+    typeof window !== 'undefined' ? loadPendingCheckout(window.sessionStorage) : null
+  );
+  const [cart, setCart] = useState(() =>
+    typeof window !== 'undefined'
+      ? loadPendingCheckout(window.sessionStorage)?.cartSnapshot || []
+      : []
+  );
   const [isCheckingOut, setIsCheckingOut] = useState(false);
-  const [pendingCheckout, setPendingCheckout] = useState(null);
+  const [manualReconciliationConfirmed, setManualReconciliationConfirmed] =
+    useState(false);
   const isCheckingOutRef = useRef(false);
-  const idempotencyKeyRef = useRef(generateCheckoutIdempotencyKey());
+  const idempotencyKeyRef = useRef(
+    pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
+  );
   const requestIdRef = useRef(0);
+
+  // Cảnh báo nếu người dùng reload hoặc rời trang khi có giao dịch đang xử lý / chưa xác định
+  useEffect(() => {
+    if (typeof window === 'undefined' || (!isCheckingOut && !pendingCheckout)) {
+      return undefined;
+    }
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isCheckingOut, pendingCheckout]);
 
   // Debounce tìm kiếm theo tên sản phẩm hoặc mã SKU
   useEffect(() => {
@@ -160,8 +189,24 @@ export default function PosPage() {
     [categories, latestProductsSnapshot]
   );
 
-  const cartTotals = useMemo(() => calculateCartTotals(cart), [cart]);
-  const hasCartItems = cart.length > 0;
+  const cartTotals = useMemo(() => {
+    if (cart.length > 0) {
+      return calculateCartTotals(cart);
+    }
+    if (pendingCheckout) {
+      const totalUnits = pendingCheckout.itemsSnapshot.reduce(
+        (sum, item) => sum + (item.quantity || 0),
+        0
+      );
+      return {
+        lineCount: pendingCheckout.lineCount || pendingCheckout.itemsSnapshot.length,
+        totalUnits,
+        totalVnd: pendingCheckout.totalVnd || 0,
+      };
+    }
+    return calculateCartTotals(cart);
+  }, [cart, pendingCheckout]);
+  const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
   const isCartLocked = isCheckingOut || Boolean(pendingCheckout);
 
   const cartQuantityMap = useMemo(() => {
@@ -204,18 +249,38 @@ export default function PosPage() {
 
   const handleAbandonPendingCheckout = () => {
     if (isCheckingOutRef.current) return;
+    const resolution = resolvePendingCheckoutAction({
+      action: 'ABANDON',
+      pendingCheckout,
+      manualReconciliationConfirmed,
+    });
+    if (!resolution.allowed) {
+      toast.warning(resolution.message);
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      clearPendingCheckout(window.sessionStorage);
+    }
     setPendingCheckout(null);
+    setManualReconciliationConfirmed(false);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
     setRefreshTrigger((prev) => prev + 1);
   };
 
   const handleConfirmCheckout = async () => {
     if (isCheckingOutRef.current) return;
-    const snapshotItems = pendingCheckout
-      ? pendingCheckout.itemsSnapshot
+    const retryResolution = pendingCheckout
+      ? resolvePendingCheckoutAction({
+          action: 'RETRY',
+          pendingCheckout,
+        })
+      : null;
+    const snapshotItems = retryResolution
+      ? retryResolution.itemsSnapshot
       : buildCheckoutPayload(cart);
-    const requestKey = pendingCheckout
-      ? pendingCheckout.idempotencyKey
+    const requestKey = retryResolution
+      ? retryResolution.idempotencyKey
       : idempotencyKeyRef.current;
 
     if (!snapshotItems || snapshotItems.length === 0) return;
@@ -232,27 +297,49 @@ export default function PosPage() {
       toast.success(
         `Thanh toán thành công đơn #${order.id} — Tổng ${formatVnd(order.total_vnd)}.`
       );
+      if (typeof window !== 'undefined') {
+        clearPendingCheckout(window.sessionStorage);
+      }
       setPendingCheckout(null);
+      setManualReconciliationConfirmed(false);
       setCart([]);
       idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       const classified = classifyCheckoutError(err);
       if (classified.outcome === 'AMBIGUOUS') {
-        setPendingCheckout({
+        const nextPending = {
           idempotencyKey: requestKey,
           itemsSnapshot: snapshotItems,
+          cartSnapshot:
+            pendingCheckout?.cartSnapshot?.length > 0
+              ? pendingCheckout.cartSnapshot
+              : cart,
           totalVnd: pendingCheckout ? pendingCheckout.totalVnd : cartTotals.totalVnd,
           lineCount: pendingCheckout ? pendingCheckout.lineCount : cartTotals.lineCount,
           reasonMessage: classified.message,
-        });
+          createdAt: pendingCheckout?.createdAt || new Date().toISOString(),
+        };
+        if (typeof window !== 'undefined') {
+          savePendingCheckout(window.sessionStorage, nextPending);
+        }
+        setPendingCheckout(nextPending);
+        setManualReconciliationConfirmed(false);
         toast.warning(classified.message);
       } else if (classified.outcome === 'IDEMPOTENCY_CONFLICT') {
+        if (typeof window !== 'undefined') {
+          clearPendingCheckout(window.sessionStorage);
+        }
         setPendingCheckout(null);
+        setManualReconciliationConfirmed(false);
         idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
         toast.error(classified.message);
       } else {
+        if (typeof window !== 'undefined') {
+          clearPendingCheckout(window.sessionStorage);
+        }
         setPendingCheckout(null);
+        setManualReconciliationConfirmed(false);
         toast.error(classified.message);
         setRefreshTrigger((prev) => prev + 1);
       }
@@ -571,16 +658,32 @@ export default function PosPage() {
                 <strong>Trạng thái đơn hàng chưa xác định</strong>
                 <p>{pendingCheckout.reasonMessage}</p>
                 <span>
-                  Giỏ hàng tạm khóa để tránh tạo đơn trùng. Bấm &quot;Kiểm tra lại kết
-                  quả đơn này&quot; để đối chiếu bằng cùng mã giao dịch.
+                  Giỏ hàng đang bị khóa để tránh tạo đơn trùng. Hãy bấm &quot;Kiểm
+                  tra lại kết quả đơn này&quot; để gửi lại cùng mã giao dịch. Không
+                  tạo đơn mới nếu chưa đối soát thủ công với Quản trị viên / hóa đơn
+                  rằng đơn này chưa được ghi nhận.
                 </span>
+                <label className={styles.reconcileAckLabel}>
+                  <input
+                    type="checkbox"
+                    checked={manualReconciliationConfirmed}
+                    onChange={(e) =>
+                      setManualReconciliationConfirmed(e.target.checked)
+                    }
+                    disabled={isCheckingOut}
+                  />
+                  <span>
+                    Tôi xác nhận đã đối soát thủ công và đơn này chưa được ghi
+                    nhận trên hệ thống
+                  </span>
+                </label>
                 <button
                   type="button"
                   className={styles.abandonPendingBtn}
                   onClick={handleAbandonPendingCheckout}
-                  disabled={isCheckingOut}
+                  disabled={isCheckingOut || !manualReconciliationConfirmed}
                 >
-                  Mở khóa giỏ hàng (bỏ qua đơn chờ)
+                  Mở khóa giỏ hàng (sau khi đã đối soát)
                 </button>
               </div>
             )}

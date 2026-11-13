@@ -2,6 +2,11 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
+import {
+  deriveRejectSubState,
+  evaluateAccountVerificationClick,
+  evaluateResubmitAction,
+} from './accountStatusHelpers';
 import styles from './AccountStatus.module.css';
 
 // Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ho_Chi_Minh (HH:mm)
@@ -73,9 +78,12 @@ export default function AccountStatus() {
   const [status, setStatus] = useState(initialStatus);
 
   // Trạng thái con của mục Gửi lại khi REJECTED:
-  // - 'LOCKED_24H' (Mặc định khi lần đầu mở: Tạm khóa trong vòng 24h)
-  // - 'ELIGIBLE' (Sau 24h: Đủ điều kiện gửi lại)
-  const [rejectSubState] = useState(incomingState.rejectSubState || 'LOCKED_24H');
+  // - Real API mode: 'UNAVAILABLE' (không tự mặc định khóa 24h và không tin location.state)
+  // - Mock Demo mode: 'LOCKED_24H' | 'ELIGIBLE'
+  const rejectSubState = deriveRejectSubState({
+    isMockDemoActive,
+    incomingState,
+  });
 
   // Cờ xác minh quyền kiểm soát tài khoản (ở trạng thái REJECTED - Đủ điều kiện)
   const [isAccountVerified, setIsAccountVerified] = useState(false);
@@ -138,19 +146,14 @@ export default function AccountStatus() {
     toast.success('Đã khôi phục kết nối máy chủ thành công (Chế độ Mock Demo).');
   };
 
-  // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Đủ điều kiện)
+  // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Chỉ giả lập ở Mock Demo mode)
   const handleResubmitRequest = async () => {
-    if (!isAccountVerified) {
-      toast.warning(
-        'Vui lòng bấm "Xác minh quyền kiểm soát tài khoản" trước khi gửi lại yêu cầu.'
-      );
-      return;
-    }
-
-    if (!isMockDemoActive) {
-      toast.info(
-        'Chức năng gửi lại yêu cầu tự động thuộc phạm vi phát triển tiếp theo. Vui lòng liên hệ Quản trị viên để được mở lại hồ sơ.'
-      );
+    const decision = evaluateResubmitAction({
+      isMockDemoActive,
+      isAccountVerified,
+    });
+    if (!decision.allowed) {
+      toast[decision.toastType || 'info'](decision.message);
       return;
     }
 
@@ -158,8 +161,8 @@ export default function AccountStatus() {
     await new Promise((resolve) => setTimeout(resolve, 400));
     setIsChecking(false);
     setLastUpdated(getHaNoiCurrentTime());
-    setStatus('PENDING');
-    toast.success('Đã gửi lại yêu cầu xét duyệt hồ sơ thành công (Chế độ Mock Demo)!');
+    setStatus(decision.nextStatus);
+    toast[decision.toastType || 'success'](decision.message);
   };
 
   // Xác định class viền cho thẻ Card duy nhất
@@ -432,9 +435,30 @@ export default function AccountStatus() {
               </p>
             </div>
 
-            {/* Mục Gửi lại yêu cầu (2 trạng thái con: Tạm khóa 24h & Đủ điều kiện) */}
+            {/* Mục Gửi lại yêu cầu (Real API: Chưa khả dụng; Mock Demo: Tạm khóa 24h & Đủ điều kiện) */}
             <div className={styles.resubmitSection}>
-              {rejectSubState === 'LOCKED_24H' ? (
+              {rejectSubState === 'UNAVAILABLE' ? (
+                <>
+                  <div className={styles.resubmitHeader}>
+                    <span className={styles.resubmitTitle}>
+                      Gửi lại yêu cầu xét duyệt
+                    </span>
+                    <span className={styles.subBadgeLocked}>Chưa khả dụng</span>
+                  </div>
+                  <p className={styles.resubmitDesc}>
+                    Hệ thống hiện chưa cung cấp quy trình xác minh và gửi lại hồ sơ
+                    tự động từ máy chủ. Không áp dụng thời hạn khóa giả định 24 giờ;
+                    vui lòng liên hệ Quản trị viên để được xem xét mở lại tài khoản.
+                  </p>
+                  <button
+                    type="button"
+                    className={styles.primaryActionBtn}
+                    disabled
+                  >
+                    <span>Gửi lại yêu cầu (chưa hỗ trợ)</span>
+                  </button>
+                </>
+              ) : rejectSubState === 'LOCKED_24H' ? (
                 <>
                   <div className={styles.resubmitHeader}>
                     <span className={styles.resubmitTitle}>
@@ -478,15 +502,14 @@ export default function AccountStatus() {
                       isAccountVerified ? styles.verifyControlActive : ''
                     }`}
                     onClick={() => {
-                      setIsAccountVerified((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          toast.success(
-                            'Đã xác minh quyền kiểm soát tài khoản thành công.'
-                          );
-                        }
-                        return next;
+                      const decision = evaluateAccountVerificationClick({
+                        isMockDemoActive,
+                        prevVerified: isAccountVerified,
                       });
+                      setIsAccountVerified(decision.nextVerified);
+                      if (decision.toastType && decision.message) {
+                        toast[decision.toastType](decision.message);
+                      }
                     }}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

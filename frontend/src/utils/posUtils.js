@@ -218,3 +218,166 @@ export function classifyCheckoutError(error) {
       'Không thể xác nhận bán hàng. Vui lòng kiểm tra lại tồn kho và đơn giá.',
   };
 }
+
+export const PENDING_CHECKOUT_STORAGE_KEY = 'retailops_pos_pending_checkout_v1';
+
+/**
+ * Persist unresolved POS checkout snapshot/idempotency key so reload or navigation
+ * cannot silently unlock the cart and cause a duplicate order.
+ */
+export function savePendingCheckout(storage, pendingCheckout) {
+  if (
+    !storage ||
+    typeof storage.setItem !== 'function' ||
+    !pendingCheckout ||
+    typeof pendingCheckout.idempotencyKey !== 'string' ||
+    !pendingCheckout.idempotencyKey.trim() ||
+    !Array.isArray(pendingCheckout.itemsSnapshot) ||
+    pendingCheckout.itemsSnapshot.length === 0
+  ) {
+    return false;
+  }
+
+  try {
+    const payload = {
+      idempotencyKey: pendingCheckout.idempotencyKey,
+      itemsSnapshot: pendingCheckout.itemsSnapshot,
+      cartSnapshot: Array.isArray(pendingCheckout.cartSnapshot)
+        ? pendingCheckout.cartSnapshot
+        : [],
+      totalVnd: Number.isFinite(pendingCheckout.totalVnd)
+        ? pendingCheckout.totalVnd
+        : 0,
+      lineCount: Number.isFinite(pendingCheckout.lineCount)
+        ? pendingCheckout.lineCount
+        : pendingCheckout.itemsSnapshot.length,
+      reasonMessage:
+        typeof pendingCheckout.reasonMessage === 'string'
+          ? pendingCheckout.reasonMessage
+          : '',
+      createdAt: pendingCheckout.createdAt || new Date().toISOString(),
+    };
+    storage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore unresolved POS checkout from session storage if present and valid.
+ */
+export function loadPendingCheckout(storage) {
+  if (!storage || typeof storage.getItem !== 'function') {
+    return null;
+  }
+
+  try {
+    const raw = storage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed.idempotencyKey !== 'string' ||
+      !parsed.idempotencyKey.trim() ||
+      !Array.isArray(parsed.itemsSnapshot) ||
+      parsed.itemsSnapshot.length === 0
+    ) {
+      return null;
+    }
+    return {
+      idempotencyKey: parsed.idempotencyKey,
+      itemsSnapshot: parsed.itemsSnapshot,
+      cartSnapshot: Array.isArray(parsed.cartSnapshot) ? parsed.cartSnapshot : [],
+      totalVnd: Number.isFinite(parsed.totalVnd) ? parsed.totalVnd : 0,
+      lineCount: Number.isFinite(parsed.lineCount)
+        ? parsed.lineCount
+        : parsed.itemsSnapshot.length,
+      reasonMessage:
+        typeof parsed.reasonMessage === 'string' ? parsed.reasonMessage : '',
+      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove persisted unresolved POS checkout after confirmed resolution or manual reconciliation.
+ */
+export function clearPendingCheckout(storage) {
+  if (!storage || typeof storage.removeItem !== 'function') {
+    return;
+  }
+  try {
+    storage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
+  } catch {
+    // Ignore storage removal errors
+  }
+}
+
+/**
+ * Enforce unresolved checkout guard:
+ * - RETRY always reuses exact itemsSnapshot + idempotencyKey.
+ * - ABANDON / NEW_CHECKOUT is blocked unless manualReconciliationConfirmed === true.
+ */
+export function resolvePendingCheckoutAction({
+  action,
+  pendingCheckout,
+  manualReconciliationConfirmed = false,
+}) {
+  if (!pendingCheckout) {
+    if (action === 'RETRY') {
+      return {
+        allowed: false,
+        nextPendingCheckout: null,
+        rotateKey: false,
+        reason: 'NO_PENDING_CHECKOUT',
+      };
+    }
+    return {
+      allowed: true,
+      nextPendingCheckout: null,
+      rotateKey: true,
+      reason: null,
+    };
+  }
+
+  if (action === 'RETRY') {
+    return {
+      allowed: true,
+      itemsSnapshot: pendingCheckout.itemsSnapshot,
+      idempotencyKey: pendingCheckout.idempotencyKey,
+      nextPendingCheckout: pendingCheckout,
+      rotateKey: false,
+      reason: null,
+    };
+  }
+
+  if (action === 'ABANDON' || action === 'NEW_CHECKOUT') {
+    if (manualReconciliationConfirmed !== true) {
+      return {
+        allowed: false,
+        nextPendingCheckout: pendingCheckout,
+        rotateKey: false,
+        reason: 'MANUAL_RECONCILIATION_REQUIRED',
+        message:
+          'Không thể mở khóa giỏ hàng hoặc tạo đơn mới khi chưa xác nhận đã đối soát thủ công kết quả đơn chờ.',
+      };
+    }
+
+    return {
+      allowed: true,
+      nextPendingCheckout: null,
+      rotateKey: true,
+      reason: 'MANUALLY_RECONCILED',
+    };
+  }
+
+  return {
+    allowed: false,
+    nextPendingCheckout: pendingCheckout,
+    rotateKey: false,
+    reason: 'UNKNOWN_ACTION',
+  };
+}

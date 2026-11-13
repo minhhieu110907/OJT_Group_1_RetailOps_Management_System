@@ -33,6 +33,11 @@ import {
   validateChangePasswordForm,
   validateResetPasswordByTokenForm,
 } from '../utils/validation.js';
+import {
+  deriveRejectSubState,
+  evaluateAccountVerificationClick,
+  evaluateResubmitAction,
+} from '../pages/Auth/accountStatusHelpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1422,6 +1427,81 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
         }),
         { action: 'REDIRECT_ACCOUNT_STATUS' }
       );
+    });
+
+    it('P1-B Real API branch: never trusts location.state.rejectSubState, never defaults to 24h lock, and never fakes verification', () => {
+      // Spoofed location.state.rejectSubState = 'ELIGIBLE' must be ignored in Real API mode
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: false,
+          incomingState: { status: 'REJECTED', rejectSubState: 'ELIGIBLE' },
+        }),
+        'UNAVAILABLE'
+      );
+      // Missing backend data must NOT default to fake LOCKED_24H in Real API mode
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: false,
+          incomingState: { status: 'REJECTED' },
+        }),
+        'UNAVAILABLE'
+      );
+
+      // Verification click in Real API mode must NOT set nextVerified=true or emit success
+      const verifyResult = evaluateAccountVerificationClick({
+        isMockDemoActive: false,
+        prevVerified: false,
+      });
+      assert.equal(verifyResult.nextVerified, false);
+      assert.notEqual(verifyResult.toastType, 'success');
+
+      // Resubmit in Real API mode must remain blocked even if verified flag were somehow true
+      const resubmitResult = evaluateResubmitAction({
+        isMockDemoActive: false,
+        isAccountVerified: true,
+      });
+      assert.equal(resubmitResult.allowed, false);
+      assert.equal(resubmitResult.nextStatus, null);
+      assert.notEqual(resubmitResult.toastType, 'success');
+    });
+
+    it('P1-B Mock Demo branch: permits mock 24h/ELIGIBLE toggle, mock verification, and mock resubmit only when isMockDemoActive is true', () => {
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: true,
+          incomingState: { status: 'REJECTED' },
+        }),
+        'LOCKED_24H'
+      );
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: true,
+          incomingState: { status: 'REJECTED', rejectSubState: 'ELIGIBLE' },
+        }),
+        'ELIGIBLE'
+      );
+
+      const verifyOn = evaluateAccountVerificationClick({
+        isMockDemoActive: true,
+        prevVerified: false,
+      });
+      assert.equal(verifyOn.nextVerified, true);
+      assert.equal(verifyOn.toastType, 'success');
+
+      const blockedBeforeVerify = evaluateResubmitAction({
+        isMockDemoActive: true,
+        isAccountVerified: false,
+      });
+      assert.equal(blockedBeforeVerify.allowed, false);
+      assert.equal(blockedBeforeVerify.toastType, 'warning');
+
+      const mockResubmitOk = evaluateResubmitAction({
+        isMockDemoActive: true,
+        isAccountVerified: true,
+      });
+      assert.equal(mockResubmitOk.allowed, true);
+      assert.equal(mockResubmitOk.nextStatus, 'PENDING');
+      assert.equal(mockResubmitOk.toastType, 'success');
     });
   });
 });

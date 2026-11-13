@@ -663,6 +663,21 @@
   margin: 0;
 }
 
+.reconcileAckLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.reconcileAckLabel input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
 .abandonPendingBtn {
   align-self: flex-start;
   margin-top: 2px;

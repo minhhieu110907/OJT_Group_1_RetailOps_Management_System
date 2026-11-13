@@ -11,8 +11,12 @@ import {
   buildCheckoutPayload,
   calculateCartTotals,
   classifyCheckoutError,
+  clearPendingCheckout,
   formatVnd,
+  loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
+  resolvePendingCheckoutAction,
+  savePendingCheckout,
   updateCartItemQuantity,
 } from '../utils/posUtils.js';
 
@@ -286,9 +290,9 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     assert.ok(posContent.includes('isCheckingOutRef.current'));
     assert.ok(posContent.includes('isCartLocked'));
     assert.ok(posContent.includes('if (isCartLocked || isCheckingOutRef.current) return;'));
-    assert.ok(posContent.includes('setPendingCheckout({'));
-    assert.ok(posContent.includes('pendingCheckout.itemsSnapshot'));
-    assert.ok(posContent.includes('pendingCheckout.idempotencyKey'));
+    assert.ok(posContent.includes('setPendingCheckout(nextPending)'));
+    assert.ok(posContent.includes('resolvePendingCheckoutAction'));
+    assert.ok(posContent.includes('beforeunload'));
     assert.ok(posContent.includes('Kiểm tra lại kết quả đơn này'));
 
     // Axios 401 interceptor must NOT auto-replay POST /orders/checkout unless explicitly registered
@@ -300,5 +304,124 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       }),
       false
     );
+  });
+
+  test('P1-A behavioral: server commits order while client loses response, unconfirmed abandon is blocked, reload preserves pendingCheckout, and retry recovers original order', async () => {
+    // Fake sessionStorage for reload/navigation simulation
+    const backingStore = new Map();
+    const fakeSessionStorage = {
+      getItem: (k) => (backingStore.has(k) ? backingStore.get(k) : null),
+      setItem: (k, v) => backingStore.set(k, String(v)),
+      removeItem: (k) => backingStore.delete(k),
+    };
+
+    // Fake backend that actually commits order #99 on first request even though client sees ECONNABORTED
+    const committedByKey = new Map();
+    let backendCreateCount = 0;
+    axiosClient.post = async (_url, payload, config) => {
+      const key = config.headers['Idempotency-Key'];
+      if (!committedByKey.has(key)) {
+        backendCreateCount += 1;
+        const committedOrder = {
+          id: 99,
+          status: 'COMPLETED',
+          total_vnd: 56000,
+          created_by: 2,
+          sold_at: '2026-11-14T01:00:00Z',
+          cancelled_by: null,
+          cancelled_at: null,
+          cancel_reason: null,
+          items: payload.items.map((line) => ({
+            product_id: line.product_id,
+            sku_snapshot: 'SP0001',
+            product_name_snapshot: 'Sữa tươi 1L',
+            quantity: line.quantity,
+            unit_price_vnd: line.viewed_unit_price_vnd,
+            line_total_vnd: line.quantity * line.viewed_unit_price_vnd,
+          })),
+        };
+        committedByKey.set(key, committedOrder);
+        // Simulate network drop / timeout before client receives response
+        const timeoutErr = new Error('timeout of 15000ms exceeded');
+        timeoutErr.code = 'ECONNABORTED';
+        throw timeoutErr;
+      }
+      // Subsequent replay with same key returns original committed order (Backend 24h idempotency)
+      return { data: committedByKey.get(key) };
+    };
+
+    const key = generateCheckoutIdempotencyKey();
+    const snapshot = [{ product_id: 1, quantity: 2, viewed_unit_price_vnd: 28000 }];
+
+    // 1. First checkout hits timeout after backend already committed #99
+    await assert.rejects(
+      () => ordersApi.checkoutOrder({ isMockMode: false, items: snapshot, idempotencyKey: key }),
+      (err) => classifyCheckoutError(err).outcome === 'AMBIGUOUS'
+    );
+
+    const pending = {
+      idempotencyKey: key,
+      itemsSnapshot: snapshot,
+      cartSnapshot: [
+        { productId: 1, sku: 'SP0001', name: 'Sữa tươi 1L', unitPriceVnd: 28000, quantity: 2 },
+      ],
+      totalVnd: 56000,
+      lineCount: 1,
+      reasonMessage: 'Chưa xác định được kết quả đơn hàng',
+      createdAt: '2026-11-14T01:00:00Z',
+    };
+    assert.equal(savePendingCheckout(fakeSessionStorage, pending), true);
+
+    // 2. User attempts to click "Mở khóa giỏ hàng" / start new checkout WITHOUT manual reconciliation confirmation -> BLOCKED
+    const blockedAbandon = resolvePendingCheckoutAction({
+      action: 'ABANDON',
+      pendingCheckout: pending,
+      manualReconciliationConfirmed: false,
+    });
+    assert.equal(blockedAbandon.allowed, false);
+    assert.equal(blockedAbandon.rotateKey, false);
+    assert.equal(blockedAbandon.reason, 'MANUAL_RECONCILIATION_REQUIRED');
+    assert.equal(blockedAbandon.nextPendingCheckout.idempotencyKey, key);
+
+    const blockedNew = resolvePendingCheckoutAction({
+      action: 'NEW_CHECKOUT',
+      pendingCheckout: pending,
+      manualReconciliationConfirmed: false,
+    });
+    assert.equal(blockedNew.allowed, false);
+    assert.equal(blockedNew.rotateKey, false);
+
+    // 3. Simulate page reload/navigation: restored pendingCheckout keeps exact key and snapshot
+    const restoredAfterReload = loadPendingCheckout(fakeSessionStorage);
+    assert.ok(restoredAfterReload);
+    assert.equal(restoredAfterReload.idempotencyKey, key);
+    assert.deepEqual(restoredAfterReload.itemsSnapshot, snapshot);
+
+    // 4. Retry with restored pendingCheckout recovers original order #99 without creating a duplicate
+    const retryPlan = resolvePendingCheckoutAction({
+      action: 'RETRY',
+      pendingCheckout: restoredAfterReload,
+    });
+    assert.equal(retryPlan.allowed, true);
+    assert.equal(retryPlan.idempotencyKey, key);
+
+    const recoveredOrder = await ordersApi.checkoutOrder({
+      isMockMode: false,
+      items: retryPlan.itemsSnapshot,
+      idempotencyKey: retryPlan.idempotencyKey,
+    });
+    assert.equal(recoveredOrder.id, 99);
+    assert.equal(backendCreateCount, 1);
+
+    // 5. Clearing after confirmation/recovery works and allows manual reconciliation when explicitly confirmed
+    const manualAbandon = resolvePendingCheckoutAction({
+      action: 'ABANDON',
+      pendingCheckout: pending,
+      manualReconciliationConfirmed: true,
+    });
+    assert.equal(manualAbandon.allowed, true);
+    assert.equal(manualAbandon.rotateKey, true);
+    clearPendingCheckout(fakeSessionStorage);
+    assert.equal(loadPendingCheckout(fakeSessionStorage), null);
   });
 });
