@@ -8,6 +8,11 @@ import {
   normalizeSupplierSnapshot,
   detectSupplierChanges,
 } from '../../api/suppliersApi';
+import {
+  hydrateSupplierPhoneField,
+  parseAndValidateSupplierPhone,
+} from '../../utils/phoneUtils';
+import SupplierPhoneInput from './SupplierPhoneInput';
 import styles from './SupplierList.module.css';
 
 // Component hiển thị tag trạng thái chuẩn thiết kế
@@ -93,6 +98,9 @@ export default function SupplierList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [supplierForm, setSupplierForm] = useState(INITIAL_SUPPLIER_FORM);
+  const [phoneCountry, setPhoneCountry] = useState('VN');
+  const [phoneNationalInput, setPhoneNationalInput] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -158,6 +166,9 @@ export default function SupplierList() {
     }
     setModalMode('create');
     setSupplierForm({ ...INITIAL_SUPPLIER_FORM });
+    setPhoneCountry('VN');
+    setPhoneNationalInput('');
+    setPhoneError('');
     setInitialSnapshot(null);
     setFormError('');
     setIsModalOpen(true);
@@ -171,6 +182,7 @@ export default function SupplierList() {
     }
     setModalMode('edit');
     const snapshot = normalizeSupplierSnapshot(supplier);
+    const hydratedPhone = hydrateSupplierPhoneField(snapshot.contact_phone);
     setSupplierForm({
       id: snapshot.id,
       name: snapshot.name,
@@ -178,6 +190,9 @@ export default function SupplierList() {
       contact_email: snapshot.contact_email || '',
       status: snapshot.status,
     });
+    setPhoneCountry(hydratedPhone.countryIso);
+    setPhoneNationalInput(hydratedPhone.nationalInput);
+    setPhoneError('');
     setInitialSnapshot(snapshot);
     setFormError('');
     setIsModalOpen(true);
@@ -187,6 +202,52 @@ export default function SupplierList() {
     if (isSubmitting) return;
     setIsModalOpen(false);
     setFormError('');
+    setPhoneError('');
+  };
+
+  // Đồng bộ giá trị số điện thoại quốc gia -> E.164 trong supplierForm
+  const syncPhoneField = useCallback(
+    (nextNationalInput, nextCountryIso, shouldValidate = false) => {
+      const validation = parseAndValidateSupplierPhone(nextNationalInput, nextCountryIso);
+      setPhoneNationalInput(nextNationalInput);
+      setPhoneCountry(nextCountryIso);
+
+      setSupplierForm((prev) => ({
+        ...prev,
+        contact_phone: !nextNationalInput.trim()
+          ? ''
+          : validation.isValid
+            ? validation.e164
+            : nextNationalInput.trim(),
+      }));
+
+      if (shouldValidate || phoneError) {
+        setPhoneError(
+          !nextNationalInput.trim() || validation.isValid ? '' : validation.error
+        );
+      }
+    },
+    [phoneError]
+  );
+
+  const handlePhoneInputChange = (nextValue) => {
+    syncPhoneField(nextValue, phoneCountry, false);
+  };
+
+  const handlePhoneCountryChange = (nextCountryIso, pastedNationalInput) => {
+    const nextInput =
+      pastedNationalInput !== undefined ? pastedNationalInput : phoneNationalInput;
+    const hasValue = Boolean(nextInput.trim());
+    syncPhoneField(nextInput, nextCountryIso, hasValue);
+  };
+
+  const handlePhoneBlur = () => {
+    if (!phoneNationalInput.trim()) {
+      setPhoneError('');
+      return;
+    }
+    const validation = parseAndValidateSupplierPhone(phoneNationalInput, phoneCountry);
+    setPhoneError(validation.isValid ? '' : validation.error);
   };
 
   // Đảo trạng thái tạm thời trong form modal (chưa lưu xuống database cho đến khi bấm "Lưu thay đổi")
@@ -227,11 +288,16 @@ export default function SupplierList() {
       return;
     }
 
-    const trimmedPhone = supplierForm.contact_phone?.trim() || null;
-    if (trimmedPhone && trimmedPhone.length > 32) {
-      setFormError('Số điện thoại không được vượt quá 32 ký tự.');
+    const phoneValidation = parseAndValidateSupplierPhone(
+      phoneNationalInput,
+      phoneCountry
+    );
+    if (!phoneValidation.isValid) {
+      setPhoneError(phoneValidation.error);
       return;
     }
+    setPhoneError('');
+    const normalizedPhone = phoneValidation.e164;
 
     const trimmedEmail = supplierForm.contact_email?.trim() || null;
     if (trimmedEmail) {
@@ -249,7 +315,10 @@ export default function SupplierList() {
     // Với edit mode: kiểm tra dirty state theo Decision Matrix
     let changes = null;
     if (modalMode === 'edit') {
-      changes = detectSupplierChanges(supplierForm, initialSnapshot);
+      changes = detectSupplierChanges(
+        { ...supplierForm, contact_phone: normalizedPhone || '' },
+        initialSnapshot
+      );
       if (!changes.hasInfoChanges && !changes.hasStatusChange) {
         toast.info('Không có thay đổi nào để lưu.');
         setIsModalOpen(false);
@@ -266,7 +335,7 @@ export default function SupplierList() {
         await suppliersApi.createSupplier({
           name: trimmedName,
           contact_email: trimmedEmail,
-          contact_phone: trimmedPhone,
+          contact_phone: normalizedPhone,
         });
         toast.success('Thêm nhà cung cấp mới thành công.');
         setIsModalOpen(false);
@@ -302,6 +371,7 @@ export default function SupplierList() {
                 // Thử đồng bộ lại dữ liệu backend thực tế
                 const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
                 const newSnapshot = normalizeSupplierSnapshot(latestSupplier);
+                const rehydratedPhone = hydrateSupplierPhoneField(newSnapshot.contact_phone);
                 setInitialSnapshot(newSnapshot);
                 setSupplierForm({
                   id: newSnapshot.id,
@@ -310,6 +380,9 @@ export default function SupplierList() {
                   contact_email: newSnapshot.contact_email || '',
                   status: newSnapshot.status,
                 });
+                setPhoneCountry(rehydratedPhone.countryIso);
+                setPhoneNationalInput(rehydratedPhone.nationalInput);
+                setPhoneError('');
                 syncWarning = `Thông tin nhà cung cấp đã được lưu thành công, nhưng cập nhật trạng thái thất bại: ${statusErrMsg}. Giao diện đã được đồng bộ với dữ liệu máy chủ.`;
               } catch {
                 syncWarning = `Cảnh báo: Thông tin nhà cung cấp đã được lưu một phần trên hệ thống, nhưng cập nhật trạng thái thất bại (${statusErrMsg}) và không thể tải lại dữ liệu mới nhất. Vui lòng kiểm tra lại trước khi tiếp tục.`;
@@ -615,35 +688,15 @@ export default function SupplierList() {
               <label className={styles.formLabel}>Số điện thoại liên hệ</label>
               <span className={styles.optionalBadge}>Tùy chọn</span>
             </div>
-            <div className={styles.formInputWrapper}>
-              <svg
-                className={styles.inputIcon}
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-              </svg>
-              <input
-                type="text"
-                className={`${styles.formInput} ${styles.formInputWithIcon}`}
-                placeholder="Ví dụ: 028 5415 5555"
-                value={supplierForm.contact_phone}
-                onChange={(e) =>
-                  setSupplierForm((prev) => ({
-                    ...prev,
-                    contact_phone: e.target.value,
-                  }))
-                }
-                maxLength={32}
-                disabled={!isAdmin || isSubmitting}
-              />
-            </div>
+            <SupplierPhoneInput
+              countryIso={phoneCountry}
+              value={phoneNationalInput}
+              error={phoneError}
+              disabled={!isAdmin || isSubmitting}
+              onChange={handlePhoneInputChange}
+              onCountryChange={handlePhoneCountryChange}
+              onBlur={handlePhoneBlur}
+            />
           </div>
 
           {/* Email */}

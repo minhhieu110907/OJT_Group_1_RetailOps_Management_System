@@ -116,7 +116,7 @@ export default function AuthLayout() {
 
       {/* 3. Phần Footer dưới đáy màn hình */}
       <footer className={styles.footer}>
-        RetailOps v1.0 • Một cửa hàng / Một kho • Múi giờ Asia/Ha_Noi • Bảo mật nội bộ nghiêm ngặt
+        RetailOps v1.0 • Một cửa hàng / Một kho • Múi giờ Asia/Ho_Chi_Minh • Bảo mật nội bộ nghiêm ngặt
       </footer>
     </div>
   );

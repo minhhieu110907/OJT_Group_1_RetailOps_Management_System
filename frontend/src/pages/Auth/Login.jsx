@@ -127,7 +127,21 @@ export default function Login() {
       navigate(loggedInUser.role === 'ADMIN' ? '/dashboard' : '/pos', {
         replace: true,
       });
-    } catch {
+    } catch (error) {
+      if (error?.code === 'ACCOUNT_PENDING' || error?.code === 'ACCOUNT_REJECTED') {
+        navigate('/account-status', {
+          replace: true,
+          state: {
+            status:
+              error.code === 'ACCOUNT_PENDING'
+                ? 'PENDING_APPROVAL'
+                : 'REJECTED',
+            email: formData.email.trim().toLowerCase(),
+            isUnverifiedSubmission: false,
+          },
+        });
+        return;
+      }
       setHasError(true);
     } finally {
       setIsSubmitting(false);

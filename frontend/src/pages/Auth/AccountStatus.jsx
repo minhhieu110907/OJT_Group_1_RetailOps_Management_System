@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
 import styles from './AccountStatus.module.css';
 
-// Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ha_Noi (HH:mm)
+// Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ho_Chi_Minh (HH:mm)
 function getHaNoiCurrentTime() {
   return new Intl.DateTimeFormat('vi-VN', {
     timeZone: 'Asia/Ho_Chi_Minh',
@@ -18,7 +18,7 @@ function getHaNoiCurrentTime() {
 const FALLBACK_PROFILE = {
   fullName: 'Nhân viên Mẫu (Chưa xác thực)',
   email: 'nhanvien.demo@retailops.local',
-  submittedAt: '09:30 - 07/11/2026 (Asia/Ha_Noi)',
+  submittedAt: '09:30 - 07/11/2026 (Asia/Ho_Chi_Minh)',
   rejectReason:
     'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
 };
@@ -64,7 +64,7 @@ export default function AccountStatus() {
   // Cờ xác minh quyền kiểm soát tài khoản (ở trạng thái REJECTED - Đủ điều kiện)
   const [isAccountVerified, setIsAccountVerified] = useState(false);
 
-  // Thời gian cập nhật lần cuối (HH:mm Asia/Ha_Noi)
+  // Thời gian cập nhật lần cuối (HH:mm Asia/Ho_Chi_Minh)
   const [lastUpdated, setLastUpdated] = useState(() => getHaNoiCurrentTime());
 
   // Hiệu ứng loading khi bấm kiểm tra trạng thái
@@ -156,14 +156,14 @@ export default function AccountStatus() {
 
   return (
     <div className={styles.statusWrapper}>
-      {/* 1. Góc trên cùng bên phải: Nhãn Cập nhật lần cuối (Asia/Ha_Noi) */}
+      {/* 1. Góc trên cùng bên phải: Nhãn Cập nhật lần cuối (Asia/Ho_Chi_Minh) */}
       <div className={styles.topMetaRow}>
         <span className={styles.lastUpdatedTag}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          <span>Cập nhật lần cuối: {lastUpdated} (Asia/Ha_Noi)</span>
+          <span>Cập nhật lần cuối: {lastUpdated} (Asia/Ho_Chi_Minh)</span>
         </span>
       </div>
 
@@ -411,7 +411,7 @@ export default function AccountStatus() {
                     từ chối.
                   </p>
                   <div className={styles.cooldownTag}>
-                    Có thể gửi lại sau: 15:20 - 08/11/2026 (Asia/Ha_Noi)
+                    Có thể gửi lại sau: 15:20 - 08/11/2026 (Asia/Ho_Chi_Minh)
                   </div>
                   <button
                     type="button"

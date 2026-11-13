@@ -264,6 +264,13 @@ export function validateCategoryRead(item) {
       `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid status "${item.status}". Expected ACTIVE or INACTIVE.`
     );
   }
+  if (
+    item.description !== undefined &&
+    item.description !== null &&
+    typeof item.description !== 'string'
+  ) {
+    throw new Error(`Category ${item.id} has invalid description.`);
+  }
   if (!isValidIsoTimestamp(item.created_at)) {
     throw new Error(
       `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid or missing created_at timestamp: ${item.created_at}.`
@@ -278,6 +285,7 @@ export function validateCategoryRead(item) {
   return {
     id: item.id,
     name: item.name.trim(),
+    ...(item.description !== undefined ? { description: item.description } : {}),
     status: item.status,
     created_at: item.created_at,
     updated_at: item.updated_at,
