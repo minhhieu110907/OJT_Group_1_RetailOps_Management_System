@@ -7,7 +7,6 @@ import axiosClient, { isSafeToReplayRequest } from '../api/axiosClient.js';
 import { ordersApi, generateCheckoutIdempotencyKey } from '../api/ordersApi.js';
 import {
   DEFAULT_POS_PRODUCT_LIMIT,
-  PENDING_CHECKOUT_STORAGE_KEY,
   PENDING_CHECKOUT_TTL_MS,
   addProductToCart,
   buildCheckoutPayload,
@@ -17,6 +16,7 @@ import {
   clearPendingCheckout,
   executeSafePosCheckout,
   formatVnd,
+  getPendingCheckoutStorageKey,
   loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
   resolvePendingCheckoutAction,
@@ -373,7 +373,9 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       idempotencyKey: key,
       nowMs: 1_700_000_000_000,
       checkoutOrderFn: async () => {
-        persistedBeforeSend = fakeSessionStorage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+        persistedBeforeSend = fakeSessionStorage.getItem(
+          getPendingCheckoutStorageKey(scopeA)
+        );
         const dropErr = new Error('tab crashed / network dropped');
         dropErr.code = 'ERR_NETWORK';
         throw dropErr;
@@ -439,6 +441,84 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     assert.equal(retrySent.idempotencyKey, key);
     assert.deepEqual(retrySent.items, snapshot);
     assert.equal(loadPendingCheckout(fakeSessionStorage, scopeA, 1_700_000_010_000), null);
+  });
+
+  test('Multi-user storage isolation A -> B -> A: concurrent/sequential users never overwrite or delete each other pending checkouts', async () => {
+    const backingStore = new Map();
+    const sharedStorage = {
+      getItem: (k) => (backingStore.has(k) ? backingStore.get(k) : null),
+      setItem: (k, v) => backingStore.set(k, String(v)),
+      removeItem: (k) => backingStore.delete(k),
+    };
+
+    const scopeA = buildPendingCheckoutOwnerScope({ id: 101 }, false);
+    const scopeB = buildPendingCheckoutOwnerScope({ id: 202 }, false);
+    assert.notEqual(
+      getPendingCheckoutStorageKey(scopeA),
+      getPendingCheckoutStorageKey(scopeB)
+    );
+    assert.equal(getPendingCheckoutStorageKey(null), null);
+
+    const keyA = generateCheckoutIdempotencyKey();
+    const keyB = generateCheckoutIdempotencyKey();
+    const itemsA = [{ product_id: 1, quantity: 1, viewed_unit_price_vnd: 28000 }];
+    const itemsB = [{ product_id: 2, quantity: 3, viewed_unit_price_vnd: 15000 }];
+    const nowMs = 1_700_000_000_000;
+
+    // 1. User A hits ambiguous timeout -> pending A persisted under A's key
+    const resA = await executeSafePosCheckout({
+      storage: sharedStorage,
+      ownerScope: scopeA,
+      isMockMode: false,
+      itemsSnapshot: itemsA,
+      totalVnd: 28000,
+      lineCount: 1,
+      idempotencyKey: keyA,
+      nowMs,
+      checkoutOrderFn: async () => {
+        const err = new Error('timeout');
+        err.code = 'ECONNABORTED';
+        throw err;
+      },
+    });
+    assert.equal(resA.outcome, 'AMBIGUOUS');
+
+    // 2. User A logs out, User B logs in on same browser and hits ambiguous timeout -> pending B persisted under B's key
+    assert.equal(loadPendingCheckout(sharedStorage, scopeB, nowMs + 1000), null);
+    const resB = await executeSafePosCheckout({
+      storage: sharedStorage,
+      ownerScope: scopeB,
+      isMockMode: false,
+      itemsSnapshot: itemsB,
+      totalVnd: 45000,
+      lineCount: 1,
+      idempotencyKey: keyB,
+      nowMs: nowMs + 2000,
+      checkoutOrderFn: async () => {
+        const err = new Error('network error');
+        err.code = 'ERR_NETWORK';
+        throw err;
+      },
+    });
+    assert.equal(resB.outcome, 'AMBIGUOUS');
+
+    // 3. User B retries and succeeds (clears B's storage) -> User A's pending checkout MUST remain untouched!
+    const retryB = await executeSafePosCheckout({
+      storage: sharedStorage,
+      ownerScope: scopeB,
+      isMockMode: false,
+      pendingCheckout: loadPendingCheckout(sharedStorage, scopeB, nowMs + 3000),
+      nowMs: nowMs + 3000,
+      checkoutOrderFn: async () => ({ id: 200, total_vnd: 45000 }),
+    });
+    assert.equal(retryB.ok, true);
+    assert.equal(loadPendingCheckout(sharedStorage, scopeB, nowMs + 3000), null);
+
+    // 4. User A logs back in / reloads -> User A's exact pending checkout is restored independently
+    const restoredA = loadPendingCheckout(sharedStorage, scopeA, nowMs + 4000);
+    assert.ok(restoredA);
+    assert.equal(restoredA.idempotencyKey, keyA);
+    assert.deepEqual(restoredA.itemsSnapshot, itemsA);
   });
 
   test('P1-A behavioral: server commits order while client loses response, unconfirmed abandon is blocked, reload preserves pendingCheckout, and retry recovers original order', async () => {

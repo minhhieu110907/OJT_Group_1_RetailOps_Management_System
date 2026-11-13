@@ -223,6 +223,18 @@ export const PENDING_CHECKOUT_STORAGE_KEY = 'retailops_pos_pending_checkout_v1';
 export const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Derive an isolated sessionStorage key per validated ownerScope so concurrent
+ * or sequential users on a shared browser cannot overwrite or clear each other's
+ * pending checkout.
+ */
+export function getPendingCheckoutStorageKey(ownerScope) {
+  if (typeof ownerScope !== 'string' || !ownerScope.trim()) {
+    return null;
+  }
+  return `${PENDING_CHECKOUT_STORAGE_KEY}:${ownerScope.trim()}`;
+}
+
+/**
  * Build a non-sensitive owner scope for pending POS checkout without storing
  * JWT, refresh token, CSRF token, or PII in browser storage.
  */
@@ -242,11 +254,11 @@ export function buildPendingCheckoutOwnerScope(user, isMockMode = false) {
  */
 export function savePendingCheckout(storage, pendingCheckout, ownerScopeArg) {
   const ownerScope = ownerScopeArg || pendingCheckout?.ownerScope;
+  const storageKey = getPendingCheckoutStorageKey(ownerScope);
   if (
     !storage ||
     typeof storage.setItem !== 'function' ||
-    typeof ownerScope !== 'string' ||
-    !ownerScope.trim() ||
+    !storageKey ||
     !pendingCheckout ||
     typeof pendingCheckout.idempotencyKey !== 'string' ||
     !pendingCheckout.idempotencyKey.trim() ||
@@ -267,7 +279,7 @@ export function savePendingCheckout(storage, pendingCheckout, ownerScopeArg) {
       ).toISOString();
 
     const payload = {
-      ownerScope,
+      ownerScope: ownerScope.trim(),
       idempotencyKey: pendingCheckout.idempotencyKey,
       itemsSnapshot: pendingCheckout.itemsSnapshot,
       cartSnapshot: Array.isArray(pendingCheckout.cartSnapshot)
@@ -288,7 +300,7 @@ export function savePendingCheckout(storage, pendingCheckout, ownerScopeArg) {
       createdAt,
       expiresAt,
     };
-    storage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(payload));
+    storage.setItem(storageKey, JSON.stringify(payload));
     return true;
   } catch {
     return false;
@@ -300,22 +312,22 @@ export function savePendingCheckout(storage, pendingCheckout, ownerScopeArg) {
  * the active user/session, and annotate whether Backend's 24h TTL has expired.
  */
 export function loadPendingCheckout(storage, ownerScope, nowMs = Date.now()) {
+  const storageKey = getPendingCheckoutStorageKey(ownerScope);
   if (
     !storage ||
     typeof storage.getItem !== 'function' ||
-    typeof ownerScope !== 'string' ||
-    !ownerScope.trim()
+    !storageKey
   ) {
     return null;
   }
 
   try {
-    const raw = storage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+    const raw = storage.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
       !parsed ||
-      parsed.ownerScope !== ownerScope ||
+      parsed.ownerScope !== ownerScope.trim() ||
       typeof parsed.idempotencyKey !== 'string' ||
       !parsed.idempotencyKey.trim() ||
       !Array.isArray(parsed.itemsSnapshot) ||
@@ -357,23 +369,15 @@ export function loadPendingCheckout(storage, ownerScope, nowMs = Date.now()) {
 }
 
 /**
- * Remove persisted unresolved POS checkout only if it belongs to ownerScope (or no scope filter).
+ * Remove persisted unresolved POS checkout strictly under ownerScope's own storage key.
  */
 export function clearPendingCheckout(storage, ownerScope) {
-  if (!storage || typeof storage.removeItem !== 'function') {
+  const storageKey = getPendingCheckoutStorageKey(ownerScope);
+  if (!storage || typeof storage.removeItem !== 'function' || !storageKey) {
     return;
   }
   try {
-    if (ownerScope && typeof storage.getItem === 'function') {
-      const raw = storage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.ownerScope && parsed.ownerScope !== ownerScope) {
-          return;
-        }
-      }
-    }
-    storage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
+    storage.removeItem(storageKey);
   } catch {
     // Ignore storage removal errors
   }
