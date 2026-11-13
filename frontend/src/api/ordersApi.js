@@ -2,7 +2,14 @@ import axiosClient from './axiosClient.js';
 import { assertRealApiMode, isValidIsoTimestamp } from './productsApi.js';
 
 const MAX_CHECKOUT_LINES = 100;
+const CHECKOUT_REQUEST_TIMEOUT_MS = 15000;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/;
+
+function createClientValidationError(message) {
+  const err = new Error(message);
+  err.isClientValidation = true;
+  return err;
+}
 
 export function generateCheckoutIdempotencyKey() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -47,10 +54,12 @@ export const ordersApi = {
     assertRealApiMode(isMockMode);
 
     if (!Array.isArray(items) || items.length === 0) {
-      throw new Error('Giỏ hàng trống, không thể xác nhận bán hàng.');
+      throw createClientValidationError('Giỏ hàng trống, không thể xác nhận bán hàng.');
     }
     if (items.length > MAX_CHECKOUT_LINES) {
-      throw new Error(`Mỗi đơn hàng chỉ hỗ trợ tối đa ${MAX_CHECKOUT_LINES} dòng sản phẩm.`);
+      throw createClientValidationError(
+        `Mỗi đơn hàng chỉ hỗ trợ tối đa ${MAX_CHECKOUT_LINES} dòng sản phẩm.`
+      );
     }
 
     const normalizedItems = items.map((item) => {
@@ -63,7 +72,7 @@ export const ordersApi = {
         !Number.isInteger(item.viewed_unit_price_vnd) ||
         item.viewed_unit_price_vnd <= 0
       ) {
-        throw new Error('Dữ liệu dòng sản phẩm thanh toán không hợp lệ.');
+        throw createClientValidationError('Dữ liệu dòng sản phẩm thanh toán không hợp lệ.');
       }
       return {
         product_id: item.product_id,
@@ -81,6 +90,7 @@ export const ordersApi = {
       '/orders/checkout',
       { items: normalizedItems },
       {
+        timeout: CHECKOUT_REQUEST_TIMEOUT_MS,
         headers: {
           'Idempotency-Key': key,
         },

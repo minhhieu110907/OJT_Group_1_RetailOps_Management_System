@@ -1370,4 +1370,58 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
       assert.equal(res.revoked, true);
     });
   });
+
+  // ==========================================================================
+  // PR #50 P1: Account Status & Login Error Code Handling
+  // ==========================================================================
+  describe('PR #50 P1: Account Status & Login Error Code Invariants', () => {
+    it('Login.jsx branches strictly on error.code (ACCOUNT_PENDING / ACCOUNT_REJECTED) without parsing error.message', () => {
+      const loginPath = path.resolve(__dirname, '../pages/Auth/Login.jsx');
+      const authCtxPath = path.resolve(__dirname, '../context/AuthContext.jsx');
+      const loginContent = fs.readFileSync(loginPath, 'utf8');
+      const authCtxContent = fs.readFileSync(authCtxPath, 'utf8');
+
+      assert.ok(authCtxContent.includes('error?.response?.data?.code'));
+      assert.ok(authCtxContent.includes('authError.code = error.response.data.code'));
+
+      assert.ok(loginContent.includes("error?.code === 'ACCOUNT_PENDING'"));
+      assert.ok(loginContent.includes("error?.code === 'ACCOUNT_REJECTED'"));
+      assert.ok(loginContent.includes('isUnverifiedSubmission: false'));
+      assert.equal(loginContent.includes('error.message.includes'), false);
+    });
+
+    it('AccountStatus.jsx never displays fake fallback profile or hardcoded dates in Real API mode', () => {
+      const accountStatusPath = path.resolve(__dirname, '../pages/Auth/AccountStatus.jsx');
+      const content = fs.readFileSync(accountStatusPath, 'utf8');
+
+      assert.ok(content.includes('MOCK_DEMO_FALLBACK_PROFILE'));
+      assert.ok(content.includes('const isDirectUnverifiedVisit = !isMockDemoActive && !incomingState.status'));
+      assert.ok(content.includes('isMockDemoActive\n    ? {'));
+      assert.ok(content.includes("Chưa có thông tin lý do từ chối từ máy chủ"));
+      assert.ok(content.includes("Chưa có thông tin thời hạn gửi lại từ máy chủ"));
+      assert.equal(content.includes('setAccessToken'), false);
+      assert.equal(content.includes('setUser('), false);
+    });
+
+    it('evaluateRouteAccess keeps fail-closed behavior on 401/502/network failure without entering Dashboard or Mock', () => {
+      assert.deepEqual(
+        evaluateRouteAccess({
+          authInitializing: false,
+          user: null,
+          accessToken: null,
+          allowedRoles: ['ADMIN', 'STAFF'],
+        }),
+        { action: 'REDIRECT_LOGIN' }
+      );
+      assert.deepEqual(
+        evaluateRouteAccess({
+          authInitializing: false,
+          user: { id: 10, role: 'STAFF', status: 'PENDING_APPROVAL' },
+          accessToken: 'invalid-or-blocked',
+          allowedRoles: ['STAFF'],
+        }),
+        { action: 'REDIRECT_ACCOUNT_STATUS' }
+      );
+    });
+  });
 });

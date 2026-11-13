@@ -15,6 +15,7 @@ import {
   addProductToCart,
   buildCheckoutPayload,
   calculateCartTotals,
+  classifyCheckoutError,
   formatVnd,
   prioritizeCategoriesByLatestProducts,
   updateCartItemQuantity,
@@ -68,6 +69,7 @@ export default function PosPage() {
 
   const [cart, setCart] = useState([]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState(null);
   const isCheckingOutRef = useRef(false);
   const idempotencyKeyRef = useRef(generateCheckoutIdempotencyKey());
   const requestIdRef = useRef(0);
@@ -160,6 +162,7 @@ export default function PosPage() {
 
   const cartTotals = useMemo(() => calculateCartTotals(cart), [cart]);
   const hasCartItems = cart.length > 0;
+  const isCartLocked = isCheckingOut || Boolean(pendingCheckout);
 
   const cartQuantityMap = useMemo(() => {
     const map = new Map();
@@ -170,6 +173,7 @@ export default function PosPage() {
   }, [cart]);
 
   const handleAddToCart = (product) => {
+    if (isCartLocked || isCheckingOutRef.current) return;
     const result = addProductToCart(cart, product);
     if (!result.added) {
       if (result.reason === 'OUT_OF_STOCK') {
@@ -187,39 +191,71 @@ export default function PosPage() {
   };
 
   const handleUpdateQty = (productId, nextQty) => {
+    if (isCartLocked || isCheckingOutRef.current) return;
     setCart((prev) => updateCartItemQuantity(prev, productId, nextQty));
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
   const handleClearCart = () => {
-    if (isCheckingOut) return;
+    if (isCartLocked || isCheckingOutRef.current) return;
     setCart([]);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
+  const handleAbandonPendingCheckout = () => {
+    if (isCheckingOutRef.current) return;
+    setPendingCheckout(null);
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+    setRefreshTrigger((prev) => prev + 1);
+  };
+
   const handleConfirmCheckout = async () => {
-    if (cart.length === 0 || isCheckingOutRef.current) return;
+    if (isCheckingOutRef.current) return;
+    const snapshotItems = pendingCheckout
+      ? pendingCheckout.itemsSnapshot
+      : buildCheckoutPayload(cart);
+    const requestKey = pendingCheckout
+      ? pendingCheckout.idempotencyKey
+      : idempotencyKeyRef.current;
+
+    if (!snapshotItems || snapshotItems.length === 0) return;
 
     isCheckingOutRef.current = true;
     setIsCheckingOut(true);
     try {
       const order = await ordersApi.checkoutOrder({
         isMockMode,
-        items: buildCheckoutPayload(cart),
-        idempotencyKey: idempotencyKeyRef.current,
+        items: snapshotItems,
+        idempotencyKey: requestKey,
       });
 
       toast.success(
         `Thanh toán thành công đơn #${order.id} — Tổng ${formatVnd(order.total_vnd)}.`
       );
+      setPendingCheckout(null);
       setCart([]);
       idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
-      toast.error(
-        getApiErrorMessage(err, 'Không thể xác nhận bán hàng. Vui lòng thử lại.')
-      );
-      setRefreshTrigger((prev) => prev + 1);
+      const classified = classifyCheckoutError(err);
+      if (classified.outcome === 'AMBIGUOUS') {
+        setPendingCheckout({
+          idempotencyKey: requestKey,
+          itemsSnapshot: snapshotItems,
+          totalVnd: pendingCheckout ? pendingCheckout.totalVnd : cartTotals.totalVnd,
+          lineCount: pendingCheckout ? pendingCheckout.lineCount : cartTotals.lineCount,
+          reasonMessage: classified.message,
+        });
+        toast.warning(classified.message);
+      } else if (classified.outcome === 'IDEMPOTENCY_CONFLICT') {
+        setPendingCheckout(null);
+        idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+        toast.error(classified.message);
+      } else {
+        setPendingCheckout(null);
+        toast.error(classified.message);
+        setRefreshTrigger((prev) => prev + 1);
+      }
     } finally {
       isCheckingOutRef.current = false;
       setIsCheckingOut(false);
@@ -379,7 +415,7 @@ export default function PosPage() {
                       type="button"
                       className={styles.addBtn}
                       onClick={() => handleAddToCart(product)}
-                      disabled={isOutOfStock || isAtStockLimit || isCheckingOut}
+                      disabled={isOutOfStock || isAtStockLimit || isCartLocked}
                     >
                       <svg
                         width="15"
@@ -434,7 +470,7 @@ export default function PosPage() {
               type="button"
               className={styles.clearCartBtn}
               onClick={handleClearCart}
-              disabled={isCheckingOut}
+              disabled={isCartLocked}
             >
               Xóa tất cả
             </button>
@@ -457,7 +493,7 @@ export default function PosPage() {
                     type="button"
                     className={styles.qtyBtn}
                     onClick={() => handleUpdateQty(item.productId, item.quantity - 1)}
-                    disabled={isCheckingOut}
+                    disabled={isCartLocked}
                     aria-label={`Giảm số lượng ${item.name}`}
                   >
                     −
@@ -468,7 +504,7 @@ export default function PosPage() {
                     className={styles.qtyBtn}
                     onClick={() => handleUpdateQty(item.productId, item.quantity + 1)}
                     disabled={
-                      isCheckingOut ||
+                      isCartLocked ||
                       (typeof item.availableStock === 'number' &&
                         item.quantity >= item.availableStock)
                     }
@@ -486,7 +522,7 @@ export default function PosPage() {
                     type="button"
                     className={styles.removeItemBtn}
                     onClick={() => handleUpdateQty(item.productId, 0)}
-                    disabled={isCheckingOut}
+                    disabled={isCartLocked}
                   >
                     Xóa
                   </button>
@@ -530,13 +566,36 @@ export default function PosPage() {
               </span>
             </div>
 
+            {pendingCheckout && (
+              <div className={styles.ambiguousBanner} role="alert">
+                <strong>Trạng thái đơn hàng chưa xác định</strong>
+                <p>{pendingCheckout.reasonMessage}</p>
+                <span>
+                  Giỏ hàng tạm khóa để tránh tạo đơn trùng. Bấm &quot;Kiểm tra lại kết
+                  quả đơn này&quot; để đối chiếu bằng cùng mã giao dịch.
+                </span>
+                <button
+                  type="button"
+                  className={styles.abandonPendingBtn}
+                  onClick={handleAbandonPendingCheckout}
+                  disabled={isCheckingOut}
+                >
+                  Mở khóa giỏ hàng (bỏ qua đơn chờ)
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               className={styles.checkoutBtn}
               onClick={handleConfirmCheckout}
               disabled={isCheckingOut}
             >
-              {isCheckingOut ? 'Đang xử lý đơn hàng...' : 'Xác nhận bán hàng'}
+              {isCheckingOut
+                ? 'Đang xử lý đơn hàng...'
+                : pendingCheckout
+                ? 'Kiểm tra lại kết quả đơn này'
+                : 'Xác nhận bán hàng'}
             </button>
           </div>
         </aside>

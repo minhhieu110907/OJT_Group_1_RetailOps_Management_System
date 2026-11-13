@@ -146,3 +146,75 @@ export function buildCheckoutPayload(cart = []) {
     viewed_unit_price_vnd: item.unitPriceVnd,
   }));
 }
+
+/**
+ * Classify POS checkout errors into definite failure, idempotency conflict,
+ * or ambiguous outcome (where backend may have already committed the order).
+ */
+export function classifyCheckoutError(error) {
+  if (!error) {
+    return {
+      outcome: 'DEFINITE_FAILURE',
+      message: 'Không thể xác nhận bán hàng. Vui lòng thử lại.',
+    };
+  }
+
+  if (
+    error.isClientValidation ||
+    error.code === 'ERR_MOCK_NOT_SUPPORTED' ||
+    error.isReplayBlocked ||
+    error.code === 'ERR_UNSAFE_MUTATION_REPLAY'
+  ) {
+    return {
+      outcome: 'DEFINITE_FAILURE',
+      message:
+        error.isReplayBlocked || error.code === 'ERR_UNSAFE_MUTATION_REPLAY'
+          ? 'Phiên đăng nhập vừa hết hạn nên hệ thống không tự động gửi lại đơn. Vui lòng bấm xác nhận lại.'
+          : error.message || 'Dữ liệu đơn hàng không hợp lệ.',
+    };
+  }
+
+  const status = error.response?.status;
+  const apiCode = error.response?.data?.code;
+  const apiMessage = error.response?.data?.message;
+
+  if (apiCode === 'IDEMPOTENCY_KEY_REUSED') {
+    return {
+      outcome: 'IDEMPOTENCY_CONFLICT',
+      message:
+        apiMessage ||
+        'Mã giao dịch đã được sử dụng cho nội dung khác. Vui lòng kiểm tra lại giỏ hàng.',
+    };
+  }
+
+  if (apiCode === 'REQUEST_IN_PROGRESS') {
+    return {
+      outcome: 'AMBIGUOUS',
+      message:
+        apiMessage ||
+        'Đơn hàng trước vẫn đang được máy chủ xử lý. Vui lòng kiểm tra lại kết quả trước khi tạo đơn mới.',
+    };
+  }
+
+  if (
+    !error.response ||
+    error.code === 'ECONNABORTED' ||
+    error.code === 'ETIMEDOUT' ||
+    error.code === 'ERR_NETWORK' ||
+    (typeof status === 'number' && status >= 500)
+  ) {
+    return {
+      outcome: 'AMBIGUOUS',
+      message:
+        'Chưa xác định được kết quả đơn hàng do mất kết nối hoặc quá thời gian chờ. Đơn hàng có thể đã được ghi nhận trên máy chủ.',
+    };
+  }
+
+  return {
+    outcome: 'DEFINITE_FAILURE',
+    message:
+      apiMessage ||
+      error.message ||
+      'Không thể xác nhận bán hàng. Vui lòng kiểm tra lại tồn kho và đơn giá.',
+  };
+}

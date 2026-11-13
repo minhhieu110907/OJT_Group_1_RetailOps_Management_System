@@ -646,6 +646,45 @@
   cursor: not-allowed;
 }
 
+.ambiguousBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ambiguousBanner p {
+  margin: 0;
+}
+
+.abandonPendingBtn {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #f59e0b;
+  background-color: #ffffff;
+  color: #92400e;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.abandonPendingBtn:hover:not(:disabled) {
+  background-color: #fef3c7;
+}
+
+.abandonPendingBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @media (max-width: 1024px) {
   .posLayoutWithCart {
     grid-template-columns: minmax(0, 1fr);

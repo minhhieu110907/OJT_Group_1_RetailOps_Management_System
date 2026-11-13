@@ -14,13 +14,14 @@ function getHaNoiCurrentTime() {
   }).format(new Date());
 }
 
-// Dữ liệu hồ sơ mẫu không nhạy cảm khi truy cập trực tiếp /account-status
-const FALLBACK_PROFILE = {
+// Dữ liệu hồ sơ mẫu chỉ dùng khi bật chế độ Mock Demo
+const MOCK_DEMO_FALLBACK_PROFILE = {
   fullName: 'Nhân viên Mẫu (Chưa xác thực)',
   email: 'nhanvien.demo@retailops.local',
   submittedAt: '09:30 - 07/11/2026 (Asia/Ho_Chi_Minh)',
   rejectReason:
     'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
+  retryAfterLabel: '15:20 - 08/11/2026 (Asia/Ho_Chi_Minh)',
 };
 
 export default function AccountStatus() {
@@ -30,20 +31,35 @@ export default function AccountStatus() {
   const { isMockMode, canUseMock, checkBackendConnection } = useAuth();
   const isMockDemoActive = Boolean(isMockMode && canUseMock);
 
-  // Lấy dữ liệu truyền từ Register.jsx / Login.jsx qua location.state hoặc dùng fallback
+  // Lấy dữ liệu truyền từ Register.jsx / Login.jsx qua location.state
+  // Lưu ý: location.state chỉ phục vụ hiển thị thông báo, tuyệt đối không cấp quyền authorization.
   const incomingState = location.state || {};
+  const isDirectUnverifiedVisit = !isMockDemoActive && !incomingState.status;
   const isUnverifiedSubmission =
     !isMockDemoActive &&
     (incomingState.isUnverifiedSubmission !== false ||
       incomingState.status === 'SUBMITTED' ||
       !incomingState.status);
 
-  const profile = {
-    fullName: incomingState.fullName || FALLBACK_PROFILE.fullName,
-    email: incomingState.email || FALLBACK_PROFILE.email,
-    submittedAt: incomingState.submittedAt || FALLBACK_PROFILE.submittedAt,
-    rejectReason: incomingState.rejectReason || FALLBACK_PROFILE.rejectReason,
-  };
+  const profile = isMockDemoActive
+    ? {
+        fullName: incomingState.fullName || MOCK_DEMO_FALLBACK_PROFILE.fullName,
+        email: incomingState.email || MOCK_DEMO_FALLBACK_PROFILE.email,
+        submittedAt:
+          incomingState.submittedAt || MOCK_DEMO_FALLBACK_PROFILE.submittedAt,
+        rejectReason:
+          incomingState.rejectReason || MOCK_DEMO_FALLBACK_PROFILE.rejectReason,
+        retryAfterLabel:
+          incomingState.retryAfterLabel ||
+          MOCK_DEMO_FALLBACK_PROFILE.retryAfterLabel,
+      }
+    : {
+        fullName: incomingState.fullName || null,
+        email: incomingState.email || null,
+        submittedAt: incomingState.submittedAt || null,
+        rejectReason: incomingState.rejectReason || null,
+        retryAfterLabel: incomingState.retryAfterLabel || null,
+      };
 
   // Trạng thái chính của hồ sơ: 'PENDING' | 'APPROVED' | 'REJECTED'
   // Chuẩn hóa tương thích với Backend enum (PENDING_APPROVAL / SUBMITTED -> PENDING, ACTIVE -> APPROVED)
@@ -204,7 +220,9 @@ export default function AccountStatus() {
               <span className={`${styles.statusBadge} ${styles.badgePending}`}>
                 <span className={`${styles.dot} ${styles.dotAmber}`} />
                 <span>
-                  {isUnverifiedSubmission
+                  {isDirectUnverifiedVisit
+                    ? 'Chưa xác minh trạng thái'
+                    : isUnverifiedSubmission
                     ? 'Đã tiếp nhận yêu cầu'
                     : 'Đang chờ phê duyệt'}
                 </span>
@@ -213,35 +231,47 @@ export default function AccountStatus() {
 
             <div className={styles.headerBlock}>
               <h1 className={styles.stateTitle}>
-                {isUnverifiedSubmission
+                {isDirectUnverifiedVisit
+                  ? 'Chưa có dữ liệu trạng thái tài khoản'
+                  : isUnverifiedSubmission
                   ? 'Yêu cầu đăng ký đã được ghi nhận'
-                  : 'Hồ sơ đã được tiếp nhận'}
+                  : 'Tài khoản đang chờ phê duyệt'}
               </h1>
               <p className={styles.stateDesc}>
-                {isUnverifiedSubmission
+                {isDirectUnverifiedVisit
+                  ? 'Truy cập trực tiếp trang này không thể xác minh trạng thái tài khoản. Vui lòng đăng nhập tại trang Đăng nhập hoặc liên hệ Quản trị viên.'
+                  : isUnverifiedSubmission
                   ? 'Nếu thông tin đăng ký hợp lệ và email chưa tồn tại trên hệ thống, Quản trị viên sẽ xem xét phê duyệt tài khoản của bạn trước khi cấp quyền truy cập POS.'
                   : 'Tài khoản chưa được kích hoạt quyền truy cập vào các tính năng bán hàng hoặc kho. Quản trị viên đang xem xét hồ sơ của bạn.'}
               </p>
             </div>
 
-            <div className={styles.infoTable}>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Họ tên</span>
-                <span className={styles.infoValue}>{profile.fullName}</span>
+            {!isDirectUnverifiedVisit && (
+              <div className={styles.infoTable}>
+                {profile.fullName && (
+                  <div className={styles.infoRow}>
+                    <span className={styles.infoLabel}>Họ tên</span>
+                    <span className={styles.infoValue}>{profile.fullName}</span>
+                  </div>
+                )}
+                <div className={styles.infoRow}>
+                  <span className={styles.infoLabel}>Email đăng ký</span>
+                  <span className={styles.infoValue}>
+                    {profile.email || 'Chưa có thông tin'}
+                  </span>
+                </div>
+                {profile.submittedAt && (
+                  <div className={styles.infoRow}>
+                    <span className={styles.infoLabel}>Thời điểm gửi</span>
+                    <span className={styles.infoValue}>{profile.submittedAt}</span>
+                  </div>
+                )}
+                <div className={styles.infoRow}>
+                  <span className={styles.infoLabel}>Vai trò dự kiến</span>
+                  <span className={styles.rolePill}>Nhân viên (STAFF)</span>
+                </div>
               </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Email đăng ký</span>
-                <span className={styles.infoValue}>{profile.email}</span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Thời điểm gửi</span>
-                <span className={styles.infoValue}>{profile.submittedAt}</span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Vai trò dự kiến</span>
-                <span className={styles.rolePill}>Nhân viên (STAFF)</span>
-              </div>
-            </div>
+            )}
 
             <div className={styles.mailNoteBox}>
               <span className={styles.noteIcon} aria-hidden="true">
@@ -322,13 +352,17 @@ export default function AccountStatus() {
             </div>
 
             <div className={styles.infoTable}>
-              <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Họ tên</span>
-                <span className={styles.infoValue}>{profile.fullName}</span>
-              </div>
+              {profile.fullName && (
+                <div className={styles.infoRow}>
+                  <span className={styles.infoLabel}>Họ tên</span>
+                  <span className={styles.infoValue}>{profile.fullName}</span>
+                </div>
+              )}
               <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Tài khoản</span>
-                <span className={styles.infoValue}>{profile.email}</span>
+                <span className={styles.infoValue}>
+                  {profile.email || 'Chưa có thông tin'}
+                </span>
               </div>
               <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Vai trò hệ thống</span>
@@ -392,7 +426,10 @@ export default function AccountStatus() {
               <span className={styles.rejectReasonLabel}>
                 Lý do từ Quản trị viên:
               </span>
-              <p className={styles.rejectReasonText}>{profile.rejectReason}</p>
+              <p className={styles.rejectReasonText}>
+                {profile.rejectReason ||
+                  'Chưa có thông tin lý do từ chối từ máy chủ. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.'}
+              </p>
             </div>
 
             {/* Mục Gửi lại yêu cầu (2 trạng thái con: Tạm khóa 24h & Đủ điều kiện) */}
@@ -411,7 +448,9 @@ export default function AccountStatus() {
                     từ chối.
                   </p>
                   <div className={styles.cooldownTag}>
-                    Có thể gửi lại sau: 15:20 - 08/11/2026 (Asia/Ho_Chi_Minh)
+                    {profile.retryAfterLabel
+                      ? `Có thể gửi lại sau: ${profile.retryAfterLabel}`
+                      : 'Chưa có thông tin thời hạn gửi lại từ máy chủ.'}
                   </div>
                   <button
                     type="button"
