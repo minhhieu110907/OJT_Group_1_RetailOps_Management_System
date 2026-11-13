@@ -229,11 +229,25 @@ async def test_create_category_admin_success(admin_client: httpx.AsyncClient) ->
     res = await admin_client.post("/api/v1/categories", json={"name": "Thực phẩm sạch"})
     assert res.status_code == 201
     data = res.json()
+    assert data["description"] is None
     assert data["name"] == "Thực phẩm sạch"
     assert data["status"] == "ACTIVE"
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
+
+
+@pytest.mark.anyio
+async def test_create_category_with_description(
+    admin_client: httpx.AsyncClient,
+) -> None:
+    res = await admin_client.post(
+        "/api/v1/categories",
+        json={"name": "Đồ uống", "description": "Nước giải khát và đồ uống."},
+    )
+
+    assert res.status_code == 201
+    assert res.json()["description"] == "Nước giải khát và đồ uống."
 
 
 @pytest.mark.anyio
@@ -259,6 +273,12 @@ async def test_create_category_validation_error(
 
     res_long = await admin_client.post("/api/v1/categories", json={"name": "A" * 121})
     assert res_long.status_code == 422
+
+    description_too_long = await admin_client.post(
+        "/api/v1/categories",
+        json={"name": "Hợp lệ", "description": "A" * 2001},
+    )
+    assert description_too_long.status_code == 422
 
 
 @pytest.mark.anyio
@@ -298,6 +318,62 @@ async def test_update_category_name_admin(
         )
         assert admin_res.status_code == 200
         assert admin_res.json()["name"] == "Tên Mới"
+
+
+@pytest.mark.anyio
+async def test_category_description_patch_omitted_and_explicit_null(
+    admin_client: httpx.AsyncClient,
+) -> None:
+    created = await admin_client.post(
+        "/api/v1/categories",
+        json={"name": "Đồ đông lạnh", "description": "Mô tả ban đầu"},
+    )
+    assert created.status_code == 201
+    category_id = created.json()["id"]
+
+    updated = await admin_client.patch(
+        f"/api/v1/categories/{category_id}",
+        json={"description": "Mô tả đã sửa"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Đồ đông lạnh"
+    assert updated.json()["description"] == "Mô tả đã sửa"
+
+    omitted = await admin_client.patch(
+        f"/api/v1/categories/{category_id}",
+        json={"name": "Đồ đông lạnh mới"},
+    )
+    assert omitted.status_code == 200
+    assert omitted.json()["description"] == "Mô tả đã sửa"
+
+    detail = await admin_client.get(f"/api/v1/categories/{category_id}")
+    assert detail.status_code == 200
+    assert detail.json()["description"] == "Mô tả đã sửa"
+
+    listed = await admin_client.get("/api/v1/categories")
+    assert listed.status_code == 200
+    matching = [item for item in listed.json()["items"] if item["id"] == category_id]
+    assert matching[0]["description"] == "Mô tả đã sửa"
+
+    cleared = await admin_client.patch(
+        f"/api/v1/categories/{category_id}",
+        json={"description": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["description"] is None
+
+
+def test_category_openapi_contract_includes_nullable_description(
+    app_instance,
+) -> None:
+    schemas = app_instance.openapi()["components"]["schemas"]
+
+    assert "description" in schemas["CategoryCreate"]["properties"]
+    assert "description" not in schemas["CategoryCreate"].get("required", [])
+    assert "description" in schemas["CategoryUpdate"]["properties"]
+    assert "description" not in schemas["CategoryUpdate"].get("required", [])
+    assert "description" in schemas["CategoryRead"]["properties"]
+    assert "description" in schemas["CategoryRead"]["required"]
 
 
 @pytest.mark.anyio

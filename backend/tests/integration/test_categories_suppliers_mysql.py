@@ -122,12 +122,14 @@ def test_categories_suppliers_tables_and_columns_in_mysql(
     assert set(cat_columns.keys()) == {
         "id",
         "name",
+        "description",
         "status",
         "created_at",
         "updated_at",
     }
     assert not cat_columns["id"]["nullable"]
     assert not cat_columns["name"]["nullable"]
+    assert cat_columns["description"]["nullable"]
     assert not cat_columns["status"]["nullable"]
     assert not cat_columns["created_at"]["nullable"]
     assert not cat_columns["updated_at"]["nullable"]
@@ -700,9 +702,13 @@ async def test_categories_and_suppliers_api_end_to_end_in_mysql(
             cat_post = await client.post(
                 "/api/v1/categories",
                 headers=admin_headers,
-                json={"name": f"{TEST_PREFIX}MySQL_Cat"},
+                json={
+                    "name": f"{TEST_PREFIX}MySQL_Cat",
+                    "description": "Initial MySQL description",
+                },
             )
             assert cat_post.status_code == 201
+            assert cat_post.json()["description"] == "Initial MySQL description"
             cat_id = cat_post.json()["id"]
 
             staff_cat_get = await client.get(
@@ -716,6 +722,22 @@ async def test_categories_and_suppliers_api_end_to_end_in_mysql(
                 json={"name": "Forbidden"},
             )
             assert staff_cat_patch.status_code == 403
+
+            cat_patch_name = await client.patch(
+                f"/api/v1/categories/{cat_id}",
+                headers=admin_headers,
+                json={"name": f"{TEST_PREFIX}MySQL_Cat_Renamed"},
+            )
+            assert cat_patch_name.status_code == 200
+            assert cat_patch_name.json()["description"] == "Initial MySQL description"
+
+            cat_patch_null = await client.patch(
+                f"/api/v1/categories/{cat_id}",
+                headers=admin_headers,
+                json={"description": None},
+            )
+            assert cat_patch_null.status_code == 200
+            assert cat_patch_null.json()["description"] is None
 
             # 3. Supplier RBAC: Staff gets 403 even on GET; Admin CRUD succeeds
             assert (
