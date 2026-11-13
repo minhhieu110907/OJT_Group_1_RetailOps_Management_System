@@ -33,6 +33,7 @@ from app.modules.inventory import (
     StockMovement,
 )
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
+from app.modules.sales.models import Order, OrderItem
 from app.modules.suppliers.models import Supplier, SupplierStatus
 from tests.integration.conftest import (
     integration_database_url,
@@ -68,6 +69,18 @@ def clean_inventory_test_rows(migrated_integration_engine: Engine) -> None:
             session.execute(
                 delete(StockMovement).where(StockMovement.product_id.in_(product_ids))
             )
+            order_ids = list(
+                session.scalars(
+                    select(OrderItem.order_id).where(
+                        OrderItem.product_id.in_(product_ids)
+                    )
+                )
+            )
+            if order_ids:
+                session.execute(
+                    delete(OrderItem).where(OrderItem.order_id.in_(order_ids))
+                )
+                session.execute(delete(Order).where(Order.id.in_(order_ids)))
             session.execute(
                 delete(PurchaseReceiptItem).where(
                     PurchaseReceiptItem.product_id.in_(product_ids)
@@ -206,6 +219,42 @@ def _seed_actor_and_products(
     return actor.id, product_ids
 
 
+def _seed_order_and_items(
+    session: Session,
+    actor_id: int,
+    product_ids: list[int],
+    *,
+    order_id: int,
+) -> None:
+    """Seed a completed order document satisfying the movement composite FK."""
+    now = datetime(2026, 11, 11, 9, 0, 0)
+    products = [session.get(Product, product_id) for product_id in product_ids]
+    assert all(product is not None for product in products)
+    order = Order(
+        id=order_id,
+        status="COMPLETED",
+        total_vnd=sum(product.sale_price_vnd for product in products if product),
+        created_by=actor_id,
+        sold_at=now,
+    )
+    session.add(order)
+    session.flush()
+    for product in products:
+        assert product is not None
+        session.add(
+            OrderItem(
+                order_id=order_id,
+                product_id=product.id,
+                sku_snapshot=product.sku,
+                product_name_snapshot=product.name,
+                quantity=1,
+                unit_price_vnd=product.sale_price_vnd,
+                line_total_vnd=product.sale_price_vnd,
+            )
+        )
+    session.flush()
+
+
 def test_schema_and_non_negative_stock_guard_in_mysql(
     migrated_integration_engine: Engine,
 ) -> None:
@@ -263,6 +312,7 @@ def test_atomic_rollback_on_mid_transaction_or_caller_failure(
         actor_id, [p1_id, p2_id] = _seed_actor_and_products(
             setup_session, "rollback", quantities=[10, 2]
         )
+        _seed_order_and_items(setup_session, actor_id, [p1_id], order_id=2002)
         setup_session.commit()
 
     # Case A: Multi-item decrease where item 1 has enough stock (10 >= 4)
@@ -317,6 +367,7 @@ def test_idempotent_retry_and_unique_movement_per_reference(
         actor_id, [product_id] = _seed_actor_and_products(
             setup_session, "idem", quantities=[10]
         )
+        _seed_order_and_items(setup_session, actor_id, [product_id], order_id=3001)
         setup_session.commit()
 
     with Session(migrated_integration_engine) as session1:
@@ -408,6 +459,10 @@ def test_concurrent_decreases_on_single_product_prevent_oversell(
         actor_id, [product_id] = _seed_actor_and_products(
             setup_session, "conc_single", quantities=[5]
         )
+        for order_id in range(4001, 4001 + 8):
+            _seed_order_and_items(
+                setup_session, actor_id, [product_id], order_id=order_id
+            )
         setup_session.commit()
 
     worker_count = 8
@@ -473,6 +528,10 @@ def test_concurrent_multi_item_reversed_input_order_does_not_deadlock(
         actor_id, [p1, p2, p3] = _seed_actor_and_products(
             setup_session, "conc_order", quantities=[20, 20, 20]
         )
+        for order_id in range(5001, 5001 + 6):
+            _seed_order_and_items(
+                setup_session, actor_id, [p1, p2, p3], order_id=order_id
+            )
         setup_session.commit()
 
     worker_count = 6
@@ -533,6 +592,7 @@ def test_all_four_operations_and_before_after_movement_ledger_in_mysql(
         receipt_id = _seed_receipt_and_item(
             setup_session, actor_id, product_id, quantity=15
         )
+        _seed_order_and_items(setup_session, actor_id, [product_id], order_id=6002)
         setup_session.commit()
 
     with Session(migrated_integration_engine) as session:
