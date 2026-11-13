@@ -3,7 +3,11 @@ import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
-import { suppliersApi } from '../../api/suppliersApi';
+import {
+  suppliersApi,
+  normalizeSupplierSnapshot,
+  detectSupplierChanges,
+} from '../../api/suppliersApi';
 import styles from './SupplierList.module.css';
 
 // Component hiển thị tag trạng thái chuẩn thiết kế
@@ -89,7 +93,7 @@ export default function SupplierList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [supplierForm, setSupplierForm] = useState(INITIAL_SUPPLIER_FORM);
-  const [initialStatus, setInitialStatus] = useState('ACTIVE');
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -154,7 +158,7 @@ export default function SupplierList() {
     }
     setModalMode('create');
     setSupplierForm({ ...INITIAL_SUPPLIER_FORM });
-    setInitialStatus('ACTIVE');
+    setInitialSnapshot(null);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -166,15 +170,15 @@ export default function SupplierList() {
       return;
     }
     setModalMode('edit');
-    const status = supplier.status || 'ACTIVE';
+    const snapshot = normalizeSupplierSnapshot(supplier);
     setSupplierForm({
-      id: supplier.id,
-      name: supplier.name || '',
-      contact_phone: supplier.contact_phone || '',
-      contact_email: supplier.contact_email || '',
-      status,
+      id: snapshot.id,
+      name: snapshot.name,
+      contact_phone: snapshot.contact_phone || '',
+      contact_email: snapshot.contact_email || '',
+      status: snapshot.status,
     });
-    setInitialStatus(status);
+    setInitialSnapshot(snapshot);
     setFormError('');
     setIsModalOpen(true);
   }, [isAdmin, toast]);
@@ -191,7 +195,7 @@ export default function SupplierList() {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái đối tác.');
       return;
     }
-    if (modalMode !== 'edit' || !supplierForm.id) return;
+    if (isSubmitting || modalMode !== 'edit' || !supplierForm.id) return;
     setSupplierForm((prev) => ({
       ...prev,
       status: prev.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
@@ -242,6 +246,17 @@ export default function SupplierList() {
       }
     }
 
+    // Với edit mode: kiểm tra dirty state theo Decision Matrix
+    let changes = null;
+    if (modalMode === 'edit') {
+      changes = detectSupplierChanges(supplierForm, initialSnapshot);
+      if (!changes.hasInfoChanges && !changes.hasStatusChange) {
+        toast.info('Không có thay đổi nào để lưu.');
+        setIsModalOpen(false);
+        return;
+      }
+    }
+
     setFormError('');
     isSubmittingRef.current = true;
     setIsSubmitting(true);
@@ -257,15 +272,56 @@ export default function SupplierList() {
         setIsModalOpen(false);
         setRefreshTrigger((prev) => prev + 1);
       } else {
-        await suppliersApi.updateSupplier(supplierForm.id, {
-          name: trimmedName,
-          contact_email: trimmedEmail,
-          contact_phone: trimmedPhone,
-        });
+        const { hasInfoChanges, hasStatusChange, normalizedPayload } = changes;
+        let infoUpdated = false;
 
-        // Nếu trạng thái có sự thay đổi so với ban đầu, cập nhật status
-        if (supplierForm.status !== initialStatus) {
-          await suppliersApi.updateSupplierStatus(supplierForm.id, supplierForm.status);
+        // 1. Gửi PATCH thông tin nếu có thay đổi
+        if (hasInfoChanges) {
+          await suppliersApi.updateSupplier(supplierForm.id, {
+            name: normalizedPayload.name,
+            contact_email: normalizedPayload.contact_email,
+            contact_phone: normalizedPayload.contact_phone,
+          });
+          infoUpdated = true;
+        }
+
+        // 2. Gửi PATCH trạng thái nếu có thay đổi
+        if (hasStatusChange) {
+          try {
+            await suppliersApi.updateSupplierStatus(supplierForm.id, normalizedPayload.status);
+          } catch (statusErr) {
+            // Xử lý Partial Failure: Thông tin đã lưu nhưng trạng thái thất bại
+            if (infoUpdated) {
+              const statusErrMsg = getApiErrorMessage(
+                statusErr,
+                'Không thể cập nhật trạng thái đối tác.'
+              );
+              let syncWarning = '';
+
+              try {
+                // Thử đồng bộ lại dữ liệu backend thực tế
+                const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
+                const newSnapshot = normalizeSupplierSnapshot(latestSupplier);
+                setInitialSnapshot(newSnapshot);
+                setSupplierForm({
+                  id: newSnapshot.id,
+                  name: newSnapshot.name,
+                  contact_phone: newSnapshot.contact_phone || '',
+                  contact_email: newSnapshot.contact_email || '',
+                  status: newSnapshot.status,
+                });
+                syncWarning = `Thông tin nhà cung cấp đã được lưu thành công, nhưng cập nhật trạng thái thất bại: ${statusErrMsg}. Giao diện đã được đồng bộ với dữ liệu máy chủ.`;
+              } catch {
+                syncWarning = `Cảnh báo: Thông tin nhà cung cấp đã được lưu một phần trên hệ thống, nhưng cập nhật trạng thái thất bại (${statusErrMsg}) và không thể tải lại dữ liệu mới nhất. Vui lòng kiểm tra lại trước khi tiếp tục.`;
+              }
+
+              setFormError(syncWarning);
+              toast.error(syncWarning);
+              setRefreshTrigger((prev) => prev + 1);
+              return; // Giữ modal mở để người dùng kiểm tra
+            }
+            throw statusErr;
+          }
         }
 
         toast.success('Cập nhật thông tin nhà cung cấp thành công.');

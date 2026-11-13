@@ -10,6 +10,8 @@ import {
   validateSupplierListResponse,
   isValidIsoTimestamp,
   VALID_SUPPLIER_STATUSES,
+  normalizeSupplierSnapshot,
+  detectSupplierChanges,
 } from '../api/suppliersApi.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -680,6 +682,236 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.ok(content.includes('Email không được vượt quá 254 ký tự.'));
       assert.ok(content.includes('Email kinh doanh không đúng định dạng.'));
       assert.ok(content.includes('handleCloseModal'));
+    });
+  });
+
+  // ==========================================================================
+  // 8. F08: Dirty-State Detection & Partial Failure Handling (PR #46 Corrective Patch)
+  // ==========================================================================
+  describe('F08: Dirty-State Detection & Partial Failure Handling (PR #46 Corrective Patch)', () => {
+    const supplierListPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+
+    test('normalizeSupplierSnapshot correctly trims whitespace and maps empty contacts to null', () => {
+      const raw = {
+        id: 5,
+        name: '   Công ty Cổ phần ABC   ',
+        contact_phone: '   0901234567   ',
+        contact_email: '   abc@company.vn   ',
+        status: 'ACTIVE',
+      };
+      const normalized = normalizeSupplierSnapshot(raw);
+      assert.deepEqual(normalized, {
+        id: 5,
+        name: 'Công ty Cổ phần ABC',
+        contact_phone: '0901234567',
+        contact_email: 'abc@company.vn',
+        status: 'ACTIVE',
+      });
+
+      const rawEmpty = {
+        id: 6,
+        name: 'XYZ Corp',
+        contact_phone: '   ',
+        contact_email: '',
+        status: 'INACTIVE',
+      };
+      const normalizedEmpty = normalizeSupplierSnapshot(rawEmpty);
+      assert.deepEqual(normalizedEmpty, {
+        id: 6,
+        name: 'XYZ Corp',
+        contact_phone: null,
+        contact_email: null,
+        status: 'INACTIVE',
+      });
+    });
+
+    test('Decision Matrix: 0 changes -> hasInfoChanges=false, hasStatusChange=false', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formSame = {
+        id: VALID_SUPPLIER_FIXTURE.id,
+        name: '  ' + VALID_SUPPLIER_FIXTURE.name + '  ', // whitespace difference only
+        contact_phone: VALID_SUPPLIER_FIXTURE.contact_phone,
+        contact_email: VALID_SUPPLIER_FIXTURE.contact_email,
+        status: VALID_SUPPLIER_FIXTURE.status,
+      };
+
+      const changes = detectSupplierChanges(formSame, snapshot);
+      assert.equal(changes.hasInfoChanges, false, 'Whitespace difference should not be dirty');
+      assert.equal(changes.hasStatusChange, false);
+    });
+
+    test('Decision Matrix: only status changed -> hasInfoChanges=false, hasStatusChange=true', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formStatusChanged = {
+        ...VALID_SUPPLIER_FIXTURE,
+        status: 'INACTIVE',
+      };
+
+      const changes = detectSupplierChanges(formStatusChanged, snapshot);
+      assert.equal(changes.hasInfoChanges, false);
+      assert.equal(changes.hasStatusChange, true);
+    });
+
+    test('Decision Matrix: only info changed -> hasInfoChanges=true, hasStatusChange=false', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formInfoChanged = {
+        ...VALID_SUPPLIER_FIXTURE,
+        name: 'Vinamilk Mới',
+      };
+
+      const changes = detectSupplierChanges(formInfoChanged, snapshot);
+      assert.equal(changes.hasInfoChanges, true);
+      assert.equal(changes.hasStatusChange, false);
+    });
+
+    test('Decision Matrix: both info and status changed -> hasInfoChanges=true, hasStatusChange=true', () => {
+      const snapshot = normalizeSupplierSnapshot(VALID_SUPPLIER_FIXTURE);
+      const formBothChanged = {
+        ...VALID_SUPPLIER_FIXTURE,
+        name: 'Vinamilk Mới',
+        status: 'INACTIVE',
+      };
+
+      const changes = detectSupplierChanges(formBothChanged, snapshot);
+      assert.equal(changes.hasInfoChanges, true);
+      assert.equal(changes.hasStatusChange, true);
+    });
+
+    test('SupplierList source code enforces Decision Matrix, sequential mutations, and partial failure recovery', () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+
+      // Dirty state detection and no-op exit
+      assert.ok(content.includes('detectSupplierChanges(supplierForm, initialSnapshot)'));
+      assert.ok(content.includes("toast.info('Không có thay đổi nào để lưu.');"));
+
+      // Sequential mutations: info first, then status
+      assert.ok(content.includes('if (hasInfoChanges) {'));
+      assert.ok(content.includes('await suppliersApi.updateSupplier('));
+      assert.ok(content.includes('infoUpdated = true;'));
+      assert.ok(content.includes('if (hasStatusChange) {'));
+      assert.ok(content.includes('await suppliersApi.updateSupplierStatus('));
+
+      // Partial failure handling with GET sync
+      assert.ok(content.includes('if (infoUpdated) {'));
+      assert.ok(content.includes('await suppliersApi.getSupplier(supplierForm.id)'));
+      assert.ok(content.includes('setInitialSnapshot(newSnapshot);'));
+      assert.ok(content.includes('setSupplierForm({'));
+
+      // Status toggle button guarded by isSubmitting
+      assert.ok(content.includes('if (isSubmitting || modalMode !=='));
+    });
+
+    test('Mutation flow: info failure halts before status PATCH', async () => {
+      let infoCalls = 0;
+      let statusCalls = 0;
+
+      axiosClient.patch = async (url) => {
+        if (url.endsWith('/status')) {
+          statusCalls += 1;
+          return { data: VALID_SUPPLIER_FIXTURE };
+        }
+        infoCalls += 1;
+        const err = new Error('Database locked');
+        err.response = { status: 500, data: { detail: 'Database locked' } };
+        throw err;
+      };
+
+      const executeMutationFlow = async ({ hasInfoChanges, hasStatusChange, id, payload }) => {
+        let infoUpdated = false;
+        if (hasInfoChanges) {
+          await suppliersApi.updateSupplier(id, payload);
+          infoUpdated = true;
+        }
+        if (hasStatusChange) {
+          try {
+            await suppliersApi.updateSupplierStatus(id, payload.status);
+          } catch (statusErr) {
+            if (infoUpdated) {
+              return { partial: true, error: statusErr };
+            }
+            throw statusErr;
+          }
+        }
+        return { success: true };
+      };
+
+      await assert.rejects(
+        executeMutationFlow({
+          hasInfoChanges: true,
+          hasStatusChange: true,
+          id: 1,
+          payload: { name: 'New Name', status: 'INACTIVE' },
+        }),
+        (err) => err.message.includes('Database locked')
+      );
+
+      assert.equal(infoCalls, 1, 'Info PATCH was called once');
+      assert.equal(statusCalls, 0, 'Status PATCH was never called after info failure');
+    });
+
+    test('Mutation flow: info success + status failure triggers partial failure handling', async () => {
+      let infoCalls = 0;
+      let statusCalls = 0;
+      let getCalls = 0;
+
+      const updatedSupplier = {
+        ...VALID_SUPPLIER_FIXTURE,
+        name: 'Công ty Cổ phần Sữa Vinamilk Mới',
+        status: 'ACTIVE', // status update failed, still ACTIVE
+      };
+
+      axiosClient.patch = async (url) => {
+        if (url.endsWith('/status')) {
+          statusCalls += 1;
+          const err = new Error('Status transition conflict');
+          err.response = { status: 409, data: { detail: 'Status transition conflict' } };
+          throw err;
+        }
+        infoCalls += 1;
+        return { data: updatedSupplier };
+      };
+
+      axiosClient.get = async (url) => {
+        if (url.includes('/suppliers/1')) {
+          getCalls += 1;
+          return { data: updatedSupplier };
+        }
+        return { data: { items: [], total: 0, page: 1, page_size: 10 } };
+      };
+
+      const executeMutationFlow = async ({ hasInfoChanges, hasStatusChange, id, payload }) => {
+        let infoUpdated = false;
+        if (hasInfoChanges) {
+          await suppliersApi.updateSupplier(id, payload);
+          infoUpdated = true;
+        }
+        if (hasStatusChange) {
+          try {
+            await suppliersApi.updateSupplierStatus(id, payload.status);
+          } catch (statusErr) {
+            if (infoUpdated) {
+              const latest = await suppliersApi.getSupplier(id);
+              return { partial: true, latest, error: statusErr };
+            }
+            throw statusErr;
+          }
+        }
+        return { success: true };
+      };
+
+      const result = await executeMutationFlow({
+        hasInfoChanges: true,
+        hasStatusChange: true,
+        id: 1,
+        payload: { name: updatedSupplier.name, status: 'INACTIVE' },
+      });
+
+      assert.equal(infoCalls, 1);
+      assert.equal(statusCalls, 1);
+      assert.equal(getCalls, 1, 'GET supplier was called to synchronize after partial failure');
+      assert.equal(result.partial, true);
+      assert.equal(result.latest.name, 'Công ty Cổ phần Sữa Vinamilk Mới');
+      assert.equal(result.latest.status, 'ACTIVE');
     });
   });
 });
