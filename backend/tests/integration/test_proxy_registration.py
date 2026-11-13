@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -19,6 +21,17 @@ from app.modules.outbox.models import OutboxEvent
 
 pytestmark = [pytest.mark.integration, pytest.mark.proxy_integration]
 EMAIL_PREFIX = "t3c9a33_proxy_registration_"
+RATE_LIMIT = 5
+WINDOW_SECONDS = 60
+FIRST_OBSERVATION_GUARD_SECONDS = 1.0
+
+
+async def _avoid_first_observation_expiry_race(redis: Redis) -> None:
+    seconds, microseconds = await redis.time()
+    server_time = seconds + microseconds / 1_000_000
+    remaining = WINDOW_SECONDS - (server_time % WINDOW_SECONDS)
+    if remaining <= FIRST_OBSERVATION_GUARD_SECONDS:
+        await asyncio.sleep(remaining + 0.05)
 
 
 def _ensure_admin(engine: Engine) -> None:
@@ -96,9 +109,15 @@ async def test_forged_forwarded_headers_share_real_proxy_client_bucket(
         await redis.delete(*existing_keys)
 
     try:
+        # A key created in the final fraction of a window could expire between
+        # the first HTTP response and its Redis observation. Avoid only that
+        # bounded race; later bucket peaks are retained in observed_counts.
+        await _avoid_first_observation_expiry_race(redis)
+        observed_counts: dict[bytes, int] = {}
+        started_at = time.monotonic()
         async with httpx.AsyncClient(base_url=base_url, timeout=15) as client:
             responses = []
-            for index in range(6):
+            for index in range(11):
                 responses.append(
                     await client.post(
                         "/api/v1/auth/register",
@@ -113,27 +132,50 @@ async def test_forged_forwarded_headers_share_real_proxy_client_bucket(
                     )
                 )
 
-        assert [response.status_code for response in responses] == [
-            202,
-            202,
-            202,
-            202,
-            202,
-            429,
-        ]
+                # Keep the highest counter observed for every fixed-window bucket.
+                # The previous bucket may expire while this deliberately rollover-safe
+                # sequence is still running, so a final Redis scan alone is
+                # insufficient.
+                keys = [
+                    key
+                    async for key in redis.scan_iter(
+                        match="retailops:rate-limit:staff-registration:*"
+                    )
+                ]
+                for key in keys:
+                    value = await redis.get(key)
+                    if value is not None:
+                        observed_counts[key] = max(
+                            observed_counts.get(key, 0), int(value)
+                        )
+
+        assert time.monotonic() - started_at < WINDOW_SECONDS
+
+        status_codes = [response.status_code for response in responses]
+        assert set(status_codes) <= {202, 429}
+        assert status_codes.count(202) == sum(
+            min(count, RATE_LIMIT) for count in observed_counts.values()
+        )
+        assert status_codes.count(429) == sum(
+            max(count - RATE_LIMIT, 0) for count in observed_counts.values()
+        )
+        assert status_codes.count(429) >= 1
         assert responses[0].json() == {"message": REGISTER_ACCEPTED_MESSAGE}
         assert responses[0].headers.get_list("set-cookie") == []
         assert "access_token" not in responses[0].text
-        assert int(responses[-1].headers["retry-after"]) > 0
+        assert all(
+            int(response.headers["retry-after"]) > 0
+            for response in responses
+            if response.status_code == 429
+        )
 
-        keys = [
-            key
-            async for key in redis.scan_iter(
-                match="retailops:rate-limit:staff-registration:*"
-            )
-        ]
-        assert len(keys) == 1
-        assert int(await redis.get(keys[0])) == 6
+        assert 1 <= len(observed_counts) <= 2
+        key_prefixes = {key.rsplit(b":", 1)[0] for key in observed_counts}
+        assert len(key_prefixes) == 1
+        windows = sorted(int(key.rsplit(b":", 1)[1]) for key in observed_counts)
+        if len(windows) == 2:
+            assert windows[1] == windows[0] + 1
+        assert sum(observed_counts.values()) == 11
 
         email = f"{EMAIL_PREFIX}0@example.com"
         with Session(migrated_integration_engine) as session:
