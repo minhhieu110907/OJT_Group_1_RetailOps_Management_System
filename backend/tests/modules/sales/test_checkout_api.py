@@ -115,6 +115,7 @@ async def test_checkout_accepts_active_staff_and_uses_authenticated_actor() -> N
 
     assert response.status_code == 201
     assert response.json()["id"] == 91
+    assert isinstance(response.json()["items"], list)
     assert service.actor_id == 7
     assert service.key == "checkout-key-0001"
 

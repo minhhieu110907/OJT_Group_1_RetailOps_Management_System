@@ -163,33 +163,61 @@ def test_duplicate_product_with_different_viewed_price_is_rejected_before_claim(
 
 
 @pytest.mark.parametrize(
-    ("row", "code"),
+    ("row", "code", "message"),
     [
-        (stock(status="INACTIVE"), "PRODUCT_INACTIVE"),
-        (stock(price=13_000), "PRICE_CHANGED"),
-        (stock(quantity=1), "INSUFFICIENT_STOCK"),
+        (
+            stock(status="INACTIVE"),
+            "PRODUCT_INACTIVE",
+            "Sản phẩm không còn hoạt động.",
+        ),
+        (
+            stock(price=13_000),
+            "PRICE_CHANGED",
+            "Giá bán đã thay đổi. Vui lòng xác nhận lại.",
+        ),
+        (stock(quantity=1), "INSUFFICIENT_STOCK", "Không đủ tồn kho."),
     ],
 )
 def test_refusal_is_committed_without_business_effect(
-    row: LockedStock, code: str
+    row: LockedStock, code: str, message: str
 ) -> None:
     session = FakeSession()
     inventory = FakeInventory({1: row})
+    idempotency = MemoryIdempotency()
     repo = FakeOrderRepository()
+    checkout = service(inventory, idempotency, repo)
 
-    with pytest.raises(ConflictError) as exc_info:
-        service(inventory, MemoryIdempotency(), repo).checkout(
-            session,  # type: ignore[arg-type]
-            actor_id=7,
-            idempotency_key="checkout-key-0003",
-            items=[line()],
-        )
+    for _ in range(2):
+        with pytest.raises(ConflictError) as exc_info:
+            checkout.checkout(
+                session,  # type: ignore[arg-type]
+                actor_id=7,
+                idempotency_key="checkout-key-0003",
+                items=[line()],
+            )
 
-    assert exc_info.value.code == code
+        assert exc_info.value.code == code
+        assert exc_info.value.message == message
+
+    assert idempotency.command_calls == 1
     assert repo.calls == 0
     assert inventory.decrease_calls == 0
-    assert session.commits == 1
+    assert session.commits == 2
     assert session.rollbacks == 0
+
+
+def test_order_read_matches_python_port_tuple_and_json_wire_array() -> None:
+    result = service(
+        FakeInventory({1: stock()}), MemoryIdempotency(), FakeOrderRepository()
+    ).checkout(
+        FakeSession(),  # type: ignore[arg-type]
+        actor_id=7,
+        idempotency_key="checkout-key-dto-0001",
+        items=[line()],
+    )
+
+    assert isinstance(result.items, tuple)
+    assert isinstance(result.model_dump(mode="json")["items"], list)
 
 
 def test_same_key_same_payload_replays_without_second_business_command() -> None:

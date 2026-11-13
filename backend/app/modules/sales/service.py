@@ -74,15 +74,13 @@ class CheckoutService:
             raise RuntimeError("Checkout refusal outcome is not an object")
         raise ConflictError(
             code=str(body.get("code", "ORDER_CONFLICT")),
-            message=str(body.get("message", "KhÃ´ng thá»ƒ hoÃ n táº¥t checkout.")),
+            message=str(body.get("message", "Không thể hoàn tất checkout.")),
             details=body.get("details"),
         )
 
     def _normalize(self, items: Sequence[CheckoutLine]) -> list[CheckoutLine]:
         if not items:
-            raise DomainValidationError(
-                "Danh sÃ¡ch sáº£n pháº©m khÃ´ng Ä‘Æ°á»£c rá»—ng."
-            )
+            raise DomainValidationError("Danh sách sản phẩm không được rỗng.")
         prices: dict[int, int] = {}
         quantities: dict[int, int] = {}
         for item in items:
@@ -92,15 +90,13 @@ class CheckoutService:
                 and previous_price != item.viewed_unit_price_vnd
             ):
                 raise DomainValidationError(
-                    "CÃ¡c dÃ²ng trÃ¹ng sáº£n pháº©m pháº£i cÃ³ cÃ¹ng giÃ¡ Ä‘Ã£ xem.",
+                    "Các dòng trùng sản phẩm phải có cùng giá đã xem.",
                     details={"product_id": item.product_id},
                 )
             prices[item.product_id] = item.viewed_unit_price_vnd
             quantity = quantities.get(item.product_id, 0) + item.quantity
             if quantity > MAX_SQL_INT:
-                raise DomainValidationError(
-                    "Tá»•ng sá»‘ lÆ°á»£ng vÆ°á»£t giá»›i háº¡n SQL INT."
-                )
+                raise DomainValidationError("Tổng số lượng vượt giới hạn SQL INT.")
             quantities[item.product_id] = quantity
         return [
             CheckoutLine(
@@ -122,7 +118,7 @@ class CheckoutService:
         if inactive:
             return self._refusal(
                 "PRODUCT_INACTIVE",
-                "Sáº£n pháº©m khÃ´ng cÃ²n hoáº¡t Ä‘á»™ng.",
+                "Sản phẩm không còn hoạt động.",
                 {"product_ids": inactive},
             )
 
@@ -138,7 +134,7 @@ class CheckoutService:
         if changed:
             return self._refusal(
                 "PRICE_CHANGED",
-                "GiÃ¡ bÃ¡n Ä‘Ã£ thay Ä‘á»•i. Vui lÃ²ng xÃ¡c nháº­n láº¡i.",
+                "Giá bán đã thay đổi. Vui lòng xác nhận lại.",
                 {"changed_items": changed},
             )
 
@@ -152,7 +148,7 @@ class CheckoutService:
         ]
         if insufficient:
             return self._refusal(
-                "INSUFFICIENT_STOCK", "KhÃ´ng Ä‘á»§ tá»“n kho.", {"items": insufficient}
+                "INSUFFICIENT_STOCK", "Không đủ tồn kho.", {"items": insufficient}
             )
 
         snapshots: list[dict[str, object]] = []
@@ -161,9 +157,7 @@ class CheckoutService:
             locked = locks.rows[item.product_id]
             line_total = item.quantity * locked.sale_price_vnd
             if line_total > MAX_SQL_BIGINT or total > MAX_SQL_BIGINT - line_total:
-                raise DomainValidationError(
-                    "Tá»•ng tiá»n vÆ°á»£t giá»›i háº¡n SQL BIGINT."
-                )
+                raise DomainValidationError("Tổng tiền vượt giới hạn SQL BIGINT.")
             total += line_total
             snapshots.append(
                 {
@@ -217,7 +211,7 @@ class CheckoutService:
         ]
         if missing:
             raise ResourceNotFoundError(
-                "KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.", {"product_ids": missing}
+                "Không tìm thấy sản phẩm.", {"product_ids": missing}
             )
 
     @staticmethod

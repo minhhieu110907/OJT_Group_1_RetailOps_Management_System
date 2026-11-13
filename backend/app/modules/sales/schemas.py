@@ -40,4 +40,4 @@ class OrderRead(BaseModel):
     cancelled_by: int | None
     cancelled_at: datetime | None
     cancel_reason: str | None
-    items: list[OrderLineRead]
+    items: tuple[OrderLineRead, ...]
