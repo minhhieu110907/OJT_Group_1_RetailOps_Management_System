@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Pagination, Table, useToast } from '../../components/common';
+import { Modal, Pagination, Table, useToast } from '../../components/common';
+import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { suppliersApi } from '../../api/suppliersApi';
 import styles from './SupplierList.module.css';
@@ -78,9 +79,11 @@ export default function SupplierList() {
     totalPages: 1,
   });
 
-  // 2. State Drawer Chi tiết / Thêm / Cập nhật
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState('create'); // 'create' | 'edit'
+  // 2. State Modal Chi tiết / Thêm / Cập nhật
+  const supplierFormId = useId();
+  const isSubmittingRef = useRef(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [supplierForm, setSupplierForm] = useState(INITIAL_SUPPLIER_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -138,25 +141,25 @@ export default function SupplierList() {
     loadSuppliers();
   }, [loadSuppliers, refreshTrigger]);
 
-  // Xử lý mở drawer thêm mới (chỉ ADMIN)
-  const handleOpenCreateDrawer = () => {
+  // Xử lý mở modal thêm mới (chỉ ADMIN)
+  const handleOpenCreateModal = () => {
     if (!isAdmin) {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm nhà cung cấp.');
       return;
     }
-    setDrawerMode('create');
+    setModalMode('create');
     setSupplierForm({ ...INITIAL_SUPPLIER_FORM });
     setFormError('');
-    setIsDrawerOpen(true);
+    setIsModalOpen(true);
   };
 
-  // Xử lý mở drawer xem chi tiết / cập nhật (chỉ ADMIN)
-  const handleOpenEditDrawer = useCallback((supplier) => {
+  // Xử lý mở modal xem chi tiết / cập nhật (chỉ ADMIN)
+  const handleOpenEditModal = useCallback((supplier) => {
     if (!isAdmin) {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa nhà cung cấp.');
       return;
     }
-    setDrawerMode('edit');
+    setModalMode('edit');
     setSupplierForm({
       id: supplier.id,
       name: supplier.name || '',
@@ -165,12 +168,12 @@ export default function SupplierList() {
       status: supplier.status || 'ACTIVE',
     });
     setFormError('');
-    setIsDrawerOpen(true);
+    setIsModalOpen(true);
   }, [isAdmin, toast]);
 
-  const handleCloseDrawer = () => {
+  const handleCloseModal = () => {
     if (isSubmitting) return;
-    setIsDrawerOpen(false);
+    setIsModalOpen(false);
     setFormError('');
   };
 
@@ -180,7 +183,7 @@ export default function SupplierList() {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái đối tác.');
       return;
     }
-    if (drawerMode !== 'edit' || !supplierForm.id) return;
+    if (modalMode !== 'edit' || !supplierForm.id) return;
     const newStatus = supplierForm.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     setIsSubmitting(true);
     try {
@@ -202,11 +205,16 @@ export default function SupplierList() {
 
   // Submit form (Thêm mới hoặc Cập nhật - chỉ ADMIN)
   const handleSubmitForm = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     if (!isAdmin) {
       const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
+      return;
+    }
+    if (isSubmittingRef.current) {
       return;
     }
 
@@ -240,17 +248,18 @@ export default function SupplierList() {
     }
 
     setFormError('');
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
 
     try {
-      if (drawerMode === 'create') {
+      if (modalMode === 'create') {
         await suppliersApi.createSupplier({
           name: trimmedName,
           contact_email: trimmedEmail,
           contact_phone: trimmedPhone,
         });
         toast.success('Thêm nhà cung cấp mới thành công.');
-        setIsDrawerOpen(false);
+        setIsModalOpen(false);
         setRefreshTrigger((prev) => prev + 1);
       } else {
         await suppliersApi.updateSupplier(supplierForm.id, {
@@ -259,19 +268,20 @@ export default function SupplierList() {
           contact_phone: trimmedPhone,
         });
         toast.success('Cập nhật thông tin nhà cung cấp thành công.');
-        setIsDrawerOpen(false);
+        setIsModalOpen(false);
         setRefreshTrigger((prev) => prev + 1);
       }
     } catch (err) {
       const errorMsg = getApiErrorMessage(
         err,
-        drawerMode === 'create'
+        modalMode === 'create'
           ? 'Không thể tạo nhà cung cấp.'
           : 'Không thể cập nhật nhà cung cấp.'
       );
       setFormError(errorMsg);
       toast.error(errorMsg);
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -331,7 +341,7 @@ export default function SupplierList() {
               className={styles.editRowBtn}
               onClick={(e) => {
                 e.stopPropagation();
-                handleOpenEditDrawer(row);
+                handleOpenEditModal(row);
               }}
             >
               Cập nhật
@@ -342,7 +352,7 @@ export default function SupplierList() {
     }
 
     return cols;
-  }, [isAdmin, handleOpenEditDrawer]);
+  }, [isAdmin, handleOpenEditModal]);
 
   return (
     <div className={styles.container}>
@@ -358,7 +368,7 @@ export default function SupplierList() {
           <button
             type="button"
             className={styles.primaryBtn}
-            onClick={handleOpenCreateDrawer}
+            onClick={handleOpenCreateModal}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -473,181 +483,180 @@ export default function SupplierList() {
             />
           </div>
         </div>
-
-        {/* Drawer bên phải: Thêm mới hoặc Chi tiết & Cập nhật */}
-        {isDrawerOpen && (
-          <aside className={styles.drawerSection} aria-label="Chi tiết nhà cung cấp">
-            <div className={styles.drawerHeader}>
-              <div className={styles.drawerTitleGroup}>
-                <h2 className={styles.drawerTitle}>
-                  {drawerMode === 'create' ? 'Thêm nhà cung cấp' : 'Chi tiết nhà cung cấp'}
-                </h2>
-                <p className={styles.drawerSubtitle}>
-                  {drawerMode === 'create'
-                    ? 'Tạo mới hồ sơ đối tác phục vụ nhập kho'
-                    : 'Cập nhật hồ sơ đối tác phục vụ nhập kho'}
-                </p>
-              </div>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={handleCloseDrawer}
-                aria-label="Đóng bảng chi tiết"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitForm} className={styles.drawerBody}>
-              <div className={styles.drawerNote}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
-                <span>
-                  Các trường có dấu (*) là thông tin bắt buộc khi khởi tạo giao dịch nhập hàng.
-                </span>
-              </div>
-
-              {formError && (
-                <div style={{ color: '#DC2626', fontSize: '13px', backgroundColor: '#FEF2F2', padding: '8px 12px', borderRadius: '6px' }}>
-                  {formError}
-                </div>
-              )}
-
-              {/* Tên nhà cung cấp */}
-              <div className={styles.formGroup}>
-                <div className={styles.labelRow}>
-                  <label className={styles.formLabel}>
-                    Tên nhà cung cấp <span className={styles.requiredMark}>*</span>
-                  </label>
-                </div>
-                <input
-                  type="text"
-                  className={styles.formInput}
-                  placeholder="Nhập tên nhà cung cấp..."
-                  value={supplierForm.name}
-                  onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })}
-                  maxLength={160}
-                  disabled={!isAdmin || isSubmitting}
-                  required
-                />
-                <span className={styles.formSubtext}>
-                  Tên pháp nhân chính xác để hiển thị trên chứng từ nhập kho.
-                </span>
-              </div>
-
-              {/* Số điện thoại */}
-              <div className={styles.formGroup}>
-                <div className={styles.labelRow}>
-                  <label className={styles.formLabel}>Số điện thoại liên hệ</label>
-                  <span className={styles.optionalBadge}>Tùy chọn</span>
-                </div>
-                <div className={styles.formInputWrapper}>
-                  <svg className={styles.inputIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                  </svg>
-                  <input
-                    type="text"
-                    className={`${styles.formInput} ${styles.formInputWithIcon}`}
-                    placeholder="Ví dụ: 028 5415 5555"
-                    value={supplierForm.contact_phone}
-                    onChange={(e) => setSupplierForm({ ...supplierForm, contact_phone: e.target.value })}
-                    maxLength={32}
-                    disabled={!isAdmin || isSubmitting}
-                  />
-                </div>
-              </div>
-
-              {/* Email */}
-              <div className={styles.formGroup}>
-                <div className={styles.labelRow}>
-                  <label className={styles.formLabel}>Email kinh doanh</label>
-                  <span className={styles.optionalBadge}>Tùy chọn</span>
-                </div>
-                <div className={styles.formInputWrapper}>
-                  <svg className={styles.inputIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                    <polyline points="22,6 12,13 2,6" />
-                  </svg>
-                  <input
-                    type="email"
-                    className={`${styles.formInput} ${styles.formInputWithIcon}`}
-                    placeholder="Ví dụ: contact@supplier.vn"
-                    value={supplierForm.contact_email}
-                    onChange={(e) => setSupplierForm({ ...supplierForm, contact_email: e.target.value })}
-                    maxLength={254}
-                    disabled={!isAdmin || isSubmitting}
-                  />
-                </div>
-              </div>
-
-              {/* Tình trạng đối tác (chỉ hiện khi xem chi tiết / cập nhật) */}
-              {drawerMode === 'edit' && (
-                <div className={styles.statusCard}>
-                  <div className={styles.statusCardRow}>
-                    <span className={styles.statusCardLabel}>Tình trạng đối tác</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <SupplierStatusBadge status={supplierForm.status} />
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          className={styles.statusToggleBtn}
-                          onClick={handleToggleStatus}
-                          disabled={isSubmitting}
-                        >
-                          {supplierForm.status === 'ACTIVE' ? 'Ngừng hợp tác' : 'Kích hoạt lại'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <p className={styles.statusCardDesc}>
-                    {supplierForm.status === 'ACTIVE'
-                      ? 'Khi vô hiệu hóa, nhà cung cấp này sẽ không hiển thị tại mục chọn đối tác của màn hình Lập phiếu nhập kho mới.'
-                      : 'Nhà cung cấp đang ở trạng thái ngừng hợp tác. Kích hoạt lại để cho phép tạo phiếu nhập mới.'}
-                  </p>
-                </div>
-              )}
-
-              {/* Nút hành động trong footer drawer */}
-              <div className={styles.drawerFooter} style={{ margin: 'auto -20px -20px -20px' }}>
-                <button
-                  type="button"
-                  className={styles.cancelBtn}
-                  onClick={handleCloseDrawer}
-                  disabled={isSubmitting}
-                >
-                  Đóng
-                </button>
-                {isAdmin && (
-                  <button
-                    type="submit"
-                    className={styles.submitBtn}
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      'Đang xử lý...'
-                    ) : drawerMode === 'create' ? (
-                      'Thêm nhà cung cấp'
-                    ) : (
-                      <>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                        Cập nhật thông tin
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </form>
-          </aside>
-        )}
       </div>
+
+      {/* 5. Modal Thêm / Cập nhật nhà cung cấp */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        title={
+          modalMode === 'create'
+            ? 'Thêm nhà cung cấp'
+            : 'Chi tiết nhà cung cấp'
+        }
+        maxWidth="520px"
+        footer={
+          <>
+            <button
+              type="button"
+              className={modalStyles.cancelBtn}
+              onClick={handleCloseModal}
+              disabled={isSubmitting}
+            >
+              Hủy
+            </button>
+            {isAdmin && (
+              <button
+                type="submit"
+                form={supplierFormId}
+                className={modalStyles.confirmBtn}
+                disabled={!isAdmin || isSubmitting}
+              >
+                {isSubmitting
+                  ? 'Đang xử lý...'
+                  : modalMode === 'create'
+                  ? 'Thêm nhà cung cấp'
+                  : 'Lưu thay đổi'}
+              </button>
+            )}
+          </>
+        }
+      >
+        <form
+          id={supplierFormId}
+          onSubmit={handleSubmitForm}
+          className={styles.modalForm}
+        >
+          {formError && <div className={styles.formErrorBox}>{formError}</div>}
+
+          {/* Tên nhà cung cấp */}
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>
+              Tên nhà cung cấp <span className={styles.requiredMark}>*</span>
+            </label>
+            <input
+              type="text"
+              className={styles.formInput}
+              placeholder="Nhập tên nhà cung cấp..."
+              value={supplierForm.name}
+              onChange={(e) =>
+                setSupplierForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+              maxLength={160}
+              disabled={!isAdmin || isSubmitting}
+              required
+              autoFocus
+            />
+            <span className={styles.formSubtext}>
+              Tên pháp nhân chính xác để hiển thị trên chứng từ nhập kho.
+            </span>
+          </div>
+
+          {/* Số điện thoại */}
+          <div className={styles.formGroup}>
+            <div className={styles.labelRow}>
+              <label className={styles.formLabel}>Số điện thoại liên hệ</label>
+              <span className={styles.optionalBadge}>Tùy chọn</span>
+            </div>
+            <div className={styles.formInputWrapper}>
+              <svg
+                className={styles.inputIcon}
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+              </svg>
+              <input
+                type="text"
+                className={`${styles.formInput} ${styles.formInputWithIcon}`}
+                placeholder="Ví dụ: 028 5415 5555"
+                value={supplierForm.contact_phone}
+                onChange={(e) =>
+                  setSupplierForm((prev) => ({
+                    ...prev,
+                    contact_phone: e.target.value,
+                  }))
+                }
+                maxLength={32}
+                disabled={!isAdmin || isSubmitting}
+              />
+            </div>
+          </div>
+
+          {/* Email */}
+          <div className={styles.formGroup}>
+            <div className={styles.labelRow}>
+              <label className={styles.formLabel}>Email kinh doanh</label>
+              <span className={styles.optionalBadge}>Tùy chọn</span>
+            </div>
+            <div className={styles.formInputWrapper}>
+              <svg
+                className={styles.inputIcon}
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                <polyline points="22,6 12,13 2,6" />
+              </svg>
+              <input
+                type="email"
+                className={`${styles.formInput} ${styles.formInputWithIcon}`}
+                placeholder="Ví dụ: contact@supplier.vn"
+                value={supplierForm.contact_email}
+                onChange={(e) =>
+                  setSupplierForm((prev) => ({
+                    ...prev,
+                    contact_email: e.target.value,
+                  }))
+                }
+                maxLength={254}
+                disabled={!isAdmin || isSubmitting}
+              />
+            </div>
+          </div>
+
+          {/* Tình trạng đối tác (chỉ hiện khi xem chi tiết / cập nhật) */}
+          {modalMode === 'edit' && (
+            <div className={styles.statusCard}>
+              <div className={styles.statusCardRow}>
+                <span className={styles.statusCardLabel}>Tình trạng đối tác</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <SupplierStatusBadge status={supplierForm.status} />
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className={styles.statusToggleBtn}
+                      onClick={handleToggleStatus}
+                      disabled={isSubmitting}
+                    >
+                      {supplierForm.status === 'ACTIVE'
+                        ? 'Ngừng hợp tác'
+                        : 'Kích hoạt lại'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className={styles.statusCardDesc}>
+                {supplierForm.status === 'ACTIVE'
+                  ? 'Khi vô hiệu hóa, nhà cung cấp này sẽ không hiển thị tại mục chọn đối tác của màn hình Lập phiếu nhập kho mới.'
+                  : 'Nhà cung cấp đang ở trạng thái ngừng hợp tác. Kích hoạt lại để cho phép tạo phiếu nhập mới.'}
+              </p>
+            </div>
+          )}
+        </form>
+      </Modal>
 
       <div className={styles.bottomDisclaimer}>
         RetailOps V1.0 · Cấu hình Đơn Kho Thực Nghiệm · Dữ liệu được bảo chứng toàn vẹn giao dịch

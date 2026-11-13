@@ -546,5 +546,141 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.equal(result.items[0].id, 1);
     });
   });
+
+  // ==========================================================================
+  // 7. F07: Supplier Modal Refactor, Native Form Semantics & Regression
+  // ==========================================================================
+  describe('F07: Supplier Modal Refactor, Native Form Semantics & Regression', () => {
+    const supplierListPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+    const supplierCssPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.module.css');
+
+    test('SupplierList imports shared Modal and modalStyles cleanly', () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+      assert.ok(content.includes("import { Modal, Pagination, Table, useToast } from '../../components/common';"));
+      assert.ok(content.includes("import modalStyles from '../../components/common/Modal/Modal.module.css';"));
+    });
+
+    test('SupplierList completely removes obsolete Drawer classes from JSX and CSS', () => {
+      const jsxContent = fs.readFileSync(supplierListPath, 'utf8');
+      const cssContent = fs.readFileSync(supplierCssPath, 'utf8');
+
+      // Obsolete drawer elements must not exist
+      assert.equal(jsxContent.includes('styles.drawerOverlay'), false, 'drawerOverlay must not exist in JSX');
+      assert.equal(jsxContent.includes('styles.drawerHeader'), false, 'drawerHeader must not exist in JSX');
+      assert.equal(jsxContent.includes('styles.drawerBody'), false, 'drawerBody must not exist in JSX');
+      assert.equal(jsxContent.includes('styles.drawerFooter'), false, 'drawerFooter must not exist in JSX');
+      assert.equal(jsxContent.includes('styles.drawerSection'), false, 'drawerSection must not exist in JSX');
+
+      assert.equal(cssContent.includes('.drawerOverlay'), false, 'drawerOverlay must not exist in CSS');
+      assert.equal(cssContent.includes('.drawerHeader'), false, 'drawerHeader must not exist in CSS');
+      assert.equal(cssContent.includes('.drawerBody'), false, 'drawerBody must not exist in CSS');
+      assert.equal(cssContent.includes('.drawerFooter'), false, 'drawerFooter must not exist in CSS');
+      assert.equal(cssContent.includes('.drawerSection'), false, 'drawerSection must not exist in CSS');
+    });
+
+    test('SupplierList associates footer submit button via native form attribute and useId()', () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+
+      // Must import useId
+      assert.ok(content.includes('useId'), 'SupplierList.jsx must import useId');
+      assert.ok(content.includes('const supplierFormId = useId();'), 'Must declare supplierFormId with useId()');
+
+      // Form must bind id={supplierFormId} and onSubmit={handleSubmitForm}
+      assert.ok(
+        content.includes('id={supplierFormId}'),
+        'Form must bind id={supplierFormId}'
+      );
+      assert.ok(
+        content.includes('onSubmit={handleSubmitForm}'),
+        'Form must bind onSubmit={handleSubmitForm}'
+      );
+
+      // Footer confirm button must have type="submit" and form={supplierFormId}
+      assert.ok(
+        content.includes('type="submit"'),
+        'Confirm button must have type="submit"'
+      );
+      assert.ok(
+        content.includes('form={supplierFormId}'),
+        'Confirm button must link form={supplierFormId}'
+      );
+
+      // Confirm button must not have redundant onClick={handleSubmitForm}
+      assert.equal(
+        content.includes('onClick={handleSubmitForm}'),
+        false,
+        'Confirm button must not have redundant onClick handler'
+      );
+
+      // Internal buttons must have explicit type="button" to prevent unwanted submission
+      assert.ok(
+        content.includes('className={styles.statusToggleBtn}') &&
+          content.includes('type="button"'),
+        'Status toggle button inside form must have type="button"'
+      );
+    });
+
+    test('Double-submit protection blocks concurrent supplier mutations in same tick', async () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+      assert.ok(
+        content.includes('const isSubmittingRef = useRef(false);'),
+        'Must define isSubmittingRef for synchronous submission locking'
+      );
+      assert.ok(
+        content.includes('if (isSubmittingRef.current)'),
+        'Must check isSubmittingRef.current before proceeding'
+      );
+      assert.ok(
+        content.includes('isSubmittingRef.current = true;'),
+        'Must set isSubmittingRef.current = true on submit'
+      );
+      assert.ok(
+        content.includes('isSubmittingRef.current = false;'),
+        'Must reset isSubmittingRef.current in finally block'
+      );
+
+      let callCount = 0;
+      axiosClient.post = async () => {
+        callCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { data: VALID_SUPPLIER_FIXTURE };
+      };
+
+      const isSubmittingRef = { current: false };
+      const simulatedSubmit = async (payload) => {
+        if (isSubmittingRef.current) return null;
+        isSubmittingRef.current = true;
+        try {
+          return await suppliersApi.createSupplier(payload);
+        } finally {
+          isSubmittingRef.current = false;
+        }
+      };
+
+      const [res1, res2] = await Promise.all([
+        simulatedSubmit({ name: 'Nhà cung cấp sữa Vinamilk' }),
+        simulatedSubmit({ name: 'Nhà cung cấp sữa Vinamilk' }),
+      ]);
+
+      assert.equal(callCount, 1, 'Only one createSupplier request allowed concurrently');
+      assert.ok(res1 !== null || res2 !== null);
+      assert.ok(res1 === null || res2 === null);
+      assert.equal(isSubmittingRef.current, false, 'Lock must be released in finally');
+    });
+
+    test('Supplier form client validation enforces length bounds and email regex', () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+
+      assert.ok(content.includes('Tên nhà cung cấp là bắt buộc.'));
+      assert.ok(content.includes('trimmedName.length > 160'));
+      assert.ok(content.includes('Tên nhà cung cấp không được vượt quá 160 ký tự.'));
+      assert.ok(content.includes('trimmedPhone.length > 32'));
+      assert.ok(content.includes('Số điện thoại không được vượt quá 32 ký tự.'));
+      assert.ok(content.includes('trimmedEmail.length > 254'));
+      assert.ok(content.includes('Email không được vượt quá 254 ký tự.'));
+      assert.ok(content.includes('Email kinh doanh không đúng định dạng.'));
+      assert.ok(content.includes('handleCloseModal'));
+    });
+  });
 });
 
