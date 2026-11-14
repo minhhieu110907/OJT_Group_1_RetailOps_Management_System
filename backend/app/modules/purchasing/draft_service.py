@@ -1,10 +1,10 @@
 """Domain service for Purchase Receipt draft creation and updates."""
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -20,9 +20,13 @@ from app.modules.purchasing.schemas import (
     MAX_SQL_INT,
     ReceiptItemRead,
     ReceiptLineInput,
+    ReceiptPage,
     ReceiptRead,
 )
 from app.modules.suppliers.models import Supplier, SupplierStatus
+
+VN_TZ = timezone(timedelta(hours=7))
+ALLOWED_RECEIPT_STATUSES = {"DRAFT", "CONFIRMED", "CANCELLED"}
 
 
 def utc_now_naive() -> datetime:
@@ -362,3 +366,234 @@ class ReceiptDraftService:
             )
         )
         return self._to_receipt_read(receipt, items)
+
+    def cancel_draft(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        receipt_id: int,
+        expected_draft_version: int,
+    ) -> ReceiptRead:
+        """Cancel a DRAFT purchase receipt with optimistic locking (no stock change)."""
+        receipt = session.scalar(
+            select(PurchaseReceipt)
+            .where(PurchaseReceipt.id == receipt_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if receipt is None:
+            raise ResourceNotFoundError(f"Phiếu nhập ID {receipt_id} không tồn tại.")
+
+        if receipt.draft_version != expected_draft_version:
+            raise ConflictError(
+                code="RECEIPT_VERSION_CONFLICT",
+                message=(
+                    f"Phiên bản nháp không khớp: kỳ vọng {expected_draft_version}, "
+                    f"hiện tại là {receipt.draft_version}."
+                ),
+                details={
+                    "receipt_id": receipt_id,
+                    "current_draft_version": receipt.draft_version,
+                    "expected_draft_version": expected_draft_version,
+                },
+            )
+
+        if receipt.status != "DRAFT":
+            raise InvalidStateError(
+                f"Không thể hủy phiếu nhập đã ở trạng thái {receipt.status}."
+            )
+
+        now = utc_now_naive()
+        supplier_name = receipt.supplier_name_snapshot
+        if not supplier_name:
+            sup = session.get(Supplier, receipt.supplier_id)
+            supplier_name = sup.name if sup else "Unknown Supplier"
+
+        stmt = (
+            update(PurchaseReceipt)
+            .where(
+                PurchaseReceipt.id == receipt_id,
+                PurchaseReceipt.draft_version == expected_draft_version,
+                PurchaseReceipt.status == "DRAFT",
+            )
+            .values(
+                status="CANCELLED",
+                draft_version=PurchaseReceipt.draft_version + 1,
+                closed_by=actor_id,
+                closed_at=now,
+                updated_at=now,
+                supplier_name_snapshot=supplier_name,
+            )
+        )
+        result = session.execute(stmt)
+        if result.rowcount == 0:
+            current = session.scalar(
+                select(PurchaseReceipt).where(PurchaseReceipt.id == receipt_id)
+            )
+            if current is None:
+                raise ResourceNotFoundError(
+                    f"Phiếu nhập ID {receipt_id} không tồn tại."
+                )
+            if current.draft_version != expected_draft_version:
+                raise ConflictError(
+                    code="RECEIPT_VERSION_CONFLICT",
+                    message=(
+                        f"Phiên bản nháp không khớp: kỳ vọng {expected_draft_version}, "
+                        f"hiện tại là {current.draft_version}."
+                    ),
+                    details={
+                        "receipt_id": receipt_id,
+                        "current_draft_version": current.draft_version,
+                        "expected_draft_version": expected_draft_version,
+                    },
+                )
+            if current.status != "DRAFT":
+                raise ConflictError(
+                    code="RECEIPT_VERSION_CONFLICT",
+                    message=(
+                        f"Không thể hủy phiếu nhập đã ở trạng thái {current.status}."
+                    ),
+                    details={
+                        "receipt_id": receipt_id,
+                        "status": current.status,
+                    },
+                )
+            raise ConflictError(
+                code="RECEIPT_VERSION_CONFLICT",
+                message=(
+                    f"Phiên bản nháp không khớp: kỳ vọng {expected_draft_version}, "
+                    f"hiện tại là {current.draft_version}."
+                ),
+                details={
+                    "receipt_id": receipt_id,
+                    "current_draft_version": current.draft_version,
+                    "expected_draft_version": expected_draft_version,
+                },
+            )
+
+        session.flush()
+        session.refresh(receipt)
+
+        items = list(
+            session.scalars(
+                select(PurchaseReceiptItem)
+                .where(PurchaseReceiptItem.receipt_id == receipt_id)
+                .order_by(PurchaseReceiptItem.product_id)
+            )
+        )
+        return self._to_receipt_read(receipt, items)
+
+    def list_receipts(
+        self,
+        session: Session,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        status: str | None = None,
+        supplier_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> ReceiptPage:
+        """List purchase receipts with pagination and filtering."""
+        if page < 1:
+            raise DomainValidationError("Trang (page) phải lớn hơn hoặc bằng 1.")
+        if page_size < 1 or page_size > 100:
+            raise DomainValidationError(
+                "Kích thước trang (page_size) phải từ 1 đến 100."
+            )
+
+        base_query = select(PurchaseReceipt)
+
+        if status is not None:
+            normalized_status = status.strip().upper()
+            if normalized_status not in ALLOWED_RECEIPT_STATUSES:
+                raise DomainValidationError(
+                    f"Trạng thái '{status}' không hợp lệ. "
+                    f"Chỉ chấp nhận: {', '.join(sorted(ALLOWED_RECEIPT_STATUSES))}."
+                )
+            base_query = base_query.where(PurchaseReceipt.status == normalized_status)
+
+        if supplier_id is not None:
+            if supplier_id <= 0:
+                raise DomainValidationError("supplier_id phải lớn hơn 0.")
+            base_query = base_query.where(PurchaseReceipt.supplier_id == supplier_id)
+
+        if from_date is not None and isinstance(from_date, datetime):
+            from_date = from_date.date()
+        if to_date is not None and isinstance(to_date, datetime):
+            to_date = to_date.date()
+
+        if from_date is not None and to_date is not None and from_date > to_date:
+            raise DomainValidationError("from_date phải nhỏ hơn hoặc bằng to_date.")
+
+        if from_date is not None:
+            start_utc = (
+                datetime(
+                    from_date.year,
+                    from_date.month,
+                    from_date.day,
+                    0,
+                    0,
+                    0,
+                    tzinfo=VN_TZ,
+                )
+                .astimezone(UTC)
+                .replace(tzinfo=None)
+            )
+            base_query = base_query.where(PurchaseReceipt.created_at >= start_utc)
+
+        if to_date is not None:
+            end_local = datetime(
+                to_date.year,
+                to_date.month,
+                to_date.day,
+                0,
+                0,
+                0,
+                tzinfo=VN_TZ,
+            ) + timedelta(days=1)
+            end_utc = end_local.astimezone(UTC).replace(tzinfo=None)
+            base_query = base_query.where(PurchaseReceipt.created_at < end_utc)
+
+        count_stmt = select(func.count()).select_from(base_query.subquery())
+        total = session.scalar(count_stmt) or 0
+
+        offset = (page - 1) * page_size
+        data_stmt = (
+            base_query.order_by(
+                PurchaseReceipt.created_at.desc(), PurchaseReceipt.id.desc()
+            )
+            .offset(offset)
+            .limit(page_size)
+        )
+        receipts = list(session.scalars(data_stmt))
+
+        if receipts:
+            receipt_ids = [r.id for r in receipts]
+            items = list(
+                session.scalars(
+                    select(PurchaseReceiptItem)
+                    .where(PurchaseReceiptItem.receipt_id.in_(receipt_ids))
+                    .order_by(
+                        PurchaseReceiptItem.receipt_id,
+                        PurchaseReceiptItem.product_id,
+                    )
+                )
+            )
+            items_by_receipt: dict[int, list[PurchaseReceiptItem]] = {}
+            for it in items:
+                items_by_receipt.setdefault(it.receipt_id, []).append(it)
+            receipt_reads = [
+                self._to_receipt_read(r, items_by_receipt.get(r.id, []))
+                for r in receipts
+            ]
+        else:
+            receipt_reads = []
+
+        return ReceiptPage(
+            items=receipt_reads,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
