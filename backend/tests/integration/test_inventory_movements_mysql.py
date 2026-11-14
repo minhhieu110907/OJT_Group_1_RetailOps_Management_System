@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.db.session import get_db_session
 from app.main import create_app
-from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
+from app.modules.auth.dependencies import (
+    CurrentPrincipal,
+    get_current_active_user,
+    get_current_principal,
+)
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
 from app.modules.inventory.models import (
@@ -58,9 +62,14 @@ def _unique_token(suffix: str) -> str:
     return f"{TEST_PREFIX}{suffix}_{uuid4().hex[:8]}"
 
 
+_created_admin_id: int | None = None
+
+
 @pytest.fixture(autouse=True)
 def clean_test_rows(migrated_integration_engine: Engine) -> Iterator[None]:
     """Tear down all test rows created under TEST_PREFIX after each test."""
+    global _created_admin_id
+    _created_admin_id = None
     yield
     with Session(migrated_integration_engine) as session, session.begin():
         product_ids = list(
@@ -118,6 +127,9 @@ def clean_test_rows(migrated_integration_engine: Engine) -> Iterator[None]:
 
         session.execute(delete(Supplier).where(Supplier.name.like(f"{TEST_PREFIX}%")))
         session.execute(delete(Category).where(Category.name.like(f"{TEST_PREFIX}%")))
+        if _created_admin_id is not None:
+            session.execute(delete(User).where(User.id == _created_admin_id))
+            _created_admin_id = None
         session.execute(
             delete(User).where(
                 User.admin_slot.is_(None),
@@ -128,21 +140,24 @@ def clean_test_rows(migrated_integration_engine: Engine) -> Iterator[None]:
 
 def _get_or_create_admin(session: Session) -> User:
     """Retrieve existing seeded admin or create an active admin with admin_slot=1."""
+    global _created_admin_id
     admin = session.scalar(select(User).where(User.admin_slot == 1))
-    if admin is None:
-        now = datetime.now(UTC).replace(tzinfo=None)
-        admin = User(
-            email_normalized=f"{TEST_PREFIX}admin@example.com",
-            password_hash="$2b$04$test.hash.inventory.movements.admin",
-            role=UserRole.ADMIN.value,
-            status=UserStatus.ACTIVE.value,
-            admin_slot=1,
-            last_reapplied_at=None,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(admin)
-        session.flush()
+    if admin is not None:
+        return admin
+    now = datetime.now(UTC).replace(tzinfo=None)
+    admin = User(
+        email_normalized=f"{TEST_PREFIX.lower()}admin@example.com",
+        password_hash="$2b$04$test.hash.inventory.movements.admin",
+        role=UserRole.ADMIN.value,
+        status=UserStatus.ACTIVE.value,
+        admin_slot=1,
+        last_reapplied_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(admin)
+    session.flush()
+    _created_admin_id = int(admin.id)
     return admin
 
 
@@ -397,15 +412,23 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
     session.add(m4)
     session.flush()
 
+    p1_id = int(p1.id)
+    p2_id = int(p2.id)
+    p3_id = int(p3.id)
+    p4_id = int(p4.id)
+    admin_id = int(admin.id)
+    staff_id = int(staff.id)
+
     session.commit()
 
     return {
-        "admin": admin,
-        "staff": staff,
-        "category": category,
-        "products": [p1, p2, p3, p4],
-        "movements": [m1, m2, m3, m4],
-        "adjustment": adjustment,
+        "admin_id": admin_id,
+        "staff_id": staff_id,
+        "category_id": int(category.id),
+        "p1_id": p1_id,
+        "p2_id": p2_id,
+        "p3_id": p3_id,
+        "p4_id": p4_id,
     }
 
 
@@ -417,12 +440,12 @@ def test_stock_movements_sorting_occurred_at_desc_id_desc(
         data = _seed_test_dataset(session)
         service = InventoryQueryService()
 
-        p1: Product = data["products"][0]  # type: ignore[index]
+        p1_id = data["p1_id"]
         page = service.list_stock_movements_admin(
             session=session,
             page=1,
             page_size=20,
-            product_id=p1.id,
+            product_id=p1_id,
         )
 
         assert isinstance(page, StockMovementAdminPage)
@@ -446,15 +469,15 @@ def test_stock_movements_query_filters(
         data = _seed_test_dataset(session)
         service = InventoryQueryService()
 
-        p1: Product = data["products"][0]  # type: ignore[index]
-        p2: Product = data["products"][1]  # type: ignore[index]
+        p1_id = data["p1_id"]
+        p2_id = data["p2_id"]
 
         # Filter by product_id
         page_p2 = service.list_stock_movements_admin(
-            session=session, page=1, page_size=20, product_id=p2.id
+            session=session, page=1, page_size=20, product_id=p2_id
         )
         assert page_p2.total == 1
-        assert page_p2.items[0].product_id == p2.id
+        assert page_p2.items[0].product_id == p2_id
 
         # Filter by kind = ADJUSTMENT
         page_adj = service.list_stock_movements_admin(
@@ -462,16 +485,16 @@ def test_stock_movements_query_filters(
         )
         for item in page_adj.items:
             assert item.kind == "ADJUSTMENT"
-            if item.product_id == p1.id:
+            if item.product_id == p1_id:
                 assert item.adjustment_reason == "Found damaged items during audit"
 
         # Filter by both product_id and kind
         page_p1_sale = service.list_stock_movements_admin(
-            session=session, page=1, page_size=20, product_id=p1.id, kind="SALE"
+            session=session, page=1, page_size=20, product_id=p1_id, kind="SALE"
         )
         assert page_p1_sale.total == 1
         assert page_p1_sale.items[0].kind == "SALE"
-        assert page_p1_sale.items[0].product_id == p1.id
+        assert page_p1_sale.items[0].product_id == p1_id
 
 
 def test_stock_movements_rbac_staff_and_admin(
@@ -481,11 +504,11 @@ def test_stock_movements_rbac_staff_and_admin(
     with Session(migrated_integration_engine) as session:
         data = _seed_test_dataset(session)
         service = InventoryQueryService()
-        p1: Product = data["products"][0]  # type: ignore[index]
+        p1_id = data["p1_id"]
 
         # 1. STAFF query
         staff_page = service.list_stock_movements_staff(
-            session=session, page=1, page_size=20, product_id=p1.id
+            session=session, page=1, page_size=20, product_id=p1_id
         )
         assert isinstance(staff_page, StockMovementPage)
         for item in staff_page.items:
@@ -499,7 +522,7 @@ def test_stock_movements_rbac_staff_and_admin(
 
         # 2. ADMIN query
         admin_page = service.list_stock_movements_admin(
-            session=session, page=1, page_size=20, product_id=p1.id
+            session=session, page=1, page_size=20, product_id=p1_id
         )
         assert isinstance(admin_page, StockMovementAdminPage)
         assert admin_page.total == 3
@@ -525,10 +548,10 @@ def test_inventory_low_stock_filters_and_ordering(
         data = _seed_test_dataset(session)
         service = InventoryQueryService()
 
-        p1: Product = data["products"][0]  # qty=2, ACTIVE
-        p2: Product = data["products"][1]  # qty=5, ACTIVE
-        p3: Product = data["products"][2]  # qty=6, ACTIVE (excluded)
-        p4: Product = data["products"][3]  # qty=1, INACTIVE (excluded)
+        p1_id = data["p1_id"]  # qty=2, ACTIVE
+        p2_id = data["p2_id"]  # qty=5, ACTIVE
+        p3_id = data["p3_id"]  # qty=6, ACTIVE (excluded)
+        p4_id = data["p4_id"]  # qty=1, INACTIVE (excluded)
 
         low_stock_page = service.get_low_stock(
             session=session,
@@ -541,21 +564,21 @@ def test_inventory_low_stock_filters_and_ordering(
         returned_ids = [item.product_id for item in low_stock_page.items]
 
         # P1 and P2 MUST be returned
-        assert p1.id in returned_ids
-        assert p2.id in returned_ids
+        assert p1_id in returned_ids
+        assert p2_id in returned_ids
 
         # P3 (qty=6 > 5) and P4 (INACTIVE) MUST NOT be returned
-        assert p3.id not in returned_ids
-        assert p4.id not in returned_ids
+        assert p3_id not in returned_ids
+        assert p4_id not in returned_ids
 
         # Verify sorting: quantity ASC, product_id ASC
         filtered_items = [
-            item for item in low_stock_page.items if item.product_id in (p1.id, p2.id)
+            item for item in low_stock_page.items if item.product_id in (p1_id, p2_id)
         ]
         assert len(filtered_items) == 2
-        assert filtered_items[0].product_id == p1.id
+        assert filtered_items[0].product_id == p1_id
         assert filtered_items[0].quantity == 2
-        assert filtered_items[1].product_id == p2.id
+        assert filtered_items[1].product_id == p2_id
         assert filtered_items[1].quantity == 5
 
         # Verify each item threshold is 5
@@ -570,7 +593,8 @@ async def test_inventory_low_stock_route_precedence(
     """Verify GET /inventory/low-stock resolves correctly without 422 collision."""
     with Session(migrated_integration_engine) as session:
         data = _seed_test_dataset(session)
-        staff: User = data["staff"]  # type: ignore[index]
+        staff_id = data["staff_id"]
+        p1_id = data["p1_id"]
 
     settings = Settings(
         db_host="unused",
@@ -584,9 +608,23 @@ async def test_inventory_low_stock_route_precedence(
         with Session(migrated_integration_engine) as s:
             yield s
 
+    now = datetime.now(UTC).replace(tzinfo=None)
+    mock_staff = User(
+        id=staff_id,
+        email_normalized="mock_staff@example.com",
+        password_hash="$2b$04$test.mock.staff.hash",
+        role=UserRole.STAFF.value,
+        status=UserStatus.ACTIVE.value,
+        admin_slot=None,
+        last_reapplied_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+
     app.dependency_overrides[get_db_session] = override_get_db
+    app.dependency_overrides[get_current_active_user] = lambda: mock_staff
     app.dependency_overrides[get_current_principal] = lambda: CurrentPrincipal(
-        user=staff, session_id=uuid4()
+        user=mock_staff, session_id=uuid4()
     )
 
     transport = httpx.ASGITransport(app=app)
@@ -600,7 +638,6 @@ async def test_inventory_low_stock_route_precedence(
         assert body["total"] >= 2
 
         # 2. Product ID endpoint still functions correctly
-        p1_id = data["products"][0].id  # type: ignore[index]
         res_prod = await client.get(f"/api/v1/inventory/{p1_id}")
         assert res_prod.status_code == 200
         assert res_prod.json()["product_id"] == p1_id
