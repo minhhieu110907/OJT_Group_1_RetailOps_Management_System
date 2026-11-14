@@ -16,6 +16,183 @@ export const ALLOWED_PRODUCT_SORTS = new Set([
 ]);
 
 /**
+ * Tùy chọn sắp xếp ưu tiên nhập hàng ("Cần nhập trước") trên trang Quản lý sản phẩm.
+ */
+export const RESTOCK_FIRST_SORT = 'restock_first';
+
+/**
+ * Ngưỡng tồn kho thấp hiện hành của hệ thống (INV-04 / ProductList baseline: 1..5).
+ */
+export const LOW_STOCK_THRESHOLD = 5;
+
+/**
+ * 3 bộ lọc thống kê tồn kho cố định trên trang Quản lý sản phẩm (CHANGE A).
+ * Tuyệt đối chỉ có 3 mục: Tất cả, Hết hàng, Sắp hết.
+ */
+export const STOCK_FILTER_TABS = Object.freeze({
+  ALL: 'ALL',
+  OUT_OF_STOCK: 'OUT_OF_STOCK',
+  LOW_STOCK: 'LOW_STOCK',
+});
+
+/**
+ * Kiểm tra số lượng tồn kho có phải là số nguyên không âm hợp lệ hay không.
+ * Tuyệt đối không ép kiểu null, undefined, chuỗi hoặc số âm thành 0.
+ */
+export function isValidInventoryQuantity(qty) {
+  return typeof qty === 'number' && Number.isInteger(qty) && qty >= 0;
+}
+
+/**
+ * Phân loại trạng thái tồn kho của sản phẩm dựa trên logic hiện có:
+ * - OUT_OF_STOCK: tồn kho hợp lệ và bằng 0
+ * - LOW_STOCK: tồn kho hợp lệ và nằm trong khoảng 1..LOW_STOCK_THRESHOLD (1..5)
+ * - NORMAL_STOCK: tồn kho hợp lệ và > LOW_STOCK_THRESHOLD (> 5)
+ * - INVALID_STOCK: dữ liệu tồn kho null, undefined hoặc bất thường (không coi là 0)
+ */
+export function classifyProductStock(productOrQty) {
+  const qty =
+    productOrQty !== null && typeof productOrQty === 'object'
+      ? productOrQty.quantity
+      : productOrQty;
+
+  if (!isValidInventoryQuantity(qty)) {
+    return 'INVALID_STOCK';
+  }
+  if (qty === 0) {
+    return 'OUT_OF_STOCK';
+  }
+  if (qty <= LOW_STOCK_THRESHOLD) {
+    return 'LOW_STOCK';
+  }
+  return 'NORMAL_STOCK';
+}
+
+/**
+ * Kiểm tra sản phẩm có thực sự hết hàng (tồn kho hợp lệ === 0) hay không (CHANGE B).
+ */
+export function isOutOfStockProduct(product) {
+  return classifyProductStock(product) === 'OUT_OF_STOCK';
+}
+
+/**
+ * Tính toán số lượng cho 3 bộ lọc thống kê tồn kho (CHANGE A):
+ * - all: tổng số sản phẩm trong phạm vi dữ liệu hiện tại
+ * - outOfStock: số sản phẩm thuộc nhóm Hết hàng (quantity === 0)
+ * - lowStock: số sản phẩm thuộc nhóm Sắp hết (1 <= quantity <= 5)
+ */
+export function computeProductStockStats(products = []) {
+  if (!Array.isArray(products)) {
+    return { all: 0, outOfStock: 0, lowStock: 0 };
+  }
+
+  let outOfStock = 0;
+  let lowStock = 0;
+
+  for (const product of products) {
+    const stockClass = classifyProductStock(product);
+    if (stockClass === 'OUT_OF_STOCK') {
+      outOfStock += 1;
+    } else if (stockClass === 'LOW_STOCK') {
+      lowStock += 1;
+    }
+  }
+
+  return {
+    all: products.length,
+    outOfStock,
+    lowStock,
+  };
+}
+
+/**
+ * Lọc danh sách sản phẩm theo 1 trong 3 tab thống kê tồn kho (CHANGE A).
+ */
+export function filterProductsByStockTab(
+  products = [],
+  stockTab = STOCK_FILTER_TABS.ALL
+) {
+  if (!Array.isArray(products)) return [];
+  if (stockTab === STOCK_FILTER_TABS.OUT_OF_STOCK) {
+    return products.filter((p) => classifyProductStock(p) === 'OUT_OF_STOCK');
+  }
+  if (stockTab === STOCK_FILTER_TABS.LOW_STOCK) {
+    return products.filter((p) => classifyProductStock(p) === 'LOW_STOCK');
+  }
+  return [...products];
+}
+
+/**
+ * Xác định mức độ ưu tiên khi sắp xếp "Cần nhập trước" (CHANGE D):
+ * 1: Hết hàng (OUT_OF_STOCK)
+ * 2: Sắp hết (LOW_STOCK)
+ * 3: Tồn kho bình thường (NORMAL_STOCK)
+ * 4: Dữ liệu tồn kho bất thường (INVALID_STOCK) — luôn xếp sau bản ghi hợp lệ
+ */
+export function getRestockSortPriority(product) {
+  const stockClass = classifyProductStock(product);
+  if (stockClass === 'OUT_OF_STOCK') return 1;
+  if (stockClass === 'LOW_STOCK') return 2;
+  if (stockClass === 'NORMAL_STOCK') return 3;
+  return 4;
+}
+
+/**
+ * Hàm so sánh 2 sản phẩm theo quy tắc "Cần nhập trước" (CHANGE D):
+ * - Ưu tiên 1: Hết hàng (quantity === 0)
+ * - Ưu tiên 2: Sắp hết (1 <= quantity <= 5), tồn kho nhỏ hơn đứng trước
+ * - Ưu tiên 3: Tồn kho bình thường (quantity > 5), tồn kho tăng dần
+ * - Bản ghi tồn kho bất thường đặt sau các bản ghi hợp lệ
+ * - Tie-breaker ổn định theo id -> sku -> name khi cùng mức ưu tiên và số lượng
+ */
+export function compareProductsForRestock(a, b) {
+  const priorityA = getRestockSortPriority(a);
+  const priorityB = getRestockSortPriority(b);
+
+  if (priorityA !== priorityB) {
+    return priorityA - priorityB;
+  }
+
+  if (priorityA < 4 && a.quantity !== b.quantity) {
+    return a.quantity - b.quantity;
+  }
+
+  if (
+    typeof a?.id === 'number' &&
+    Number.isInteger(a.id) &&
+    typeof b?.id === 'number' &&
+    Number.isInteger(b.id) &&
+    a.id !== b.id
+  ) {
+    return a.id - b.id;
+  }
+
+  if (typeof a?.sku === 'string' && typeof b?.sku === 'string' && a.sku !== b.sku) {
+    return a.sku.localeCompare(b.sku);
+  }
+
+  if (typeof a?.name === 'string' && typeof b?.name === 'string' && a.name !== b.name) {
+    return a.name.localeCompare(b.name);
+  }
+
+  return 0;
+}
+
+/**
+ * Sắp xếp mảng sản phẩm theo tùy chọn "Cần nhập trước" mà không làm biến đổi mảng gốc (CHANGE D).
+ */
+export function sortProductsForRestock(products = []) {
+  if (!Array.isArray(products)) return [];
+  return products
+    .map((item, index) => ({ item, index }))
+    .sort((entryA, entryB) => {
+      const cmp = compareProductsForRestock(entryA.item, entryB.item);
+      return cmp !== 0 ? cmp : entryA.index - entryB.index;
+    })
+    .map((entry) => entry.item);
+}
+
+/**
  * Whitelist trạng thái sản phẩm và danh mục hợp lệ theo CatalogStatus enum.
  */
 export const VALID_CATALOG_STATUSES = new Set(['ACTIVE', 'INACTIVE']);
@@ -385,9 +562,10 @@ export function validatePaginatedResponse(
 }
 
 /**
- * Maximum pages allowed for bounded category pagination (FIX-08).
+ * Maximum pages allowed for bounded category and product pagination (FIX-08).
  */
 export const MAX_CATEGORY_PAGES_LIMIT = 10;
+export const MAX_PRODUCT_PAGES_LIMIT = 50;
 
 /**
  * Unified Product API service connecting directly to FastAPI backend.
@@ -397,6 +575,8 @@ export const productsApi = {
    * Fetch products with pagination, filters, and sorting.
    * Calls Real FastAPI backend GET /api/v1/products.
    * Fail-closed against Mock Mode (F02) and Malformed Envelopes (FIX-07).
+   * Supports bounded multi-page fetching (fetchAll) when full dataset is required
+   * for cross-page stock statistics, stock-status filtering, and restock-priority sorting.
    */
   async getProducts({
     isMockMode,
@@ -406,23 +586,111 @@ export const productsApi = {
     categoryId = '',
     status = '',
     sort = '',
+    fetchAll = false,
+    maxPages = MAX_PRODUCT_PAGES_LIMIT,
   } = {}) {
     assertRealApiMode(isMockMode);
 
-    const params = {
-      page,
-      page_size: pageSize,
-    };
-    if (keyword && String(keyword).trim()) params.search = String(keyword).trim();
-    if (categoryId) params.category_id = Number(categoryId);
-    if (status) params.status = status;
-    if (sort && ALLOWED_PRODUCT_SORTS.has(sort)) params.sort = sort;
+    const initialPage =
+      typeof page === 'number' && Number.isInteger(page) && page >= 1 ? page : 1;
+    const initialPageSize =
+      typeof pageSize === 'number' &&
+      Number.isInteger(pageSize) &&
+      pageSize >= 1 &&
+      pageSize <= 100
+        ? pageSize
+        : 20;
 
-    const response = await axiosClient.get('/products', { params });
-    return validatePaginatedResponse(response.data, validateProductRead, {
-      minPageSize: 1,
-      maxPageSize: 100,
+    const buildQueryParams = (targetPage) => {
+      const params = {
+        page: targetPage,
+        page_size: initialPageSize,
+      };
+      if (keyword && String(keyword).trim()) params.search = String(keyword).trim();
+      if (categoryId) params.category_id = Number(categoryId);
+      if (status) params.status = status;
+      if (sort && ALLOWED_PRODUCT_SORTS.has(sort)) params.sort = sort;
+      return params;
+    };
+
+    const firstResponse = await axiosClient.get('/products', {
+      params: buildQueryParams(initialPage),
     });
+    const firstResult = validatePaginatedResponse(
+      firstResponse.data,
+      validateProductRead,
+      {
+        minPageSize: 1,
+        maxPageSize: 100,
+      }
+    );
+
+    if (!fetchAll) {
+      return firstResult;
+    }
+
+    const allItems = [...firstResult.items];
+    const seenIds = new Set(allItems.map((item) => item.id));
+    if (seenIds.size !== allItems.length) {
+      throw new Error('Duplicate product ID detected on initial page.');
+    }
+
+    const total = firstResult.total;
+    const totalPages = Math.max(1, Math.ceil(total / initialPageSize));
+    const pagesToFetchLimit = Math.min(totalPages, initialPage + maxPages - 1);
+
+    let currentPage = initialPage + 1;
+    while (currentPage <= pagesToFetchLimit && allItems.length < total) {
+      const nextResponse = await axiosClient.get('/products', {
+        params: buildQueryParams(currentPage),
+      });
+
+      const nextResult = validatePaginatedResponse(
+        nextResponse.data,
+        validateProductRead,
+        {
+          minPageSize: 1,
+          maxPageSize: 100,
+        }
+      );
+
+      if (nextResult.total !== total) {
+        throw new Error(
+          `Product pagination metadata inconsistency: expected total ${total}, got ${nextResult.total} on page ${currentPage}.`
+        );
+      }
+      if (nextResult.page !== currentPage) {
+        throw new Error(
+          `Product pagination page mismatch: requested page ${currentPage}, got ${nextResult.page}.`
+        );
+      }
+
+      if (nextResult.items.length === 0) {
+        break;
+      }
+
+      for (const item of nextResult.items) {
+        if (seenIds.has(item.id)) {
+          throw new Error(
+            `Product pagination duplicate ID detected: ID ${item.id} already received in previous pages.`
+          );
+        }
+        seenIds.add(item.id);
+        allItems.push(item);
+      }
+
+      currentPage += 1;
+    }
+
+    const isTruncated = allItems.length < total;
+
+    return {
+      items: allItems,
+      total,
+      page: initialPage,
+      page_size: initialPageSize,
+      isTruncated,
+    };
   },
 
   /**

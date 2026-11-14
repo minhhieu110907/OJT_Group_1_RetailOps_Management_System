@@ -2,7 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
-import { parseAndValidateSalePriceVnd, productsApi } from '../../api/productsApi';
+import {
+  RESTOCK_FIRST_SORT,
+  STOCK_FILTER_TABS,
+  classifyProductStock,
+  computeProductStockStats,
+  filterProductsByStockTab,
+  isOutOfStockProduct,
+  parseAndValidateSalePriceVnd,
+  productsApi,
+  sortProductsForRestock,
+} from '../../api/productsApi';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import styles from './ProductList.module.css';
 
@@ -35,6 +45,7 @@ export default function ProductList() {
     status: '',
     sort: '',
   });
+  const [stockFilter, setStockFilter] = useState(STOCK_FILTER_TABS.ALL);
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [data, setData] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -46,9 +57,12 @@ export default function ProductList() {
   const [pagination, setPagination] = useState({
     page: 1,
     page_size: 10,
-    total: 0,
-    totalPages: 1,
   });
+
+  const backendSort =
+    searchParams.sort && searchParams.sort !== RESTOCK_FIRST_SORT
+      ? searchParams.sort
+      : '';
 
   // Chống race condition / stale response khi gõ nhanh hoặc chuyển trang
   const requestIdRef = useRef(0);
@@ -139,23 +153,22 @@ export default function ProductList() {
       setIsLoading(true);
       try {
         const res = await productsApi.getProducts({
-          page: pagination.page,
-          pageSize: pagination.page_size,
+          page: 1,
+          pageSize: 100,
           keyword: debouncedKeyword,
           categoryId: searchParams.categoryId,
           status: searchParams.status,
-          sort: searchParams.sort,
+          sort: backendSort,
+          fetchAll: true,
         });
 
         if (currentRequestId === requestIdRef.current) {
           setData(res.items || []);
-          setPagination((prev) => ({
-            ...prev,
-            page: res.page,
-            page_size: res.page_size,
-            total: res.total,
-            totalPages: Math.max(1, Math.ceil(res.total / res.page_size)),
-          }));
+          if (res.isTruncated) {
+            toast.warning(
+              `Chỉ hiển thị được ${res.items.length}/${res.total} sản phẩm do đạt giới hạn tải.`
+            );
+          }
         }
       } catch (error) {
         if (currentRequestId === requestIdRef.current) {
@@ -177,16 +190,45 @@ export default function ProductList() {
       requestIdRef.current += 1;
     };
   }, [
-    pagination.page,
-    pagination.page_size,
     debouncedKeyword,
     searchParams.categoryId,
     searchParams.status,
-    searchParams.sort,
+    backendSort,
     refreshTrigger,
     isMock,
     toast,
   ]);
+
+  // Thống kê số lượng tồn kho cho 3 pill (Tất cả / Hết hàng / Sắp hết) trên phạm vi dữ liệu hiện tại
+  const stockStats = useMemo(() => computeProductStockStats(data), [data]);
+
+  // Lọc theo tab tồn kho và áp dụng sắp xếp "Cần nhập trước" trên toàn bộ tập dữ liệu trước khi phân trang
+  const filteredAndSortedProducts = useMemo(() => {
+    const filteredByStock = filterProductsByStockTab(data, stockFilter);
+    if (searchParams.sort === RESTOCK_FIRST_SORT) {
+      return sortProductsForRestock(filteredByStock);
+    }
+    return filteredByStock;
+  }, [data, stockFilter, searchParams.sort]);
+
+  const totalPages = useMemo(
+    () =>
+      Math.max(
+        1,
+        Math.ceil(filteredAndSortedProducts.length / pagination.page_size)
+      ),
+    [filteredAndSortedProducts.length, pagination.page_size]
+  );
+
+  const currentPage = Math.min(pagination.page, totalPages);
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * pagination.page_size;
+    return filteredAndSortedProducts.slice(
+      startIndex,
+      startIndex + pagination.page_size
+    );
+  }, [filteredAndSortedProducts, currentPage, pagination.page_size]);
 
   // Xử lý thay đổi bộ lọc tìm kiếm
   const handleFilterChange = (e) => {
@@ -201,6 +243,15 @@ export default function ProductList() {
     }));
   };
 
+  // Xử lý chọn pill bộ lọc thống kê tồn kho (CHANGE A)
+  const handleStockFilterChange = (nextTab) => {
+    setStockFilter(nextTab);
+    setPagination((prev) => ({
+      ...prev,
+      page: 1,
+    }));
+  };
+
   // Đặt lại bộ lọc về mặc định
   const handleResetFilters = () => {
     setSearchParams({
@@ -209,6 +260,7 @@ export default function ProductList() {
       status: '',
       sort: '',
     });
+    setStockFilter(STOCK_FILTER_TABS.ALL);
     setPagination((prev) => ({
       ...prev,
       page: 1,
@@ -402,45 +454,31 @@ export default function ProductList() {
       },
       {
         key: 'quantity',
-        title: (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            TỒN KHO
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          </span>
-        ),
+        title: 'TỒN KHO',
         align: 'center',
         width: '150px',
         render: (row) => {
-          const qty = typeof row.quantity === 'number' ? row.quantity : 0;
-          if (qty <= 0) {
+          const stockClass = classifyProductStock(row);
+          if (stockClass === 'OUT_OF_STOCK') {
             return (
               <div className={styles.stockCell}>
-                <span className={styles.stockNumber}>{qty}</span>
-                <span className={styles.stockTagDanger}>[Hết hàng]</span>
+                <span className={styles.stockNumber}>{row.quantity}</span>
+                <span className={styles.stockTagDanger}>Hết hàng</span>
               </div>
             );
           }
-          if (qty <= 5) {
+          if (stockClass === 'LOW_STOCK') {
             return (
               <div className={styles.stockCell}>
-                <span className={styles.stockNumber}>{qty}</span>
-                <span className={styles.stockTagWarning}>[Tồn thấp]</span>
+                <span className={styles.stockNumber}>{row.quantity}</span>
+                <span className={styles.stockTagWarning}>Sắp hết</span>
               </div>
             );
           }
-          return <span className={styles.stockNumber}>{qty}</span>;
+          if (stockClass === 'NORMAL_STOCK') {
+            return <span className={styles.stockNumber}>{row.quantity}</span>;
+          }
+          return <span className={styles.stockNumber}>—</span>;
         },
       },
       {
@@ -695,6 +733,7 @@ export default function ProductList() {
               className={styles.filterSelect}
             >
               <option value="">Mặc định</option>
+              <option value={RESTOCK_FIRST_SORT}>Cần nhập trước</option>
               <option value="name_asc">Tên (A-Z)</option>
               <option value="name_desc">Tên (Z-A)</option>
               <option value="sku_asc">Mã SKU (A-Z)</option>
@@ -725,20 +764,70 @@ export default function ProductList() {
         </div>
       </div>
 
+      {/* Bộ lọc thống kê tồn kho (CHANGE A: Chỉ 3 mục cố định) */}
+      <div
+        className={styles.stockFilterBar}
+        role="group"
+        aria-label="Bộ lọc thống kê tồn kho"
+      >
+        <button
+          type="button"
+          className={`${styles.stockFilterPill} ${styles.stockPillAll} ${
+            stockFilter === STOCK_FILTER_TABS.ALL ? styles.stockPillActive : ''
+          }`}
+          aria-pressed={stockFilter === STOCK_FILTER_TABS.ALL}
+          onClick={() => handleStockFilterChange(STOCK_FILTER_TABS.ALL)}
+        >
+          <span>Tất cả</span>
+          <span className={styles.stockPillCount}>{stockStats.all}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`${styles.stockFilterPill} ${styles.stockPillOut} ${
+            stockFilter === STOCK_FILTER_TABS.OUT_OF_STOCK
+              ? styles.stockPillActive
+              : ''
+          }`}
+          aria-pressed={stockFilter === STOCK_FILTER_TABS.OUT_OF_STOCK}
+          onClick={() => handleStockFilterChange(STOCK_FILTER_TABS.OUT_OF_STOCK)}
+        >
+          <span>Hết hàng</span>
+          <span className={styles.stockPillCount}>{stockStats.outOfStock}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`${styles.stockFilterPill} ${styles.stockPillLow} ${
+            stockFilter === STOCK_FILTER_TABS.LOW_STOCK
+              ? styles.stockPillActive
+              : ''
+          }`}
+          aria-pressed={stockFilter === STOCK_FILTER_TABS.LOW_STOCK}
+          onClick={() => handleStockFilterChange(STOCK_FILTER_TABS.LOW_STOCK)}
+        >
+          <span>Sắp hết</span>
+          <span className={styles.stockPillCount}>{stockStats.lowStock}</span>
+        </button>
+      </div>
+
       {/* 3. Bảng dữ liệu sản phẩm */}
       <Table
         columns={columns}
-        data={data}
+        data={paginatedData}
         rowKey="id"
         isLoading={isLoading}
         emptyText="Không tìm thấy sản phẩm phù hợp."
+        rowClassName={(row) =>
+          isOutOfStockProduct(row) ? styles.outOfStockRow : ''
+        }
       />
 
       {/* 4. Phân trang */}
       <div className={styles.paginationRow}>
         <Pagination
-          currentPage={pagination.page}
-          totalPages={pagination.totalPages}
+          currentPage={currentPage}
+          totalPages={totalPages}
           onPageChange={handlePageChange}
         />
       </div>
