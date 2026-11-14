@@ -65,6 +65,7 @@ class _TrackedCleanup:
         self.product_ids: list[int] = []
         self.supplier_ids: list[int] = []
         self.category_ids: list[int] = []
+        self.admin_id: int | None = None
         self.created_admin_id: int | None = None
 
 
@@ -141,13 +142,14 @@ def _cleanup_prefixed_fixtures(engine: Engine) -> None:
 def _cleanup_tracked(engine: Engine, tracker: _TrackedCleanup) -> None:
     with Session(engine) as session, session.begin():
         if tracker.idempotency_digests:
-            session.execute(
-                delete(IdempotencyRecord).where(
-                    IdempotencyRecord.operation
-                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
-                    IdempotencyRecord.key_digest.in_(tracker.idempotency_digests),
-                )
-            )
+            conditions = [
+                IdempotencyRecord.operation
+                == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                IdempotencyRecord.key_digest.in_(tracker.idempotency_digests),
+            ]
+            if tracker.admin_id is not None:
+                conditions.append(IdempotencyRecord.user_id == tracker.admin_id)
+            session.execute(delete(IdempotencyRecord).where(*conditions))
 
         if tracker.session_ids:
             session.execute(
@@ -191,16 +193,6 @@ def _cleanup_tracked(engine: Engine, tracker: _TrackedCleanup) -> None:
             session.execute(delete(User).where(User.id.in_(tracker.user_ids)))
 
         if tracker.created_admin_id is not None:
-            session.execute(
-                delete(IdempotencyRecord).where(
-                    IdempotencyRecord.user_id == tracker.created_admin_id
-                )
-            )
-            session.execute(
-                delete(AuthSession).where(
-                    AuthSession.user_id == tracker.created_admin_id
-                )
-            )
             session.execute(delete(User).where(User.id == tracker.created_admin_id))
 
         if tracker.supplier_ids:
@@ -412,6 +404,7 @@ def _setup_test_context(
         product_ids = [p.id for p in products]
         receipt_id = receipt.id
 
+    tracker.admin_id = admin_id
     tracker.session_ids.extend([admin_sid.bytes, staff_sid.bytes])
     tracker.user_ids.append(staff_id)
     tracker.supplier_ids.append(supplier_id)
@@ -893,3 +886,101 @@ async def test_confirm_rollback_on_mid_transaction_failure(
             )
         )
         assert len(records) == 0
+
+
+@pytest.mark.anyio
+async def test_confirm_cleanup_preserves_unrelated_idempotency_and_admin_sessions(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Cleanup must never delete unrelated IdempotencyRecord or Admin AuthSession."""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    sentinel_sid = uuid4().bytes
+    sentinel_digest = key_digest(
+        f"unrelated-confirm-key-{uuid4().hex}",
+        get_settings().require_idempotency_secret(),
+    )
+    sentinel_req_digest = b"\x01" * 32
+    created_sentinel_admin = False
+
+    with Session(migrated_integration_engine) as session, session.begin():
+        admin = session.scalar(select(User).where(User.admin_slot == 1))
+        if admin is None:
+            admin = User(
+                email_normalized=f"{TEST_EMAIL_PREFIX}sentinel_admin@example.com",
+                password_hash="$2b$04$test.actor.hash",
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+                admin_slot=1,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(admin)
+            session.flush()
+            created_sentinel_admin = True
+        sentinel_admin_id = admin.id
+
+        session.add(
+            AuthSession(
+                id=sentinel_sid,
+                user_id=sentinel_admin_id,
+                created_at=now,
+                expires_at=now + timedelta(hours=2),
+                revoked_at=None,
+            )
+        )
+        session.add(
+            IdempotencyRecord(
+                user_id=sentinel_admin_id,
+                operation=IdempotencyOperation.CONFIRM_RECEIPT.value,
+                key_digest=sentinel_digest,
+                request_digest=sentinel_req_digest,
+                created_at=now,
+            )
+        )
+
+    tracker = _TrackedCleanup()
+    try:
+        ctx = _setup_test_context(migrated_integration_engine, tracker)
+        idem_key = ctx.track_key("rc-confirm-isolation-001")
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=ctx.app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/purchase-receipts/{ctx.receipt_id}/confirm",
+                headers={**ctx.admin_headers, "Idempotency-Key": idem_key},
+                json={"expected_draft_version": 1},
+            )
+            assert resp.status_code == 200
+    finally:
+        _cleanup_tracked(migrated_integration_engine, tracker)
+        _cleanup_prefixed_fixtures(migrated_integration_engine)
+
+    try:
+        with Session(migrated_integration_engine) as session:
+            kept_session = session.scalar(
+                select(AuthSession).where(AuthSession.id == sentinel_sid)
+            )
+            assert kept_session is not None
+
+            kept_idem = session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == sentinel_admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == sentinel_digest,
+                )
+            )
+            assert kept_idem is not None
+    finally:
+        with Session(migrated_integration_engine) as session, session.begin():
+            session.execute(
+                delete(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == sentinel_admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == sentinel_digest,
+                )
+            )
+            session.execute(delete(AuthSession).where(AuthSession.id == sentinel_sid))
+            if created_sentinel_admin:
+                session.execute(delete(User).where(User.id == sentinel_admin_id))

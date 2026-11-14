@@ -28,7 +28,7 @@ from app.modules.purchasing.schemas import ReceiptItemRead, ReceiptRead
 from app.modules.suppliers.models import Supplier, SupplierStatus
 
 
-class ReceiptConfirmationService:
+class ReceiptConfirmService:
     """Confirm DRAFT purchase receipts, increase stock, and log movements atomically."""
 
     def __init__(
@@ -41,7 +41,7 @@ class ReceiptConfirmationService:
         self._idempotency = idempotency or IdempotencyExecutor()
         self._clock = clock or utc_now_naive
 
-    def confirm_receipt(
+    def confirm(
         self,
         session: Session,
         *,

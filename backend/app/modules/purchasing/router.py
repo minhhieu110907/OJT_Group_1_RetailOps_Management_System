@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.session import commit_session, get_db_session
 from app.modules.auth.dependencies import require_active_admin
 from app.modules.auth.models import User
-from app.modules.purchasing.confirmation_service import ReceiptConfirmationService
+from app.modules.purchasing.confirm_service import ReceiptConfirmService
 from app.modules.purchasing.draft_service import ReceiptDraftService
 from app.modules.purchasing.schemas import (
     ReceiptCreateRequest,
@@ -27,9 +27,9 @@ def get_receipt_draft_service() -> ReceiptDraftService:
     return ReceiptDraftService()
 
 
-def get_receipt_confirmation_service() -> ReceiptConfirmationService:
-    """Dependency provider for ReceiptConfirmationService."""
-    return ReceiptConfirmationService()
+def get_receipt_confirm_service() -> ReceiptConfirmService:
+    """Dependency provider for ReceiptConfirmService."""
+    return ReceiptConfirmService()
 
 
 @router.post(
@@ -99,13 +99,13 @@ def confirm_purchase_receipt(
     current_admin: Annotated[User, Depends(require_active_admin)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[
-        ReceiptConfirmationService,
-        Depends(get_receipt_confirmation_service),
+        ReceiptConfirmService,
+        Depends(get_receipt_confirm_service),
     ],
 ) -> ReceiptRead:
     """Confirm a DRAFT purchase receipt and increase stock atomically (Admin only)."""
     try:
-        result = service.confirm_receipt(
+        result = service.confirm(
             session,
             actor_id=current_admin.id,
             receipt_id=receipt_id,
