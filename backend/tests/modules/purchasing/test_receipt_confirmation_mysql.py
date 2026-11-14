@@ -8,7 +8,6 @@ from uuid import uuid4
 import anyio
 import httpx
 import pytest
-from app.core.rate_limit import RedisFixedWindowRateLimiter
 from pydantic import SecretStr
 from redis.exceptions import RedisError
 from sqlalchemy import delete, select
@@ -17,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
+from app.infrastructure.rate_limit import RedisFixedWindowRateLimiter
 from app.main import create_app
 from app.modules.auth.dependencies import get_auth_service
 from app.modules.auth.models import AuthSession, User, UserRole, UserStatus
