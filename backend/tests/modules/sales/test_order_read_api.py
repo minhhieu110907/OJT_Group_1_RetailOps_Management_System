@@ -12,12 +12,13 @@ from fastapi import FastAPI
 from pydantic import SecretStr, ValidationError
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import DomainValidationError, ResourceNotFoundError
+from app.core.exceptions import ResourceNotFoundError
 from app.db.session import get_db_session
 from app.main import create_app
 from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
 from app.modules.auth.models import User
 from app.modules.sales.models import OrderStatus
+from app.modules.sales.repository import OrderRepository
 from app.modules.sales.router import get_order, get_order_read_service, list_orders
 from app.modules.sales.router import router as sales_router
 from app.modules.sales.schemas import OrderLineRead, OrderPage, OrderRead
@@ -225,14 +226,6 @@ class FakeOrderReadService:
         del session, actor_id, actor_role
         if self.raise_error:
             raise self.raise_error
-        if filters.to_date and filters.to_date >= date.max:
-            raise DomainValidationError("Giá trị to_date vượt giới hạn cho phép.")
-        if (
-            filters.from_date
-            and filters.to_date
-            and filters.from_date > filters.to_date
-        ):
-            raise DomainValidationError("from_date must not be greater than to_date")
         self.last_filters = filters
         return OrderPage(
             items=[
@@ -357,31 +350,89 @@ async def test_list_orders_http_inactive_user_returns_403() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_orders_http_validations_422() -> None:
-    service = FakeOrderReadService()
-    app = make_test_app(service)
+async def test_list_orders_http_real_service_date_overflow_422() -> None:
+    """Verify real OrderReadService catches date.max and returns 422 without repo."""
+    mock_repo = MagicMock(spec=OrderRepository)
+    real_service = OrderReadService(repository=mock_repo)
+    app = make_test_app(service=real_service)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        # page < 1
-        res = await client.get("/api/v1/orders?page=0")
-        assert res.status_code == 422
-
-        # page_size > 100
-        res = await client.get("/api/v1/orders?page_size=101")
-        assert res.status_code == 422
-
-        # invalid status enum
-        res = await client.get("/api/v1/orders?status=PENDING")
-        assert res.status_code == 422
-
-        # from_date > to_date
-        res = await client.get("/api/v1/orders?from_date=2026-11-20&to_date=2026-11-10")
-        assert res.status_code == 422
-
-        # date overflow (9999-12-31)
         res = await client.get("/api/v1/orders?to_date=9999-12-31")
-        assert res.status_code == 422
+
+    assert res.status_code == 422
+    body = res.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "vượt giới hạn" in body["message"]
+    mock_repo.list_orders.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_real_service_from_date_greater_than_to_date_422() -> (
+    None
+):
+    """Verify real OrderReadService catches from_date > to_date without repo."""
+    mock_repo = MagicMock(spec=OrderRepository)
+    real_service = OrderReadService(repository=mock_repo)
+    app = make_test_app(service=real_service)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders?from_date=2026-11-20&to_date=2026-11-10")
+
+    assert res.status_code == 422
+    body = res.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "from_date must not be greater than to_date" in body["message"]
+    mock_repo.list_orders.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_real_service_valid_query_delegates_to_repo() -> None:
+    """Verify real OrderReadService translates dates to UTC and calls repository."""
+    mock_repo = MagicMock(spec=OrderRepository)
+    mock_repo.list_orders.return_value = ([], 0)
+    real_service = OrderReadService(repository=mock_repo)
+    app = make_test_app(service=real_service)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get(
+            "/api/v1/orders?page=2&page_size=15&status=COMPLETED&from_date=2026-11-10&to_date=2026-11-14&search=SKU-TEST"
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"items": [], "total": 0, "page": 2, "page_size": 15}
+    mock_repo.list_orders.assert_called_once()
+    call_kwargs = mock_repo.list_orders.call_args.kwargs
+    assert call_kwargs["status"] == "COMPLETED"
+    # Vietnam (+07) 2026-11-10 00:00:00 -> 2026-11-09 17:00:00 UTC
+    assert call_kwargs["sold_from_utc"] == datetime(2026, 11, 9, 17, 0, 0)
+    # Vietnam (+07) 2026-11-15 00:00:00 -> 2026-11-14 17:00:00 UTC
+    assert call_kwargs["sold_to_utc_exclusive"] == datetime(2026, 11, 14, 17, 0, 0)
+    assert call_kwargs["offset"] == 15
+    assert call_kwargs["limit"] == 15
+    assert call_kwargs["sku_search"] == "SKU-TEST"
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_schema_validations_rejected_before_service() -> None:
+    """Verify schema-level invalid parameters are rejected before repository."""
+    mock_repo = MagicMock(spec=OrderRepository)
+    real_service = OrderReadService(repository=mock_repo)
+    app = make_test_app(service=real_service)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for bad_url in [
+            "/api/v1/orders?page=0",
+            "/api/v1/orders?page_size=101",
+            "/api/v1/orders?status=PENDING",
+        ]:
+            res = await client.get(bad_url)
+            assert res.status_code == 422
+    mock_repo.list_orders.assert_not_called()
 
 
 @pytest.mark.anyio
