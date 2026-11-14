@@ -544,6 +544,49 @@ def test_mysql_product_search_filter_sort_and_pagination_stability(
             paged_ids.append(page_res.items[0].id)
         assert paged_ids == [p1.id, p2.id, p3.id]
 
+        # 7. quantity_asc and restock_first sorting in MySQL 8 before pagination
+        # Set inventory quantities: p1=20, p2=0, p3=2
+        inv_p1 = session.get(Inventory, p1.id)
+        inv_p2 = session.get(Inventory, p2.id)
+        inv_p3 = session.get(Inventory, p3.id)
+        assert inv_p1 is not None and inv_p2 is not None and inv_p3 is not None
+        now_stocked = datetime(2026, 11, 8, 12, 0, 0)
+        inv_p1.quantity = 20
+        inv_p1.first_stocked_at = now_stocked
+        inv_p2.quantity = 0
+        inv_p2.first_stocked_at = None
+        inv_p3.quantity = 2
+        inv_p3.first_stocked_at = now_stocked
+        session.commit()
+
+        qty_asc_mysql = service.list_products(
+            session,
+            search=run_tag,
+            sort=ProductSortOrder.QUANTITY_ASC,
+        )
+        assert [item.id for item in qty_asc_mysql.items] == [p2.id, p3.id, p1.id]
+        assert [item.quantity for item in qty_asc_mysql.items] == [0, 2, 20]
+
+        restock_mysql = service.list_products(
+            session,
+            search=run_tag,
+            sort=ProductSortOrder.RESTOCK_FIRST,
+        )
+        assert [item.id for item in restock_mysql.items] == [p2.id, p3.id, p1.id]
+
+        # Verify sorting before pagination (page 1 with page_size=1 returns p2 (qty=0))
+        qty_page1 = service.list_products(
+            session,
+            page=1,
+            page_size=1,
+            search=run_tag,
+            sort=ProductSortOrder.QUANTITY_ASC,
+        )
+        assert qty_page1.total == 3
+        assert len(qty_page1.items) == 1
+        assert qty_page1.items[0].id == p2.id
+        assert qty_page1.items[0].quantity == 0
+
 
 def test_mysql_product_search_special_characters_escaping(
     migrated_integration_engine: Engine,

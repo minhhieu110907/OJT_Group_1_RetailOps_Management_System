@@ -157,7 +157,28 @@ class FakeProductRepository(ProductRepository):
                 p for p in records if kw in p.name.lower() or kw in p.sku.lower()
             ]
 
-        if sort == ProductSortOrder.NAME_ASC:
+        if sort == ProductSortOrder.QUANTITY_ASC:
+            records.sort(
+                key=lambda p: (
+                    1 if self.store.inventory[p.id].quantity is None else 0,
+                    self.store.inventory[p.id].quantity or 0,
+                    p.id,
+                )
+            )
+        elif sort == ProductSortOrder.RESTOCK_FIRST:
+
+            def _restock_key(p: Product) -> tuple[int, int, int]:
+                qty = self.store.inventory[p.id].quantity
+                if qty is None or qty < 0:
+                    return (3, 0, p.id)
+                if qty == 0:
+                    return (0, 0, p.id)
+                if qty <= 5:
+                    return (1, qty, p.id)
+                return (2, qty, p.id)
+
+            records.sort(key=_restock_key)
+        elif sort == ProductSortOrder.NAME_ASC:
             records.sort(key=lambda p: (p.name, p.id))
         elif sort == ProductSortOrder.NAME_DESC:
             records.sort(key=lambda p: (p.name, p.id), reverse=True)
@@ -963,6 +984,34 @@ def test_sql_repository_search_filter_sort_pagination_and_no_n_plus_one() -> Non
         seen_ids.extend(item.id for item in page_res.items)
     assert seen_ids == [4, 1, 2, 5, 6, 3]
     assert len(set(seen_ids)) == 6
+
+    # 8b. Sort by quantity_asc (0 -> 5 -> 8 -> 12 -> 25 -> 40) and restock_first across pages
+    # Seed quantities: P3(0), P5(5), P2(8), P1(12), P4(25), P6(40)
+    qty_asc_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        sort=ProductSortOrder.QUANTITY_ASC,
+    )
+    assert [item.id for item in qty_asc_res.items] == [3, 5, 2, 1, 4, 6]
+    assert [item.quantity for item in qty_asc_res.items] == [0, 5, 8, 12, 25, 40]
+
+    restock_res = service.list_products(
+        session,  # type: ignore[arg-type]
+        sort=ProductSortOrder.RESTOCK_FIRST,
+    )
+    assert [item.id for item in restock_res.items] == [3, 5, 2, 1, 4, 6]
+
+    # Multi-page pagination with quantity_asc (page_size=2 over 6 items)
+    qty_paged_ids: list[int] = []
+    for p in (1, 2, 3):
+        page_res = service.list_products(
+            session,  # type: ignore[arg-type]
+            page=p,
+            page_size=2,
+            sort=ProductSortOrder.QUANTITY_ASC,
+        )
+        assert page_res.total == 6
+        qty_paged_ids.extend(item.id for item in page_res.items)
+    assert qty_paged_ids == [3, 5, 2, 1, 4, 6]
 
     # 9. Empty result
     empty_res = service.list_products(

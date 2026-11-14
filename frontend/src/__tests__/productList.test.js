@@ -18,6 +18,21 @@ import {
   isValidIsoTimestamp,
   ALLOWED_PRODUCT_SORTS,
   VALID_CATALOG_STATUSES,
+  QUANTITY_ASC_SORT,
+  RESTOCK_FIRST_SORT,
+  DEFAULT_PRODUCT_SORT,
+  LOW_STOCK_THRESHOLD,
+  STOCK_FILTER_TABS,
+  isValidInventoryQuantity,
+  classifyProductStock,
+  isOutOfStockProduct,
+  computeProductStockStats,
+  filterProductsByStockTab,
+  getRestockSortPriority,
+  compareProductsForRestock,
+  sortProductsForRestock,
+  compareProductsByQuantityAsc,
+  sortProductsByQuantityAsc,
 } from '../api/productsApi.js';
 
 const TEST_PROD_ENV = { DEV: false, PROD: true, MODE: 'production', VITE_USE_MOCK: 'true' };
@@ -1149,6 +1164,323 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       assert.equal(isValidIsoTimestamp('not-a-timestamp'), false);
       assert.equal(isValidIsoTimestamp(12345678), false);
       assert.equal(isValidIsoTimestamp({}), false);
+    });
+  });
+
+  // ==========================================================================
+  // 10. UI REFINEMENT: CHANGE A, B, C, D & REGRESSION (PRODUCT MANAGEMENT)
+  // ==========================================================================
+  describe('Product Management UI Refinement (CHANGE A, B, C, D & UI Freeze)', () => {
+    const SAMPLE_PRODUCTS = [
+      { id: 6, sku: 'SKU-F', name: 'Sản phẩm F', quantity: 123, status: 'ACTIVE' },
+      { id: 4, sku: 'SKU-D', name: 'Sản phẩm D', quantity: 2, status: 'INACTIVE' },
+      { id: 2, sku: 'SKU-B', name: 'Sản phẩm B', quantity: 0, status: 'ACTIVE' },
+      { id: 5, sku: 'SKU-E', name: 'Sản phẩm E', quantity: 20, status: 'ACTIVE' },
+      { id: 1, sku: 'SKU-A', name: 'Sản phẩm A', quantity: 0, status: 'INACTIVE' },
+      { id: 3, sku: 'SKU-C', name: 'Sản phẩm C', quantity: 1, status: 'ACTIVE' },
+    ];
+
+    test('CHANGE A: Stock filter bar has strictly 3 tabs (Tất cả, Hết hàng, Sắp hết) and never a 4th item', () => {
+      const tabKeys = Object.keys(STOCK_FILTER_TABS);
+      assert.deepEqual(tabKeys, ['ALL', 'OUT_OF_STOCK', 'LOW_STOCK']);
+      assert.equal(tabKeys.length, 3, 'Must strictly have only 3 stock filter tabs');
+      assert.equal(LOW_STOCK_THRESHOLD, 5, 'Must reuse existing low-stock threshold of 5');
+
+      const productListSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
+        'utf8'
+      );
+      assert.match(productListSource, /stockFilterBar/, 'Must render stockFilterBar between filterBar and Table');
+      assert.doesNotMatch(
+        productListSource,
+        /Cần kiểm tra dữ liệu/i,
+        'Must NEVER render a 4th item such as Cần kiểm tra dữ liệu'
+      );
+
+      // Verify exactly 3 filter pill buttons inside stockFilterBar
+      const pillMatches = productListSource.match(/handleStockFilterChange\(/g) || [];
+      assert.equal(pillMatches.length, 3, 'Must have exactly 3 stock filter pill triggers');
+    });
+
+    test('CHANGE A: computeProductStockStats and filterProductsByStockTab classify and filter accurately', () => {
+      const stats = computeProductStockStats(SAMPLE_PRODUCTS);
+      assert.deepEqual(stats, {
+        all: 6,
+        outOfStock: 2, // A (0), B (0)
+        lowStock: 2, // C (1), D (2)
+      });
+      assert.notEqual(
+        stats.outOfStock + stats.lowStock,
+        stats.all,
+        'Does not assume outOfStock + lowStock equals all'
+      );
+
+      const allFiltered = filterProductsByStockTab(SAMPLE_PRODUCTS, STOCK_FILTER_TABS.ALL);
+      assert.equal(allFiltered.length, 6);
+
+      const outFiltered = filterProductsByStockTab(SAMPLE_PRODUCTS, STOCK_FILTER_TABS.OUT_OF_STOCK);
+      assert.deepEqual(
+        outFiltered.map((p) => p.sku),
+        ['SKU-B', 'SKU-A']
+      );
+      assert.ok(outFiltered.every((p) => p.quantity === 0));
+
+      const lowFiltered = filterProductsByStockTab(SAMPLE_PRODUCTS, STOCK_FILTER_TABS.LOW_STOCK);
+      assert.deepEqual(
+        lowFiltered.map((p) => p.sku),
+        ['SKU-D', 'SKU-C']
+      );
+      assert.ok(lowFiltered.every((p) => p.quantity > 0 && p.quantity <= 5));
+    });
+
+    test('CHANGE B: isOutOfStockProduct highlights only actual quantity === 0 and never coerces null/undefined/invalid', () => {
+      assert.equal(isOutOfStockProduct({ quantity: 0 }), true);
+      assert.equal(isOutOfStockProduct({ quantity: 1 }), false);
+      assert.equal(isOutOfStockProduct({ quantity: 5 }), false);
+      assert.equal(isOutOfStockProduct({ quantity: 20 }), false);
+
+      // Abnormal/invalid values must NEVER be treated as 0 or highlighted pink
+      assert.equal(isValidInventoryQuantity(null), false);
+      assert.equal(isValidInventoryQuantity(undefined), false);
+      assert.equal(isValidInventoryQuantity('0'), false);
+      assert.equal(isValidInventoryQuantity(-1), false);
+      assert.equal(isValidInventoryQuantity(1.5), false);
+      assert.equal(isValidInventoryQuantity(NaN), false);
+
+      assert.equal(isOutOfStockProduct({ quantity: null }), false);
+      assert.equal(isOutOfStockProduct({ quantity: undefined }), false);
+      assert.equal(isOutOfStockProduct({ quantity: '0' }), false);
+      assert.equal(isOutOfStockProduct({ quantity: -1 }), false);
+      assert.equal(isOutOfStockProduct({}), false);
+      assert.equal(isOutOfStockProduct(null), false);
+
+      // Verify Table.jsx supports rowClassName and ProductList.jsx wires outOfStockRow without altering status
+      const tableSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/components/common/Table/Table.jsx'),
+        'utf8'
+      );
+      assert.match(tableSource, /rowClassName/, 'Table must support optional rowClassName prop');
+
+      const productListSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
+        'utf8'
+      );
+      assert.match(productListSource, /outOfStockRow/, 'ProductList must apply outOfStockRow for quantity === 0');
+    });
+
+    test('CHANGE C: Stock column removes decorative icons and brackets while keeping labels, colors, and action icons intact', () => {
+      const productListSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
+        'utf8'
+      );
+
+      // Brackets [Hết hàng] and [Tồn thấp] must be removed
+      assert.doesNotMatch(productListSource, /\[Hết hàng\]/, 'Must remove brackets around Hết hàng');
+      assert.doesNotMatch(productListSource, /\[Tồn thấp\]/, 'Must remove [Tồn thấp] bracket label');
+
+      // Labels Hết hàng and Sắp hết with existing color classes must be preserved
+      assert.match(productListSource, /stockTagDanger[^>]*>Hết hàng</);
+      assert.match(productListSource, /stockTagWarning[^>]*>Sắp hết</);
+
+      // Column title TỒN KHO and other columns must remain in baseline order
+      assert.match(productListSource, /title:\s*'MÃ SKU'/);
+      assert.match(productListSource, /title:\s*'TÊN SẢN PHẨM'/);
+      assert.match(productListSource, /title:\s*'DANH MỤC'/);
+      assert.match(productListSource, /title:\s*'GIÁ BÁN \(VND\)'/);
+      assert.match(productListSource, /title:\s*'TỒN KHO'/);
+      assert.match(productListSource, /title:\s*'TRẠNG THÁI HOẠT ĐỘNG'/);
+      assert.match(productListSource, /title:\s*'THAO TÁC'/);
+
+      // Action column icons (editBtn, deactivateBtn, activateBtn) must remain intact
+      assert.match(productListSource, /styles\.editBtn/);
+      assert.match(productListSource, /styles\.deactivateBtn/);
+      assert.match(productListSource, /styles\.activateBtn/);
+    });
+
+    test('CHANGE D: sortProductsForRestock orders Priority 1 (Hết hàng) -> Priority 2 (Sắp hết ASC) -> Priority 3 (Bình thường ASC)', () => {
+      assert.equal(RESTOCK_FIRST_SORT, 'restock_first');
+
+      const sorted = sortProductsForRestock(SAMPLE_PRODUCTS);
+      assert.deepEqual(
+        sorted.map((p) => ({ sku: p.sku, quantity: p.quantity })),
+        [
+          { sku: 'SKU-A', quantity: 0 }, // Priority 1 (tie-broken by id=1 < id=2)
+          { sku: 'SKU-B', quantity: 0 }, // Priority 1
+          { sku: 'SKU-C', quantity: 1 }, // Priority 2 (qty 1 < qty 2)
+          { sku: 'SKU-D', quantity: 2 }, // Priority 2
+          { sku: 'SKU-E', quantity: 20 }, // Priority 3 (qty 20 < qty 123)
+          { sku: 'SKU-F', quantity: 123 }, // Priority 3
+        ]
+      );
+
+      // Does not mutate original array
+      assert.equal(SAMPLE_PRODUCTS[0].sku, 'SKU-F');
+    });
+
+    test('CHANGE D: Stable tie-breaker produces identical order regardless of initial array shuffle', () => {
+      const order1 = sortProductsForRestock([
+        { id: 2, sku: 'B', name: 'B', quantity: 0 },
+        { id: 1, sku: 'A', name: 'A', quantity: 0 },
+        { id: 4, sku: 'D', name: 'D', quantity: 2 },
+        { id: 3, sku: 'C', name: 'C', quantity: 2 },
+      ]);
+      const order2 = sortProductsForRestock([
+        { id: 3, sku: 'C', name: 'C', quantity: 2 },
+        { id: 1, sku: 'A', name: 'A', quantity: 0 },
+        { id: 4, sku: 'D', name: 'D', quantity: 2 },
+        { id: 2, sku: 'B', name: 'B', quantity: 0 },
+      ]);
+
+      assert.deepEqual(
+        order1.map((p) => p.sku),
+        ['A', 'B', 'C', 'D']
+      );
+      assert.deepEqual(
+        order2.map((p) => p.sku),
+        ['A', 'B', 'C', 'D']
+      );
+    });
+
+    test('CHANGE D: Abnormal/invalid quantity is placed AFTER valid records and never classified as Hết hàng', () => {
+      const mixed = [
+        { id: 10, sku: 'NULL-QTY', name: 'Null Qty', quantity: null },
+        { id: 11, sku: 'UNDEF-QTY', name: 'Undef Qty', quantity: undefined },
+        { id: 3, sku: 'NORM-50', name: 'Normal 50', quantity: 50 },
+        { id: 2, sku: 'LOW-3', name: 'Low 3', quantity: 3 },
+        { id: 1, sku: 'OUT-0', name: 'Out 0', quantity: 0 },
+      ];
+
+      assert.equal(classifyProductStock(mixed[0]), 'INVALID_STOCK');
+      assert.equal(classifyProductStock(mixed[1]), 'INVALID_STOCK');
+      assert.equal(getRestockSortPriority(mixed[0]), 4);
+      assert.equal(compareProductsForRestock(mixed[0], mixed[2]) > 0, true);
+
+      const sorted = sortProductsForRestock(mixed);
+      assert.deepEqual(
+        sorted.map((p) => p.sku),
+        ['OUT-0', 'LOW-3', 'NORM-50', 'NULL-QTY', 'UNDEF-QTY']
+      );
+    });
+
+    test('CHANGE D + CHANGE A: Restock sort interacts properly with stock filter tabs and multi-page getProducts({ fetchAll: true })', async () => {
+      // Combine stock filter + restock sort
+      const onlyLowSorted = sortProductsForRestock(
+        filterProductsByStockTab(SAMPLE_PRODUCTS, STOCK_FILTER_TABS.LOW_STOCK)
+      );
+      assert.deepEqual(
+        onlyLowSorted.map((p) => p.sku),
+        ['SKU-C', 'SKU-D']
+      );
+
+      const onlyOutSorted = sortProductsForRestock(
+        filterProductsByStockTab(SAMPLE_PRODUCTS, STOCK_FILTER_TABS.OUT_OF_STOCK)
+      );
+      assert.deepEqual(
+        onlyOutSorted.map((p) => p.sku),
+        ['SKU-A', 'SKU-B']
+      );
+
+      // Verify multi-page fetchAll on getProducts aggregates all pages so out-of-stock on page 2 is sorted to page 1
+      axiosClient.get = async (url, config) => {
+        const page = config.params.page;
+        const item =
+          page === 1
+            ? { ...VALID_PRODUCT_FIXTURE, id: 1, sku: 'PAGE1-NORMAL', quantity: 50 }
+            : { ...VALID_PRODUCT_FIXTURE, id: 2, sku: 'PAGE2-OUT', quantity: 0 };
+        return {
+          data: {
+            items: [item],
+            total: 2,
+            page,
+            page_size: 1,
+          },
+        };
+      };
+
+      const fullRes = await productsApi.getProducts({
+        page: 1,
+        pageSize: 1,
+        fetchAll: true,
+      });
+      assert.equal(fullRes.items.length, 2);
+      const globallySorted = sortProductsForRestock(fullRes.items);
+      assert.equal(
+        globallySorted[0].sku,
+        'PAGE2-OUT',
+        'Out-of-stock product from page 2 must be prioritized first on page 1 when sorted globally'
+      );
+    });
+
+    test('FINAL SORTING FIX: Removes "Mặc định" and "Tồn kho: ít → nhiều", sets "Cần nhập trước" (restock_first) as default, and sends sort to Backend', async () => {
+      assert.equal(RESTOCK_FIRST_SORT, 'restock_first');
+      assert.equal(DEFAULT_PRODUCT_SORT, 'restock_first');
+      assert.ok(ALLOWED_PRODUCT_SORTS.has('restock_first'));
+
+      const productListSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
+        'utf8'
+      );
+
+      // 1. "Mặc định" and "Tồn kho: ít → nhiều" options must be completely removed from sort dropdown
+      assert.doesNotMatch(
+        productListSource,
+        /<option[^>]*>\s*Mặc định\s*<\/option>/,
+        'Must completely remove "Mặc định" option from sort dropdown'
+      );
+      assert.doesNotMatch(
+        productListSource,
+        /Tồn kho:\s*ít\s*→\s*nhiều/,
+        'Must remove duplicate "Tồn kho: ít → nhiều" option from sort dropdown'
+      );
+
+      // 2. "Cần nhập trước" must be present and default sort state must be DEFAULT_PRODUCT_SORT (restock_first)
+      assert.match(
+        productListSource,
+        /<option value=\{RESTOCK_FIRST_SORT\}>Cần nhập trước<\/option>/,
+        'Must render "Cần nhập trước" option as default in sort dropdown'
+      );
+      assert.match(
+        productListSource,
+        /sort:\s*DEFAULT_PRODUCT_SORT/,
+        'Must initialize and reset sort state to DEFAULT_PRODUCT_SORT (restock_first)'
+      );
+
+      // 3. Verify sortProductsByQuantityAsc orders 0 -> 1 -> 2 -> 20 -> 123 with stable tie-breaker and NULL/invalid last
+      const sortedAsc = sortProductsByQuantityAsc([
+        { id: 99, sku: 'NULL-ITEM', name: 'Null Item', quantity: null },
+        ...SAMPLE_PRODUCTS,
+      ]);
+      assert.deepEqual(
+        sortedAsc.map((p) => ({ sku: p.sku, quantity: p.quantity })),
+        [
+          { sku: 'SKU-A', quantity: 0 },
+          { sku: 'SKU-B', quantity: 0 },
+          { sku: 'SKU-C', quantity: 1 },
+          { sku: 'SKU-D', quantity: 2 },
+          { sku: 'SKU-E', quantity: 20 },
+          { sku: 'SKU-F', quantity: 123 },
+          { sku: 'NULL-ITEM', quantity: null },
+        ]
+      );
+      assert.equal(compareProductsByQuantityAsc({ id: 1, quantity: 0 }, { id: 2, quantity: 0 }) < 0, true);
+
+      // 4. Verify productsApi.getProducts sends sort=quantity_asc and sort=restock_first to Backend
+      const capturedSortParams = [];
+      axiosClient.get = async (_url, config) => {
+        capturedSortParams.push(config?.params?.sort);
+        return {
+          data: {
+            items: [VALID_PRODUCT_FIXTURE],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      };
+
+      await productsApi.getProducts({ sort: QUANTITY_ASC_SORT });
+      await productsApi.getProducts({ sort: RESTOCK_FIRST_SORT });
+      assert.deepEqual(capturedSortParams, ['quantity_asc', 'restock_first']);
     });
   });
 });
