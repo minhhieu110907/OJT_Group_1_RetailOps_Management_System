@@ -695,8 +695,7 @@ def test_stock_movements_order_cancel_restores_stock_and_creates_movement(
             name="Cancel Test Product",
             category_id=category.id,
             status=CatalogStatus.ACTIVE.value,
-            retail_price_vnd=50_000,
-            cost_price_vnd=30_000,
+            sale_price_vnd=50_000,
             created_at=now_unaware,
             updated_at=now_unaware,
         )
