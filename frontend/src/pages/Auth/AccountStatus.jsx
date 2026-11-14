@@ -23,10 +23,10 @@ function getHaNoiCurrentTime() {
 const MOCK_DEMO_FALLBACK_PROFILE = {
   fullName: 'Nhân viên Mẫu (Chưa xác thực)',
   email: 'nhanvien.demo@retailops.local',
-  submittedAt: '09:30 - 07/11/2026 (Asia/Ho_Chi_Minh)',
+  submittedAt: '09:30 - 07/11/2026',
   rejectReason:
     'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
-  retryAfterLabel: '15:20 - 08/11/2026 (Asia/Ho_Chi_Minh)',
+  retryAfterLabel: '15:20 - 08/11/2026',
 };
 
 export default function AccountStatus() {
@@ -182,7 +182,7 @@ export default function AccountStatus() {
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          <span>Cập nhật lần cuối: {lastUpdated} (Asia/Ho_Chi_Minh)</span>
+          <span>Cập nhật lần cuối: {lastUpdated} </span>
         </span>
       </div>
 

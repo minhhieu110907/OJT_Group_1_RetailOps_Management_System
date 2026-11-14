@@ -523,9 +523,7 @@ export default function CategoryList() {
               disabled={!isAdmin || isSubmitting}
               rows={3}
             />
-            <p className={styles.fieldHelp}>
-              Giúp nhân viên bán hàng nhận diện nhóm hàng nhanh tại quầy POS.
-            </p>
+           
           </div>
         </form>
       </Modal>
