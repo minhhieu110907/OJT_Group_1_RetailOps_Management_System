@@ -323,7 +323,7 @@ def _setup_test_context(
         )
         sup = Supplier(
             name=f"{TEST_SUP_PREFIX}{suffix}",
-            phone=f"+8490{uuid4().int % 10_000_000:07d}",
+            contact_phone=f"+8490{uuid4().int % 10_000_000:07d}",
             status=supplier_status,
             created_at=now,
             updated_at=now,
