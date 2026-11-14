@@ -56,4 +56,3 @@ def test_confirm_receipt_rejects_invalid_idempotency_key(bad_key: str) -> None:
             expected_draft_version=1,
             idempotency_key=bad_key,
         )
-
