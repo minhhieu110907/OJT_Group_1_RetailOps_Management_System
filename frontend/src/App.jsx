@@ -13,7 +13,7 @@ import ProductList from './pages/Products/ProductList';
 import StaffApprovalList from './pages/Staff/StaffApprovalList';
 import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
-import PurchaseList from './pages/Purchases/PurchaseList';
+import PosPage from './pages/Pos/PosPage';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -80,10 +80,7 @@ export default function App() {
             >
               <Route element={<MainLayout />}>
                 {/* 2.1. Nhánh dùng chung (cả ADMIN và STAFF đều truy cập được) */}
-                <Route
-                  path="/pos"
-                  element={<PlaceholderPage title="Màn hình Bán hàng (POS)" />}
-                />
+                <Route path="/pos" element={<PosPage />} />
                 <Route path="/products" element={<ProductList />} />
                 <Route
                   path="/inventory"
@@ -112,7 +109,9 @@ export default function App() {
                   />
                   <Route
                     path="/purchases"
-                    element={<PurchaseList />}
+                    element={
+                      <PlaceholderPage title="Màn hình Quản lý Nhập hàng" />
+                    }
                   />
                   <Route
                     path="/analytics"

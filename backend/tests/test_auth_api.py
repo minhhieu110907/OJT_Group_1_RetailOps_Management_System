@@ -10,6 +10,7 @@ from pymysql.err import IntegrityError as PyMySQLIntegrityError
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings, get_settings
+from app.core.exceptions import AccountPendingError, AccountRejectedError
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import enforce_registration_rate_limit
 from app.main import create_app
@@ -85,6 +86,14 @@ class FakeRegisterService:
         self, _session: object, _email: str, _password: str
     ) -> RegisterResponse:
         return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
+
+
+class FakeBlockedLoginService:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def login(self, _session: object, _email: str, _password: str) -> AuthResult:
+        raise self.error
 
 
 @pytest.mark.anyio
@@ -182,6 +191,44 @@ async def test_login_sets_scoped_httponly_refresh_and_csrf_proof() -> None:
     assert "HttpOnly" not in csrf_cookie
     assert response.headers["x-csrf-token"] == "csrf-token"
     assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_code"),
+    [
+        (AccountPendingError(), "ACCOUNT_PENDING"),
+        (AccountRejectedError(), "ACCOUNT_REJECTED"),
+    ],
+)
+@pytest.mark.anyio
+async def test_blocked_login_returns_stable_error_without_auth_cookies(
+    error: Exception,
+    expected_code: str,
+) -> None:
+    settings = auth_settings()
+    application = create_app(settings)
+    application.dependency_overrides[get_settings] = lambda: settings
+    application.dependency_overrides[get_db_session] = override_db
+    application.dependency_overrides[get_auth_service] = lambda: (
+        FakeBlockedLoginService(error)
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "staff@example.com", "password": "valid-password"},
+        )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "code": expected_code,
+        "message": error.message,
+        "details": None,
+    }
+    assert response.headers.get_list("set-cookie") == []
+    assert "access_token" not in response.text
+    assert "refresh_token" not in response.text
 
 
 @pytest.mark.anyio

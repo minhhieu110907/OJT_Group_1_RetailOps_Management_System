@@ -12,7 +12,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.exceptions import InvalidCredentialsError, SessionInvalidError
+from app.core.exceptions import (
+    AccountPendingError,
+    AccountRejectedError,
+    InvalidCredentialsError,
+    SessionInvalidError,
+)
 from app.modules.auth.models import AuthSession, RefreshToken, User
 from app.modules.auth.security import PasswordHasher, digest_refresh_token
 from app.modules.auth.service import AuthService
@@ -100,13 +105,31 @@ def test_login_only_accepts_active_user(migrated_integration_engine: Engine) -> 
         )
 
         for email, password in (
-            (f"{EMAIL_PREFIX}pending@example.com", "valid-password"),
-            (f"{EMAIL_PREFIX}rejected@example.com", "valid-password"),
+            (f"{EMAIL_PREFIX}pending@example.com", "wrong-password"),
+            (f"{EMAIL_PREFIX}rejected@example.com", "wrong-password"),
             (f"{EMAIL_PREFIX}active@example.com", "wrong-password"),
             (f"{EMAIL_PREFIX}unknown@example.com", "valid-password"),
         ):
             with pytest.raises(InvalidCredentialsError):
                 service.login(session, email, password)
+
+        with pytest.raises(AccountPendingError):
+            service.login(
+                session,
+                f"{EMAIL_PREFIX}pending@example.com",
+                "valid-password",
+            )
+        with pytest.raises(AccountRejectedError):
+            service.login(
+                session,
+                f"{EMAIL_PREFIX}rejected@example.com",
+                "valid-password",
+            )
+
+        assert (
+            session.scalar(select(AuthSession).where(AuthSession.user_id != active.id))
+            is None
+        )
 
 
 def test_refresh_replay_commits_revocation_and_invalidates_new_token(

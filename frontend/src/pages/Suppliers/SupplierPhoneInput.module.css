@@ -1,0 +1,248 @@
+.phoneFieldRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.countryTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #CBD5E1;
+  background-color: #FFFFFF;
+  color: #1E293B;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.countryTrigger:hover:not(:disabled) {
+  border-color: #94A3B8;
+  background-color: #F8FAFC;
+}
+
+.countryTrigger:focus-visible,
+.countryTriggerOpen {
+  outline: none;
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.14);
+}
+
+.countryTrigger:disabled {
+  background-color: #F1F5F9;
+  color: #94A3B8;
+  cursor: not-allowed;
+}
+
+.flagIcon {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.dialCodeText {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.chevronIcon {
+  color: #64748B;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.phoneInput {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1E293B;
+  background-color: #FFFFFF;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.phoneInput::placeholder {
+  color: #94A3B8;
+}
+
+.phoneInput:focus {
+  outline: none;
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.14);
+}
+
+.phoneInput:disabled {
+  background-color: #F1F5F9;
+  color: #94A3B8;
+  cursor: not-allowed;
+}
+
+.phoneInputError {
+  border-color: #DC2626;
+}
+
+.phoneInputError:focus {
+  border-color: #DC2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.14);
+}
+
+.helperText {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: #64748B;
+  line-height: 1.4;
+}
+
+.errorText {
+  margin: 4px 0 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #DC2626;
+  line-height: 1.4;
+}
+
+/* Portal Dropdown */
+.dropdownPanel {
+  position: fixed;
+  z-index: 1100;
+  background-color: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.16),
+    0 4px 10px -2px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.searchWrapper {
+  padding: 10px;
+  border-bottom: 1px solid #F1F5F9;
+  background-color: #FFFFFF;
+}
+
+.searchInputBox {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  color: #94A3B8;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  height: 36px;
+  padding: 6px 10px 6px 32px;
+  border: 1px solid var(--color-primary, #087F5B);
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #1E293B;
+  background-color: #FFFFFF;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(8, 127, 91, 0.12);
+  box-sizing: border-box;
+}
+
+.searchInput::placeholder {
+  color: #94A3B8;
+}
+
+.countryList {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.countryOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-size: 13.5px;
+  color: #1E293B;
+  transition: background-color 0.1s ease;
+}
+
+.countryOption:hover,
+.countryOptionActive {
+  background-color: #F8FAFC;
+}
+
+.countryOptionSelected {
+  background-color: #ECFDF5;
+  color: #065F46;
+  font-weight: 600;
+}
+
+.countryOptionSelected.countryOptionActive {
+  background-color: #D1FAE5;
+}
+
+.optionLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.optionName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.optionDialCode {
+  font-size: 13px;
+  color: #64748B;
+  font-variant-numeric: tabular-nums;
+}
+
+.countryOptionSelected .optionDialCode {
+  color: #047857;
+}
+
+.checkIcon {
+  color: var(--color-primary, #087F5B);
+  flex-shrink: 0;
+}
+
+.emptyState {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: #64748B;
+}

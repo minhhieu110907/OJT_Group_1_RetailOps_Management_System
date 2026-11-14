@@ -13,6 +13,15 @@ import {
   normalizeSupplierSnapshot,
   detectSupplierChanges,
 } from '../api/suppliersApi.js';
+import {
+  getAllCountryOptions,
+  getCountryOptionByIso,
+  filterCountryOptions,
+  getPhonePlaceholder,
+  parseAndValidateSupplierPhone,
+  hydrateSupplierPhoneField,
+  parsePastedInternationalPhone,
+} from '../utils/phoneUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -676,8 +685,8 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.ok(content.includes('Tên nhà cung cấp là bắt buộc.'));
       assert.ok(content.includes('trimmedName.length > 160'));
       assert.ok(content.includes('Tên nhà cung cấp không được vượt quá 160 ký tự.'));
-      assert.ok(content.includes('trimmedPhone.length > 32'));
-      assert.ok(content.includes('Số điện thoại không được vượt quá 32 ký tự.'));
+      assert.ok(content.includes('parseAndValidateSupplierPhone('));
+      assert.ok(content.includes('setPhoneError(phoneValidation.error);'));
       assert.ok(content.includes('trimmedEmail.length > 254'));
       assert.ok(content.includes('Email không được vượt quá 254 ký tự.'));
       assert.ok(content.includes('Email kinh doanh không đúng định dạng.'));
@@ -781,7 +790,8 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       const content = fs.readFileSync(supplierListPath, 'utf8');
 
       // Dirty state detection and no-op exit
-      assert.ok(content.includes('detectSupplierChanges(supplierForm, initialSnapshot)'));
+      assert.ok(content.includes('detectSupplierChanges('));
+      assert.ok(content.includes('initialSnapshot'));
       assert.ok(content.includes("toast.info('Không có thay đổi nào để lưu.');"));
 
       // Sequential mutations: info first, then status
@@ -912,6 +922,154 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.equal(result.partial, true);
       assert.equal(result.latest.name, 'Công ty Cổ phần Sữa Vinamilk Mới');
       assert.equal(result.latest.status, 'ACTIVE');
+    });
+  });
+
+  // ==========================================================================
+  // 9. F09: Supplier Phone Input Refinement & E.164 Validation
+  // ==========================================================================
+  describe('F09: Supplier Phone Input Refinement & E.164 Validation', () => {
+    const supplierListPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+    const phoneInputPath = path.resolve(__dirname, '../pages/Suppliers/SupplierPhoneInput.jsx');
+    const phoneInputCssPath = path.resolve(__dirname, '../pages/Suppliers/SupplierPhoneInput.module.css');
+
+    test('Country metadata uses full libphonenumber-js list (>200 countries) with VN +84 default', () => {
+      const countries = getAllCountryOptions();
+      assert.ok(countries.length > 200, 'Must not hardcode a tiny 6-country list');
+      const vn = getCountryOptionByIso('VN');
+      assert.equal(vn.isoCode, 'VN');
+      assert.equal(vn.dialCode, '+84');
+      assert.equal(countries[0].isoCode, 'VN');
+      assert.equal(getPhonePlaceholder('VN'), '912 345 678');
+      assert.equal(getPhonePlaceholder('US'), '202 555 0123');
+    });
+
+    test('Country search filters by Vietnamese name, English name, calling code, and handles empty state', () => {
+      const countries = getAllCountryOptions();
+
+      const byVi = filterCountryOptions(countries, 'Nhật Bản');
+      assert.ok(byVi.some((c) => c.isoCode === 'JP'));
+
+      const byNoAccent = filterCountryOptions(countries, 'viet nam');
+      assert.ok(byNoAccent.some((c) => c.isoCode === 'VN'));
+
+      const byDial = filterCountryOptions(countries, '+82');
+      assert.ok(byDial.some((c) => c.isoCode === 'KR'));
+
+      const bySharedDial = filterCountryOptions(countries, '+1');
+      assert.ok(bySharedDial.some((c) => c.isoCode === 'US'));
+      assert.ok(bySharedDial.some((c) => c.isoCode === 'CA'));
+
+      const empty = filterCountryOptions(countries, 'khongtontaixyz123');
+      assert.equal(empty.length, 0);
+    });
+
+    test('Validates Vietnamese phone numbers (with or without leading 0, spaces, hyphens) and normalizes to E.164', () => {
+      const res1 = parseAndValidateSupplierPhone('0912 345 678', 'VN');
+      assert.equal(res1.isValid, true);
+      assert.equal(res1.e164, '+84912345678');
+
+      const res2 = parseAndValidateSupplierPhone('912-345-678', 'VN');
+      assert.equal(res2.isValid, true);
+      assert.equal(res2.e164, '+84912345678');
+
+      const landline = parseAndValidateSupplierPhone('028 5415 5555', 'VN');
+      assert.equal(landline.isValid, true);
+      assert.equal(landline.e164, '+842854155555');
+    });
+
+    test('Validates international phone numbers using country numbering plan and differentiates shared +1 (US vs CA)', () => {
+      const usRes = parseAndValidateSupplierPhone('202 555 0123', 'US');
+      assert.equal(usRes.isValid, true);
+      assert.equal(usRes.e164, '+12025550123');
+      assert.equal(usRes.detectedCountry, 'US');
+
+      const caRes = parseAndValidateSupplierPhone('416 555 0123', 'CA');
+      assert.equal(caRes.isValid, true);
+      assert.equal(caRes.e164, '+14165550123');
+      assert.equal(caRes.detectedCountry, 'CA');
+
+      const jpRes = parseAndValidateSupplierPhone('90 1234 5678', 'JP');
+      assert.equal(jpRes.isValid, true);
+      assert.equal(jpRes.e164, '+819012345678');
+    });
+
+    test('Accepts empty or whitespace-only phone as optional (maps to null)', () => {
+      const emptyRes = parseAndValidateSupplierPhone('', 'VN');
+      assert.equal(emptyRes.isValid, true);
+      assert.equal(emptyRes.e164, null);
+
+      const spacesRes = parseAndValidateSupplierPhone('    ', 'VN');
+      assert.equal(spacesRes.isValid, true);
+      assert.equal(spacesRes.e164, null);
+    });
+
+    test('Blocks invalid phone numbers and revalidates when switching country', () => {
+      const invalidChars = parseAndValidateSupplierPhone('0912abc678', 'VN');
+      assert.equal(invalidChars.isValid, false);
+      assert.ok(invalidChars.error.length > 0);
+
+      const tooShort = parseAndValidateSupplierPhone('12345', 'VN');
+      assert.equal(tooShort.isValid, false);
+
+      // Valid VN number becomes invalid when country is switched to US (+1)
+      const vnNumberUnderUs = parseAndValidateSupplierPhone('0912 345 678', 'US');
+      assert.equal(vnNumberUnderUs.isValid, false);
+    });
+
+    test('Parses pasted full E.164 international phone numbers and detects ISO country', () => {
+      const pastedUs = parsePastedInternationalPhone('+1 202 555 0123');
+      assert.ok(pastedUs);
+      assert.equal(pastedUs.countryIso, 'US');
+      assert.equal(pastedUs.e164, '+12025550123');
+
+      const pastedCa = parsePastedInternationalPhone('+1 416 555 0123');
+      assert.ok(pastedCa);
+      assert.equal(pastedCa.countryIso, 'CA');
+      assert.equal(pastedCa.e164, '+14165550123');
+
+      const pastedNonIntl = parsePastedInternationalPhone('0912345678');
+      assert.equal(pastedNonIntl, null);
+    });
+
+    test('Hydrates existing E.164 and legacy phone numbers cleanly when opening Edit modal', () => {
+      const hydratedVn = hydrateSupplierPhoneField('+84912345678');
+      assert.equal(hydratedVn.countryIso, 'VN');
+      assert.ok(hydratedVn.nationalInput.includes('912'));
+
+      const hydratedUs = hydrateSupplierPhoneField('+12025550123');
+      assert.equal(hydratedUs.countryIso, 'US');
+      assert.ok(hydratedUs.nationalInput.includes('202'));
+
+      const hydratedEmpty = hydrateSupplierPhoneField(null);
+      assert.equal(hydratedEmpty.countryIso, 'VN');
+      assert.equal(hydratedEmpty.nationalInput, '');
+
+      // Legacy unparseable phone is preserved so edit never loses existing data
+      const hydratedLegacy = hydrateSupplierPhoneField('ext-999');
+      assert.equal(hydratedLegacy.countryIso, 'VN');
+      assert.equal(hydratedLegacy.nationalInput, 'ext-999');
+    });
+
+    test('SupplierPhoneInput uses Portal, keyboard navigation, SVG flags, and SupplierList submits E.164 or null', () => {
+      const listSource = fs.readFileSync(supplierListPath, 'utf8');
+      const phoneSource = fs.readFileSync(phoneInputPath, 'utf8');
+      const phoneCss = fs.readFileSync(phoneInputCssPath, 'utf8');
+
+      // Portal & Escape stopPropagation so Modal overflow never clips dropdown and Esc closes dropdown first
+      assert.ok(phoneSource.includes('createPortal'));
+      assert.ok(phoneSource.includes('e.stopPropagation') || phoneSource.includes('event.stopPropagation'));
+      assert.ok(phoneSource.includes('ArrowDown'));
+      assert.ok(phoneSource.includes('ArrowUp'));
+      assert.ok(phoneSource.includes('Không tìm thấy quốc gia phù hợp'));
+      assert.ok(phoneCss.includes('white-space: nowrap'));
+      assert.ok(phoneCss.includes('z-index: 1100'));
+
+      // SupplierList integrates SupplierPhoneInput and E.164 normalization without altering other fields
+      assert.ok(listSource.includes('<SupplierPhoneInput'));
+      assert.ok(listSource.includes('parseAndValidateSupplierPhone'));
+      assert.ok(listSource.includes('hydrateSupplierPhoneField'));
+      assert.ok(listSource.includes('contact_phone: normalizedPhone'));
     });
   });
 });
