@@ -18,7 +18,9 @@ import {
   isValidIsoTimestamp,
   ALLOWED_PRODUCT_SORTS,
   VALID_CATALOG_STATUSES,
+  QUANTITY_ASC_SORT,
   RESTOCK_FIRST_SORT,
+  DEFAULT_PRODUCT_SORT,
   LOW_STOCK_THRESHOLD,
   STOCK_FILTER_TABS,
   isValidInventoryQuantity,
@@ -29,6 +31,8 @@ import {
   getRestockSortPriority,
   compareProductsForRestock,
   sortProductsForRestock,
+  compareProductsByQuantityAsc,
+  sortProductsByQuantityAsc,
 } from '../api/productsApi.js';
 
 const TEST_PROD_ENV = { DEV: false, PROD: true, MODE: 'production', VITE_USE_MOCK: 'true' };
@@ -1405,6 +1409,74 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
         'PAGE2-OUT',
         'Out-of-stock product from page 2 must be prioritized first on page 1 when sorted globally'
       );
+    });
+
+    test('FINAL SORTING FIX: Removes "Mặc định" option, sets "Tồn kho: ít → nhiều" (quantity_asc) as default, and sends sort to Backend', async () => {
+      assert.equal(QUANTITY_ASC_SORT, 'quantity_asc');
+      assert.equal(DEFAULT_PRODUCT_SORT, 'quantity_asc');
+      assert.ok(ALLOWED_PRODUCT_SORTS.has('quantity_asc'));
+      assert.ok(ALLOWED_PRODUCT_SORTS.has('restock_first'));
+
+      const productListSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
+        'utf8'
+      );
+
+      // 1. "Mặc định" option must be completely removed from sort dropdown
+      assert.doesNotMatch(
+        productListSource,
+        /<option[^>]*>\s*Mặc định\s*<\/option>/,
+        'Must completely remove "Mặc định" option from sort dropdown'
+      );
+
+      // 2. "Tồn kho: ít → nhiều" must be present and default sort state must be DEFAULT_PRODUCT_SORT
+      assert.match(
+        productListSource,
+        /<option value=\{QUANTITY_ASC_SORT\}>Tồn kho: ít → nhiều<\/option>/,
+        'Must render "Tồn kho: ít → nhiều" option in sort dropdown'
+      );
+      assert.match(
+        productListSource,
+        /sort:\s*DEFAULT_PRODUCT_SORT/,
+        'Must initialize and reset sort state to DEFAULT_PRODUCT_SORT (quantity_asc)'
+      );
+
+      // 3. Verify sortProductsByQuantityAsc orders 0 -> 1 -> 2 -> 20 -> 123 with stable tie-breaker and NULL/invalid last
+      const sortedAsc = sortProductsByQuantityAsc([
+        { id: 99, sku: 'NULL-ITEM', name: 'Null Item', quantity: null },
+        ...SAMPLE_PRODUCTS,
+      ]);
+      assert.deepEqual(
+        sortedAsc.map((p) => ({ sku: p.sku, quantity: p.quantity })),
+        [
+          { sku: 'SKU-A', quantity: 0 },
+          { sku: 'SKU-B', quantity: 0 },
+          { sku: 'SKU-C', quantity: 1 },
+          { sku: 'SKU-D', quantity: 2 },
+          { sku: 'SKU-E', quantity: 20 },
+          { sku: 'SKU-F', quantity: 123 },
+          { sku: 'NULL-ITEM', quantity: null },
+        ]
+      );
+      assert.equal(compareProductsByQuantityAsc({ id: 1, quantity: 0 }, { id: 2, quantity: 0 }) < 0, true);
+
+      // 4. Verify productsApi.getProducts sends sort=quantity_asc and sort=restock_first to Backend
+      const capturedSortParams = [];
+      axiosClient.get = async (_url, config) => {
+        capturedSortParams.push(config?.params?.sort);
+        return {
+          data: {
+            items: [VALID_PRODUCT_FIXTURE],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      };
+
+      await productsApi.getProducts({ sort: QUANTITY_ASC_SORT });
+      await productsApi.getProducts({ sort: RESTOCK_FIRST_SORT });
+      assert.deepEqual(capturedSortParams, ['quantity_asc', 'restock_first']);
     });
   });
 });

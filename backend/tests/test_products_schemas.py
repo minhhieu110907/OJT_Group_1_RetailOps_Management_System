@@ -174,6 +174,8 @@ def test_product_read_whitelists_exact_10_fields_without_cost() -> None:
 
 def test_product_sort_order_whitelist_and_rejection() -> None:
     assert [member.value for member in ProductSortOrder] == [
+        "quantity_asc",
+        "restock_first",
         "name_asc",
         "name_desc",
         "sku_asc",
@@ -184,6 +186,7 @@ def test_product_sort_order_whitelist_and_rejection() -> None:
         "id_asc",
         "price_asc",
         "created_asc",
+        "quantity_desc",
         "name; DROP TABLE products",
         "",
     ):

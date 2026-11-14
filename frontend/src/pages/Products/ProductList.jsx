@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import {
+  DEFAULT_PRODUCT_SORT,
+  QUANTITY_ASC_SORT,
   RESTOCK_FIRST_SORT,
   STOCK_FILTER_TABS,
   classifyProductStock,
@@ -11,7 +13,6 @@ import {
   isOutOfStockProduct,
   parseAndValidateSalePriceVnd,
   productsApi,
-  sortProductsForRestock,
 } from '../../api/productsApi';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import styles from './ProductList.module.css';
@@ -43,7 +44,7 @@ export default function ProductList() {
     keyword: '',
     categoryId: '',
     status: '',
-    sort: '',
+    sort: DEFAULT_PRODUCT_SORT,
   });
   const [stockFilter, setStockFilter] = useState(STOCK_FILTER_TABS.ALL);
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -58,11 +59,6 @@ export default function ProductList() {
     page: 1,
     page_size: 10,
   });
-
-  const backendSort =
-    searchParams.sort && searchParams.sort !== RESTOCK_FIRST_SORT
-      ? searchParams.sort
-      : '';
 
   // Chống race condition / stale response khi gõ nhanh hoặc chuyển trang
   const requestIdRef = useRef(0);
@@ -158,7 +154,7 @@ export default function ProductList() {
           keyword: debouncedKeyword,
           categoryId: searchParams.categoryId,
           status: searchParams.status,
-          sort: backendSort,
+          sort: searchParams.sort,
           fetchAll: true,
         });
 
@@ -193,7 +189,7 @@ export default function ProductList() {
     debouncedKeyword,
     searchParams.categoryId,
     searchParams.status,
-    backendSort,
+    searchParams.sort,
     refreshTrigger,
     isMock,
     toast,
@@ -202,14 +198,11 @@ export default function ProductList() {
   // Thống kê số lượng tồn kho cho 3 pill (Tất cả / Hết hàng / Sắp hết) trên phạm vi dữ liệu hiện tại
   const stockStats = useMemo(() => computeProductStockStats(data), [data]);
 
-  // Lọc theo tab tồn kho và áp dụng sắp xếp "Cần nhập trước" trên toàn bộ tập dữ liệu trước khi phân trang
-  const filteredAndSortedProducts = useMemo(() => {
-    const filteredByStock = filterProductsByStockTab(data, stockFilter);
-    if (searchParams.sort === RESTOCK_FIRST_SORT) {
-      return sortProductsForRestock(filteredByStock);
-    }
-    return filteredByStock;
-  }, [data, stockFilter, searchParams.sort]);
+  // Lọc theo tab tồn kho và giữ nguyên thứ tự đã được Backend sắp xếp tại database
+  const filteredAndSortedProducts = useMemo(
+    () => filterProductsByStockTab(data, stockFilter),
+    [data, stockFilter]
+  );
 
   const totalPages = useMemo(
     () =>
@@ -258,7 +251,7 @@ export default function ProductList() {
       keyword: '',
       categoryId: '',
       status: '',
-      sort: '',
+      sort: DEFAULT_PRODUCT_SORT,
     });
     setStockFilter(STOCK_FILTER_TABS.ALL);
     setPagination((prev) => ({
@@ -732,7 +725,7 @@ export default function ProductList() {
               onChange={handleFilterChange}
               className={styles.filterSelect}
             >
-              <option value="">Mặc định</option>
+              <option value={QUANTITY_ASC_SORT}>Tồn kho: ít → nhiều</option>
               <option value={RESTOCK_FIRST_SORT}>Cần nhập trước</option>
               <option value="name_asc">Tên (A-Z)</option>
               <option value="name_desc">Tên (Z-A)</option>

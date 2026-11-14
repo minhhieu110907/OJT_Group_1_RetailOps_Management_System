@@ -5,20 +5,32 @@ import axiosClient, {
 } from './axiosClient.js';
 
 /**
- * Whitelist các kiểu sắp xếp hợp lệ cho API Product (phối hợp với backend T3C9D97).
+ * Tùy chọn sắp xếp tồn kho tăng dần ("Tồn kho: ít → nhiều") — mặc định khi mở trang Quản lý sản phẩm.
+ */
+export const QUANTITY_ASC_SORT = 'quantity_asc';
+
+/**
+ * Tùy chọn sắp xếp ưu tiên nhập hàng ("Cần nhập trước") trên trang Quản lý sản phẩm.
+ */
+export const RESTOCK_FIRST_SORT = 'restock_first';
+
+/**
+ * Kiểu sắp xếp mặc định khi mở hoặc đặt lại trang Quản lý sản phẩm.
+ */
+export const DEFAULT_PRODUCT_SORT = QUANTITY_ASC_SORT;
+
+/**
+ * Whitelist các kiểu sắp xếp hợp lệ cho API Product (phối hợp với backend ProductSortOrder).
  */
 export const ALLOWED_PRODUCT_SORTS = new Set([
+  QUANTITY_ASC_SORT,
+  RESTOCK_FIRST_SORT,
   'name_asc',
   'name_desc',
   'sku_asc',
   'sku_desc',
   'created_desc',
 ]);
-
-/**
- * Tùy chọn sắp xếp ưu tiên nhập hàng ("Cần nhập trước") trên trang Quản lý sản phẩm.
- */
-export const RESTOCK_FIRST_SORT = 'restock_first';
 
 /**
  * Ngưỡng tồn kho thấp hiện hành của hệ thống (INV-04 / ProductList baseline: 1..5).
@@ -187,6 +199,59 @@ export function sortProductsForRestock(products = []) {
     .map((item, index) => ({ item, index }))
     .sort((entryA, entryB) => {
       const cmp = compareProductsForRestock(entryA.item, entryB.item);
+      return cmp !== 0 ? cmp : entryA.index - entryB.index;
+    })
+    .map((entry) => entry.item);
+}
+
+/**
+ * Hàm so sánh 2 sản phẩm theo quy tắc "Tồn kho: ít → nhiều" (quantity_asc):
+ * - Bản ghi có tồn kho hợp lệ (>= 0) đứng trước bản ghi tồn kho bất thường (null/undefined)
+ * - Tồn kho tăng dần: 0 -> 1 -> 2 -> 20 -> 123...
+ * - Tie-breaker ổn định theo id -> sku -> name khi cùng số lượng tồn kho
+ */
+export function compareProductsByQuantityAsc(a, b) {
+  const validA = isValidInventoryQuantity(a?.quantity);
+  const validB = isValidInventoryQuantity(b?.quantity);
+
+  if (validA !== validB) {
+    return validA ? -1 : 1;
+  }
+
+  if (validA && validB && a.quantity !== b.quantity) {
+    return a.quantity - b.quantity;
+  }
+
+  if (
+    typeof a?.id === 'number' &&
+    Number.isInteger(a.id) &&
+    typeof b?.id === 'number' &&
+    Number.isInteger(b.id) &&
+    a.id !== b.id
+  ) {
+    return a.id - b.id;
+  }
+
+  if (typeof a?.sku === 'string' && typeof b?.sku === 'string' && a.sku !== b.sku) {
+    return a.sku.localeCompare(b.sku);
+  }
+
+  if (typeof a?.name === 'string' && typeof b?.name === 'string' && a.name !== b.name) {
+    return a.name.localeCompare(b.name);
+  }
+
+  return 0;
+}
+
+/**
+ * Sắp xếp mảng sản phẩm theo "Tồn kho: ít → nhiều" mà không làm biến đổi mảng gốc.
+ */
+export function sortProductsByQuantityAsc(products = []) {
+  if (!Array.isArray(products)) return [];
+  return products
+    .map((item, index) => ({ item, index }))
+    .sort((entryA, entryB) => {
+      const cmp = compareProductsByQuantityAsc(entryA.item, entryB.item);
       return cmp !== 0 ? cmp : entryA.index - entryB.index;
     })
     .map((entry) => entry.item);
