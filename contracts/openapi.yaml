@@ -350,6 +350,8 @@ paths:
         schema:
           type: string
           enum:
+          - quantity_asc
+          - restock_first
           - name_asc
           - name_desc
           - sku_asc

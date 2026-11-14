@@ -45,6 +45,7 @@ export default function CategoryList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [categoryForm, setCategoryForm] = useState(INITIAL_FORM);
+  const [initialCategoryForm, setInitialCategoryForm] = useState(INITIAL_FORM);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -124,13 +125,15 @@ export default function CategoryList() {
       toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa danh mục.');
       return;
     }
-    setModalMode('edit');
-    setCategoryForm({
+    const formData = {
       id: category.id,
       name: category.name || '',
       description: category.description || '',
       status: category.status || 'ACTIVE',
-    });
+    };
+    setModalMode('edit');
+    setCategoryForm(formData);
+    setInitialCategoryForm(formData);
     setFormError('');
     setIsModalOpen(true);
   }, [isAdmin, toast]);
@@ -168,11 +171,11 @@ export default function CategoryList() {
     const nextStatus = category.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
       await categoriesApi.updateCategoryStatus(category.id, nextStatus);
-      toast.success(
-        nextStatus === 'ACTIVE'
-          ? `Đã kích hoạt lại danh mục "${category.name}".`
-          : `Đã ngừng hoạt động danh mục "${category.name}".`
-      );
+      if (nextStatus === 'INACTIVE') {
+        toast.error(`Đã ngừng hoạt động danh mục "${category.name}".`);
+      } else {
+        toast.success(`Đã kích hoạt lại danh mục "${category.name}".`);
+      }
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Không thể thay đổi trạng thái danh mục.'));
@@ -209,6 +212,17 @@ export default function CategoryList() {
     if (trimmedDescription.length > 2000) {
       setFormError('Mô tả danh mục không được vượt quá 2000 ký tự.');
       return;
+    }
+
+    // Dirty-state check: Nếu là modal Sửa và không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    if (modalMode === 'edit') {
+      const isNameSame = trimmedName === (initialCategoryForm.name || '').trim();
+      const isDescSame = (trimmedDescription || null) === ((initialCategoryForm.description || '').trim() || null);
+      if (isNameSame && isDescSame) {
+        toast.info('Không có thay đổi nào để lưu.');
+        setIsModalOpen(false);
+        return;
+      }
     }
 
     isSubmittingRef.current = true;
@@ -511,7 +525,7 @@ export default function CategoryList() {
 
           <div className={styles.formField}>
             <label className={styles.formLabel}>
-              Mô tả danh mục <span className={styles.optionalMark}>(tùy chọn)</span>
+              Mô tả danh mục <span className={styles.optionalMark}>(Tùy chọn)</span>
             </label>
             <textarea
               className={styles.formTextarea}
@@ -523,9 +537,7 @@ export default function CategoryList() {
               disabled={!isAdmin || isSubmitting}
               rows={3}
             />
-            <p className={styles.fieldHelp}>
-              Giúp nhân viên bán hàng nhận diện nhóm hàng nhanh tại quầy POS.
-            </p>
+           
           </div>
         </form>
       </Modal>

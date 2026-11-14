@@ -3,7 +3,16 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, UnaryExpression, Unicode, cast, func, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    UnaryExpression,
+    Unicode,
+    case,
+    cast,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError
@@ -11,7 +20,32 @@ from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.products.schemas import ProductSortOrder
 
+LOW_STOCK_THRESHOLD = 5
+
+_QUANTITY_NULL_LAST_EXPR = case(
+    (Inventory.quantity.is_(None), 1),
+    else_=0,
+)
+
+_RESTOCK_PRIORITY_EXPR = case(
+    (Inventory.quantity.is_(None), 3),
+    (Inventory.quantity < 0, 3),
+    (Inventory.quantity == 0, 0),
+    (Inventory.quantity <= LOW_STOCK_THRESHOLD, 1),
+    else_=2,
+)
+
 _SORT_ORDER_MAP: dict[ProductSortOrder, tuple[UnaryExpression[Any], ...]] = {
+    ProductSortOrder.QUANTITY_ASC: (
+        _QUANTITY_NULL_LAST_EXPR.asc(),
+        Inventory.quantity.asc(),
+        Product.id.asc(),
+    ),
+    ProductSortOrder.RESTOCK_FIRST: (
+        _RESTOCK_PRIORITY_EXPR.asc(),
+        Inventory.quantity.asc(),
+        Product.id.asc(),
+    ),
     ProductSortOrder.NAME_ASC: (Product.name.asc(), Product.id.asc()),
     ProductSortOrder.NAME_DESC: (Product.name.desc(), Product.id.desc()),
     ProductSortOrder.SKU_ASC: (Product.sku.asc(), Product.id.asc()),

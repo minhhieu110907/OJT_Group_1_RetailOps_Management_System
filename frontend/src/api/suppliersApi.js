@@ -109,10 +109,19 @@ export function validateSupplierListResponse(payload) {
 }
 
 export const suppliersApi = {
-  async getSuppliers({ page = 1, pageSize = 20, status = '', search = '' } = {}) {
+  async getSuppliers({
+    page = 1,
+    pageSize = 20,
+    status = '',
+    search = '',
+    fetchAll = false,
+    maxPages = 10,
+  } = {}) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 20));
     const params = {
-      page: Number(page) || 1,
-      page_size: Number(pageSize) || 20,
+      page: safePage,
+      page_size: safePageSize,
     };
 
     if (status && VALID_SUPPLIER_STATUSES.has(status)) {
@@ -124,11 +133,56 @@ export const suppliersApi = {
     }
 
     const response = await axiosClient.get('/suppliers', { params });
-    return validateSupplierListResponse(response.data);
+    const firstPage = validateSupplierListResponse(response.data);
+
+    if (!fetchAll || firstPage.total <= firstPage.items.length) {
+      return {
+        ...firstPage,
+        isTruncated: false,
+      };
+    }
+
+    const allItems = [...firstPage.items];
+    const boundedTotalPages = Math.min(firstPage.totalPages, Math.max(1, Number(maxPages) || 10));
+
+    for (let nextPage = 2; nextPage <= boundedTotalPages; nextPage += 1) {
+      const nextRes = await axiosClient.get('/suppliers', {
+        params: {
+          ...params,
+          page: nextPage,
+          page_size: safePageSize,
+        },
+      });
+      const validatedNext = validateSupplierListResponse(nextRes.data);
+      if (!validatedNext.items.length) break;
+      allItems.push(...validatedNext.items);
+    }
+
+    return {
+      items: allItems,
+      total: firstPage.total,
+      page: 1,
+      page_size: safePageSize,
+      totalPages: firstPage.totalPages,
+      isTruncated: firstPage.total > allItems.length,
+    };
   },
 
-  async getActiveSuppliers({ page = 1, pageSize = 100, search = '' } = {}) {
-    return this.getSuppliers({ page, pageSize, status: 'ACTIVE', search });
+  async getActiveSuppliers({
+    page = 1,
+    pageSize = 100,
+    search = '',
+    fetchAll = false,
+    maxPages = 10,
+  } = {}) {
+    return this.getSuppliers({
+      page,
+      pageSize,
+      status: 'ACTIVE',
+      search,
+      fetchAll,
+      maxPages,
+    });
   },
 
   async getSupplier(id) {
