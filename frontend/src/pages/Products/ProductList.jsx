@@ -76,6 +76,7 @@ export default function ProductList() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [formMode, setFormMode] = useState('create'); // 'create' | 'edit'
   const [productForm, setProductForm] = useState(INITIAL_PRODUCT_FORM);
+  const [initialProductForm, setInitialProductForm] = useState(INITIAL_PRODUCT_FORM);
   const [formError, setFormError] = useState('');
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
 
@@ -296,14 +297,16 @@ export default function ProductList() {
       if (isMock) return;
       setFormMode('edit');
       setFormError('');
-      setProductForm({
+      const formData = {
         id: row.id,
         sku: row.sku || '',
         name: row.name || '',
         category_id: String(row.category_id || ''),
         sale_price_vnd: String(row.sale_price_vnd || ''),
         status: row.status || 'ACTIVE',
-      });
+      };
+      setProductForm(formData);
+      setInitialProductForm(formData);
       setIsProductModalOpen(true);
     },
     [isMock]
@@ -336,6 +339,19 @@ export default function ProductList() {
     if (!name || !categoryId) {
       setFormError('Vui lòng nhập đầy đủ Tên sản phẩm và Danh mục.');
       return;
+    }
+
+    // Dirty-state check: Nếu là chế độ Edit mà không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    if (formMode === 'edit') {
+      const isNameSame = name === (initialProductForm.name || '').trim();
+      const isCategorySame = categoryId === Number(initialProductForm.category_id);
+      const isPriceSame = salePriceVnd === Number(initialProductForm.sale_price_vnd);
+
+      if (isNameSame && isCategorySame && isPriceSame) {
+        toast.info('Không có thay đổi nào để lưu.');
+        setIsProductModalOpen(false);
+        return;
+      }
     }
 
     setIsSubmittingForm(true);
@@ -390,11 +406,11 @@ export default function ProductList() {
         id: productToDeactivate.id,
         status: nextStatus,
       });
-      toast.success(
-        nextStatus === 'INACTIVE'
-          ? `Đã ngừng kinh doanh "${productToDeactivate.name}".`
-          : `Đã kích hoạt lại "${productToDeactivate.name}".`
-      );
+      if (nextStatus === 'INACTIVE') {
+        toast.error(`Đã ngừng kinh doanh "${productToDeactivate.name}".`);
+      } else {
+        toast.success(`Đã kích hoạt lại "${productToDeactivate.name}".`);
+      }
       setProductToDeactivate(null);
       setRefreshTrigger((prev) => prev + 1);
     } catch (error) {
