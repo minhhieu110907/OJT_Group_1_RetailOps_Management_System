@@ -1,13 +1,15 @@
 """Atomic checkout orchestration over CF-01 and the injected CF-02 port."""
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
     ConflictError,
     DomainValidationError,
+    ForbiddenError,
+    InvalidStateError,
     ResourceNotFoundError,
 )
 from app.modules.idempotency.service import (
@@ -27,6 +29,8 @@ from app.modules.sales.schemas import (
     CheckoutLine,
     OrderRead,
 )
+
+VIETNAM_TIMEZONE = timezone(timedelta(hours=7), name="Asia/Ho_Chi_Minh")
 
 
 class CheckoutService:
@@ -221,3 +225,134 @@ class CheckoutService:
         return CommandOutcome(
             409, {"code": code, "message": message, "details": details}
         )
+
+
+class OrderService:
+    def __init__(
+        self,
+        inventory: InventoryServicePort,
+        *,
+        idempotency: IdempotencyExecutor | None = None,
+        repository: OrderRepository | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._inventory = inventory
+        self._idempotency = idempotency or IdempotencyExecutor()
+        self._repository = repository or OrderRepository()
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def cancel(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        actor_role: str,
+        order_id: int,
+        reason: str,
+        idempotency_key: str,
+    ) -> OrderRead:
+        normalized_reason = reason.strip()
+        if not normalized_reason or len(normalized_reason) > 500:
+            raise DomainValidationError("Lý do hủy đơn không hợp lệ.")
+        if actor_role not in {"ADMIN", "STAFF"}:
+            raise ForbiddenError()
+        identity = {
+            "operation": "CANCEL_ORDER",
+            "resource_id": order_id,
+            "body": {"reason": normalized_reason},
+        }
+        try:
+            outcome = self._idempotency.execute(
+                session,
+                actor_id=actor_id,
+                operation=IdempotencyOperation.CANCEL_ORDER,
+                idempotency_key=idempotency_key,
+                request_identity=identity,
+                command=lambda: self._cancel_command(
+                    session,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
+                    order_id=order_id,
+                    reason=normalized_reason,
+                ),
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        return OrderRead.model_validate(outcome.body)
+
+    def _cancel_command(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        actor_role: str,
+        order_id: int,
+        reason: str,
+    ) -> CommandOutcome[dict[str, object]]:
+        order = self._repository.lock_by_id(session, order_id)
+        if order is None:
+            raise ResourceNotFoundError("Không tìm thấy đơn hàng.")
+        if order.status != "COMPLETED":
+            raise InvalidStateError("Đơn hàng không còn ở trạng thái COMPLETED.")
+
+        now_aware = self._clock()
+        if now_aware.tzinfo is None:
+            now_aware = now_aware.replace(tzinfo=UTC)
+        now_utc = now_aware.astimezone(UTC)
+        sold_at_utc = order.sold_at.replace(tzinfo=UTC)
+        if (
+            now_utc.astimezone(VIETNAM_TIMEZONE).date()
+            != sold_at_utc.astimezone(VIETNAM_TIMEZONE).date()
+        ):
+            raise ForbiddenError("Chỉ được hủy đơn trong cùng ngày kinh doanh.")
+        if actor_role == "STAFF":
+            if order.created_by != actor_id:
+                raise ForbiddenError("Staff chỉ được hủy đơn do chính mình tạo.")
+            if now_utc > sold_at_utc + timedelta(minutes=15):
+                raise ForbiddenError("Đã quá thời hạn 15 phút để hủy đơn.")
+
+        items = self._repository.list_items(session, order_id)
+        product_ids = [item.product_id for item in items]
+        locks = self._inventory.lock_for_mutation(
+            session, product_ids=sorted(product_ids)
+        )
+        CheckoutService._require_complete_locks(locks, product_ids)
+
+        cancelled_at = now_utc.replace(tzinfo=None)
+        order.status = "CANCELLED"
+        order.cancelled_by = actor_id
+        order.cancelled_at = cancelled_at
+        order.cancel_reason = reason
+        session.flush()
+        self._inventory.restore_for_cancel(
+            session,
+            locks=locks,
+            order_id=order.id,
+            actor_id=actor_id,
+            lines=[StockLine(item.product_id, item.quantity) for item in items],
+        )
+        body = {
+            "id": order.id,
+            "status": "CANCELLED",
+            "total_vnd": order.total_vnd,
+            "created_by": order.created_by,
+            "sold_at": sold_at_utc.isoformat().replace("+00:00", "Z"),
+            "cancelled_by": actor_id,
+            "cancelled_at": now_utc.isoformat().replace("+00:00", "Z"),
+            "cancel_reason": reason,
+            "items": [
+                {
+                    "product_id": item.product_id,
+                    "sku_snapshot": item.sku_snapshot,
+                    "product_name_snapshot": item.product_name_snapshot,
+                    "quantity": item.quantity,
+                    "unit_price_vnd": item.unit_price_vnd,
+                    "line_total_vnd": item.line_total_vnd,
+                }
+                for item in items
+            ],
+        }
+        serialized = OrderRead.model_validate(body).model_dump(mode="json")
+        return CommandOutcome(200, serialized)

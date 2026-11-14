@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 MAX_SQL_INT = 2_147_483_647
 MAX_SQL_BIGINT = 9_223_372_036_854_775_807
@@ -21,6 +21,18 @@ class CheckoutLine(StrictRequest):
 
 class CheckoutRequest(StrictRequest):
     items: list[CheckoutLine] = Field(min_length=1, max_length=MAX_CHECKOUT_LINES)
+
+
+class CancelOrderRequest(StrictRequest):
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Lý do hủy đơn không được để trống.")
+        return normalized
 
 
 class OrderLineRead(BaseModel):
