@@ -8,12 +8,14 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import SecretStr
+from redis.exceptions import RedisError
 from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
+from app.infrastructure.rate_limit import RedisFixedWindowRateLimiter
 from app.main import create_app
 from app.modules.auth.dependencies import get_auth_service
 from app.modules.auth.models import AuthSession, User, UserRole, UserStatus
@@ -339,6 +341,14 @@ def _setup_test_context(
     )
 
     app = create_app(settings)
+
+    class UnavailableRedis:
+        async def eval(self, *_args, **_kwargs):
+            raise RedisError("test Redis outage")
+
+    app.state.rate_limiter = RedisFixedWindowRateLimiter(  # type: ignore[arg-type]
+        UnavailableRedis(), "retailops:test"
+    )
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_auth_service] = lambda: auth_srv
 

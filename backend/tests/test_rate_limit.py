@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Annotated, Any
@@ -123,8 +124,12 @@ class LivePrincipalService:
     def __init__(self, user_id: int = 7) -> None:
         self.user = SimpleNamespace(id=user_id, status="ACTIVE", role="STAFF")
         self.session_id = uuid4()
+        self.calls = 0
+        self.thread_ids: list[int] = []
 
     def live_user(self, *_args: object) -> tuple[object, UUID]:
+        self.calls += 1
+        self.thread_ids.append(threading.get_ident())
         return self.user, self.session_id
 
 
@@ -439,6 +444,7 @@ def _business_test_app(configured: Settings, redis: object) -> FastAPI:
         redis, "retailops:test"
     )
     service = LivePrincipalService()
+    application.state.test_live_principal_service = service
     application.dependency_overrides[get_settings] = lambda: configured
     application.dependency_overrides[get_db_session] = override_db
     application.dependency_overrides[get_auth_service] = lambda: service
@@ -470,6 +476,24 @@ async def test_business_quota_is_per_active_user() -> None:
 
 
 @pytest.mark.anyio
+async def test_business_mysql_authentication_runs_off_the_event_loop() -> None:
+    application = _business_test_app(settings(), CountingRedis())
+    event_loop_thread = threading.get_ident()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/business", headers={"Authorization": "Bearer valid-token"}
+        )
+
+    service = application.state.test_live_principal_service
+    assert response.status_code == 200
+    assert service.calls == 1
+    assert service.thread_ids == [service.thread_ids[0]]
+    assert service.thread_ids[0] != event_loop_thread
+
+
+@pytest.mark.anyio
 async def test_business_redis_outage_fails_open_after_authentication() -> None:
     application = _business_test_app(settings(), UnavailableRedis())
     async with httpx.AsyncClient(
@@ -481,6 +505,32 @@ async def test_business_redis_outage_fails_open_after_authentication() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "invalid_limiter", [None, object()], ids=["missing", "wrong-type"]
+)
+async def test_business_limiter_lifecycle_error_is_not_treated_as_redis_outage(
+    invalid_limiter: object | None,
+) -> None:
+    application = _business_test_app(settings(), CountingRedis())
+    if invalid_limiter is None:
+        del application.state.rate_limiter
+    else:
+        application.state.rate_limiter = invalid_limiter
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/business", headers={"Authorization": "Bearer valid-token"}
+        )
+
+    service = application.state.test_live_principal_service
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_SERVER_ERROR"
+    assert service.calls == 1
 
 
 @pytest.mark.anyio

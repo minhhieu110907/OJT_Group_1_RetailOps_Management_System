@@ -31,31 +31,39 @@ def get_auth_service(
     return AuthService(settings)
 
 
-async def get_current_principal(
+def authenticate_current_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[AuthService, Depends(get_auth_service)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    request: Request,
 ) -> CurrentPrincipal:
+    """Authenticate against the synchronous MySQL session in a worker thread."""
     if credentials is None or credentials.scheme.casefold() != "bearer":
         raise UnauthenticatedError()
     user, session_id = service.live_user(session, credentials.credentials)
-    limiter = getattr(request.app.state, "rate_limiter", None)
-    if isinstance(limiter, RedisFixedWindowRateLimiter):
-        try:
-            result = await limiter.check(
-                policy="business-user",
-                identity=str(user.id),
-                limit=settings.business_rate_limit,
-                window_seconds=settings.business_rate_window_seconds,
-            )
-        except (RedisError, OSError, TimeoutError):
-            pass
-        else:
-            if not result.allowed:
-                raise RateLimitedError(result.retry_after)
     return CurrentPrincipal(user=user, session_id=session_id)
+
+
+async def get_current_principal(
+    authenticated: Annotated[CurrentPrincipal, Depends(authenticate_current_principal)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    request: Request,
+) -> CurrentPrincipal:
+    """Apply the asynchronous Redis quota after MySQL authentication succeeds."""
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if not isinstance(limiter, RedisFixedWindowRateLimiter):
+        raise RuntimeError("Business rate limiter is not initialized")
+    try:
+        result = await limiter.check(
+            policy="business-user",
+            identity=str(authenticated.user.id),
+            limit=settings.business_rate_limit,
+            window_seconds=settings.business_rate_window_seconds,
+        )
+    except (RedisError, OSError, TimeoutError):
+        return authenticated
+    if not result.allowed:
+        raise RateLimitedError(result.retry_after)
+    return authenticated
 
 
 def get_current_active_user(
