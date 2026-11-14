@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 from app.db.session import get_db_session
-from app.infrastructure.dependencies import enforce_registration_rate_limit
+from app.infrastructure.dependencies import (
+    enforce_login_rate_limit,
+    enforce_registration_rate_limit,
+)
 from app.main import create_app
 from app.modules.auth.approval_repository import StaffApprovalRepository
 from app.modules.auth.approval_service import StaffApprovalService
@@ -384,6 +387,7 @@ async def test_real_http_registration_approval_and_login_flow(
     app.dependency_overrides[get_db_session] = db_session_override
     app.dependency_overrides[get_auth_service] = lambda: auth_service
     app.dependency_overrides[enforce_registration_rate_limit] = allow_registration
+    app.dependency_overrides[enforce_login_rate_limit] = allow_registration
 
     try:
         async with httpx.AsyncClient(

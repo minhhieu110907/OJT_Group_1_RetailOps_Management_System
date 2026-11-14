@@ -4,13 +4,15 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import ForbiddenError, UnauthenticatedError
+from app.core.exceptions import ForbiddenError, RateLimitedError, UnauthenticatedError
 from app.db.session import get_db_session
+from app.infrastructure.rate_limit import RedisFixedWindowRateLimiter
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.auth.service import AuthService
 
@@ -29,14 +31,30 @@ def get_auth_service(
     return AuthService(settings)
 
 
-def get_current_principal(
+async def get_current_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[AuthService, Depends(get_auth_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    request: Request,
 ) -> CurrentPrincipal:
     if credentials is None or credentials.scheme.casefold() != "bearer":
         raise UnauthenticatedError()
     user, session_id = service.live_user(session, credentials.credentials)
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if isinstance(limiter, RedisFixedWindowRateLimiter):
+        try:
+            result = await limiter.check(
+                policy="business-user",
+                identity=str(user.id),
+                limit=settings.business_rate_limit,
+                window_seconds=settings.business_rate_window_seconds,
+            )
+        except (RedisError, OSError, TimeoutError):
+            pass
+        else:
+            if not result.allowed:
+                raise RateLimitedError(result.retry_after)
     return CurrentPrincipal(user=user, session_id=session_id)
 
 
