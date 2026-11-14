@@ -14,18 +14,30 @@ const formatVND = (amount) => {
   return `${num.toLocaleString('vi-VN')} đ`;
 };
 
-// Format ngày: DD/MM/YYYY HH:mm
+// Format ngày: DD/MM/YYYY HH:mm theo đúng múi giờ Asia/Ho_Chi_Minh (GMT+7)
 const formatDate = (isoString) => {
   if (!isoString) return '—';
   try {
-    const d = new Date(isoString);
+    const raw = String(isoString).trim();
+    // Nếu chuỗi ISO thiếu timezone offset ('Z' hoặc '+07:00'), gắn Z để chuyển thành UTC chuẩn trước khi format
+    const utcStr = raw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(raw)
+      ? raw
+      : `${raw.replace(' ', 'T')}Z`;
+    const d = new Date(utcStr);
     if (Number.isNaN(d.getTime())) return '—';
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
+
+    const parts = new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+
+    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}`;
   } catch {
     return '—';
   }
@@ -470,7 +482,7 @@ export default function PurchaseList() {
       const cancelled = await receiptsApi.cancel(selectedReceipt.id, {
         expected_draft_version: selectedReceipt.draft_version,
       });
-      toast.success(`Đã hủy phiếu nhập nháp #${cancelled.id}.`);
+      toast.error(`Đã hủy phiếu nhập nháp #${cancelled.id}.`);
       setSelectedReceipt(cancelled);
       setIsCancelModalOpen(false);
       setIsDetailModalOpen(false);
@@ -621,19 +633,20 @@ export default function PurchaseList() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
-  // Xử lý chọn khoảng thời gian nhanh (30 ngày gần nhất, 7 ngày, Hôm nay, ...)
+  // Xử lý chọn khoảng thời gian nhanh (30 ngày gần nhất, 7 ngày, Hôm nay, ...) theo múi giờ Asia/Ho_Chi_Minh
   const handleDateRangePreset = (type) => {
     setDateRangeType(type);
     const now = new Date();
-    const toStr = now.toISOString().split('T')[0];
+    // Lấy chuỗi YYYY-MM-DD chuẩn theo múi giờ Asia/Ho_Chi_Minh
+    const toStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
 
     if (type === '30DAYS') {
       const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      setFromDateFilter(from.toISOString().split('T')[0]);
+      setFromDateFilter(from.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
       setToDateFilter(toStr);
     } else if (type === '7DAYS') {
       const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      setFromDateFilter(from.toISOString().split('T')[0]);
+      setFromDateFilter(from.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
       setToDateFilter(toStr);
     } else if (type === 'TODAY') {
       setFromDateFilter(toStr);
@@ -746,12 +759,12 @@ export default function PurchaseList() {
           {topTab === 'HISTORY' ? (
             <>
               <option value="ALL_HISTORY">Trạng thái: Tất cả lịch sử</option>
-              <option value="CONFIRMED">Trạng thái: Đã nhập (CONFIRMED)</option>
-              <option value="CANCELLED">Trạng thái: Đã hủy (CANCELLED)</option>
+              <option value="CONFIRMED">Trạng thái: Đã nhập </option>
+              <option value="CANCELLED">Trạng thái: Đã hủy </option>
             </>
           ) : (
             <>
-              <option value="DRAFT">Trạng thái: Bản nháp (DRAFT)</option>
+              <option value="DRAFT">Trạng thái: Bản nháp </option>
               <option value="ALL">Trạng thái: Tất cả trạng thái</option>
             </>
           )}
@@ -944,13 +957,13 @@ export default function PurchaseList() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {selectedReceipt.status === 'CONFIRMED' && (
-                  <span className={styles.statusBadgeConfirmed}>ĐÃ NHẬP (CONFIRMED)</span>
+                  <span className={styles.statusBadgeConfirmed}>(ĐÃ NHẬP)</span>
                 )}
                 {selectedReceipt.status === 'CANCELLED' && (
-                  <span className={styles.statusBadgeCancelled}>ĐÃ HỦY (CANCELLED)</span>
+                  <span className={styles.statusBadgeCancelled}>(ĐÃ HỦY)</span>
                 )}
                 {selectedReceipt.status === 'DRAFT' && (
-                  <span className={styles.statusBadgeDraft}>BẢN NHÁP (DRAFT)</span>
+                  <span className={styles.statusBadgeDraft}>BẢN NHÁP </span>
                 )}
               </div>
             </div>
@@ -973,7 +986,7 @@ export default function PurchaseList() {
             {/* Meta info */}
             <div className={styles.metaInfoRow}>
               <div>
-                Tạo lúc: <strong>{formatDate(selectedReceipt.created_at)}</strong> (User #{selectedReceipt.created_by})
+                Tạo lúc: <strong>{formatDate(selectedReceipt.created_at)}</strong>
               </div>
               <div>
                 Phiên bản: <strong>v{selectedReceipt.draft_version}</strong>
@@ -1001,13 +1014,18 @@ export default function PurchaseList() {
                     <span className={styles.infoValue}>
                       {selectedReceipt.supplier_name_snapshot || `NCC #${selectedReceipt.supplier_id}`}
                     </span>
-                    <span className={styles.infoSub}>Mã NCC: {selectedReceipt.supplier_id}</span>
                   </>
                 )}
               </div>
               <div className={styles.infoBlock}>
                 <span className={styles.infoLabel}>TRẠNG THÁI CHỨNG TỪ</span>
-                <span className={styles.infoValue}>{selectedReceipt.status}</span>
+                <span className={styles.infoValue}>
+                  {selectedReceipt.status === 'CONFIRMED'
+                    ? 'ĐÃ XÁC NHẬN'
+                    : selectedReceipt.status === 'CANCELLED'
+                    ? 'ĐÃ HỦY'
+                    : 'BẢN NHÁP'}
+                </span>
                 {selectedReceipt.closed_at && (
                   <span className={styles.infoSub}>Đóng lúc: {formatDate(selectedReceipt.closed_at)}</span>
                 )}
@@ -1054,7 +1072,7 @@ export default function PurchaseList() {
                         value={line.product_id}
                         onChange={(e) => handleUpdateEditLine(idx, 'product_id', e.target.value)}
                       >
-                        <option value="">-- Chọn sản phẩm ACTIVE --</option>
+                        <option value="">-- Chọn sản phẩm --</option>
                         {activeProducts.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.sku} - {p.name}
@@ -1152,12 +1170,12 @@ export default function PurchaseList() {
                   <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
                 <div>
-                  <strong>Bản nháp (DRAFT):</strong> Chưa làm tăng số lượng tồn kho. Khi bấm <strong>Xác nhận phiếu</strong>, hệ thống sẽ tăng tồn kho thực tế, khóa bất biến chứng từ và chuyển sang trạng thái <strong>CONFIRMED</strong>.
+                  <strong>BẢN NHÁP</strong> chưa làm tăng số lượng tồn kho. Khi bấm <strong>xác nhận phiếu</strong>, hệ thống sẽ tăng tồn kho thực tế, khóa bất biến chứng từ và chuyển sang trạng thái <strong>ĐÃ XÁC NHẬN</strong>.
                 </div>
               </div>
             ) : (
               <div className={styles.readOnlyNotice}>
-                Chứng từ này đã ở trạng thái <strong>{selectedReceipt.status}</strong> (Terminal State). Mọi thông tin đã được khóa bất biến và không thể chỉnh sửa hay hủy bỏ.
+                Chứng từ này đã ở trạng thái <strong>{selectedReceipt.status === 'CONFIRMED' ? 'ĐÃ NHẬP KHO' : 'ĐÃ HỦY'}</strong>. Mọi thông tin đã được khóa bất biến và không thể chỉnh sửa hay hủy bỏ.
               </div>
             )}
           </div>
@@ -1168,7 +1186,7 @@ export default function PurchaseList() {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => !isActionLoading && setIsCreateModalOpen(false)}
-        title="Tạo mới phiếu nhập hàng (DRAFT)"
+        title="Tạo mới phiếu nhập hàng"
         maxWidth="680px"
         footer={
           <>
@@ -1194,7 +1212,7 @@ export default function PurchaseList() {
         <form onSubmit={handleSubmitCreateDraft}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>
-              Nhà cung cấp (ACTIVE only) <span style={{ color: '#DC2626' }}>*</span>
+              Nhà cung cấp  <span style={{ color: '#DC2626' }}>*</span>
             </label>
             <select
               className={styles.formSelect}
@@ -1231,7 +1249,7 @@ export default function PurchaseList() {
                   onChange={(e) => handleUpdateCreateLine(idx, 'product_id', e.target.value)}
                   required
                 >
-                  <option value="">-- Chọn sản phẩm ACTIVE --</option>
+                  <option value="">-- Chọn sản phẩm --</option>
                   {activeProducts.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.sku} - {p.name}
