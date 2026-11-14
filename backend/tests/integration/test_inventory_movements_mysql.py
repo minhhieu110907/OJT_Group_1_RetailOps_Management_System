@@ -253,7 +253,9 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
     # 1. Purchase receipt + Item for PURCHASE_CONFIRM movement
     receipt = PurchaseReceipt(
         supplier_id=supplier.id,
+        supplier_name_snapshot=supplier.name,
         status="CONFIRMED",
+        draft_version=1,
         total_vnd=500_000,
         created_by=admin.id,
         closed_by=admin.id,
@@ -356,7 +358,9 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
     # 4. Movement on p2 for filter testing
     receipt2 = PurchaseReceipt(
         supplier_id=supplier.id,
+        supplier_name_snapshot=supplier.name,
         status="CONFIRMED",
+        draft_version=1,
         total_vnd=250_000,
         created_by=admin.id,
         closed_by=admin.id,
