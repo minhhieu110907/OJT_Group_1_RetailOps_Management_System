@@ -36,15 +36,20 @@ export default function PurchaseList() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
-  // 1. Tab điều hướng trên cùng: 'ALL' (Tất cả) | 'DRAFT' (Bản nháp) | 'CONFIRMED' (Đã nhập)
-  const [activeTab, setActiveTab] = useState('ALL');
+  // 1. Tab điều hướng trên cùng & Trạng thái lọc
+  const [topTab, setTopTab] = useState('RECEIPTS'); // 'RECEIPTS' (Phiếu nhập) | 'HISTORY' (Lịch sử)
+  const [activeTab, setActiveTab] = useState('ALL'); // 'ALL' | 'DRAFT' | 'CONFIRMED' | 'CANCELLED' | 'ALL_HISTORY'
 
   // 2. Bộ lọc & Phân trang (100% Server-side API)
   const [supplierFilter, setSupplierFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateRangeType, setDateRangeType] = useState('ALL'); // 'ALL' | '30DAYS' | '7DAYS' | 'TODAY' | 'CUSTOM'
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
 
   const [data, setData] = useState([]);
+  const [draftCount, setDraftCount] = useState(0);
+  const [historyCount, setHistoryCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -113,11 +118,69 @@ export default function PurchaseList() {
     setIsLoading(true);
 
     try {
+      // Nhận diện nếu người dùng nhập mã phiếu (dạng 123 hoặc #123) hoặc tên nhà cung cấp vào ô tìm kiếm
+      const trimmedQuery = searchQuery.trim();
+      let resolvedSupplierId = supplierFilter ? Number(supplierFilter) : null;
+
+      // Nếu người dùng nhập tìm kiếm tên nhà cung cấp và chưa chọn dropdown NCC cụ thể,
+      // tự động ánh xạ tìm nhà cung cấp khớp nhất trong activeSuppliers để truyền supplier_id qua API
+      if (!resolvedSupplierId && trimmedQuery) {
+        const cleanQuery = trimmedQuery.toLowerCase().replace(/^#/, '');
+        const matchedSupplier = activeSuppliers.find(
+          (s) => s.name?.toLowerCase().includes(cleanQuery)
+        );
+        if (matchedSupplier) {
+          resolvedSupplierId = matchedSupplier.id;
+        }
+      }
+
+      // Nếu ở tab Lịch sử và chọn ALL_HISTORY, gọi song song cả CONFIRMED và CANCELLED để gộp đầy đủ lịch sử
+      if (topTab === 'HISTORY' && activeTab === 'ALL_HISTORY') {
+        const [confirmedRes, cancelledRes] = await Promise.all([
+          receiptsApi.list({
+            page: pagination.page,
+            pageSize: pagination.page_size,
+            status: 'CONFIRMED',
+            supplierId: resolvedSupplierId,
+            fromDate: fromDateFilter,
+            toDate: toDateFilter,
+          }).catch(() => ({ items: [], total: 0 })),
+          receiptsApi.list({
+            page: pagination.page,
+            pageSize: pagination.page_size,
+            status: 'CANCELLED',
+            supplierId: resolvedSupplierId,
+            fromDate: fromDateFilter,
+            toDate: toDateFilter,
+          }).catch(() => ({ items: [], total: 0 })),
+        ]);
+
+        if (currentRequestId === requestIdRef.current) {
+          const merged = [...(confirmedRes.items || []), ...(cancelledRes.items || [])].sort(
+            (a, b) => b.id - a.id
+          );
+          setData(merged);
+          setPagination((prev) => ({
+            ...prev,
+            total: (confirmedRes.total || 0) + (cancelledRes.total || 0),
+            totalPages: Math.max(1, Math.ceil(((confirmedRes.total || 0) + (cancelledRes.total || 0)) / pagination.page_size)),
+          }));
+          return;
+        }
+      }
+
+      let statusParam = '';
+      if (activeTab === 'DRAFT' || activeTab === 'CONFIRMED' || activeTab === 'CANCELLED') {
+        statusParam = activeTab;
+      } else if (topTab === 'RECEIPTS' && activeTab === 'ALL') {
+        statusParam = ''; // Xem tất cả ở tab phiếu nhập
+      }
+
       const res = await receiptsApi.list({
         page: pagination.page,
         pageSize: pagination.page_size,
-        status: activeTab === 'ALL' ? '' : activeTab,
-        supplierId: supplierFilter ? Number(supplierFilter) : null,
+        status: statusParam,
+        supplierId: resolvedSupplierId,
         fromDate: fromDateFilter,
         toDate: toDateFilter,
       });
@@ -153,10 +216,13 @@ export default function PurchaseList() {
       }
     }
   }, [
+    topTab,
     activeTab,
     pagination.page,
     pagination.page_size,
     supplierFilter,
+    searchQuery,
+    activeSuppliers,
     fromDateFilter,
     toDateFilter,
     toast,
@@ -165,6 +231,30 @@ export default function PurchaseList() {
   useEffect(() => {
     loadReceipts();
   }, [loadReceipts, refreshTrigger]);
+
+  // Load số lượng đếm thống kê cho 2 tab "Phiếu nhập" (DRAFT) và "Lịch sử nhập hàng" (CONFIRMED/CANCELLED)
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCounts() {
+      try {
+        const [draftRes, historyConfirmedRes, historyCancelledRes] = await Promise.all([
+          receiptsApi.list({ page: 1, pageSize: 1, status: 'DRAFT' }).catch(() => ({ total: 0 })),
+          receiptsApi.list({ page: 1, pageSize: 1, status: 'CONFIRMED' }).catch(() => ({ total: 0 })),
+          receiptsApi.list({ page: 1, pageSize: 1, status: 'CANCELLED' }).catch(() => ({ total: 0 })),
+        ]);
+        if (isMounted) {
+          setDraftCount(draftRes?.total || 0);
+          setHistoryCount((historyConfirmedRes?.total || 0) + (historyCancelledRes?.total || 0));
+        }
+      } catch {
+        // im lặng nếu không lấy được đếm
+      }
+    }
+    loadCounts();
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshTrigger]);
 
   // Load chi tiết phiếu nhập khi selectedReceiptId thay đổi
   const loadReceiptDetail = useCallback(async (receiptId) => {
@@ -493,6 +583,63 @@ export default function PurchaseList() {
   const startRecord = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.page_size + 1;
   const endRecord = Math.min(pagination.page * pagination.page_size, pagination.total);
 
+  // Client-side search & View Mode: Đảm bảo khi đang ở tab "Lịch sử nhập hàng", chỉ hiển thị phiếu đã hoàn tất (CONFIRMED / CANCELLED)
+  const filteredData = useMemo(() => {
+    let list = data;
+
+    // Khi ở tab "Lịch sử nhập hàng" và chọn ALL_HISTORY, lọc bỏ DRAFT
+    if (topTab === 'HISTORY') {
+      list = list.filter((row) => row.status === 'CONFIRMED' || row.status === 'CANCELLED');
+    } else if (topTab === 'RECEIPTS' && activeTab === 'DRAFT') {
+      list = list.filter((row) => row.status === 'DRAFT');
+    }
+
+    if (!searchQuery.trim()) return list;
+    const query = searchQuery.trim().toLowerCase();
+    return list.filter((row) => {
+      const idMatch = String(row.id).toLowerCase().includes(query) || (`#${row.id}`).includes(query);
+      const supplierMatch = (row.supplier_name_snapshot || '').toLowerCase().includes(query);
+      return idMatch || supplierMatch;
+    });
+  }, [data, topTab, activeTab, searchQuery]);
+
+  // Xử lý chuyển tab Top "Phiếu nhập" vs "Lịch sử nhập hàng"
+  const handleTopTabChange = (tab) => {
+    setTopTab(tab);
+    if (tab === 'RECEIPTS') {
+      // Tab "Phiếu nhập": chỉ quản lý phiếu DRAFT
+      setActiveTab('DRAFT');
+    } else {
+      // Tab "Lịch sử nhập hàng": mặc định xem tất cả lịch sử (CONFIRMED hoặc CANCELLED)
+      setActiveTab('ALL_HISTORY');
+    }
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  };
+
+  // Xử lý chọn khoảng thời gian nhanh (30 ngày gần nhất, 7 ngày, Hôm nay, ...)
+  const handleDateRangePreset = (type) => {
+    setDateRangeType(type);
+    const now = new Date();
+    const toStr = now.toISOString().split('T')[0];
+
+    if (type === '30DAYS') {
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      setFromDateFilter(from.toISOString().split('T')[0]);
+      setToDateFilter(toStr);
+    } else if (type === '7DAYS') {
+      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      setFromDateFilter(from.toISOString().split('T')[0]);
+      setToDateFilter(toStr);
+    } else if (type === 'TODAY') {
+      setFromDateFilter(toStr);
+      setToDateFilter(toStr);
+    } else if (type === 'ALL') {
+      setFromDateFilter('');
+      setToDateFilter('');
+    }
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  };
+
   // Quyền: ADMIN-only
   if (!isAdmin) {
     return (
@@ -515,9 +662,9 @@ export default function PurchaseList() {
       {/* 1. Header Trang */}
       <div className={styles.header}>
         <div className={styles.titleGroup}>
-          <h1 className={styles.title}>Quản lý nhập hàng </h1>
+          <h1 className={styles.title}>Quản lý nhập hàng</h1>
           <p className={styles.subtitle}>
-            Tạo và xử lý phiếu nhập kho từ nhà cung cấp 
+            Tạo và xử lý phiếu nhập kho từ nhà cung cấp
           </p>
         </div>
 
@@ -531,52 +678,81 @@ export default function PurchaseList() {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          <span> Thêm phiếu nhập</span>
+          <span>Thêm phiếu nhập</span>
         </button>
       </div>
 
-      {/* 2. Sub-header Navigation Tabs */}
+      {/* 2. Sub-Header: Hai tab "Phiếu nhập" & "Lịch sử nhập hàng" theo mockup */}
       <div className={styles.subHeaderRow}>
         <div className={styles.navTabs}>
           <button
             type="button"
-            className={`${styles.navTabBtn} ${activeTab === 'ALL' ? styles.navTabBtnActive : ''}`}
-            onClick={() => {
-              setActiveTab('ALL');
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
+            className={`${styles.navTabBtn} ${topTab === 'RECEIPTS' ? styles.navTabBtnActive : ''}`}
+            onClick={() => handleTopTabChange('RECEIPTS')}
           >
-            <span>Tất cả</span>
+            <span>Phiếu nhập</span>
+            {draftCount > 0 && <span className={styles.tabCountBadge}>{draftCount}</span>}
           </button>
+
           <button
             type="button"
-            className={`${styles.navTabBtn} ${activeTab === 'DRAFT' ? styles.navTabBtnActive : ''}`}
-            onClick={() => {
-              setActiveTab('DRAFT');
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
+            className={`${styles.navTabBtn} ${topTab === 'HISTORY' ? styles.navTabBtnActive : ''}`}
+            onClick={() => handleTopTabChange('HISTORY')}
           >
-            <span>Bản nháp (DRAFT)</span>
-          </button>
-          <button
-            type="button"
-            className={`${styles.navTabBtn} ${activeTab === 'CONFIRMED' ? styles.navTabBtnActive : ''}`}
-            onClick={() => {
-              setActiveTab('CONFIRMED');
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
-          >
-            <span>Đã xác nhận (CONFIRMED)</span>
+            <span>Lịch sử nhập hàng</span>
+            {historyCount > 0 && <span className={styles.tabCountBadgeGray}>{historyCount}</span>}
           </button>
         </div>
 
         <div className={styles.warehouseHint}>
-          Kho áp dụng: <strong>Kho chính cửa hàng (Đơn điểm)</strong>
+          Kho áp dụng: <strong>Kho cửa hàng</strong>
         </div>
       </div>
 
-      {/* 3. Thanh tìm kiếm và bộ lọc (100% Server-side API) */}
+      {/* 3. Thanh tìm kiếm và bộ lọc theo mockup */}
       <div className={styles.filtersRow}>
+        {/* Ô tìm kiếm theo mã phiếu, nhà cung cấp */}
+        <div className={styles.searchInputWrapper}>
+          <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            className={styles.searchInput}
+            placeholder="Tìm theo mã phiếu, nhà cung cấp..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPagination((prev) => ({ ...prev, page: 1 }));
+            }}
+          />
+        </div>
+
+        {/* Dropdown lọc theo Trạng thái (Đồng bộ theo tab Top) */}
+        <select
+          className={styles.selectBox}
+          value={activeTab}
+          onChange={(e) => {
+            setActiveTab(e.target.value);
+            setPagination((prev) => ({ ...prev, page: 1 }));
+          }}
+        >
+          {topTab === 'HISTORY' ? (
+            <>
+              <option value="ALL_HISTORY">Trạng thái: Tất cả lịch sử</option>
+              <option value="CONFIRMED">Trạng thái: Đã nhập (CONFIRMED)</option>
+              <option value="CANCELLED">Trạng thái: Đã hủy (CANCELLED)</option>
+            </>
+          ) : (
+            <>
+              <option value="DRAFT">Trạng thái: Bản nháp (DRAFT)</option>
+              <option value="ALL">Trạng thái: Tất cả trạng thái</option>
+            </>
+          )}
+        </select>
+
+        {/* Dropdown lọc Nhà cung cấp */}
         <select
           className={styles.selectBox}
           value={supplierFilter}
@@ -585,7 +761,7 @@ export default function PurchaseList() {
             setPagination((prev) => ({ ...prev, page: 1 }));
           }}
         >
-          <option value="">Tất cả Nhà cung cấp</option>
+          <option value="">Nhà cung cấp: Tất cả</option>
           {activeSuppliers.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -593,40 +769,60 @@ export default function PurchaseList() {
           ))}
         </select>
 
-        <div className={styles.dateInputGroup}>
-          <span>Từ ngày:</span>
-          <input
-            type="date"
-            className={styles.dateInput}
-            value={fromDateFilter}
-            onChange={(e) => {
-              setFromDateFilter(e.target.value);
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
-          />
-        </div>
+        {/* Dropdown chọn khoảng thời gian */}
+        <select
+          className={styles.selectBox}
+          value={dateRangeType}
+          onChange={(e) => handleDateRangePreset(e.target.value)}
+        >
+          <option value="ALL">Thời gian: Toàn bộ</option>
+          <option value="30DAYS">Thời gian: 30 ngày gần nhất 📅</option>
+          <option value="7DAYS">Thời gian: 7 ngày gần nhất 📅</option>
+          <option value="TODAY">Thời gian: Hôm nay 📅</option>
+          <option value="CUSTOM">Thời gian: Tùy chỉnh 📅</option>
+        </select>
 
-        <div className={styles.dateInputGroup}>
-          <span>Đến ngày:</span>
-          <input
-            type="date"
-            className={styles.dateInput}
-            value={toDateFilter}
-            onChange={(e) => {
-              setToDateFilter(e.target.value);
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
-          />
-        </div>
+        {/* Khoảng ngày tùy chỉnh nếu chọn CUSTOM */}
+        {dateRangeType === 'CUSTOM' && (
+          <div className={styles.customDatePopover}>
+            <div className={styles.dateInputGroup}>
+              <span>Từ:</span>
+              <input
+                type="date"
+                className={styles.dateInput}
+                value={fromDateFilter}
+                onChange={(e) => {
+                  setFromDateFilter(e.target.value);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+              />
+            </div>
+            <div className={styles.dateInputGroup}>
+              <span>Đến:</span>
+              <input
+                type="date"
+                className={styles.dateInput}
+                value={toDateFilter}
+                onChange={(e) => {
+                  setToDateFilter(e.target.value);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+              />
+            </div>
+          </div>
+        )}
 
-        {(supplierFilter || fromDateFilter || toDateFilter) && (
+        {(supplierFilter || activeTab !== 'ALL' || fromDateFilter || toDateFilter || searchQuery || dateRangeType !== 'ALL') && (
           <button
             type="button"
             className={styles.clearFilterBtn}
             onClick={() => {
               setSupplierFilter('');
+              setActiveTab('ALL');
+              setDateRangeType('ALL');
               setFromDateFilter('');
               setToDateFilter('');
+              setSearchQuery('');
               setPagination((prev) => ({ ...prev, page: 1 }));
             }}
           >
@@ -639,7 +835,7 @@ export default function PurchaseList() {
       <div className={styles.tableCard}>
         <Table
           columns={columns}
-          data={data}
+          data={filteredData}
           rowKey="id"
           isLoading={isLoading}
           emptyText="Không tìm thấy phiếu nhập nào"

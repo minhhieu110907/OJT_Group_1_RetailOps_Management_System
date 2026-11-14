@@ -72,9 +72,9 @@
   background: none;
   border: none;
   padding: 10px 4px 12px 4px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  color: #6B7280;
+  color: #4B5563;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -103,25 +103,25 @@
 }
 
 .tabCountBadge {
-  background-color: #ECFDF5;
+  background-color: #E6FCF5;
   color: #087F5B;
   font-size: 12px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 12px;
 }
 
 .tabCountBadgeGray {
-  background-color: #F3F4F6;
-  color: #6B7280;
+  background-color: #EEF2F6;
+  color: #4B5563;
   font-size: 12px;
   font-weight: 600;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 12px;
 }
 
 .warehouseHint {
-  font-size: 13px;
+  font-size: 13.5px;
   color: #4B5563;
 }
 
@@ -137,8 +137,41 @@
   flex-wrap: wrap;
 }
 
+.searchInputWrapper {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  color: #9CA3AF;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 9px 12px 9px 36px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 13.5px;
+  color: #111827;
+  background-color: #FFFFFF;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: #087F5B;
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1);
+}
+
 .selectBox {
-  padding: 8px 12px;
+  padding: 9px 12px;
   border: 1px solid #D1D5DB;
   border-radius: 6px;
   font-size: 13.5px;
@@ -146,6 +179,27 @@
   background-color: #FFFFFF;
   outline: none;
   cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.selectBox:focus {
+  border-color: #087F5B;
+}
+
+.dateFilterWrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.customDatePopover {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #FFFFFF;
+  padding: 4px 8px;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
 }
 
 .dateInputGroup {
