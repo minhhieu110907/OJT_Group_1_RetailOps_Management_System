@@ -431,6 +431,32 @@ describe('T04A7C3 & T04A8B7 Purchase Receipts Management Suite', () => {
       const sorted = [a, b, c].sort(compareReceiptsByCreatedAtDesc);
       assert.deepEqual(sorted.map((x) => x.id), [5, 25, 10]);
     });
+
+    test('listHistory enforces maxMergedItems window limit and flags is_window_capped when database total exceeds window', async () => {
+      axiosClient.get = async (_url, { params }) => {
+        return {
+          data: {
+            items: [makeReceiptFixture({ id: params.page, status: params.status })],
+            total: 300, // 300 CONFIRMED + 300 CANCELLED = 600 total > 500 window
+            page: params.page,
+            page_size: params.page_size,
+          },
+        };
+      };
+
+      // Test with maxMergedItems=20 window for testing
+      const result = await receiptsApi.listHistory({ page: 1, pageSize: 10, maxMergedItems: 20 });
+      assert.equal(result.total, 600); // authoritative database count
+      assert.equal(result.effective_total, 20); // capped effective window
+      assert.equal(result.total_pages, 2); // 20 / 10 = 2 pages
+      assert.equal(result.is_window_capped, true);
+
+      // Requesting beyond window throws ERR_HISTORY_WINDOW_EXCEEDED
+      await assert.rejects(
+        () => receiptsApi.listHistory({ page: 3, pageSize: 10, maxMergedItems: 20 }),
+        (err) => err.code === 'ERR_HISTORY_WINDOW_EXCEEDED'
+      );
+    });
   });
 
   // ==========================================================================
@@ -611,6 +637,34 @@ describe('T04A7C3 & T04A8B7 Purchase Receipts Management Suite', () => {
       assert.equal(confirmCount, 1);
       assert.equal(getCount, 1);
       assert.equal(result.receipt.draft_version, 4);
+      assert.equal(tracker.getCurrentIntent(), null);
+    });
+
+    test('reconciles RECONCILED_CONFIRMED when 409 conflict reveals receipt is already CONFIRMED', async () => {
+      const tracker = createConfirmIntentTracker();
+      let confirmCount = 0;
+      let getCount = 0;
+
+      const confirmFn = async () => {
+        confirmCount += 1;
+        const err = new Error('Conflict');
+        err.response = {
+          status: 409,
+          data: { code: 'INVALID_STATE', message: 'Phiếu đã ở trạng thái CONFIRMED' },
+        };
+        throw err;
+      };
+
+      const getFn = async (id) => {
+        getCount += 1;
+        return makeReceiptFixture({ id, status: 'CONFIRMED', draft_version: 2, closed_by: 1 });
+      };
+
+      const result = await tracker.executeConfirm(9, 1, { confirmFn, getFn });
+      assert.equal(result.outcome, 'RECONCILED_CONFIRMED');
+      assert.equal(confirmCount, 1);
+      assert.equal(getCount, 1);
+      assert.equal(result.receipt.status, 'CONFIRMED');
       assert.equal(tracker.getCurrentIntent(), null);
     });
 

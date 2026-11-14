@@ -752,10 +752,24 @@ export default function PurchaseList() {
         return;
       }
 
-      if (result.outcome === 'CONFIRMED' || result.outcome === 'RECONCILED_CONFIRMED') {
+      if (result.outcome === 'CONFIRMED') {
         const confirmedReceipt = result.receipt;
         toast.success(
           `Đã xác nhận phiếu nhập #${confirmedReceipt.id} thành công! Kho đã được cập nhật.`
+        );
+        setSelectedReceipt(confirmedReceipt);
+        setIsEditingDraft(false);
+        detailGuardRef.current.invalidate();
+        setIsDetailModalOpen(false);
+        setSelectedReceiptId(null);
+        setRefreshTrigger((prev) => prev + 1);
+        return;
+      }
+
+      if (result.outcome === 'RECONCILED_CONFIRMED') {
+        const confirmedReceipt = result.receipt;
+        toast.info(
+          `Phiếu nhập #${confirmedReceipt.id} đã ở trạng thái Đã nhập. Dữ liệu đã được đồng bộ.`
         );
         setSelectedReceipt(confirmedReceipt);
         setIsEditingDraft(false);
