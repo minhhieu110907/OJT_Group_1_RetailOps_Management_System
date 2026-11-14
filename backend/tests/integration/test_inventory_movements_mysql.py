@@ -181,8 +181,8 @@ def _create_supplier(session: Session) -> Supplier:
     now = datetime.now(UTC).replace(tzinfo=None)
     supplier = Supplier(
         name=_unique_token("SUP"),
-        contact_name="Test Supplier",
-        phone=f"+8490{uuid4().hex[:7]}",
+        contact_email=f"{_unique_token('sup').lower()}@example.com",
+        contact_phone=f"+8490{uuid4().hex[:7]}",
         status=SupplierStatus.ACTIVE.value,
         created_at=now,
         updated_at=now,
@@ -217,7 +217,6 @@ def _create_product_with_inventory(
         quantity=quantity,
         stock_version=1 if quantity > 0 else 0,
         first_stocked_at=now if quantity > 0 else None,
-        created_at=now,
         updated_at=now,
     )
     session.add(inventory)
@@ -282,6 +281,7 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
         actor_id=admin.id,
         kind=MovementKind.PURCHASE_CONFIRM.value,
         receipt_id=receipt.id,
+        sku_snapshot=p1.sku,
         quantity_before=0,
         quantity_after=10,
         stock_version_after=1,
@@ -317,6 +317,7 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
         actor_id=staff.id,
         kind=MovementKind.SALE.value,
         order_id=order.id,
+        sku_snapshot=p1.sku,
         quantity_before=10,
         quantity_after=5,
         stock_version_after=2,
@@ -343,6 +344,7 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
         actor_id=admin.id,
         kind=MovementKind.ADJUSTMENT.value,
         adjustment_id=adjustment.id,
+        sku_snapshot=p1.sku,
         quantity_before=5,
         quantity_after=2,
         stock_version_after=3,
@@ -382,6 +384,7 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
         actor_id=admin.id,
         kind=MovementKind.PURCHASE_CONFIRM.value,
         receipt_id=receipt2.id,
+        sku_snapshot=p2.sku,
         quantity_before=0,
         quantity_after=5,
         stock_version_after=1,
