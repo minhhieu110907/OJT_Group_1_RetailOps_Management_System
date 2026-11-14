@@ -6,11 +6,12 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.exceptions import InvalidStateError
 from app.db.session import get_db_session
 from app.main import create_app
 from app.modules.auth.dependencies import (
@@ -20,6 +21,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
+from app.modules.idempotency.models import IdempotencyRecord
 from app.modules.inventory.models import (
     InventoryAdjustment,
     MovementKind,
@@ -33,13 +35,15 @@ from app.modules.inventory.schemas import (
     StockMovementPage,
     StockMovementRead,
 )
-from app.modules.inventory.service import InventoryQueryService
+from app.modules.inventory.service import InventoryQueryService, InventoryService
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.purchasing.models import (
     PurchaseReceipt,
     PurchaseReceiptItem,
 )
 from app.modules.sales.models import Order, OrderItem
+from app.modules.sales.schemas import CheckoutLine
+from app.modules.sales.service import CheckoutService, OrderService
 from app.modules.suppliers.models import Supplier, SupplierStatus
 from tests.integration.conftest import (
     integration_database_url,
@@ -127,6 +131,19 @@ def clean_test_rows(migrated_integration_engine: Engine) -> Iterator[None]:
 
         session.execute(delete(Supplier).where(Supplier.name.like(f"{TEST_PREFIX}%")))
         session.execute(delete(Category).where(Category.name.like(f"{TEST_PREFIX}%")))
+        test_user_ids = list(
+            session.scalars(
+                select(User.id).where(
+                    User.email_normalized.like(f"{TEST_PREFIX.lower()}%")
+                )
+            )
+        )
+        if test_user_ids:
+            session.execute(
+                delete(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id.in_(test_user_ids)
+                )
+            )
         if _created_admin_id is not None:
             session.execute(delete(User).where(User.id == _created_admin_id))
             _created_admin_id = None
@@ -641,3 +658,228 @@ async def test_inventory_low_stock_route_precedence(
         res_prod = await client.get(f"/api/v1/inventory/{p1_id}")
         assert res_prod.status_code == 200
         assert res_prod.json()["product_id"] == p1_id
+
+
+def test_stock_movements_order_cancel_restores_stock_and_creates_movement(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Verify order cancellation restores stock and records ORDER_CANCEL (PR #52)."""
+    now = datetime.now(UTC)
+    now_unaware = now.replace(tzinfo=None)
+
+    with Session(migrated_integration_engine) as session, session.begin():
+        staff = User(
+            email_normalized=f"{TEST_PREFIX.lower()}staff_cancel_{uuid4().hex[:6]}@example.com",
+            password_hash="$2b$04$test.hash.staff",
+            role=UserRole.STAFF.value,
+            status=UserStatus.ACTIVE.value,
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=now_unaware,
+            updated_at=now_unaware,
+        )
+        session.add(staff)
+        session.flush()
+        staff_id = int(staff.id)
+
+        category = Category(
+            name=_unique_token("CancelCat"),
+            created_at=now_unaware,
+            updated_at=now_unaware,
+        )
+        session.add(category)
+        session.flush()
+
+        product = Product(
+            sku=_unique_token("CAN-SKU"),
+            name="Cancel Test Product",
+            category_id=category.id,
+            status=CatalogStatus.ACTIVE.value,
+            retail_price_vnd=50_000,
+            cost_price_vnd=30_000,
+            created_at=now_unaware,
+            updated_at=now_unaware,
+        )
+        session.add(product)
+        session.flush()
+        product_id = int(product.id)
+        product_sku = str(product.sku)
+
+        # Initial inventory: quantity=10, stock_version=1
+        inv = Inventory(
+            product_id=product_id,
+            quantity=10,
+            stock_version=1,
+            first_stocked_at=now_unaware,
+            updated_at=now_unaware,
+        )
+        session.add(inv)
+
+    inv_mutation_service = InventoryService()
+    checkout_service = CheckoutService(
+        inv_mutation_service,
+        clock=lambda: now,
+    )
+    order_service = OrderService(
+        inv_mutation_service,
+        clock=lambda: now + timedelta(minutes=2),
+    )
+
+    # 1. Complete an order for quantity=3
+    checkout_key = f"{TEST_PREFIX}checkout_key_{uuid4().hex[:6]}"
+    with Session(migrated_integration_engine) as session:
+        order = checkout_service.checkout(
+            session,
+            actor_id=staff_id,
+            idempotency_key=checkout_key,
+            items=[
+                CheckoutLine(
+                    product_id=product_id,
+                    quantity=3,
+                    viewed_unit_price_vnd=50_000,
+                )
+            ],
+        )
+        order_id = int(order.id)
+
+    # Verify inventory after sale: quantity=7, stock_version=2
+    with Session(migrated_integration_engine) as session:
+        inv_after_sale = session.get(Inventory, product_id)
+        assert inv_after_sale is not None
+        assert inv_after_sale.quantity == 7
+        assert inv_after_sale.stock_version == 2
+
+    # 2. Cancel order via OrderService
+    cancel_key = f"{TEST_PREFIX}cancel_key_{uuid4().hex[:6]}"
+    with Session(migrated_integration_engine) as session:
+        cancelled_order = order_service.cancel(
+            session,
+            actor_id=staff_id,
+            actor_role="STAFF",
+            order_id=order_id,
+            reason="Customer requested order cancellation",
+            idempotency_key=cancel_key,
+        )
+        assert cancelled_order.status == "CANCELLED"
+        assert cancelled_order.cancelled_by == staff_id
+        assert cancelled_order.cancel_reason == "Customer requested order cancellation"
+
+    # 3. Verify stock is restored precisely: quantity_after (10) > quantity_before (7)
+    with Session(migrated_integration_engine) as session:
+        inv_after_cancel = session.get(Inventory, product_id)
+        assert inv_after_cancel is not None
+        assert inv_after_cancel.quantity == 10
+        assert inv_after_cancel.stock_version == 3
+
+        # Verify stock_movements table directly
+        movements = list(
+            session.scalars(
+                select(StockMovement)
+                .where(StockMovement.product_id == product_id)
+                .order_by(StockMovement.id.asc())
+            )
+        )
+        assert len(movements) == 2
+
+        sale_mv = movements[0]
+        assert sale_mv.kind == MovementKind.SALE.value
+        assert sale_mv.quantity_before == 10
+        assert sale_mv.quantity_after == 7
+        assert sale_mv.stock_version_after == 2
+        assert sale_mv.order_id == order_id
+
+        cancel_mv = movements[1]
+        assert cancel_mv.kind == MovementKind.ORDER_CANCEL.value
+        assert cancel_mv.quantity_before == 7
+        assert cancel_mv.quantity_after == 10
+        assert cancel_mv.stock_version_after == 3
+        assert cancel_mv.order_id == order_id
+        assert cancel_mv.sku_snapshot == product_sku
+
+    # 4. Check query service projections and filtering (GET /stock-movements query)
+    query_service = InventoryQueryService()
+    with Session(migrated_integration_engine) as session:
+        # Filter kind=ORDER_CANCEL for admin
+        cancel_page = query_service.list_stock_movements_admin(
+            session=session,
+            page=1,
+            page_size=20,
+            product_id=product_id,
+            kind="ORDER_CANCEL",
+        )
+        assert cancel_page.total == 1
+        assert len(cancel_page.items) == 1
+        mv_admin = cancel_page.items[0]
+        assert isinstance(mv_admin, StockMovementAdminRead)
+        assert mv_admin.kind == "ORDER_CANCEL"
+        assert mv_admin.reference_id == order_id
+        assert mv_admin.actor_id == staff_id
+        assert mv_admin.quantity_before == 7
+        assert mv_admin.quantity_after == 10
+        assert mv_admin.stock_version_after == 3
+        assert not hasattr(mv_admin, "cost_price_vnd")
+        assert not hasattr(mv_admin, "unit_price")
+
+        # Staff projection: actor_id and adjustment_reason are forbidden/omitted
+        staff_page = query_service.list_stock_movements_staff(
+            session=session,
+            page=1,
+            page_size=20,
+            product_id=product_id,
+            kind="ORDER_CANCEL",
+        )
+        assert staff_page.total == 1
+        mv_staff = staff_page.items[0]
+        assert isinstance(mv_staff, StockMovementRead)
+        assert mv_staff.kind == "ORDER_CANCEL"
+        assert mv_staff.reference_id == order_id
+        assert mv_staff.quantity_before == 7
+        assert mv_staff.quantity_after == 10
+        assert not hasattr(mv_staff, "actor_id")
+        assert not hasattr(mv_staff, "adjustment_reason")
+        assert not hasattr(mv_staff, "cost_price_vnd")
+
+    # 5. Idempotency verification: replay cancel with same key
+    with Session(migrated_integration_engine) as session:
+        replayed = order_service.cancel(
+            session,
+            actor_id=staff_id,
+            actor_role="STAFF",
+            order_id=order_id,
+            reason="Customer requested order cancellation",
+            idempotency_key=cancel_key,
+        )
+        assert replayed.status == "CANCELLED"
+        # Verify no double stock restore
+        inv_recheck = session.get(Inventory, product_id)
+        assert inv_recheck is not None and inv_recheck.quantity == 10
+        cancel_mv_count = session.scalar(
+            select(func.count(StockMovement.id)).where(
+                StockMovement.product_id == product_id,
+                StockMovement.kind == "ORDER_CANCEL",
+            )
+        )
+        assert cancel_mv_count == 1
+
+    # 6. Conflict verification: cancel with different key raises InvalidStateError
+    diff_key = f"{TEST_PREFIX}cancel_key_diff_{uuid4().hex[:6]}"
+    with Session(migrated_integration_engine) as session:
+        with pytest.raises(InvalidStateError):
+            order_service.cancel(
+                session,
+                actor_id=staff_id,
+                actor_role="STAFF",
+                order_id=order_id,
+                reason="Duplicate cancel attempt",
+                idempotency_key=diff_key,
+            )
+        # Quantity still 10, movements still 1
+        inv_final = session.get(Inventory, product_id)
+        assert inv_final is not None and inv_final.quantity == 10
+        cancel_mv_count_final = session.scalar(
+            select(func.count(StockMovement.id)).where(
+                StockMovement.product_id == product_id,
+                StockMovement.kind == "ORDER_CANCEL",
+            )
+        )
+        assert cancel_mv_count_final == 1
