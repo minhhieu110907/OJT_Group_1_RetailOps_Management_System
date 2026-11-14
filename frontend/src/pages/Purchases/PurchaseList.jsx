@@ -781,10 +781,10 @@ export default function PurchaseList() {
           onChange={(e) => handleDateRangePreset(e.target.value)}
         >
           <option value="ALL">Thời gian: Toàn bộ</option>
-          <option value="30DAYS">Thời gian: 30 ngày gần nhất 📅</option>
-          <option value="7DAYS">Thời gian: 7 ngày gần nhất 📅</option>
-          <option value="TODAY">Thời gian: Hôm nay 📅</option>
-          <option value="CUSTOM">Thời gian: Tùy chỉnh 📅</option>
+          <option value="30DAYS">Thời gian: 30 ngày gần nhất </option>
+          <option value="7DAYS">Thời gian: 7 ngày gần nhất </option>
+          <option value="TODAY">Thời gian: Hôm nay </option>
+          <option value="CUSTOM">Thời gian: Tùy chỉnh </option>
         </select>
 
         {/* Khoảng ngày tùy chỉnh nếu chọn CUSTOM */}

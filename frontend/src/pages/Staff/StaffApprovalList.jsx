@@ -767,7 +767,7 @@ export default function StaffApprovalList() {
           </svg>
         </span>
         <span>
-          Theo quy chuẩn AUTH-01: Chỉ tài khoản đăng ký qua luồng nội bộ được
+          Chỉ tài khoản đăng ký qua luồng nội bộ được
           hiển thị tại đây. Đảm bảo nhân viên đã ký hợp đồng thử việc trước khi
           cấp mã truy cập.
         </span>
