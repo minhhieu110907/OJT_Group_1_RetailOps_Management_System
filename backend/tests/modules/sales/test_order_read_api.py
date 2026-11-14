@@ -11,7 +11,8 @@ from pydantic import ValidationError
 
 from app.modules.auth.models import User
 from app.modules.sales.models import OrderStatus
-from app.modules.sales.router import get_order, list_orders, router as sales_router
+from app.modules.sales.router import get_order, list_orders
+from app.modules.sales.router import router as sales_router
 from app.modules.sales.schemas import OrderLineRead, OrderPage, OrderRead
 from app.modules.sales.service import OrderQuery, OrderReadService
 
@@ -22,9 +23,7 @@ def test_generated_openapi_matches_frozen_order_contract() -> None:
     app.include_router(sales_router)
     runtime_openapi = app.openapi()
 
-    openapi_path = (
-        Path(__file__).parents[4] / "contracts" / "openapi.yaml"
-    ).resolve()
+    openapi_path = (Path(__file__).parents[4] / "contracts" / "openapi.yaml").resolve()
     frozen = yaml.safe_load(openapi_path.read_text(encoding="utf-8"))
 
     # 1. Check path /orders (GET)
