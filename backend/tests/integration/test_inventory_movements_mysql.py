@@ -119,25 +119,49 @@ def clean_test_rows(migrated_integration_engine: Engine) -> Iterator[None]:
         session.execute(delete(Supplier).where(Supplier.name.like(f"{TEST_PREFIX}%")))
         session.execute(delete(Category).where(Category.name.like(f"{TEST_PREFIX}%")))
         session.execute(
-            delete(User).where(User.email_normalized.like(f"{TEST_PREFIX}%"))
+            delete(User).where(
+                User.admin_slot.is_(None),
+                User.email_normalized.like(f"{TEST_PREFIX}%"),
+            )
         )
 
 
-def _create_user(session: Session, role: UserRole, email_suffix: str) -> User:
+def _get_or_create_admin(session: Session) -> User:
+    """Retrieve existing seeded admin or create an active admin with admin_slot=1."""
+    admin = session.scalar(select(User).where(User.admin_slot == 1))
+    if admin is None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        admin = User(
+            email_normalized=f"{TEST_PREFIX}admin@example.com",
+            password_hash="$2b$04$test.hash.inventory.movements.admin",
+            role=UserRole.ADMIN.value,
+            status=UserStatus.ACTIVE.value,
+            admin_slot=1,
+            last_reapplied_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(admin)
+        session.flush()
+    return admin
+
+
+def _create_staff(session: Session, email_suffix: str) -> User:
+    """Create an active staff user with admin_slot=None."""
     now = datetime.now(UTC).replace(tzinfo=None)
-    user = User(
-        email_normalized=f"{TEST_PREFIX}{email_suffix}@{uuid4().hex[:6]}.com",
-        password_hash="$2b$04$test.hash.inventory.movements",
-        role=role.value,
+    staff = User(
+        email_normalized=f"{TEST_PREFIX}{email_suffix}_{uuid4().hex[:8]}@example.com",
+        password_hash="$2b$04$test.hash.inventory.movements.staff",
+        role=UserRole.STAFF.value,
         status=UserStatus.ACTIVE.value,
         admin_slot=None,
         last_reapplied_at=None,
         created_at=now,
         updated_at=now,
     )
-    session.add(user)
+    session.add(staff)
     session.flush()
-    return user
+    return staff
 
 
 def _create_category(session: Session) -> Category:
@@ -203,8 +227,8 @@ def _create_product_with_inventory(
 
 def _seed_test_dataset(session: Session) -> dict[str, object]:
     """Seed comprehensive dataset with products, movements, and adjustments."""
-    admin = _create_user(session, UserRole.ADMIN, "admin")
-    staff = _create_user(session, UserRole.STAFF, "staff")
+    admin = _get_or_create_admin(session)
+    staff = _create_staff(session, "staff")
     category = _create_category(session)
     supplier = _create_supplier(session)
 
