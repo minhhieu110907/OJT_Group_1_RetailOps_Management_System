@@ -59,21 +59,28 @@
     ```bash
     read -r -p "Admin email: " RETAILOPS_ADMIN_SEED_EMAIL
     read -r -s -p "Admin password: " RETAILOPS_ADMIN_SEED_PASSWORD; echo
+    export RETAILOPS_ADMIN_SEED_EMAIL RETAILOPS_ADMIN_SEED_PASSWORD
     docker compose run --rm --no-deps \
-      -e RETAILOPS_ADMIN_SEED_EMAIL="$RETAILOPS_ADMIN_SEED_EMAIL" \
-      -e RETAILOPS_ADMIN_SEED_PASSWORD="$RETAILOPS_ADMIN_SEED_PASSWORD" \
+      -e RETAILOPS_ADMIN_SEED_EMAIL \
+      -e RETAILOPS_ADMIN_SEED_PASSWORD \
       backend python -m app.modules.auth.seed
     unset RETAILOPS_ADMIN_SEED_EMAIL RETAILOPS_ADMIN_SEED_PASSWORD
     ```
   - **PowerShell (Windows):**
     ```powershell
-    $env:RETAILOPS_ADMIN_SEED_EMAIL = Read-Host "Admin email"
-    $sec = Read-Host "Admin password" -AsSecureString
-    $env:RETAILOPS_ADMIN_SEED_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
-    )
-    docker compose run --rm --no-deps -e RETAILOPS_ADMIN_SEED_EMAIL -e RETAILOPS_ADMIN_SEED_PASSWORD backend python -m app.modules.auth.seed
-    Remove-Item Env:RETAILOPS_ADMIN_SEED_EMAIL, Env:RETAILOPS_ADMIN_SEED_PASSWORD
+    $bstr = [IntPtr]::Zero
+    try {
+      $env:RETAILOPS_ADMIN_SEED_EMAIL = Read-Host "Admin email"
+      $sec = Read-Host "Admin password" -AsSecureString
+      $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+      $env:RETAILOPS_ADMIN_SEED_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+      docker compose run --rm --no-deps -e RETAILOPS_ADMIN_SEED_EMAIL -e RETAILOPS_ADMIN_SEED_PASSWORD backend python -m app.modules.auth.seed
+    } finally {
+      if ($bstr -ne [IntPtr]::Zero) {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+      }
+      Remove-Item Env:RETAILOPS_ADMIN_SEED_EMAIL, Env:RETAILOPS_ADMIN_SEED_PASSWORD -ErrorAction SilentlyContinue
+    }
     ```
 
 ## 6. Health & Smoke Checks
@@ -89,25 +96,15 @@
 
 ## 7. Backup & Restore
 
-- **Backup logical (MySQL 8.4):**
-  - **Bash:**
-    ```bash
-    docker compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump --single-transaction --routines --triggers --user=root "$MYSQL_DATABASE"' > "backup_$(date +%Y%m%d_%H%M%S).sql"
-    ```
-  - **PowerShell (Windows):**
-    ```powershell
-    $ts = Get-Date -Format "yyyyMMdd_HHmmss"
-    docker compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump --single-transaction --routines --triggers --user=root "$MYSQL_DATABASE"' | Out-File -Encoding utf8 "backup_$ts.sql"
-    ```
-- **Restore (chỉ thực hiện trên database đích đã xác nhận):**
-  - **Bash:**
-    ```bash
-    docker compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root "$MYSQL_DATABASE"' < backup_file.sql
-    ```
-  - **PowerShell (Windows):**
-    ```powershell
-    Get-Content -Raw "backup_file.sql" | docker compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root "$MYSQL_DATABASE"'
-    ```
+- **Lưu ý môi trường thực thi:** Sử dụng **Bash / WSL** (hoặc Linux shell) cho backup/restore để bảo toàn luồng byte (`stdin`/`stdout`). Trên Windows PowerShell (đặc biệt PowerShell 5.1), pipeline `Out-File` / `Get-Content` có thể làm thay đổi encoding (BOM/CRLF) và **chưa được kiểm chứng** cho SQL dump; không dùng PowerShell pipeline cho thao tác này.
+- **Backup logical (MySQL 8.4 — Bash / WSL):**
+  ```bash
+  docker compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump --single-transaction --routines --triggers --user=root "$MYSQL_DATABASE"' > "backup_$(date +%Y%m%d_%H%M%S).sql"
+  ```
+- **Restore (chỉ thực hiện trên database đích đã xác nhận — Bash / WSL):**
+  ```bash
+  docker compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root "$MYSQL_DATABASE"' < backup_file.sql
+  ```
 - *Trạng thái kiểm chứng:* Quy trình backup/restore trên là hướng dẫn vận hành; **chưa được tính là PASS** nếu chưa thực thi restore thử vào một database tạm/cô lập và kiểm tra số bảng/bản ghi thực tế.
 
 ## 8. Restart & Recovery
@@ -118,6 +115,7 @@
   docker compose up -d --force-recreate --wait mysql
   ```
 - **Lưu ý runtime availability:** Healthcheck đảm bảo `nginx` chỉ start sau khi `backend` healthy, nhưng nếu `backend` đang restart giữa chừng, các request in-flight vẫn có thể nhận `502 Bad Gateway` cho đến khi Uvicorn bind lại port `8000`.
+- **Lưu ý DNS / upstream khi recreate `backend`:** Sau khi `backend` container bị recreate và đổi IP, nếu Nginx trả `502 Bad Gateway`, kiểm tra lại phân giải DNS/upstream tới `backend` và reload hoặc recreate `nginx` có kiểm soát (`docker compose exec nginx nginx -s reload` hoặc `docker compose up -d --force-recreate nginx`).
 
 ## 9. Cleanup an toàn
 
