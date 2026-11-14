@@ -4,7 +4,6 @@ import { Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   DEFAULT_PRODUCT_SORT,
-  QUANTITY_ASC_SORT,
   RESTOCK_FIRST_SORT,
   STOCK_FILTER_TABS,
   classifyProductStock,
@@ -725,7 +724,6 @@ export default function ProductList() {
               onChange={handleFilterChange}
               className={styles.filterSelect}
             >
-              <option value={QUANTITY_ASC_SORT}>Tồn kho: ít → nhiều</option>
               <option value={RESTOCK_FIRST_SORT}>Cần nhập trước</option>
               <option value="name_asc">Tên (A-Z)</option>
               <option value="name_desc">Tên (Z-A)</option>

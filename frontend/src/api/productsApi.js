@@ -15,9 +15,9 @@ export const QUANTITY_ASC_SORT = 'quantity_asc';
 export const RESTOCK_FIRST_SORT = 'restock_first';
 
 /**
- * Kiểu sắp xếp mặc định khi mở hoặc đặt lại trang Quản lý sản phẩm.
+ * Kiểu sắp xếp mặc định khi mở hoặc đặt lại trang Quản lý sản phẩm ("Cần nhập trước").
  */
-export const DEFAULT_PRODUCT_SORT = QUANTITY_ASC_SORT;
+export const DEFAULT_PRODUCT_SORT = RESTOCK_FIRST_SORT;
 
 /**
  * Whitelist các kiểu sắp xếp hợp lệ cho API Product (phối hợp với backend ProductSortOrder).
