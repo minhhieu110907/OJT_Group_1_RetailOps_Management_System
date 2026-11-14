@@ -28,6 +28,16 @@ class InventoryServicePort(Protocol):
         lines: Sequence[StockLine],
     ) -> list[StockResult]: ...
 
+    def restore_for_cancel(
+        self,
+        session: Session,
+        *,
+        locks: StockLockSet,
+        order_id: int,
+        actor_id: int,
+        lines: Sequence[StockLine],
+    ) -> list[StockResult]: ...
+
 
 __all__ = [
     "InventoryServicePort",
