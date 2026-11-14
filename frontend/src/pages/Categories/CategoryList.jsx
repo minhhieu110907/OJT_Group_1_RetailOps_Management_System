@@ -179,7 +179,7 @@ export default function CategoryList() {
     }
   }, [isAdmin, toast]);
 
-  // Submit form tạo / sửa danh mục (chỉ gửi name theo contract backend extra="forbid", chỉ ADMIN)
+  // Submit form tạo / sửa danh mục (chỉ ADMIN)
   const handleSubmitForm = async (e) => {
     if (e && typeof e.preventDefault === 'function') {
       e.preventDefault();
@@ -205,17 +205,25 @@ export default function CategoryList() {
       return;
     }
 
+    const trimmedDescription = categoryForm.description.trim();
+    if (trimmedDescription.length > 2000) {
+      setFormError('Mô tả danh mục không được vượt quá 2000 ký tự.');
+      return;
+    }
+
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       if (modalMode === 'create') {
         await categoriesApi.createCategory({
           name: trimmedName,
+          description: trimmedDescription || null,
         });
         toast.success(`Đã thêm danh mục "${trimmedName}" thành công!`);
       } else {
         await categoriesApi.updateCategory(categoryForm.id, {
           name: trimmedName,
+          description: trimmedDescription || null,
         });
         toast.success(`Đã cập nhật danh mục "${trimmedName}" thành công!`);
       }

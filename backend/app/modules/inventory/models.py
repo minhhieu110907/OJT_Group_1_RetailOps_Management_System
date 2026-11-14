@@ -135,6 +135,11 @@ class StockMovement(Base):
             ["purchase_receipt_items.receipt_id", "purchase_receipt_items.product_id"],
             name="fk_stock_movements_receipt_item",
         ),
+        ForeignKeyConstraint(
+            ["order_id", "product_id"],
+            ["order_items.order_id", "order_items.product_id"],
+            name="fk_stock_movements_order_item",
+        ),
         UniqueConstraint(
             "product_id",
             "stock_version_after",

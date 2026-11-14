@@ -196,3 +196,48 @@ export const suppliersApi = {
   },
 };
 
+// Chuẩn hóa và so sánh dirty state cho nhà cung cấp (dùng chung cho UI & kiểm thử)
+export function normalizeSupplierSnapshot(supplier) {
+  if (!supplier) return null;
+  const name = typeof supplier.name === 'string' ? supplier.name.trim() : '';
+  const contactPhone = typeof supplier.contact_phone === 'string' && supplier.contact_phone.trim()
+    ? supplier.contact_phone.trim()
+    : null;
+  const contactEmail = typeof supplier.contact_email === 'string' && supplier.contact_email.trim()
+    ? supplier.contact_email.trim()
+    : null;
+  const status = supplier.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+
+  return {
+    id: supplier.id ?? null,
+    name,
+    contact_phone: contactPhone,
+    contact_email: contactEmail,
+    status,
+  };
+}
+
+export function detectSupplierChanges(currentForm, snapshot) {
+  if (!snapshot) {
+    return {
+      hasInfoChanges: false,
+      hasStatusChange: false,
+      normalizedPayload: null,
+    };
+  }
+
+  const currentNormalized = normalizeSupplierSnapshot(currentForm);
+  const hasNameChange = currentNormalized.name !== snapshot.name;
+  const hasPhoneChange = currentNormalized.contact_phone !== snapshot.contact_phone;
+  const hasEmailChange = currentNormalized.contact_email !== snapshot.contact_email;
+  const hasStatusChange = currentNormalized.status !== snapshot.status;
+
+  const hasInfoChanges = hasNameChange || hasPhoneChange || hasEmailChange;
+
+  return {
+    hasInfoChanges,
+    hasStatusChange,
+    normalizedPayload: currentNormalized,
+  };
+}
+

@@ -48,6 +48,16 @@ class InvalidCredentialsError(AppException):
         )
 
 
+class AccountPendingError(AppException):
+    def __init__(self) -> None:
+        super().__init__("ACCOUNT_PENDING", "Tài khoản đang chờ phê duyệt.", 401)
+
+
+class AccountRejectedError(AppException):
+    def __init__(self) -> None:
+        super().__init__("ACCOUNT_REJECTED", "Tài khoản đã bị từ chối.", 401)
+
+
 class SessionInvalidError(AppException):
     def __init__(self) -> None:
         super().__init__("SESSION_INVALID", "Phiên đăng nhập không hợp lệ.", 401)

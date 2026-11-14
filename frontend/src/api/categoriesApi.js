@@ -34,17 +34,29 @@ export const categoriesApi = {
     return validateCategoryRead(response.data);
   },
 
-  async createCategory({ name }) {
+  async createCategory({ name, description = undefined }) {
     const trimmed = typeof name === 'string' ? name.trim() : '';
     if (!trimmed) {
       throw new Error('Tên danh mục không được để trống.');
     }
 
-    const response = await axiosClient.post('/categories', { name: trimmed });
+    const payload = { name: trimmed };
+    if (description !== undefined) {
+      if (description !== null && typeof description !== 'string') {
+        throw new Error('Mô tả danh mục không hợp lệ.');
+      }
+      const trimmedDesc = typeof description === 'string' ? description.trim() : '';
+      if (trimmedDesc.length > 2000) {
+        throw new Error('Mô tả danh mục không được vượt quá 2000 ký tự.');
+      }
+      payload.description = trimmedDesc || null;
+    }
+
+    const response = await axiosClient.post('/categories', payload);
     return validateCategoryRead(response.data);
   },
 
-  async updateCategory(id, { name }) {
+  async updateCategory(id, { name, description = undefined }) {
     if (!id || typeof id !== 'number' || id <= 0) {
       throw new Error('ID danh mục không hợp lệ.');
     }
@@ -53,7 +65,19 @@ export const categoriesApi = {
       throw new Error('Tên danh mục không được để trống.');
     }
 
-    const response = await axiosClient.patch(`/categories/${id}`, { name: trimmed });
+    const payload = { name: trimmed };
+    if (description !== undefined) {
+      if (description !== null && typeof description !== 'string') {
+        throw new Error('Mô tả danh mục không hợp lệ.');
+      }
+      const trimmedDesc = typeof description === 'string' ? description.trim() : '';
+      if (trimmedDesc.length > 2000) {
+        throw new Error('Mô tả danh mục không được vượt quá 2000 ký tự.');
+      }
+      payload.description = trimmedDesc || null;
+    }
+
+    const response = await axiosClient.patch(`/categories/${id}`, payload);
     return validateCategoryRead(response.data);
   },
 

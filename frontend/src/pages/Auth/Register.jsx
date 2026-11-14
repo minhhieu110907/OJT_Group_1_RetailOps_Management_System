@@ -251,7 +251,7 @@ export default function Register() {
         {/* Email đăng nhập */}
         <div className={styles.fieldGroup}>
           <label htmlFor="email" className={styles.label}>
-            EMAIL ĐĂNG NHẬP (DUY NHẤT) <span className={styles.required}>*</span>
+            EMAIL ĐĂNG NHẬP <span className={styles.required}>*</span>
           </label>
           <div className={styles.inputWrapper}>
             <span className={styles.leftIcon}>

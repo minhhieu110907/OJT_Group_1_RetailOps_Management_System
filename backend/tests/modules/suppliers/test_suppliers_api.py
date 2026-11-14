@@ -326,7 +326,7 @@ async def test_admin_create_supplier_returns_201_and_allows_duplicate_names(
     data1 = res1.json()
     assert data1["name"] == "Công ty TNHH Thực Phẩm Xanh"
     assert data1["contact_email"] == "contact@greenfood.example.com"
-    assert data1["contact_phone"] == "0912345678"
+    assert data1["contact_phone"] == "+84912345678"
     assert data1["status"] == "ACTIVE"
     assert data1["created_at"].endswith("Z")
     assert data1["updated_at"].endswith("Z")
@@ -369,7 +369,7 @@ async def test_admin_update_supplier_and_persist_null_or_omitted_fields(
     assert patch_name_only.status_code == 200
     assert patch_name_only.json()["name"] == "NCC Đã Đổi Tên"
     assert patch_name_only.json()["contact_email"] == "initial@example.com"
-    assert patch_name_only.json()["contact_phone"] == "0909999999"
+    assert patch_name_only.json()["contact_phone"] == "+84909999999"
 
     # Omitted name and contact_phone are preserved when updating only contact_email
     patch_email_only = await admin_client.patch(
@@ -379,7 +379,7 @@ async def test_admin_update_supplier_and_persist_null_or_omitted_fields(
     assert patch_email_only.status_code == 200
     assert patch_email_only.json()["name"] == "NCC Đã Đổi Tên"
     assert patch_email_only.json()["contact_email"] == "updated@example.com"
-    assert patch_email_only.json()["contact_phone"] == "0909999999"
+    assert patch_email_only.json()["contact_phone"] == "+84909999999"
 
     # 6. Explicit null for contact_email & contact_phone clears and persists in DB
     patch_clear_contacts = await admin_client.patch(
@@ -401,6 +401,39 @@ async def test_admin_update_supplier_and_persist_null_or_omitted_fields(
 
 
 @pytest.mark.anyio
+async def test_admin_create_update_and_read_e164_supplier_phone(
+    admin_client: httpx.AsyncClient,
+) -> None:
+    """International numbers use E.164 and responses remain contact_phone."""
+    create_res = await admin_client.post(
+        "/api/v1/suppliers",
+        json={
+            "name": "North America Supplier",
+            "contact_phone": "+1 416 555-0123",
+        },
+    )
+    assert create_res.status_code == 201
+    created = create_res.json()
+    assert created["contact_phone"] == "+14165550123"
+
+    supplier_id = created["id"]
+    update_res = await admin_client.patch(
+        f"/api/v1/suppliers/{supplier_id}",
+        json={"contact_phone": "+1 415 555 2671"},
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["contact_phone"] == "+14155552671"
+
+    detail_res = await admin_client.get(f"/api/v1/suppliers/{supplier_id}")
+    assert detail_res.status_code == 200
+    assert detail_res.json()["contact_phone"] == "+14155552671"
+
+    list_res = await admin_client.get("/api/v1/suppliers")
+    assert list_res.status_code == 200
+    assert list_res.json()["items"][0]["contact_phone"] == "+14155552671"
+
+
+@pytest.mark.anyio
 async def test_supplier_invalid_payloads_return_422(
     admin_client: httpx.AsyncClient,
 ) -> None:
@@ -414,7 +447,9 @@ async def test_supplier_invalid_payloads_return_422(
         {"name": "   "},  # blank name
         {"name": "A" * 161},  # name > 160 chars
         {"name": "Valid", "contact_email": "not-an-email"},  # invalid email
-        {"name": "Valid", "contact_phone": "1" * 33},  # phone > 32 chars
+        {"name": "Valid", "contact_phone": "1" * 65},  # abusive input
+        {"name": "Valid", "contact_phone": "4155552671"},
+        {"name": "Valid", "contact_phone": "0912345678 ext. 5"},
         {"name": "Valid", "extra_field": "forbidden"},  # extra="forbid"
     ]
     for payload in invalid_create_payloads:
@@ -427,7 +462,7 @@ async def test_supplier_invalid_payloads_return_422(
         {"name": "   "},  # blank name
         {"name": "B" * 161},  # name > 160 chars
         {"contact_email": "bad-email"},  # invalid email
-        {"contact_phone": "9" * 33},  # phone > 32 chars
+        {"contact_phone": "9" * 65},  # abusive input
         {"unknown": "field"},  # extra="forbid"
     ]
     for payload in invalid_patch_payloads:
@@ -562,3 +597,20 @@ def test_service_transaction_rollback_and_repository_no_commit(
         is None
     )
     assert CategoryStatus.ACTIVE == "ACTIVE"
+
+
+def test_supplier_openapi_contract_has_no_phone_region(app_instance) -> None:
+    """Supplier requests and responses expose only the agreed phone field."""
+    schemas = app_instance.openapi()["components"]["schemas"]
+
+    assert "phone_region" not in schemas["SupplierCreate"]["properties"]
+    assert "phone_region" not in schemas["SupplierUpdate"]["properties"]
+    assert set(schemas["SupplierRead"]["properties"]) == {
+        "id",
+        "name",
+        "contact_email",
+        "contact_phone",
+        "status",
+        "created_at",
+        "updated_at",
+    }

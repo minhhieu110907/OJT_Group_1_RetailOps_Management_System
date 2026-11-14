@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.inventory.models import MovementKind, MovementType, ReferenceType
 
@@ -44,6 +44,57 @@ class InventoryPage(BaseModel):
     total: int = Field(..., ge=0, description="Tổng số bản ghi thỏa mãn điều kiện")
     page: int = Field(..., ge=1, description="Trang hiện tại")
     page_size: int = Field(..., ge=1, le=100, description="Số lượng bản ghi mỗi trang")
+
+
+class AdjustRequest(BaseModel):
+    """Payload for physical inventory count adjustment (CF-02)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    counted_quantity: int = Field(
+        ...,
+        ge=0,
+        le=MAX_STOCK_QUANTITY,
+        description="Số lượng kiểm kê thực tế",
+    )
+    expected_stock_version: int = Field(
+        ...,
+        ge=0,
+        description="Phiên bản tồn kho kỳ vọng (optimistic concurrency guard)",
+    )
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Lý do điều chỉnh",
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Lý do kiểm kê không được để trống.")
+        return trimmed
+
+
+class AdjustResponse(BaseModel):
+    """Result of an inventory count adjustment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: int = Field(..., ge=1, description="Mã định danh sản phẩm")
+    quantity: int = Field(..., ge=0, description="Số lượng tồn kho sau điều chỉnh")
+    stock_version: int = Field(
+        ...,
+        ge=0,
+        description="Phiên bản tồn kho sau điều chỉnh",
+    )
+    audit_id: int = Field(..., ge=1, description="Mã bản ghi kiểm kê audit")
+    movement_created: bool = Field(
+        ...,
+        description="True nếu tạo biến động tồn kho, False nếu số lượng không đổi",
+    )
 
 
 @dataclass(frozen=True)
@@ -159,11 +210,14 @@ class StockMovementResult:
 
 
 __all__ = [
+    "AdjustRequest",
+    "AdjustResponse",
     "AdjustmentResult",
     "CountAdjustment",
     "InventoryPage",
     "InventoryRead",
     "LockedStock",
+    "MAX_STOCK_QUANTITY",
     "StockChangeItem",
     "StockLine",
     "StockLockSet",

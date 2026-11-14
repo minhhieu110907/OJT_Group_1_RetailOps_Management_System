@@ -33,6 +33,11 @@ import {
   validateChangePasswordForm,
   validateResetPasswordByTokenForm,
 } from '../utils/validation.js';
+import {
+  deriveRejectSubState,
+  evaluateAccountVerificationClick,
+  evaluateResubmitAction,
+} from '../pages/Auth/accountStatusHelpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1368,6 +1373,135 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
       const res = await callLogoutApi({ accessToken: 'tok', csrfToken: 'csrf' });
       assert.equal(typeof res.revoked, 'boolean');
       assert.equal(res.revoked, true);
+    });
+  });
+
+  // ==========================================================================
+  // PR #50 P1: Account Status & Login Error Code Handling
+  // ==========================================================================
+  describe('PR #50 P1: Account Status & Login Error Code Invariants', () => {
+    it('Login.jsx branches strictly on error.code (ACCOUNT_PENDING / ACCOUNT_REJECTED) without parsing error.message', () => {
+      const loginPath = path.resolve(__dirname, '../pages/Auth/Login.jsx');
+      const authCtxPath = path.resolve(__dirname, '../context/AuthContext.jsx');
+      const loginContent = fs.readFileSync(loginPath, 'utf8');
+      const authCtxContent = fs.readFileSync(authCtxPath, 'utf8');
+
+      assert.ok(authCtxContent.includes('error?.response?.data?.code'));
+      assert.ok(authCtxContent.includes('authError.code = error.response.data.code'));
+
+      assert.ok(loginContent.includes("error?.code === 'ACCOUNT_PENDING'"));
+      assert.ok(loginContent.includes("error?.code === 'ACCOUNT_REJECTED'"));
+      assert.ok(loginContent.includes('isUnverifiedSubmission: false'));
+      assert.equal(loginContent.includes('error.message.includes'), false);
+    });
+
+    it('AccountStatus.jsx never displays fake fallback profile or hardcoded dates in Real API mode', () => {
+      const accountStatusPath = path.resolve(__dirname, '../pages/Auth/AccountStatus.jsx');
+      const content = fs.readFileSync(accountStatusPath, 'utf8');
+
+      assert.ok(content.includes('MOCK_DEMO_FALLBACK_PROFILE'));
+      assert.ok(content.includes('const isDirectUnverifiedVisit = !isMockDemoActive && !incomingState.status'));
+      assert.ok(content.includes('isMockDemoActive\n    ? {'));
+      assert.ok(content.includes("Chưa có thông tin lý do từ chối từ máy chủ"));
+      assert.ok(content.includes("Chưa có thông tin thời hạn gửi lại từ máy chủ"));
+      assert.equal(content.includes('setAccessToken'), false);
+      assert.equal(content.includes('setUser('), false);
+    });
+
+    it('evaluateRouteAccess keeps fail-closed behavior on 401/502/network failure without entering Dashboard or Mock', () => {
+      assert.deepEqual(
+        evaluateRouteAccess({
+          authInitializing: false,
+          user: null,
+          accessToken: null,
+          allowedRoles: ['ADMIN', 'STAFF'],
+        }),
+        { action: 'REDIRECT_LOGIN' }
+      );
+      assert.deepEqual(
+        evaluateRouteAccess({
+          authInitializing: false,
+          user: { id: 10, role: 'STAFF', status: 'PENDING_APPROVAL' },
+          accessToken: 'invalid-or-blocked',
+          allowedRoles: ['STAFF'],
+        }),
+        { action: 'REDIRECT_ACCOUNT_STATUS' }
+      );
+    });
+
+    it('P1-B Real API branch: never trusts location.state.rejectSubState, never defaults to 24h lock, and never fakes verification', () => {
+      // Spoofed location.state.rejectSubState = 'ELIGIBLE' must be ignored in Real API mode
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: false,
+          incomingState: { status: 'REJECTED', rejectSubState: 'ELIGIBLE' },
+        }),
+        'UNAVAILABLE'
+      );
+      // Missing backend data must NOT default to fake LOCKED_24H in Real API mode
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: false,
+          incomingState: { status: 'REJECTED' },
+        }),
+        'UNAVAILABLE'
+      );
+
+      // Verification click in Real API mode must NOT set nextVerified=true or emit success
+      const verifyResult = evaluateAccountVerificationClick({
+        isMockDemoActive: false,
+        prevVerified: false,
+      });
+      assert.equal(verifyResult.nextVerified, false);
+      assert.notEqual(verifyResult.toastType, 'success');
+
+      // Resubmit in Real API mode must remain blocked even if verified flag were somehow true
+      const resubmitResult = evaluateResubmitAction({
+        isMockDemoActive: false,
+        isAccountVerified: true,
+      });
+      assert.equal(resubmitResult.allowed, false);
+      assert.equal(resubmitResult.nextStatus, null);
+      assert.notEqual(resubmitResult.toastType, 'success');
+    });
+
+    it('P1-B Mock Demo branch: permits mock 24h/ELIGIBLE toggle, mock verification, and mock resubmit only when isMockDemoActive is true', () => {
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: true,
+          incomingState: { status: 'REJECTED' },
+        }),
+        'LOCKED_24H'
+      );
+      assert.equal(
+        deriveRejectSubState({
+          isMockDemoActive: true,
+          incomingState: { status: 'REJECTED', rejectSubState: 'ELIGIBLE' },
+        }),
+        'ELIGIBLE'
+      );
+
+      const verifyOn = evaluateAccountVerificationClick({
+        isMockDemoActive: true,
+        prevVerified: false,
+      });
+      assert.equal(verifyOn.nextVerified, true);
+      assert.equal(verifyOn.toastType, 'success');
+
+      const blockedBeforeVerify = evaluateResubmitAction({
+        isMockDemoActive: true,
+        isAccountVerified: false,
+      });
+      assert.equal(blockedBeforeVerify.allowed, false);
+      assert.equal(blockedBeforeVerify.toastType, 'warning');
+
+      const mockResubmitOk = evaluateResubmitAction({
+        isMockDemoActive: true,
+        isAccountVerified: true,
+      });
+      assert.equal(mockResubmitOk.allowed, true);
+      assert.equal(mockResubmitOk.nextStatus, 'PENDING');
+      assert.equal(mockResubmitOk.toastType, 'success');
     });
   });
 });
