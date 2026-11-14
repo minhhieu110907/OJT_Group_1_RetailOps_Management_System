@@ -1,7 +1,9 @@
 """Atomic checkout orchestration over CF-01 and the injected CF-02 port."""
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -22,15 +24,22 @@ from app.modules.sales.inventory_port import (
     StockLine,
     StockLockSet,
 )
+from app.modules.sales.models import Order
 from app.modules.sales.repository import OrderRepository
 from app.modules.sales.schemas import (
     MAX_SQL_BIGINT,
     MAX_SQL_INT,
     CheckoutLine,
+    OrderLineRead,
+    OrderPage,
     OrderRead,
 )
 
 VIETNAM_TIMEZONE = timezone(timedelta(hours=7), name="Asia/Ho_Chi_Minh")
+try:
+    VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+except Exception:
+    VN_TZ = VIETNAM_TIMEZONE
 
 
 class CheckoutService:
@@ -356,3 +365,152 @@ class OrderService:
         }
         serialized = OrderRead.model_validate(body).model_dump(mode="json")
         return CommandOutcome(200, serialized)
+
+
+@dataclass(frozen=True)
+class OrderQuery:
+    """Query parameters for order history search and filtering."""
+
+    page: int = 1
+    page_size: int = 20
+    status: str | None = None
+    search: str | None = None
+    from_date: date | None = None
+    to_date: date | None = None
+
+
+class OrderReadService:
+    """Read-only order service enforcing active user access and business rules."""
+
+    def __init__(self, repository: OrderRepository | None = None) -> None:
+        self._repository = repository or OrderRepository()
+
+    @staticmethod
+    def _to_order_read(order: Order) -> OrderRead:
+        sold_at = (
+            order.sold_at.replace(tzinfo=UTC)
+            if order.sold_at.tzinfo is None
+            else order.sold_at.astimezone(UTC)
+        )
+        cancelled_at = (
+            order.cancelled_at.replace(tzinfo=UTC)
+            if order.cancelled_at and order.cancelled_at.tzinfo is None
+            else (order.cancelled_at.astimezone(UTC) if order.cancelled_at else None)
+        )
+        items = tuple(
+            OrderLineRead(
+                product_id=item.product_id,
+                sku_snapshot=item.sku_snapshot,
+                product_name_snapshot=item.product_name_snapshot,
+                quantity=item.quantity,
+                unit_price_vnd=item.unit_price_vnd,
+                line_total_vnd=item.line_total_vnd,
+            )
+            for item in order.items
+        )
+        return OrderRead(
+            id=order.id,
+            status=order.status,
+            total_vnd=order.total_vnd,
+            created_by=order.created_by,
+            sold_at=sold_at,
+            cancelled_by=order.cancelled_by,
+            cancelled_at=cancelled_at,
+            cancel_reason=order.cancel_reason,
+            items=items,
+        )
+
+    def list(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        actor_role: str,
+        filters: OrderQuery,
+    ) -> OrderPage:
+        """List orders with Vietnam business date range, status, and search filters."""
+        if actor_role not in {"ADMIN", "STAFF"}:
+            raise ForbiddenError()
+
+        if (
+            filters.from_date is not None
+            and filters.to_date is not None
+            and filters.from_date > filters.to_date
+        ):
+            raise DomainValidationError("from_date must not be greater than to_date")
+
+        sold_from_utc: datetime | None = None
+        if filters.from_date is not None:
+            sold_from_utc = (
+                datetime.combine(filters.from_date, time.min, tzinfo=VN_TZ)
+                .astimezone(UTC)
+                .replace(tzinfo=None)
+            )
+
+        sold_to_utc_exclusive: datetime | None = None
+        if filters.to_date is not None:
+            if filters.to_date >= date.max:
+                raise DomainValidationError("Giá trị to_date vượt giới hạn cho phép.")
+            try:
+                sold_to_utc_exclusive = (
+                    datetime.combine(
+                        filters.to_date + timedelta(days=1), time.min, tzinfo=VN_TZ
+                    )
+                    .astimezone(UTC)
+                    .replace(tzinfo=None)
+                )
+            except OverflowError as err:
+                raise DomainValidationError(
+                    "Khoảng ngày lọc vượt giới hạn cho phép."
+                ) from err
+
+        order_id_exact: int | None = None
+        sku_search: str | None = None
+        if filters.search is not None:
+            cleaned = filters.search.strip()
+            if cleaned:
+                sku_search = cleaned
+                if cleaned.isdigit():
+                    val = int(cleaned)
+                    if val <= MAX_SQL_BIGINT:
+                        order_id_exact = val
+
+        page = max(1, filters.page)
+        page_size = max(1, min(100, filters.page_size))
+        offset = (page - 1) * page_size
+
+        orders, total = self._repository.list_orders(
+            session,
+            status=filters.status,
+            sold_from_utc=sold_from_utc,
+            sold_to_utc_exclusive=sold_to_utc_exclusive,
+            order_id_exact=order_id_exact,
+            sku_search=sku_search,
+            offset=offset,
+            limit=page_size,
+        )
+
+        return OrderPage(
+            items=[self._to_order_read(order) for order in orders],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    def get(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        actor_role: str,
+        order_id: int,
+    ) -> OrderRead:
+        """Fetch a single order by ID."""
+        if actor_role not in {"ADMIN", "STAFF"}:
+            raise ForbiddenError()
+
+        order = self._repository.get_by_id(session, order_id)
+        if order is None:
+            raise ResourceNotFoundError("Không tìm thấy đơn hàng.")
+
+        return self._to_order_read(order)

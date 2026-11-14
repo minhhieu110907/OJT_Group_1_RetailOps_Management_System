@@ -36,6 +36,8 @@ class CancelOrderRequest(StrictRequest):
 
 
 class OrderLineRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     product_id: int
     sku_snapshot: str
     product_name_snapshot: str
@@ -45,6 +47,8 @@ class OrderLineRead(BaseModel):
 
 
 class OrderRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: int
     status: str
     total_vnd: int
@@ -54,3 +58,12 @@ class OrderRead(BaseModel):
     cancelled_at: datetime | None
     cancel_reason: str | None
     items: tuple[OrderLineRead, ...]
+
+
+class OrderPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[OrderRead]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
