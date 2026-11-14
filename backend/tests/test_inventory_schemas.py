@@ -5,7 +5,17 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from app.modules.inventory.schemas import InventoryPage, InventoryRead
+from app.modules.inventory.schemas import (
+    DEFAULT_LOW_STOCK_THRESHOLD,
+    InventoryPage,
+    InventoryRead,
+    LowStockItem,
+    LowStockPage,
+    StockMovementAdminPage,
+    StockMovementAdminRead,
+    StockMovementPage,
+    StockMovementRead,
+)
 
 
 def test_inventory_read_valid() -> None:
@@ -170,3 +180,173 @@ def test_inventory_page_extra_fields_forbidden() -> None:
     }
     with pytest.raises(ValidationError):
         InventoryPage.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Low-stock warning schema tests
+# ---------------------------------------------------------------------------
+
+
+def test_low_stock_item_valid() -> None:
+    """Test LowStockItem initialization and default threshold."""
+    item = LowStockItem(
+        product_id=1,
+        sku="SKU-001",
+        name="Cà phê Robusta",
+        quantity=3,
+    )
+    assert item.product_id == 1
+    assert item.sku == "SKU-001"
+    assert item.name == "Cà phê Robusta"
+    assert item.quantity == 3
+    assert item.threshold == DEFAULT_LOW_STOCK_THRESHOLD
+    assert item.threshold == 5
+
+
+def test_low_stock_item_extra_fields_forbidden() -> None:
+    """Test LowStockItem strictly forbids unexpected/cost fields."""
+    data = {
+        "product_id": 1,
+        "sku": "SKU-001",
+        "name": "Cà phê Robusta",
+        "quantity": 3,
+        "cost_price": 20000,
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        LowStockItem.model_validate(data)
+    assert "Extra inputs are not permitted" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "invalid_field,invalid_value",
+    [
+        ("total", -1),
+        ("page", 0),
+        ("page", -1),
+        ("page_size", 0),
+        ("page_size", 101),
+    ],
+)
+def test_low_stock_page_invalid_bounds(
+    invalid_field: str, invalid_value: object
+) -> None:
+    """Test LowStockPage pagination bounds."""
+    data = {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 20,
+    }
+    data[invalid_field] = invalid_value
+    with pytest.raises(ValidationError):
+        LowStockPage.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Stock movement schemas tests
+# ---------------------------------------------------------------------------
+
+
+def test_stock_movement_read_valid() -> None:
+    """Test safe STAFF StockMovementRead initialization."""
+    now = datetime(2026, 11, 11, 10, 0, 0)
+    data = {
+        "id": 100,
+        "product_id": 5,
+        "sku": "SKU-TEA-001",
+        "kind": "PURCHASE_CONFIRM",
+        "quantity_before": 10,
+        "quantity_after": 50,
+        "stock_version_after": 2,
+        "reference_id": 12,
+        "occurred_at": now,
+    }
+    item = StockMovementRead.model_validate(data)
+    assert item.id == 100
+    assert item.product_id == 5
+    assert item.kind == "PURCHASE_CONFIRM"
+    assert item.reference_id == 12
+    assert not hasattr(item, "actor_id")
+    assert not hasattr(item, "adjustment_reason")
+    assert item.model_dump(mode="json")["occurred_at"] == "2026-11-11T10:00:00Z"
+
+
+def test_stock_movement_read_forbids_actor_and_prices() -> None:
+    """Test StockMovementRead forbids actor_id, adjustment_reason, and prices."""
+    now = datetime(2026, 11, 11, 10, 0, 0)
+    base_data = {
+        "id": 100,
+        "product_id": 5,
+        "sku": "SKU-TEA-001",
+        "kind": "ADJUSTMENT",
+        "quantity_before": 10,
+        "quantity_after": 8,
+        "stock_version_after": 3,
+        "reference_id": 5,
+        "occurred_at": now,
+    }
+
+    # Forbids actor_id
+    with pytest.raises(ValidationError) as exc_actor:
+        StockMovementRead.model_validate({**base_data, "actor_id": 1})
+    assert "Extra inputs are not permitted" in str(exc_actor.value)
+
+    # Forbids unit_cost_vnd
+    with pytest.raises(ValidationError) as exc_cost:
+        StockMovementRead.model_validate({**base_data, "unit_cost_vnd": 25000})
+    assert "Extra inputs are not permitted" in str(exc_cost.value)
+
+
+def test_stock_movement_admin_read_valid() -> None:
+    """Test audited ADMIN StockMovementAdminRead initialization."""
+    now = datetime(2026, 11, 11, 10, 0, 0)
+    data = {
+        "id": 101,
+        "product_id": 5,
+        "sku": "SKU-TEA-001",
+        "kind": "ADJUSTMENT",
+        "quantity_before": 10,
+        "quantity_after": 8,
+        "stock_version_after": 3,
+        "reference_id": 5,
+        "occurred_at": now,
+        "actor_id": 42,
+        "adjustment_reason": "Vỡ bao bì khi sắp xếp kho",
+    }
+    item = StockMovementAdminRead.model_validate(data)
+    assert item.actor_id == 42
+    assert item.adjustment_reason == "Vỡ bao bì khi sắp xếp kho"
+    assert item.model_dump(mode="json")["occurred_at"] == "2026-11-11T10:00:00Z"
+
+
+def test_stock_movement_admin_read_forbids_cost_prices() -> None:
+    """Test StockMovementAdminRead strictly forbids cost prices."""
+    now = datetime(2026, 11, 11, 10, 0, 0)
+    data = {
+        "id": 101,
+        "product_id": 5,
+        "sku": "SKU-TEA-001",
+        "kind": "ADJUSTMENT",
+        "quantity_before": 10,
+        "quantity_after": 8,
+        "stock_version_after": 3,
+        "reference_id": 5,
+        "occurred_at": now,
+        "actor_id": 42,
+        "adjustment_reason": "Vỡ bao bì khi sắp xếp kho",
+        "cost_price": 50000,
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        StockMovementAdminRead.model_validate(data)
+    assert "Extra inputs are not permitted" in str(exc_info.value)
+
+
+def test_stock_movement_pages_valid() -> None:
+    """Test pagination bounds for both STAFF and ADMIN movement pages."""
+    staff_page = StockMovementPage(items=[], total=0, page=1, page_size=20)
+    assert staff_page.items == []
+    assert staff_page.total == 0
+
+    admin_page = StockMovementAdminPage(items=[], total=0, page=1, page_size=20)
+    assert admin_page.items == []
+    assert admin_page.total == 0
