@@ -957,10 +957,10 @@ export default function PurchaseList() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {selectedReceipt.status === 'CONFIRMED' && (
-                  <span className={styles.statusBadgeConfirmed}>(ĐÃ NHẬP)</span>
+                  <span className={styles.statusBadgeConfirmed}>ĐÃ NHẬP</span>
                 )}
                 {selectedReceipt.status === 'CANCELLED' && (
-                  <span className={styles.statusBadgeCancelled}>(ĐÃ HỦY)</span>
+                  <span className={styles.statusBadgeCancelled}>ĐÃ HỦY</span>
                 )}
                 {selectedReceipt.status === 'DRAFT' && (
                   <span className={styles.statusBadgeDraft}>BẢN NHÁP </span>
@@ -1021,7 +1021,7 @@ export default function PurchaseList() {
                 <span className={styles.infoLabel}>TRẠNG THÁI CHỨNG TỪ</span>
                 <span className={styles.infoValue}>
                   {selectedReceipt.status === 'CONFIRMED'
-                    ? 'ĐÃ XÁC NHẬN'
+                    ? 'ĐÃ NHẬP'
                     : selectedReceipt.status === 'CANCELLED'
                     ? 'ĐÃ HỦY'
                     : 'BẢN NHÁP'}
@@ -1170,12 +1170,12 @@ export default function PurchaseList() {
                   <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
                 <div>
-                  <strong>BẢN NHÁP</strong> chưa làm tăng số lượng tồn kho. Khi bấm <strong>xác nhận phiếu</strong>, hệ thống sẽ tăng tồn kho thực tế, khóa bất biến chứng từ và chuyển sang trạng thái <strong>ĐÃ XÁC NHẬN</strong>.
+                  <strong>BẢN NHÁP</strong> chưa làm tăng số lượng tồn kho. Khi bấm <strong>xác nhận phiếu</strong>, hệ thống sẽ tăng tồn kho thực tế, khóa bất biến chứng từ và chuyển sang trạng thái <strong>ĐÃ NHẬP</strong>.
                 </div>
               </div>
             ) : (
               <div className={styles.readOnlyNotice}>
-                Chứng từ này đã ở trạng thái <strong>{selectedReceipt.status === 'CONFIRMED' ? 'ĐÃ NHẬP KHO' : 'ĐÃ HỦY'}</strong>. Mọi thông tin đã được khóa bất biến và không thể chỉnh sửa hay hủy bỏ.
+                Chứng từ này đã ở trạng thái <strong>{selectedReceipt.status === 'CONFIRMED' ? 'ĐÃ NHẬP' : 'ĐÃ HỦY'}</strong>. Mọi thông tin đã được khóa bất biến và không thể chỉnh sửa hay hủy bỏ.
               </div>
             )}
           </div>
