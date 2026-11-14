@@ -16,7 +16,6 @@ from app.core.exceptions import (
     DomainValidationError,
     InvalidStateError,
 )
-from app.db.base import Base
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
@@ -57,11 +56,7 @@ def get_or_create_test_admin(session: Session) -> User:
 def setup_and_teardown_receipt_tables(
     migrated_integration_engine: Engine,
 ) -> Iterator[None]:
-    """Ensure purchase receipt tables exist and clean up test rows after each test."""
-    Base.metadata.create_all(
-        migrated_integration_engine,
-        tables=[PurchaseReceipt.__table__, PurchaseReceiptItem.__table__],
-    )
+    """Clean up test rows after each test, relying on Alembic migrated schema."""
     with Session(migrated_integration_engine) as session, session.begin():
         get_or_create_test_admin(session)
     yield
