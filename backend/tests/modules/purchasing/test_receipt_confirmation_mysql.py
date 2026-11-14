@@ -33,10 +33,7 @@ from app.modules.inventory.models import (
     ProductStatus,
     StockMovement,
 )
-from app.modules.inventory.repository import (
-    InventoryMovementRepository,
-    InventoryQueryRepository,
-)
+from app.modules.inventory.repository import InventoryMovementRepository
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.suppliers.models import Supplier, SupplierStatus
 from tests.integration.conftest import (
@@ -843,7 +840,9 @@ async def test_confirm_rollback_on_mid_transaction_failure(
         raise RuntimeError(f"Simulated failure at {failure_stage}")
 
     if failure_stage == "inventory_update":
-        monkeypatch.setattr(InventoryQueryRepository, "guarded_update_balance", _boom)
+        monkeypatch.setattr(
+            InventoryMovementRepository, "guarded_update_balance", _boom
+        )
     elif failure_stage == "stock_movement":
         monkeypatch.setattr(InventoryMovementRepository, "add_movement", _boom)
     else:
