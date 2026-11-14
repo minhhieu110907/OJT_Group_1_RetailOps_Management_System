@@ -197,4 +197,3 @@ def test_get_order_success() -> None:
     assert len(result.items) == 1
     assert result.items[0].sku_snapshot == "SKU-005"
     assert result.items[0].quantity == 2
-
