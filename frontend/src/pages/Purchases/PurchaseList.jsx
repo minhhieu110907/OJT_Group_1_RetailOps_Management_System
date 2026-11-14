@@ -256,9 +256,9 @@ export default function PurchaseList() {
     };
   }, [refreshTrigger]);
 
-  // Load chi tiết phiếu nhập khi selectedReceiptId thay đổi
+  // Load chi tiết phiếu nhập chỉ khi Modal Chi tiết ĐANG MỞ và có selectedReceiptId
   const loadReceiptDetail = useCallback(async (receiptId) => {
-    if (!receiptId) return;
+    if (!receiptId || !isDetailModalOpen) return;
     setIsDetailLoading(true);
     setConflictError(null);
     try {
@@ -282,15 +282,16 @@ export default function PurchaseList() {
     } finally {
       setIsDetailLoading(false);
     }
-  }, [toast]);
+  }, [isDetailModalOpen, toast]);
 
+  // Chỉ gọi API get chi tiết khi người dùng chủ động mở modal chi tiết (isDetailModalOpen === true)
   useEffect(() => {
-    if (selectedReceiptId) {
+    if (isDetailModalOpen && selectedReceiptId) {
       loadReceiptDetail(selectedReceiptId);
-    } else {
+    } else if (!isDetailModalOpen) {
       setSelectedReceipt(null);
     }
-  }, [selectedReceiptId, loadReceiptDetail]);
+  }, [isDetailModalOpen, selectedReceiptId, loadReceiptDetail]);
 
   // Thao tác: Mở Modal Tạo phiếu nhập mới (Create Mode)
   const handleOpenCreateModal = () => {
@@ -442,6 +443,7 @@ export default function PurchaseList() {
       toast.success(`Đã xác nhận phiếu nhập #${confirmed.id} thành công! Kho đã được cập nhật.`);
       setSelectedReceipt(confirmed);
       setIsEditingDraft(false);
+      setIsDetailModalOpen(false);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       const errMsg = getApiErrorMessage(err, 'Lỗi khi xác nhận phiếu nhập.');
@@ -606,6 +608,9 @@ export default function PurchaseList() {
   // Xử lý chuyển tab Top "Phiếu nhập" vs "Lịch sử nhập hàng"
   const handleTopTabChange = (tab) => {
     setTopTab(tab);
+    setSelectedReceiptId(null);
+    setSelectedReceipt(null);
+    setIsDetailModalOpen(false);
     if (tab === 'RECEIPTS') {
       // Tab "Phiếu nhập": chỉ quản lý phiếu DRAFT
       setActiveTab('DRAFT');
@@ -812,13 +817,18 @@ export default function PurchaseList() {
           </div>
         )}
 
-        {(supplierFilter || activeTab !== 'ALL' || fromDateFilter || toDateFilter || searchQuery || dateRangeType !== 'ALL') && (
+        {(supplierFilter ||
+          (topTab === 'HISTORY' ? activeTab !== 'ALL_HISTORY' : activeTab !== 'DRAFT') ||
+          fromDateFilter ||
+          toDateFilter ||
+          searchQuery ||
+          dateRangeType !== 'ALL') && (
           <button
             type="button"
             className={styles.clearFilterBtn}
             onClick={() => {
               setSupplierFilter('');
-              setActiveTab('ALL');
+              setActiveTab(topTab === 'HISTORY' ? 'ALL_HISTORY' : 'DRAFT');
               setDateRangeType('ALL');
               setFromDateFilter('');
               setToDateFilter('');
