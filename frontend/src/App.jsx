@@ -13,6 +13,7 @@ import ProductList from './pages/Products/ProductList';
 import StaffApprovalList from './pages/Staff/StaffApprovalList';
 import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
+import PurchaseList from './pages/Purchases/PurchaseList';
 import PosPage from './pages/Pos/PosPage';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
@@ -109,9 +110,7 @@ export default function App() {
                   />
                   <Route
                     path="/purchases"
-                    element={
-                      <PlaceholderPage title="Màn hình Quản lý Nhập hàng" />
-                    }
+                    element={<PurchaseList />}
                   />
                   <Route
                     path="/analytics"

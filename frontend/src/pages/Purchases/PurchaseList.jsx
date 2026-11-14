@@ -251,7 +251,6 @@ export default function PurchaseList() {
       toast.success(`Tạo phiếu nhập nháp #${created.id} thành công!`);
       setIsCreateModalOpen(false);
       setRefreshTrigger((prev) => prev + 1);
-      setSelectedReceiptId(created.id);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Lỗi khi tạo phiếu nhập nháp.'));
     } finally {
@@ -281,6 +280,35 @@ export default function PurchaseList() {
     if (!selectedReceipt || selectedReceipt.status !== 'DRAFT') return;
     if (!editLines || editLines.length === 0) {
       toast.error('Phiếu nhập phải có ít nhất 1 mặt hàng.');
+      return;
+    }
+
+    // 1. Kiểm tra dirty-state: nếu không có bất kỳ thay đổi nào so với bản nháp ban đầu thì không bắn API
+    const isSupplierChanged = Number(editSupplierId) !== Number(selectedReceipt.supplier_id);
+    const originalItems = selectedReceipt.items || [];
+    let areLinesChanged = editLines.length !== originalItems.length;
+
+    if (!areLinesChanged) {
+      for (let i = 0; i < editLines.length; i++) {
+        const cur = editLines[i];
+        const orig = originalItems[i];
+        if (
+          Number(cur.product_id) !== Number(orig.product_id) ||
+          Number(cur.quantity) !== Number(orig.quantity) ||
+          Number(cur.unit_cost_vnd) !== Number(orig.unit_cost_vnd)
+        ) {
+          areLinesChanged = true;
+          break;
+        }
+      }
+    }
+
+    if (!isSupplierChanged && !areLinesChanged) {
+      toast.info('Không có thay đổi nào để lưu.');
+      setIsEditingDraft(false);
+      setIsDetailModalOpen(false);
+      setSelectedReceiptId(null);
+      setSelectedReceipt(null);
       return;
     }
 
@@ -390,18 +418,17 @@ export default function PurchaseList() {
         ),
       },
       {
-        key: 'status',
-        title: 'TRẠNG THÁI',
-        width: '130px',
+        key: 'items_count',
+        title: 'SỐ MẶT HÀNG',
         align: 'center',
+        width: '120px',
         render: (row) => {
-          if (row.status === 'CONFIRMED') {
-            return <span className={styles.statusBadgeConfirmed}>Đã nhập</span>;
-          }
-          if (row.status === 'CANCELLED') {
-            return <span className={styles.statusBadgeCancelled}>Đã hủy</span>;
-          }
-          return <span className={styles.statusBadgeDraft}>Bản nháp (v{row.draft_version})</span>;
+          const count = Array.isArray(row.items) ? row.items.length : 0;
+          return (
+            <span style={{ fontWeight: 600, color: '#374151' }}>
+              {count} {count > 0 ? 'mặt hàng' : '—'}
+            </span>
+          );
         },
       },
       {
@@ -418,6 +445,21 @@ export default function PurchaseList() {
         render: (row) => (
           <span className={styles.amountCell}>{formatVND(row.total_vnd)}</span>
         ),
+      },
+      {
+        key: 'status',
+        title: 'TRẠNG THÁI',
+        width: '130px',
+        align: 'center',
+        render: (row) => {
+          if (row.status === 'CONFIRMED') {
+            return <span className={styles.statusBadgeConfirmed}>Đã nhập</span>;
+          }
+          if (row.status === 'CANCELLED') {
+            return <span className={styles.statusBadgeCancelled}>Đã hủy</span>;
+          }
+          return <span className={styles.statusBadgeDraft}>Bản nháp (v{row.draft_version})</span>;
+        },
       },
       {
         key: 'actions',
