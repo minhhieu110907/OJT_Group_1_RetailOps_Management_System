@@ -159,6 +159,11 @@ def _cleanup_tracked(engine: Engine, tracker: _TrackedCleanup) -> None:
 
         if tracker.created_admin_id is not None:
             session.execute(
+                delete(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == tracker.created_admin_id
+                )
+            )
+            session.execute(
                 delete(AuthSession).where(
                     AuthSession.user_id == tracker.created_admin_id
                 )
@@ -207,13 +212,14 @@ class AdjustmentApiContext:
         self.product_id = product_id
 
     def track_key(self, idempotency_key: str) -> str:
-        digest = key_digest(idempotency_key, self.settings.require_idempotency_secret())
+        digest = self.key_digest_for(idempotency_key)
         if digest not in self.tracker.idempotency_digests:
             self.tracker.idempotency_digests.append(digest)
         return idempotency_key
 
     def key_digest_for(self, idempotency_key: str) -> bytes:
-        return key_digest(idempotency_key, self.settings.require_idempotency_secret())
+        # IdempotencyExecutor reads get_settings().require_idempotency_secret().
+        return key_digest(idempotency_key, get_settings().require_idempotency_secret())
 
 
 def _setup_test_context(
