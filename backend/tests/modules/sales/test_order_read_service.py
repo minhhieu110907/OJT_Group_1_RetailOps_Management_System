@@ -11,6 +11,7 @@ from app.core.exceptions import (
     ResourceNotFoundError,
 )
 from app.modules.sales.models import Order, OrderItem
+from app.modules.sales.repository import _escape_like
 from app.modules.sales.schemas import OrderPage, OrderRead
 from app.modules.sales.service import OrderQuery, OrderReadService
 
@@ -44,6 +45,21 @@ def test_from_date_greater_than_to_date_raises_domain_validation_error() -> None
     )
     with pytest.raises(
         DomainValidationError, match="from_date must not be greater than to_date"
+    ):
+        service.list(
+            session,
+            actor_id=1,
+            actor_role="STAFF",
+            filters=filters,
+        )
+
+
+def test_to_date_overflow_raises_domain_validation_error() -> None:
+    service = OrderReadService()
+    session = MagicMock()
+    filters = OrderQuery(to_date=date.max)
+    with pytest.raises(
+        DomainValidationError, match="Giá trị to_date vượt giới hạn cho phép."
     ):
         service.list(
             session,
@@ -197,3 +213,11 @@ def test_get_order_success() -> None:
     assert len(result.items) == 1
     assert result.items[0].sku_snapshot == "SKU-005"
     assert result.items[0].quantity == 2
+
+
+def test_escape_like_helper() -> None:
+    assert _escape_like("plain") == "plain"
+    assert _escape_like("50%") == "50\\%"
+    assert _escape_like("item_1") == "item\\_1"
+    assert _escape_like("path\\file") == "path\\\\file"
+    assert _escape_like("50%_off\\now") == "50\\%\\_off\\\\now"

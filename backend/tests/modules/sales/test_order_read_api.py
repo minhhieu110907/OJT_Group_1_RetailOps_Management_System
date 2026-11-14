@@ -3,15 +3,22 @@
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
+from uuid import uuid4
 
+import httpx
 import pytest
 import yaml
 from fastapi import FastAPI
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
+from app.core.config import Settings, get_settings
+from app.core.exceptions import DomainValidationError, ResourceNotFoundError
+from app.db.session import get_db_session
+from app.main import create_app
+from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
 from app.modules.auth.models import User
 from app.modules.sales.models import OrderStatus
-from app.modules.sales.router import get_order, list_orders
+from app.modules.sales.router import get_order, get_order_read_service, list_orders
 from app.modules.sales.router import router as sales_router
 from app.modules.sales.schemas import OrderLineRead, OrderPage, OrderRead
 from app.modules.sales.service import OrderQuery, OrderReadService
@@ -200,3 +207,255 @@ def test_order_schemas_extra_forbid() -> None:
 def test_order_status_enum_values() -> None:
     assert OrderStatus.COMPLETED == "COMPLETED"
     assert OrderStatus.CANCELLED == "CANCELLED"
+
+
+class FakeOrderReadService:
+    def __init__(self, raise_error: Exception | None = None) -> None:
+        self.raise_error = raise_error
+        self.last_filters: OrderQuery | None = None
+
+    def list(
+        self,
+        session: object,
+        *,
+        actor_id: int,
+        actor_role: str,
+        filters: OrderQuery,
+    ) -> OrderPage:
+        del session, actor_id, actor_role
+        if self.raise_error:
+            raise self.raise_error
+        if filters.to_date and filters.to_date >= date.max:
+            raise DomainValidationError("Giá trị to_date vượt giới hạn cho phép.")
+        if (
+            filters.from_date
+            and filters.to_date
+            and filters.from_date > filters.to_date
+        ):
+            raise DomainValidationError("from_date must not be greater than to_date")
+        self.last_filters = filters
+        return OrderPage(
+            items=[
+                OrderRead(
+                    id=10,
+                    status=filters.status or "COMPLETED",
+                    total_vnd=50_000,
+                    created_by=1,
+                    sold_at=datetime(2026, 11, 14, 3, 0, tzinfo=UTC),
+                    cancelled_by=None,
+                    cancelled_at=None,
+                    cancel_reason=None,
+                    items=(
+                        OrderLineRead(
+                            product_id=5,
+                            sku_snapshot="SKU-005",
+                            product_name_snapshot="Cà phê",
+                            quantity=2,
+                            unit_price_vnd=25_000,
+                            line_total_vnd=50_000,
+                        ),
+                    ),
+                )
+            ],
+            total=1,
+            page=filters.page,
+            page_size=filters.page_size,
+        )
+
+    def get(
+        self,
+        session: object,
+        *,
+        actor_id: int,
+        actor_role: str,
+        order_id: int,
+    ) -> OrderRead:
+        del session, actor_id, actor_role
+        if self.raise_error:
+            raise self.raise_error
+        if order_id == 999:
+            raise ResourceNotFoundError("Không tìm thấy đơn hàng.")
+        return OrderRead(
+            id=order_id,
+            status="COMPLETED",
+            total_vnd=50_000,
+            created_by=1,
+            sold_at=datetime(2026, 11, 14, 3, 0, tzinfo=UTC),
+            cancelled_by=None,
+            cancelled_at=None,
+            cancel_reason=None,
+            items=(
+                OrderLineRead(
+                    product_id=5,
+                    sku_snapshot="SKU-005",
+                    product_name_snapshot="Cà phê",
+                    quantity=2,
+                    unit_price_vnd=25_000,
+                    line_total_vnd=50_000,
+                ),
+            ),
+        )
+
+
+def make_test_app(
+    service: object | None = None,
+    *,
+    authenticated: bool = True,
+    user_status: str = "ACTIVE",
+    user_role: str = "STAFF",
+) -> FastAPI:
+    config = Settings(
+        db_host="unused",
+        db_name="unused",
+        db_user="unused",
+        db_password=SecretStr("unused"),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+        idempotency_secret=SecretStr("i" * 32),
+    )
+    app = create_app(config)
+    app.dependency_overrides[get_settings] = lambda: config
+    app.dependency_overrides[get_db_session] = lambda: MagicMock()
+    if service is not None:
+        app.dependency_overrides[get_order_read_service] = lambda: service
+    if authenticated:
+        app.dependency_overrides[get_current_principal] = lambda: CurrentPrincipal(
+            user=User(
+                id=1,
+                email_normalized="tester@example.com",
+                password_hash="hash",
+                role=user_role,
+                status=user_status,
+                admin_slot=1 if user_role == "ADMIN" else None,
+                last_reapplied_at=None,
+                created_at=datetime(2026, 11, 14),
+                updated_at=datetime(2026, 11, 14),
+            ),
+            session_id=uuid4(),
+        )
+    return app
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_unauthenticated_returns_401() -> None:
+    app = make_test_app(FakeOrderReadService(), authenticated=False)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders")
+    assert res.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_inactive_user_returns_403() -> None:
+    app = make_test_app(FakeOrderReadService(), user_status="PENDING")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders")
+    assert res.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_validations_422() -> None:
+    service = FakeOrderReadService()
+    app = make_test_app(service)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # page < 1
+        res = await client.get("/api/v1/orders?page=0")
+        assert res.status_code == 422
+
+        # page_size > 100
+        res = await client.get("/api/v1/orders?page_size=101")
+        assert res.status_code == 422
+
+        # invalid status enum
+        res = await client.get("/api/v1/orders?status=PENDING")
+        assert res.status_code == 422
+
+        # from_date > to_date
+        res = await client.get("/api/v1/orders?from_date=2026-11-20&to_date=2026-11-10")
+        assert res.status_code == 422
+
+        # date overflow (9999-12-31)
+        res = await client.get("/api/v1/orders?to_date=9999-12-31")
+        assert res.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_list_orders_http_success_200() -> None:
+    service = FakeOrderReadService()
+    app = make_test_app(service)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders?page=1&page_size=10&status=COMPLETED")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["total"] == 1
+    assert body["page"] == 1
+    assert body["page_size"] == 10
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == 10
+    assert body["items"][0]["status"] == "COMPLETED"
+
+
+@pytest.mark.anyio
+async def test_get_order_http_unauthenticated_returns_401() -> None:
+    app = make_test_app(FakeOrderReadService(), authenticated=False)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders/10")
+    assert res.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_get_order_http_inactive_user_returns_403() -> None:
+    app = make_test_app(FakeOrderReadService(), user_status="INACTIVE")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders/10")
+    assert res.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_get_order_http_validation_error_422() -> None:
+    app = make_test_app(FakeOrderReadService())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders/0")
+    assert res.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_get_order_http_not_found_404() -> None:
+    app = make_test_app(FakeOrderReadService())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders/999")
+    assert res.status_code == 404
+    assert res.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_get_order_http_success_200() -> None:
+    app = make_test_app(FakeOrderReadService())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/orders/10")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["id"] == 10
+    assert body["status"] == "COMPLETED"
+    assert body["total_vnd"] == 50_000
+    # Verify ISO-8601 UTC timestamp format
+    assert body["sold_at"].endswith("Z") or "+00:00" in body["sold_at"]
+    assert len(body["items"]) == 1
+    assert body["items"][0]["sku_snapshot"] == "SKU-005"

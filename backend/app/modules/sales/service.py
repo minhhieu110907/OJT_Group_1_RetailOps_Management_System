@@ -449,13 +449,20 @@ class OrderReadService:
 
         sold_to_utc_exclusive: datetime | None = None
         if filters.to_date is not None:
-            sold_to_utc_exclusive = (
-                datetime.combine(
-                    filters.to_date + timedelta(days=1), time.min, tzinfo=VN_TZ
+            if filters.to_date >= date.max:
+                raise DomainValidationError("Giá trị to_date vượt giới hạn cho phép.")
+            try:
+                sold_to_utc_exclusive = (
+                    datetime.combine(
+                        filters.to_date + timedelta(days=1), time.min, tzinfo=VN_TZ
+                    )
+                    .astimezone(UTC)
+                    .replace(tzinfo=None)
                 )
-                .astimezone(UTC)
-                .replace(tzinfo=None)
-            )
+            except OverflowError as err:
+                raise DomainValidationError(
+                    "Khoảng ngày lọc vượt giới hạn cho phép."
+                ) from err
 
         order_id_exact: int | None = None
         sku_search: str | None = None
