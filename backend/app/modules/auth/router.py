@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
-from app.infrastructure.dependencies import enforce_registration_rate_limit
+from app.infrastructure.dependencies import (
+    enforce_login_rate_limit,
+    enforce_refresh_rate_limit,
+    enforce_registration_rate_limit,
+)
 from app.modules.auth.dependencies import bearer_scheme, get_auth_service
 from app.modules.auth.schemas import (
     CsrfResponse,
@@ -74,7 +78,11 @@ def _set_csrf_cookie(response: Response, token: str, settings: Settings) -> None
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(enforce_login_rate_limit)],
+)
 def login(
     payload: LoginRequest,
     response: Response,
@@ -108,7 +116,11 @@ def csrf(
     return CsrfResponse(csrf_token=token)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    dependencies=[Depends(enforce_refresh_rate_limit)],
+)
 def refresh(
     request: Request,
     response: Response,

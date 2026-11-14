@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import SecretStr
+from redis.exceptions import RedisError
 from sqlalchemy import BigInteger, create_engine, select
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
@@ -14,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
+from app.infrastructure.rate_limit import RedisFixedWindowRateLimiter
 from app.main import create_app
 from app.modules.auth.dependencies import get_auth_service
 from app.modules.auth.models import User, UserRole, UserStatus
@@ -133,6 +135,14 @@ def app_instance(
     """Create FastAPI app using the real auth dependency chain (no principal mock)."""
     app = create_app(mock_settings)
     auth_service, _ = auth_context
+
+    class UnavailableRedis:
+        async def eval(self, *_args, **_kwargs):
+            raise RedisError("test Redis outage")
+
+    app.state.rate_limiter = RedisFixedWindowRateLimiter(  # type: ignore[arg-type]
+        UnavailableRedis(), "retailops:test"
+    )
 
     def override_get_db_session():
         yield db_session

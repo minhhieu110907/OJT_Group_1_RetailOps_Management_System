@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     rate_limit_namespace: str = "retailops:rate-limit"
     register_rate_limit: int = Field(default=5, ge=1, le=10_000)
     register_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    login_ip_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    login_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    login_account_rate_limit: int = Field(default=20, ge=1, le=10_000)
+    login_account_rate_window_seconds: int = Field(default=3_600, ge=1, le=86_400)
+    refresh_rate_limit: int = Field(default=10, ge=1, le=10_000)
+    refresh_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    business_rate_limit: int = Field(default=120, ge=1, le=10_000)
+    business_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
 
     @field_validator("cors_origins")
     @classmethod
