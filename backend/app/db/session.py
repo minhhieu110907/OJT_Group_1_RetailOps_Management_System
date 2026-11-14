@@ -56,3 +56,8 @@ def get_db_session() -> Generator[Session]:
         except Exception:
             session.rollback()
             raise
+
+
+def commit_session(session: Session) -> None:
+    """Explicitly commit the current transaction for endpoint coordinators."""
+    session.commit()

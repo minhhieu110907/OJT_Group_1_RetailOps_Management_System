@@ -28,6 +28,8 @@ from app.modules.inventory.repository import (
 )
 from app.modules.inventory.schemas import (
     AdjustmentResult,
+    AdjustRequest,
+    AdjustResponse,
     CountAdjustment,
     InventoryPage,
     InventoryRead,
@@ -46,6 +48,8 @@ from app.modules.inventory.service import (
 )
 
 __all__ = [
+    "AdjustRequest",
+    "AdjustResponse",
     "AdjustmentResult",
     "CountAdjustment",
     "DuplicateMovementError",
