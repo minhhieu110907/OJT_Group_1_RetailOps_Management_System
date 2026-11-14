@@ -111,3 +111,35 @@ async def test_expired_redis_key_starts_a_fresh_counter(redis_client: Redis) -> 
 
     assert first.count == 1
     assert second.count == 1
+
+
+@pytest.mark.anyio
+async def test_policy_keys_are_independent_and_do_not_leak_identity(
+    redis_client: Redis,
+) -> None:
+    namespace = f"retailops:test:{uuid4().hex}"
+    limiter = RedisFixedWindowRateLimiter(redis_client, namespace)
+    raw_identity = "Sensitive.User@Example.com"
+
+    login_ip = await limiter.check(
+        policy="auth-login-ip",
+        identity=raw_identity,
+        limit=5,
+        window_seconds=60,
+        now=0.0,
+    )
+    login_account = await limiter.check(
+        policy="auth-login-account",
+        identity=raw_identity,
+        limit=20,
+        window_seconds=3_600,
+        now=0.0,
+    )
+    keys = [key async for key in redis_client.scan_iter(match=f"{namespace}:*")]
+
+    assert login_ip.count == 1
+    assert login_account.count == 1
+    assert len(keys) == 2
+    assert all(raw_identity.encode() not in key for key in keys)
+    assert any(b":auth-login-ip:" in key for key in keys)
+    assert any(b":auth-login-account:" in key for key in keys)

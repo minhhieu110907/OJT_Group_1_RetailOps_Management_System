@@ -12,7 +12,11 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AccountPendingError, AccountRejectedError
 from app.db.session import get_db_session
-from app.infrastructure.dependencies import enforce_registration_rate_limit
+from app.infrastructure.dependencies import (
+    enforce_login_rate_limit,
+    enforce_refresh_rate_limit,
+    enforce_registration_rate_limit,
+)
 from app.main import create_app
 from app.modules.auth.dependencies import get_auth_service
 from app.modules.auth.schemas import AuthenticatedUser, RegisterResponse, TokenResponse
@@ -173,6 +177,7 @@ async def test_login_sets_scoped_httponly_refresh_and_csrf_proof() -> None:
     application.dependency_overrides[get_settings] = lambda: settings
     application.dependency_overrides[get_db_session] = override_db
     application.dependency_overrides[get_auth_service] = FakeLoginService
+    application.dependency_overrides[enforce_login_rate_limit] = lambda: None
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=application), base_url="http://test"
     ) as client:
@@ -212,6 +217,7 @@ async def test_blocked_login_returns_stable_error_without_auth_cookies(
     application.dependency_overrides[get_auth_service] = lambda: (
         FakeBlockedLoginService(error)
     )
+    application.dependency_overrides[enforce_login_rate_limit] = lambda: None
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=application), base_url="http://test"
     ) as client:
@@ -262,6 +268,7 @@ async def test_refresh_rejects_missing_origin_before_database_work() -> None:
     application.dependency_overrides[get_settings] = lambda: settings
     application.dependency_overrides[get_db_session] = override_db
     application.dependency_overrides[get_auth_service] = lambda: service
+    application.dependency_overrides[enforce_refresh_rate_limit] = lambda: None
     session_id = uuid4()
     csrf_token = service.csrf.issue(session_id)
     async with httpx.AsyncClient(
