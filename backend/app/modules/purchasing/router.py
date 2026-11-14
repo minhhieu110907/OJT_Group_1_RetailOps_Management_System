@@ -3,12 +3,13 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Header, Path, Query, status
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db_session
+from app.db.session import commit_session, get_db_session
 from app.modules.auth.dependencies import require_active_admin
 from app.modules.auth.models import User
+from app.modules.purchasing.confirmation_service import ReceiptConfirmationService
 from app.modules.purchasing.draft_service import ReceiptDraftService
 from app.modules.purchasing.schemas import (
     ReceiptCreateRequest,
@@ -24,6 +25,11 @@ router = APIRouter(prefix="/purchase-receipts", tags=["purchase-receipts"])
 def get_receipt_draft_service() -> ReceiptDraftService:
     """Dependency provider for ReceiptDraftService."""
     return ReceiptDraftService()
+
+
+def get_receipt_confirmation_service() -> ReceiptConfirmationService:
+    """Dependency provider for ReceiptConfirmationService."""
+    return ReceiptConfirmationService()
 
 
 @router.post(
@@ -75,6 +81,38 @@ def update_purchase_receipt(
             items=payload.items,
         )
         session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
+
+
+@router.post(
+    "/{receipt_id}/confirm",
+    response_model=ReceiptRead,
+    status_code=status.HTTP_200_OK,
+)
+def confirm_purchase_receipt(
+    receipt_id: Annotated[int, Path(gt=0, description="Purchase receipt ID")],
+    payload: ReceiptVersionRequest,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    current_admin: Annotated[User, Depends(require_active_admin)],
+    session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[
+        ReceiptConfirmationService,
+        Depends(get_receipt_confirmation_service),
+    ],
+) -> ReceiptRead:
+    """Confirm a DRAFT purchase receipt and increase stock atomically (Admin only)."""
+    try:
+        result = service.confirm_receipt(
+            session,
+            actor_id=current_admin.id,
+            receipt_id=receipt_id,
+            expected_draft_version=payload.expected_draft_version,
+            idempotency_key=idempotency_key,
+        )
+        commit_session(session)
         return result
     except Exception:
         session.rollback()
