@@ -434,7 +434,7 @@ export default function StaffApprovalList() {
         <div className={styles.titleGroup}>
           <div className={styles.titleRow}>
             <h1 className={styles.title}>Duyệt tài khoản nhân viên</h1>
-            <span className={styles.authCodeBadge}>AUTH-01 &amp; AUTH-03</span>
+            
           </div>
           <p className={styles.subtitle}>
             Hàng đợi xét duyệt hồ sơ đăng ký tài khoản nhân viên (Staff) • Quyền
@@ -681,17 +681,17 @@ export default function StaffApprovalList() {
                         className={styles.statusDotPending}
                         aria-hidden="true"
                       />
-                      <span>PENDING</span>
+                      <span>ĐANG CHỜ</span>
                     </span>
                   ) : item.status === 'APPROVED' ? (
                     <span className={styles.statusPillApproved}>
                       <span aria-hidden="true">✓</span>
-                      <span>APPROVED</span>
+                      <span>ĐÃ DUYỆT</span>
                     </span>
                   ) : (
                     <span className={styles.statusPillRejected}>
                       <span aria-hidden="true">✕</span>
-                      <span>REJECTED</span>
+                      <span>ĐÃ TỪ CHỐI</span>
                     </span>
                   )}
                 </div>
@@ -834,17 +834,17 @@ export default function StaffApprovalList() {
                     className={styles.statusDotPending}
                     aria-hidden="true"
                   />
-                  <span>PENDING</span>
+                  <span>ĐANG CHỜ</span>
                 </span>
               ) : selectedApproval.status === 'APPROVED' ? (
                 <span className={styles.statusPillApproved}>
                   <span aria-hidden="true">✓</span>
-                  <span>APPROVED</span>
+                  <span>ĐÃ DUYỆT</span>
                 </span>
               ) : (
                 <span className={styles.statusPillRejected}>
                   <span aria-hidden="true">✕</span>
-                  <span>REJECTED</span>
+                  <span>ĐÃ TỪ CHỐI</span>
                 </span>
               )}
             </div>
@@ -947,7 +947,7 @@ export default function StaffApprovalList() {
                 <h3 className={styles.sectionTitle}>
                   VAI TRÒ HỆ THỐNG SẼ CẤP
                 </h3>
-                <span className={styles.sectionTag}>Cố định (AUTH-01)</span>
+               
               </div>
 
               <div className={styles.roleBox}>
@@ -959,7 +959,7 @@ export default function StaffApprovalList() {
                 </div>
 
                 <p className={styles.roleDescParagraph}>
-                  <strong>Quyền hạn được cấp:</strong> Bán hàng tại quầy (POS),
+                  <strong>Quyền hạn được cấp:</strong> Bán hàng tại quầy ,
                   tra cứu &amp; xem chi tiết sản phẩm, xem tồn kho hiện tại, xem
                   biến động kho đã lọc (không hiển thị giá vốn/giá nhập/lý do
                   nội bộ), xem danh sách &amp; chi tiết đơn hàng.
@@ -967,7 +967,7 @@ export default function StaffApprovalList() {
 
                 <p className={styles.roleDescParagraph}>
                   <strong>Không có quyền:</strong> Tổng quan/Báo cáo quản trị,
-                  Phân tích (Analytics), Trợ lý AI, Quản lý nhập hàng, Nhà cung
+                  Phân tích, Trợ lý AI, Quản lý nhập hàng, Nhà cung
                   cấp hoặc Quản lý nhân viên.
                 </p>
 

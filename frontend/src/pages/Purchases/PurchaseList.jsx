@@ -428,7 +428,7 @@ export default function PurchaseList() {
         })),
       });
 
-      toast.success(`Đã lưu bản nháp phiếu #${updated.id} (Phiên bản v${updated.draft_version})!`);
+      toast.success(`Đã lưu bản nháp phiếu #${updated.id} (Phiên bản ${updated.draft_version})!`);
       setSelectedReceipt(updated);
       setIsEditingDraft(false);
       setRefreshTrigger((prev) => prev + 1);
@@ -562,7 +562,7 @@ export default function PurchaseList() {
           if (row.status === 'CANCELLED') {
             return <span className={styles.statusBadgeCancelled}>Đã hủy</span>;
           }
-          return <span className={styles.statusBadgeDraft}>Bản nháp (v{row.draft_version})</span>;
+          return <span className={styles.statusBadgeDraft}>Bản nháp ({row.draft_version})</span>;
         },
       },
       {
@@ -989,7 +989,7 @@ export default function PurchaseList() {
                 Tạo lúc: <strong>{formatDate(selectedReceipt.created_at)}</strong>
               </div>
               <div>
-                Phiên bản: <strong>v{selectedReceipt.draft_version}</strong>
+                Phiên bản: <strong>{selectedReceipt.draft_version}</strong>
               </div>
             </div>
 
