@@ -56,13 +56,19 @@ class ApprovalRead(OrmReadModel):
         return value.isoformat().replace("+00:00", "Z")
 
 
+class ApprovalListItemRead(ApprovalRead):
+    """Admin-only list item including the Staff account email."""
+
+    email: EmailStr
+
+
 StaffApprovalRead = ApprovalRead
 
 
 class ApprovalPage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: list[ApprovalRead]
+    items: list[ApprovalListItemRead]
     total: int = Field(ge=0)
     page: int = Field(ge=1)
     page_size: int = Field(ge=1, le=100)

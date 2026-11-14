@@ -18,6 +18,7 @@ def make_settings(
         kwargs = {
             "jwt_secret": SecretStr("j" * 32),
             "csrf_secret": SecretStr("c" * 32),
+            "cookie_secure": True,
         }
     return Settings(
         db_host="unused",

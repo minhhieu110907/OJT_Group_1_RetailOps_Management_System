@@ -89,6 +89,7 @@ jobs:
           root_password="$(openssl rand -hex 24)"
           jwt_secret="$(openssl rand -hex 32)"
           csrf_secret="$(openssl rand -hex 32)"
+          idempotency_secret="$(openssl rand -hex 32)"
           {
             printf 'MYSQL_DATABASE=retailops\n'
             printf 'MYSQL_TEST_DATABASE=retailops_test\n'
@@ -107,6 +108,7 @@ jobs:
             printf 'RETAILOPS_PROXY_BASE_URL=http://127.0.0.1:18080\n'
             printf 'RETAILOPS_JWT_SECRET=%s\n' "$jwt_secret"
             printf 'RETAILOPS_CSRF_SECRET=%s\n' "$csrf_secret"
+            printf 'RETAILOPS_IDEMPOTENCY_SECRET=%s\n' "$idempotency_secret"
           } > .env
       - name: Start isolated MySQL 8.4 and Redis
         run: |

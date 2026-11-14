@@ -48,6 +48,16 @@ class InvalidCredentialsError(AppException):
         )
 
 
+class AccountPendingError(AppException):
+    def __init__(self) -> None:
+        super().__init__("ACCOUNT_PENDING", "Tài khoản đang chờ phê duyệt.", 401)
+
+
+class AccountRejectedError(AppException):
+    def __init__(self) -> None:
+        super().__init__("ACCOUNT_REJECTED", "Tài khoản đã bị từ chối.", 401)
+
+
 class SessionInvalidError(AppException):
     def __init__(self) -> None:
         super().__init__("SESSION_INVALID", "Phiên đăng nhập không hợp lệ.", 401)
@@ -89,6 +99,22 @@ class ConflictError(AppException):
         details: Any = None,
     ) -> None:
         super().__init__(code, message, 409, details)
+
+
+class IdempotencyKeyReusedError(ConflictError):
+    def __init__(self) -> None:
+        super().__init__(
+            "IDEMPOTENCY_KEY_REUSED",
+            "Idempotency key was already used for a different request.",
+        )
+
+
+class RequestInProgressError(ConflictError):
+    def __init__(self) -> None:
+        super().__init__(
+            "REQUEST_IN_PROGRESS",
+            "A request with this idempotency key is still in progress.",
+        )
 
 
 class DuplicateSkuError(ConflictError):

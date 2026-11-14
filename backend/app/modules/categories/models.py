@@ -3,7 +3,14 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, PrimaryKeyConstraint, String, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,6 +38,10 @@ class Category(Base):
     name: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
     status: Mapped[str] = mapped_column(
         String(8),

@@ -70,7 +70,7 @@ AppException(message, status_code, code, details=None)
 
 | POST /auth/register | {email,password} → 202 {message}; tạo User PENDING + Approval PENDING + 1 Notification (cùng transaction) | 422 input; duplicate pending giữ response chung; test duplicate/race + forced rollback toàn bộ |
 
-| POST /auth/login | {email,password} → 200 {access_token,token_type,expires_in,user} + refresh cookie | 401 generic cho sai mật khẩu/PENDING/REJECTED; test session 8h, access 15 phút |
+| POST /auth/login | {email,password} → 200 {access_token,token_type,expires_in,user} + refresh cookie | 401 `INVALID_CREDENTIALS` khi email/mật khẩu sai; sau khi mật khẩu đúng, `PENDING_APPROVAL` → `ACCOUNT_PENDING`, `REJECTED` → `ACCOUNT_REJECTED`; không cấp token/cookie; test session 8h, access 15 phút |
 
 | GET /auth/csrf → POST /auth/refresh | CSRF bootstrap → refresh cookie + CSRF header → access mới, cookie rotate | 401 invalid/reuse; Origin/CSRF reject; concurrent refresh chỉ 1 thắng |
 
@@ -148,7 +148,7 @@ Thực hiện tiếp S1: tích hợp real API với Tân và xử lý negative t
 
 | Register | form → POST /auth/register → thông báo public chung | 422 validation, 429/503 khi có rate limiter; không hiển thị tồn tại email |
 
-| Login | POST /auth/login → access token memory → route ACTIVE | 401 chung, failed network, pending UI không vượt security |
+| Login | POST /auth/login → access token memory → route ACTIVE | 401: `INVALID_CREDENTIALS` hiển thị lỗi chung; `ACCOUNT_PENDING` hiển thị chờ duyệt; `ACCOUNT_REJECTED` hiển thị bị từ chối; không parse message |
 
 | Refresh/Logout | GET CSRF → cookie request with credentials → single-flight refresh / logout | Không refresh storm, không retry vô hạn, clear client state khi session invalid |
 

@@ -254,14 +254,12 @@ async def test_low_stock_route_precedence_no_422(app: object) -> None:
         ("?page=-1", 422),
         ("?page_size=0", 422),
         ("?page_size=101", 422),
-        ("?threshold=0", 422),
-        ("?threshold=-1", 422),
     ],
 )
 async def test_low_stock_pagination_validation(
     app: object, query: str, expected_status: int
 ) -> None:
-    """Verify validation on invalid pagination and threshold parameters."""
+    """Verify validation on invalid pagination parameters."""
     application = app  # type: ignore[assignment]
     application.dependency_overrides[get_current_principal] = lambda: make_principal(
         UserRole.STAFF
@@ -275,8 +273,8 @@ async def test_low_stock_pagination_validation(
 
 
 @pytest.mark.anyio
-async def test_low_stock_custom_threshold_filtering(app: object) -> None:
-    """Test flexible threshold query parameter and matching item threshold."""
+async def test_low_stock_fixed_p0_threshold(app: object) -> None:
+    """Test fixed P0=5 threshold in OpenAPI contract (threshold param ignored)."""
     application = app  # type: ignore[assignment]
     application.dependency_overrides[get_current_principal] = lambda: make_principal(
         UserRole.ADMIN
@@ -284,19 +282,19 @@ async def test_low_stock_custom_threshold_filtering(app: object) -> None:
 
     transport = httpx.ASGITransport(app=application)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        # Threshold = 10 includes P4 (qty=6), but still excludes P5 (inactive)
+        # Extra query params like threshold=10 are ignored by route, fixed to 5
         res = await client.get("/api/v1/inventory/low-stock?threshold=10")
 
     assert res.status_code == 200
     body = res.json()
-    assert body["total"] == 5
+    assert body["total"] == 4
     product_ids = [item["product_id"] for item in body["items"]]
-    assert 4 in product_ids
-    assert 5 not in product_ids
+    assert 4 not in product_ids  # P4 (qty=6) is excluded
+    assert 5 not in product_ids  # P5 (inactive) is excluded
 
-    # Verify each item returns the queried threshold
+    # Verify each item returns the fixed threshold 5
     for item in body["items"]:
-        assert item["threshold"] == 10
+        assert item["threshold"] == 5
 
 
 @pytest.mark.anyio

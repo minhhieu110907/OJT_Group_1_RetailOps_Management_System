@@ -13,8 +13,12 @@ $environmentVariableNames = @(
     "MYSQL_ROOT_PASSWORD",
     "MYSQL_HOST_PORT",
     "BACKEND_HOST_PORT",
+    "PROXY_SUBNET",
+    "NGINX_PROXY_IP",
+    "BACKEND_PROXY_IP",
     "RETAILOPS_ADMIN_SEED_EMAIL",
-    "RETAILOPS_ADMIN_SEED_PASSWORD"
+    "RETAILOPS_ADMIN_SEED_PASSWORD",
+    "RETAILOPS_IDEMPOTENCY_SECRET"
 )
 $savedEnvironment = @{}
 
@@ -35,8 +39,13 @@ $env:MYSQL_TEST_PASSWORD = "test_${secretSuffix}"
 $env:MYSQL_ROOT_PASSWORD = "root_${secretSuffix}"
 $env:MYSQL_HOST_PORT = "0"
 $env:BACKEND_HOST_PORT = "0"
+$subnetOctet = 40 + (Get-Random -Minimum 0 -Maximum 150)
+$env:PROXY_SUBNET = "172.31.${subnetOctet}.0/29"
+$env:NGINX_PROXY_IP = "172.31.${subnetOctet}.2"
+$env:BACKEND_PROXY_IP = "172.31.${subnetOctet}.3"
 $env:RETAILOPS_ADMIN_SEED_EMAIL = "admin-migration-check@example.com"
 $env:RETAILOPS_ADMIN_SEED_PASSWORD = "Admin_${secretSuffix}"
+$env:RETAILOPS_IDEMPOTENCY_SECRET = "idempotency_${secretSuffix}"
 
 function Invoke-DockerCompose {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)

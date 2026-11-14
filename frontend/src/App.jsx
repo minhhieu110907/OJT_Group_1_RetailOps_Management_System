@@ -10,6 +10,10 @@ import ForgotPassword from './pages/Auth/ForgotPassword';
 import ResetPassword from './pages/Auth/ResetPassword';
 import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
+import StaffApprovalList from './pages/Staff/StaffApprovalList';
+import CategoryList from './pages/Categories/CategoryList';
+import SupplierList from './pages/Suppliers/SupplierList';
+import PosPage from './pages/Pos/PosPage';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -76,10 +80,7 @@ export default function App() {
             >
               <Route element={<MainLayout />}>
                 {/* 2.1. Nhánh dùng chung (cả ADMIN và STAFF đều truy cập được) */}
-                <Route
-                  path="/pos"
-                  element={<PlaceholderPage title="Màn hình Bán hàng (POS)" />}
-                />
+                <Route path="/pos" element={<PosPage />} />
                 <Route path="/products" element={<ProductList />} />
                 <Route
                   path="/inventory"
@@ -100,15 +101,17 @@ export default function App() {
                   />
                   <Route
                     path="/categories"
-                    element={<PlaceholderPage title="Quản lý Danh mục" />}
+                    element={<CategoryList />}
                   />
                   <Route
                     path="/suppliers"
-                    element={<PlaceholderPage title="Quản lý Nhà cung cấp" />}
+                    element={<SupplierList />}
                   />
                   <Route
                     path="/purchases"
-                    element={<PlaceholderPage title="Quản lý Nhập hàng" />}
+                    element={
+                      <PlaceholderPage title="Màn hình Quản lý Nhập hàng" />
+                    }
                   />
                   <Route
                     path="/analytics"
@@ -116,10 +119,7 @@ export default function App() {
                       <PlaceholderPage title="Báo cáo & Phân tích Doanh thu" />
                     }
                   />
-                  <Route
-                    path="/staff"
-                    element={<PlaceholderPage title="Quản lý & Xét duyệt Nhân viên" />}
-                  />
+                  <Route path="/staff" element={<StaffApprovalList />} />
                   <Route
                     path="/ai-assistant"
                     element={<PlaceholderPage title="Trợ lý AI (RetailOps AI)" />}

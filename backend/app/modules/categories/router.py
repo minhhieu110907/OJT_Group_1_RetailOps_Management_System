@@ -103,7 +103,7 @@ def update_category(
     session: Annotated[Session, Depends(get_db_session)],
     service: Annotated[CategoryService, Depends(get_category_service)],
 ) -> CategoryRead:
-    """Update a category name (Admin only)."""
+    """Partially update category details (Admin only)."""
     category = service.update_category(session, id, data)
     return CategoryRead.model_validate(category)
 

@@ -3,7 +3,7 @@
 import re
 from importlib import import_module
 
-from sqlalchemy import BigInteger, CheckConstraint, String, inspect
+from sqlalchemy import BigInteger, CheckConstraint, String, Text, inspect
 from sqlalchemy.dialects.mysql import DATETIME
 
 from app.db.base import Base
@@ -12,12 +12,12 @@ from app.modules.categories.models import Category
 EXPECTED_COLUMNS = {
     "id",
     "name",
+    "description",
     "status",
     "created_at",
     "updated_at",
 }
 FORBIDDEN_COLUMNS = {
-    "description",
     "parent_id",
     "is_active",
     "code",
@@ -57,6 +57,11 @@ def test_category_columns_and_types_match_erd() -> None:
     assert isinstance(name_col.type, String)
     assert name_col.type.length == 120
     assert not name_col.nullable
+
+    description_col = table.columns["description"]
+    assert isinstance(description_col.type, Text)
+    assert description_col.nullable
+    assert description_col.server_default is None
 
     status_col = table.columns["status"]
     assert isinstance(status_col.type, String)

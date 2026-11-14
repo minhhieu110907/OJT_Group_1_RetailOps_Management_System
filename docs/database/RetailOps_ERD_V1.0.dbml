@@ -89,6 +89,7 @@ Table account_action_tokens {
 Table categories {
   id bigint [pk, increment]
   name varchar(120) [not null]
+  description text
   status varchar(8) [not null, default: 'ACTIVE']
   created_at datetime(6) [not null]
   updated_at datetime(6) [not null]

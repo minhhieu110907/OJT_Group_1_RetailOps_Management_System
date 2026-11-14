@@ -39,3 +39,9 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Compressed review artifacts
+*.zip
+*.tar.gz
+*.rar
+*.7z

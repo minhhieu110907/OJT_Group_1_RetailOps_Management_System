@@ -59,6 +59,7 @@ class CategoryService:
         now = _utc_now_naive()
         category = Category(
             name=data.name.strip(),
+            description=data.description,
             status=CategoryStatus.ACTIVE,
             created_at=now,
             updated_at=now,
@@ -74,9 +75,15 @@ class CategoryService:
     def update_category(
         self, session: Session, category_id: int, data: CategoryUpdate
     ) -> Category:
-        """Update category name and commit atomically."""
+        """Partially update category fields and commit atomically."""
         category = self.get_by_id(session, category_id)
-        category.name = data.name.strip()
+
+        if "name" in data.model_fields_set and data.name is not None:
+            category.name = data.name.strip()
+
+        if "description" in data.model_fields_set:
+            category.description = data.description
+
         category.updated_at = _utc_now_naive()
         try:
             session.flush()

@@ -105,7 +105,7 @@ Tạo thêm subclasses **khi có use case cụ thể**, không dựng hàng ch�
 
 | HTTP | Code | Trường hợp chính |
 |---|---|---|
-| 401 | `UNAUTHENTICATED`, `INVALID_CREDENTIALS`, `SESSION_INVALID` | Thiếu token, login lỗi chung, phiên revoked/expired |
+| 401 | `UNAUTHENTICATED`, `INVALID_CREDENTIALS`, `ACCOUNT_PENDING`, `ACCOUNT_REJECTED`, `SESSION_INVALID` | Thiếu token; sai credentials; đúng mật khẩu nhưng tài khoản chờ duyệt/bị từ chối; phiên revoked/expired |
 | 403 | `FORBIDDEN` | ACTIVE Staff gọi Admin API |
 | 404 | `RESOURCE_NOT_FOUND` | Resource không tồn tại hoặc nằm ngoài scope actor |
 | 409 | `DUPLICATE_SKU`, `INVALID_STATE`, `STALE_VERSION`, `CONFLICT` | Unique, state transition, concurrent update |
@@ -138,7 +138,7 @@ Tất cả path dưới đây có prefix `/api/v1`. **Contract chi tiết là n�
 | API | Service flow | Các test / ngoại lệ bắt buộc |
 |---|---|---|
 | `POST /auth/register` | Normalize email → hash password → create User + Approval + 1 Notification **atomically** → 202 chung | 422 invalid; duplicate pending không nhân bản; 2 concurrent register chỉ 1 User; forced notification failure rollback toàn bộ; REJECTED không tự tạo User mới |
-| `POST /auth/login` | Check credentials + ACTIVE → create session ≤8h, refresh digest DB, JWT 15m, cookie → 200 | 401 generic cho email không tồn tại/sai mật khẩu/PENDING/REJECTED; không log hash/token; test Admin seed |
+| `POST /auth/login` | Verify password trước khi kiểm tra status; ACTIVE → create session ≤8h, refresh digest DB, JWT 15m, cookie → 200 | 401 `INVALID_CREDENTIALS` cho email không tồn tại/sai mật khẩu; password đúng: `PENDING_APPROVAL` → `ACCOUNT_PENDING`, `REJECTED` → `ACCOUNT_REJECTED`; không cấp token/cookie, không log hash/token; test Admin seed |
 | `GET /auth/csrf` + `POST /auth/refresh` | CSRF bootstrap; verify Origin/CSRF; khóa session row, consume refresh digest, rotate generation, tạo JWT/cookie mới | 401 invalid/replay/expired; concurrency: chỉ 1 refresh thắng; không kéo dài absolute session |
 | `POST /auth/logout` | Verify cookie/Origin/CSRF → revoke session → clear cookie → 204 | Session revoked khiến access JWT cũ bị từ chối; repeat logout safe |
 
