@@ -6,8 +6,10 @@ from app.modules.purchasing.schemas import (
     ReceiptCreateRequest,
     ReceiptItemRead,
     ReceiptLineInput,
+    ReceiptPage,
     ReceiptRead,
     ReceiptUpdateRequest,
+    ReceiptVersionRequest,
 )
 
 __all__ = [
@@ -17,6 +19,8 @@ __all__ = [
     "ReceiptDraftService",
     "ReceiptItemRead",
     "ReceiptLineInput",
+    "ReceiptPage",
     "ReceiptRead",
     "ReceiptUpdateRequest",
+    "ReceiptVersionRequest",
 ]

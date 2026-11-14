@@ -78,6 +78,16 @@ class ReceiptUpdateRequest(StrictRequest):
         return self
 
 
+class ReceiptVersionRequest(StrictRequest):
+    """Request body containing expected draft version for optimistic locking."""
+
+    expected_draft_version: StrictInt = Field(
+        ge=1,
+        le=MAX_SQL_BIGINT,
+        description="Expected draft version for optimistic concurrency control",
+    )
+
+
 class ReceiptItemRead(BaseModel):
     """Line item response schema."""
 
@@ -108,3 +118,14 @@ class ReceiptRead(BaseModel):
     updated_at: datetime
     closed_at: datetime | None
     items: list[ReceiptItemRead]
+
+
+class ReceiptPage(BaseModel):
+    """Paginated list envelope for purchase receipts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ReceiptRead]
+    total: int = Field(ge=0, description="Total count matching filters")
+    page: int = Field(ge=1, description="Current page number")
+    page_size: int = Field(ge=1, le=100, description="Page size limit")

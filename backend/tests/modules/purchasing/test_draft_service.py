@@ -1,6 +1,6 @@
 """Unit tests for ReceiptDraftService."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import BigInteger, create_engine, event, select
@@ -19,7 +19,7 @@ from app.db.base import Base
 from app.modules.auth.models import User
 from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
-from app.modules.purchasing.draft_service import ReceiptDraftService
+from app.modules.purchasing.draft_service import VN_TZ, ReceiptDraftService
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.purchasing.schemas import (
     MAX_SQL_INT,
@@ -498,3 +498,301 @@ def test_draft_operations_do_not_mutate_inventory():
         )
         assert [i.quantity for i in inv_after_update] == [0, 0]
         assert [i.stock_version for i in inv_after_update] == [0, 0]
+
+
+def test_cancel_draft_success():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, prod2 = seed_entities(session)
+        created = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=5, unit_cost_vnd=40_000),
+                ReceiptLineInput(product_id=prod2.id, quantity=3, unit_cost_vnd=60_000),
+            ],
+        )
+        session.commit()
+        receipt_id = created.id
+
+    with Session(engine) as session:
+        cancelled = service.cancel_draft(
+            session,
+            actor_id=1,
+            receipt_id=receipt_id,
+            expected_draft_version=1,
+        )
+        session.commit()
+
+        assert cancelled.id == receipt_id
+        assert cancelled.status == "CANCELLED"
+        assert cancelled.draft_version == 2
+        assert cancelled.closed_by == 1
+        assert cancelled.closed_at is not None
+        assert cancelled.total_vnd == 380_000
+        assert len(cancelled.items) == 2
+
+        # Verify DB directly
+        db_receipt = session.get(PurchaseReceipt, receipt_id)
+        assert db_receipt is not None
+        assert db_receipt.status == "CANCELLED"
+        assert db_receipt.draft_version == 2
+        assert db_receipt.closed_by == 1
+        assert db_receipt.closed_at is not None
+
+        # Verify inventory was NOT mutated
+        invs = list(session.scalars(select(Inventory).order_by(Inventory.product_id)))
+        assert [i.quantity for i in invs] == [0, 0]
+        assert [i.stock_version for i in invs] == [0, 0]
+
+
+def test_cancel_draft_stale_version_raises_409():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, _ = seed_entities(session)
+        created = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=2, unit_cost_vnd=30_000)
+            ],
+        )
+        session.commit()
+        receipt_id = created.id
+
+    with Session(engine) as session:
+        with pytest.raises(ConflictError) as exc_info:
+            service.cancel_draft(
+                session,
+                actor_id=1,
+                receipt_id=receipt_id,
+                expected_draft_version=99,
+            )
+        assert exc_info.value.code == "RECEIPT_VERSION_CONFLICT"
+        assert exc_info.value.details["current_draft_version"] == 1
+        assert exc_info.value.details["expected_draft_version"] == 99
+
+        # Ensure still DRAFT
+        current = session.get(PurchaseReceipt, receipt_id)
+        assert current is not None
+        assert current.status == "DRAFT"
+        assert current.draft_version == 1
+
+
+def test_cancel_draft_terminal_status_raises_409():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, _ = seed_entities(session)
+        created = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=10_000)
+            ],
+        )
+        session.commit()
+        receipt_id = created.id
+
+        # Cancel once
+        service.cancel_draft(
+            session,
+            actor_id=1,
+            receipt_id=receipt_id,
+            expected_draft_version=1,
+        )
+        session.commit()
+
+        # Try to cancel again
+        with pytest.raises(InvalidStateError) as exc_info:
+            service.cancel_draft(
+                session,
+                actor_id=1,
+                receipt_id=receipt_id,
+                expected_draft_version=2,
+            )
+        assert "Không thể hủy phiếu nhập đã ở trạng thái CANCELLED" in str(
+            exc_info.value
+        )
+
+
+def test_cancel_draft_not_found_raises_404():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        seed_entities(session)
+        with pytest.raises(ResourceNotFoundError) as exc_info:
+            service.cancel_draft(
+                session,
+                actor_id=1,
+                receipt_id=999_999,
+                expected_draft_version=1,
+            )
+        assert "không tồn tại" in str(exc_info.value)
+
+
+def test_list_receipts_filters_and_pagination():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, prod2 = seed_entities(session)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        supplier2 = Supplier(
+            name="Nhà cung cấp Phụ",
+            contact_email="sup2@example.com",
+            contact_phone="0987654321",
+            status=SupplierStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(supplier2)
+        session.flush()
+
+        # Create 3 receipts:
+        # r1: supplier 1, DRAFT
+        r1 = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=10_000)
+            ],
+        )
+        # r2: supplier 1, CANCELLED
+        r2 = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod2.id, quantity=2, unit_cost_vnd=20_000)
+            ],
+        )
+        service.cancel_draft(
+            session,
+            actor_id=1,
+            receipt_id=r2.id,
+            expected_draft_version=1,
+        )
+        # r3: supplier 2, DRAFT
+        r3 = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier2.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=3, unit_cost_vnd=30_000)
+            ],
+        )
+        session.commit()
+
+        # Test pagination: page=1, page_size=2
+        page1 = service.list_receipts(session, page=1, page_size=2)
+        assert page1.total == 3
+        assert page1.page == 1
+        assert page1.page_size == 2
+        assert len(page1.items) == 2
+        assert page1.items[0].id == r3.id
+        assert page1.items[1].id == r2.id
+
+        # Page 2
+        page2 = service.list_receipts(session, page=2, page_size=2)
+        assert page2.total == 3
+        assert page2.page == 2
+        assert len(page2.items) == 1
+        assert page2.items[0].id == r1.id
+
+        # Test status filter: CANCELLED
+        cancelled_page = service.list_receipts(session, status="CANCELLED")
+        assert cancelled_page.total == 1
+        assert cancelled_page.items[0].id == r2.id
+        assert cancelled_page.items[0].status == "CANCELLED"
+
+        # Test status filter: DRAFT
+        draft_page = service.list_receipts(session, status="DRAFT")
+        assert draft_page.total == 2
+        assert {item.id for item in draft_page.items} == {r1.id, r3.id}
+
+        # Test supplier_id filter
+        sup2_page = service.list_receipts(session, supplier_id=supplier2.id)
+        assert sup2_page.total == 1
+        assert sup2_page.items[0].id == r3.id
+
+        # Test date filter matching today (Vietnam business time)
+        today_vn = datetime.now(VN_TZ).date()
+        date_page = service.list_receipts(session, from_date=today_vn, to_date=today_vn)
+        assert date_page.total == 3
+        assert len(date_page.items) == 3
+
+        # Test date filter in the past
+        past_date = date(2020, 1, 1)
+        past_page = service.list_receipts(
+            session, from_date=past_date, to_date=past_date
+        )
+        assert past_page.total == 0
+
+
+def test_list_receipts_validation_errors():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        seed_entities(session)
+
+        # from_date > to_date
+        with pytest.raises(DomainValidationError) as exc1:
+            service.list_receipts(
+                session, from_date=date(2026, 12, 1), to_date=date(2026, 11, 1)
+            )
+        assert "from_date phải nhỏ hơn hoặc bằng to_date" in str(exc1.value)
+
+        # Invalid status
+        with pytest.raises(DomainValidationError) as exc2:
+            service.list_receipts(session, status="INVALID_STATUS")
+        assert "không hợp lệ" in str(exc2.value)
+
+        # Invalid page
+        with pytest.raises(DomainValidationError):
+            service.list_receipts(session, page=0)
+
+        # Invalid page_size
+        with pytest.raises(DomainValidationError):
+            service.list_receipts(session, page_size=101)
+
+
+def test_get_receipt_success_and_not_found():
+    engine = make_test_engine()
+    service = ReceiptDraftService()
+
+    with Session(engine) as session:
+        supplier, prod1, _ = seed_entities(session)
+        created = service.create_draft(
+            session,
+            actor_id=1,
+            supplier_id=supplier.id,
+            items=[
+                ReceiptLineInput(product_id=prod1.id, quantity=4, unit_cost_vnd=25_000)
+            ],
+        )
+        session.commit()
+
+        # Success
+        fetched = service.get_receipt(session, receipt_id=created.id)
+        assert fetched.id == created.id
+        assert fetched.supplier_id == supplier.id
+        assert fetched.total_vnd == 100_000
+        assert len(fetched.items) == 1
+        assert fetched.items[0].product_id == prod1.id
+
+        # Not found
+        with pytest.raises(ResourceNotFoundError) as exc_info:
+            service.get_receipt(session, receipt_id=987_654)
+        assert "không tồn tại" in str(exc_info.value)

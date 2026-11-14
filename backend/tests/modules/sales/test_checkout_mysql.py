@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import delete, func, inspect, select, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConflictError, IdempotencyKeyReusedError
+from app.core.exceptions import (
+    ConflictError,
+    IdempotencyKeyReusedError,
+    InvalidStateError,
+)
 from app.modules.auth.models import User
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
@@ -25,7 +30,7 @@ from app.modules.inventory import (
 )
 from app.modules.sales.models import Order, OrderItem
 from app.modules.sales.schemas import CheckoutLine
-from app.modules.sales.service import CheckoutService
+from app.modules.sales.service import CheckoutService, OrderService
 from tests.integration.conftest import (
     integration_database_url,
     integration_engine,
@@ -457,3 +462,244 @@ def test_lock_timeout_rolls_back_claim_and_business_state(
         )
         inventory = verify.get(Inventory, product_id)
         assert inventory is not None and inventory.quantity == 2
+
+
+def cancel_service(
+    *,
+    now: datetime,
+    inventory: InventoryService | None = None,
+) -> OrderService:
+    return OrderService(
+        inventory or InventoryService(),
+        idempotency=IdempotencyExecutor(secret=IDEMPOTENCY_SECRET),
+        clock=lambda: now.replace(tzinfo=UTC),
+    )
+
+
+def create_order_for_cancel(
+    engine: Engine, suffix: str, *, quantity: int = 2
+) -> tuple[int, int, int, datetime]:
+    actor_id, product_id = seed_checkout(engine, suffix, quantity=5)
+    sold_at = datetime(2026, 11, 14, 3, 0, tzinfo=UTC)
+    checkout = CheckoutService(
+        InventoryService(),
+        idempotency=IdempotencyExecutor(secret=IDEMPOTENCY_SECRET),
+        clock=lambda: sold_at,
+    )
+    with Session(engine) as session:
+        order = checkout.checkout(
+            session,
+            actor_id=actor_id,
+            idempotency_key=f"checkout-for-cancel-{suffix}",
+            items=[checkout_line(product_id, quantity=quantity)],
+        )
+    return actor_id, product_id, order.id, sold_at
+
+
+def test_cancel_replay_restores_stock_and_movement_once(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id, order_id, sold_at = create_order_for_cancel(
+        migrated_integration_engine, "cancel-replay"
+    )
+    service = cancel_service(now=sold_at + timedelta(minutes=15))
+    with Session(migrated_integration_engine) as session:
+        first = service.cancel(
+            session,
+            actor_id=actor_id,
+            actor_role="STAFF",
+            order_id=order_id,
+            reason="  Customer mistake  ",
+            idempotency_key="cancel-replay-key-0001",
+        )
+        replay = service.cancel(
+            session,
+            actor_id=actor_id,
+            actor_role="STAFF",
+            order_id=order_id,
+            reason="Customer mistake",
+            idempotency_key="cancel-replay-key-0001",
+        )
+    assert replay == first
+    with Session(migrated_integration_engine) as verify:
+        inventory = verify.get(Inventory, product_id)
+        assert inventory is not None and inventory.quantity == 5
+        assert (
+            verify.scalar(
+                select(func.count(StockMovement.id)).where(
+                    StockMovement.order_id == order_id,
+                    StockMovement.kind == "ORDER_CANCEL",
+                )
+            )
+            == 1
+        )
+
+
+def test_cancel_same_key_different_reason_or_order_conflicts(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id, first_order_id, sold_at = create_order_for_cancel(
+        migrated_integration_engine, "cancel-conflict", quantity=1
+    )
+    with Session(migrated_integration_engine) as session:
+        second_order = CheckoutService(
+            InventoryService(),
+            idempotency=IdempotencyExecutor(secret=IDEMPOTENCY_SECRET),
+            clock=lambda: sold_at,
+        ).checkout(
+            session,
+            actor_id=actor_id,
+            idempotency_key="checkout-second-cancel-conflict",
+            items=[checkout_line(product_id)],
+        )
+        service = cancel_service(now=sold_at + timedelta(minutes=1))
+        service.cancel(
+            session,
+            actor_id=actor_id,
+            actor_role="STAFF",
+            order_id=first_order_id,
+            reason="Reason one",
+            idempotency_key="cancel-conflict-key-0001",
+        )
+        for target_order, reason in (
+            (first_order_id, "Reason two"),
+            (second_order.id, "Reason one"),
+        ):
+            with pytest.raises(IdempotencyKeyReusedError):
+                service.cancel(
+                    session,
+                    actor_id=actor_id,
+                    actor_role="STAFF",
+                    order_id=target_order,
+                    reason=reason,
+                    idempotency_key="cancel-conflict-key-0001",
+                )
+
+
+class FailingRestoreInventory(InventoryService):
+    def restore_for_cancel(self, *args: object, **kwargs: object):
+        raise RuntimeError("restore failed")
+
+
+def test_cancel_restore_failure_rolls_back_order_claim_and_stock(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id, order_id, sold_at = create_order_for_cancel(
+        migrated_integration_engine, "cancel-rollback"
+    )
+    with (
+        Session(migrated_integration_engine) as session,
+        pytest.raises(RuntimeError, match="restore failed"),
+    ):
+        cancel_service(
+            now=sold_at + timedelta(minutes=1),
+            inventory=FailingRestoreInventory(),
+        ).cancel(
+            session,
+            actor_id=actor_id,
+            actor_role="STAFF",
+            order_id=order_id,
+            reason="Rollback test",
+            idempotency_key="cancel-rollback-key-0001",
+        )
+    with Session(migrated_integration_engine) as verify:
+        order = verify.get(Order, order_id)
+        inventory = verify.get(Inventory, product_id)
+        assert order is not None and order.status == "COMPLETED"
+        assert inventory is not None and inventory.quantity == 3
+        assert (
+            verify.scalar(
+                select(func.count(IdempotencyRecord.user_id)).where(
+                    IdempotencyRecord.user_id == actor_id,
+                    IdempotencyRecord.operation == "CANCEL_ORDER",
+                )
+            )
+            == 0
+        )
+
+
+def test_two_different_keys_cancel_once_concurrently(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id, order_id, sold_at = create_order_for_cancel(
+        migrated_integration_engine, "cancel-race"
+    )
+    barrier = threading.Barrier(2)
+
+    def attempt(index: int) -> str:
+        with Session(migrated_integration_engine) as session:
+            barrier.wait(timeout=5)
+            try:
+                cancel_service(now=sold_at + timedelta(minutes=1)).cancel(
+                    session,
+                    actor_id=actor_id,
+                    actor_role="STAFF",
+                    order_id=order_id,
+                    reason="Concurrent cancel",
+                    idempotency_key=f"cancel-race-key-{index:04d}",
+                )
+                return "success"
+            except InvalidStateError:
+                return "invalid_state"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(attempt, index) for index in (1, 2)]
+        results = [future.result(timeout=15) for future in futures]
+    assert sorted(results) == ["invalid_state", "success"]
+    with Session(migrated_integration_engine) as verify:
+        inventory = verify.get(Inventory, product_id)
+        assert inventory is not None and inventory.quantity == 5
+        assert (
+            verify.scalar(
+                select(func.count(StockMovement.id)).where(
+                    StockMovement.order_id == order_id,
+                    StockMovement.kind == "ORDER_CANCEL",
+                )
+            )
+            == 1
+        )
+
+
+def test_cancel_order_header_lock_timeout_rolls_back_idempotency_claim(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id, order_id, sold_at = create_order_for_cancel(
+        migrated_integration_engine, "cancel-lock-timeout"
+    )
+    blocker = Session(migrated_integration_engine)
+    try:
+        blocker.scalar(select(Order).where(Order.id == order_id).with_for_update())
+
+        def attempt() -> None:
+            with Session(migrated_integration_engine) as session:
+                session.execute(text("SET SESSION innodb_lock_wait_timeout = 1"))
+                with pytest.raises(OperationalError):
+                    cancel_service(now=sold_at + timedelta(minutes=1)).cancel(
+                        session,
+                        actor_id=actor_id,
+                        actor_role="STAFF",
+                        order_id=order_id,
+                        reason="Lock timeout",
+                        idempotency_key="cancel-lock-timeout-key-0001",
+                    )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(attempt).result(timeout=10)
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+    with Session(migrated_integration_engine) as verify:
+        order = verify.get(Order, order_id)
+        inventory = verify.get(Inventory, product_id)
+        assert order is not None and order.status == "COMPLETED"
+        assert inventory is not None and inventory.quantity == 3
+        assert (
+            verify.scalar(
+                select(func.count(IdempotencyRecord.user_id)).where(
+                    IdempotencyRecord.user_id == actor_id,
+                    IdempotencyRecord.operation == "CANCEL_ORDER",
+                )
+            )
+            == 0
+        )

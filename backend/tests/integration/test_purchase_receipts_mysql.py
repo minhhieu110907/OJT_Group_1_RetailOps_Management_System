@@ -11,8 +11,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConflictError, DomainValidationError
-from app.db.base import Base
+from app.core.exceptions import (
+    ConflictError,
+    DomainValidationError,
+    InvalidStateError,
+)
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
@@ -53,11 +56,7 @@ def get_or_create_test_admin(session: Session) -> User:
 def setup_and_teardown_receipt_tables(
     migrated_integration_engine: Engine,
 ) -> Iterator[None]:
-    """Ensure purchase receipt tables exist and clean up test rows after each test."""
-    Base.metadata.create_all(
-        migrated_integration_engine,
-        tables=[PurchaseReceipt.__table__, PurchaseReceiptItem.__table__],
-    )
+    """Clean up test rows after each test, relying on Alembic migrated schema."""
     with Session(migrated_integration_engine) as session, session.begin():
         get_or_create_test_admin(session)
     yield
@@ -161,6 +160,11 @@ def seed_mysql_entities(
     )
     session.add_all([inv1, inv2])
     session.commit()
+    session.refresh(supplier)
+    session.refresh(prod1)
+    session.refresh(prod2)
+    session.refresh(inv1)
+    session.refresh(inv2)
     return admin_id, supplier, prod1, prod2, inv1
 
 
@@ -257,17 +261,19 @@ def test_mysql_concurrent_update_optimistic_locking_only_one_wins(
     service = ReceiptDraftService()
     with Session(migrated_integration_engine) as session:
         admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        prod2_id = prod2.id
         created = service.create_draft(
             session,
             actor_id=admin_id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_id,
             items=[
-                ReceiptLineInput(product_id=prod1.id, quantity=1, unit_cost_vnd=40_000)
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=40_000)
             ],
         )
         session.commit()
         receipt_id = created.id
-        prod2_id = prod2.id
 
     barrier = threading.Barrier(2)
 
@@ -306,3 +312,204 @@ def test_mysql_concurrent_update_optimistic_locking_only_one_wins(
         receipt = verify_session.get(PurchaseReceipt, receipt_id)
         assert receipt is not None
         assert receipt.draft_version == 2
+
+
+def test_mysql_cancel_draft_without_inventory_mutation(
+    migrated_integration_engine: Engine,
+) -> None:
+    service = ReceiptDraftService()
+    with Session(migrated_integration_engine) as session:
+        admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        prod2_id = prod2.id
+        created = service.create_draft(
+            session,
+            actor_id=admin_id,
+            supplier_id=supplier_id,
+            items=[
+                ReceiptLineInput(product_id=prod1_id, quantity=4, unit_cost_vnd=50_000),
+                ReceiptLineInput(product_id=prod2_id, quantity=2, unit_cost_vnd=80_000),
+            ],
+        )
+        session.commit()
+        receipt_id = created.id
+
+    with Session(migrated_integration_engine) as action_session:
+        cancelled = service.cancel_draft(
+            action_session,
+            actor_id=admin_id,
+            receipt_id=receipt_id,
+            expected_draft_version=1,
+        )
+        action_session.commit()
+        assert cancelled.status == "CANCELLED"
+        assert cancelled.draft_version == 2
+        assert cancelled.closed_by == admin_id
+        assert cancelled.closed_at is not None
+
+    with Session(migrated_integration_engine) as verify_session:
+        db_receipt = verify_session.get(PurchaseReceipt, receipt_id)
+        assert db_receipt is not None
+        assert db_receipt.status == "CANCELLED"
+        assert db_receipt.draft_version == 2
+        assert db_receipt.closed_by == admin_id
+        assert db_receipt.closed_at is not None
+        assert db_receipt.total_vnd == 360_000
+
+        # Verify inventory unchanged
+        inv1 = verify_session.scalar(
+            select(Inventory).where(Inventory.product_id == prod1_id)
+        )
+        assert inv1 is not None
+        assert inv1.quantity == 0
+        assert inv1.stock_version == 0
+
+        inv2 = verify_session.scalar(
+            select(Inventory).where(Inventory.product_id == prod2_id)
+        )
+        assert inv2 is not None
+        assert inv2.quantity == 0
+        assert inv2.stock_version == 0
+
+
+def test_mysql_cancel_draft_concurrent_optimistic_locking_only_one_wins(
+    migrated_integration_engine: Engine,
+) -> None:
+    service = ReceiptDraftService()
+    with Session(migrated_integration_engine) as session:
+        admin_id, supplier, prod1, _, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        created = service.create_draft(
+            session,
+            actor_id=admin_id,
+            supplier_id=supplier_id,
+            items=[
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=50_000)
+            ],
+        )
+        session.commit()
+        receipt_id = created.id
+
+    barrier = threading.Barrier(2)
+
+    def worker(_worker_id: int) -> str:
+        barrier.wait()
+        with Session(migrated_integration_engine) as worker_session:
+            try:
+                service.cancel_draft(
+                    worker_session,
+                    actor_id=admin_id,
+                    receipt_id=receipt_id,
+                    expected_draft_version=1,
+                )
+                worker_session.commit()
+                return "success"
+            except ConflictError as e:
+                worker_session.rollback()
+                if e.code in ("RECEIPT_VERSION_CONFLICT", "INVALID_STATE"):
+                    return "version_conflict"
+                return "other_conflict"
+            except InvalidStateError:
+                worker_session.rollback()
+                return "version_conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(worker, range(2)))
+
+    assert sorted(outcomes) == ["success", "version_conflict"]
+
+    with Session(migrated_integration_engine) as verify_session:
+        receipt = verify_session.get(PurchaseReceipt, receipt_id)
+        assert receipt is not None
+        assert receipt.status == "CANCELLED"
+        assert receipt.draft_version == 2
+
+
+def test_mysql_cancel_draft_terminal_immutable(
+    migrated_integration_engine: Engine,
+) -> None:
+    service = ReceiptDraftService()
+    with Session(migrated_integration_engine) as session:
+        admin_id, supplier, prod1, _, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        created = service.create_draft(
+            session,
+            actor_id=admin_id,
+            supplier_id=supplier_id,
+            items=[
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=20_000)
+            ],
+        )
+        session.commit()
+        receipt_id = created.id
+
+    with Session(migrated_integration_engine) as action_session:
+        service.cancel_draft(
+            action_session,
+            actor_id=admin_id,
+            receipt_id=receipt_id,
+            expected_draft_version=1,
+        )
+        action_session.commit()
+
+    with Session(migrated_integration_engine) as action_session:
+        with pytest.raises(InvalidStateError) as exc_info:
+            service.cancel_draft(
+                action_session,
+                actor_id=admin_id,
+                receipt_id=receipt_id,
+                expected_draft_version=2,
+            )
+        assert "CANCELLED" in str(exc_info.value)
+
+
+def test_mysql_list_and_get_receipts(
+    migrated_integration_engine: Engine,
+) -> None:
+    service = ReceiptDraftService()
+    with Session(migrated_integration_engine) as session:
+        admin_id, supplier, prod1, prod2, _ = seed_mysql_entities(session)
+        supplier_id = supplier.id
+        prod1_id = prod1.id
+        prod2_id = prod2.id
+
+        r1 = service.create_draft(
+            session,
+            actor_id=admin_id,
+            supplier_id=supplier_id,
+            items=[
+                ReceiptLineInput(product_id=prod1_id, quantity=1, unit_cost_vnd=10_000)
+            ],
+        )
+        r2 = service.create_draft(
+            session,
+            actor_id=admin_id,
+            supplier_id=supplier_id,
+            items=[
+                ReceiptLineInput(product_id=prod2_id, quantity=2, unit_cost_vnd=20_000)
+            ],
+        )
+        service.cancel_draft(
+            session,
+            actor_id=admin_id,
+            receipt_id=r2.id,
+            expected_draft_version=1,
+        )
+        session.commit()
+
+        # Query list on MySQL
+        page = service.list_receipts(session, supplier_id=supplier_id)
+        assert page.total >= 2
+        returned_ids = [it.id for it in page.items]
+        assert r1.id in returned_ids
+        assert r2.id in returned_ids
+
+        # Query get single
+        single = service.get_receipt(session, receipt_id=r1.id)
+        assert single.id == r1.id
+        assert single.status == "DRAFT"
+        assert len(single.items) == 1
+        assert single.items[0].product_id == prod1_id
