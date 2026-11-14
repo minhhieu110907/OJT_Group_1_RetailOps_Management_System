@@ -2,6 +2,8 @@ import axiosClient from './axiosClient.js';
 
 export const VALID_RECEIPT_STATUSES = new Set(['DRAFT', 'CONFIRMED', 'CANCELLED']);
 
+export const MAX_HISTORY_MERGE_WINDOW = 500;
+
 /**
  * Validate ISO-8601 timestamp string according to OpenAPI/Pydantic/MySQL contract.
  */
@@ -32,6 +34,68 @@ export function isValidIsoTimestamp(val) {
 
   const parsed = new Date(trimmed);
   return !Number.isNaN(parsed.getTime());
+}
+
+/**
+ * Normalize an ISO timestamp string (with or without explicit 'Z' offset) to UTC epoch ms.
+ */
+export function parseUtcTimestampMs(isoString) {
+  if (!isoString || typeof isoString !== 'string') return 0;
+  const raw = isoString.trim();
+  if (!raw) return 0;
+  const utcStr =
+    raw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(raw)
+      ? raw
+      : `${raw.replace(' ', 'T')}Z`;
+  const ms = Date.parse(utcStr);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * Extract Vietnam business date (YYYY-MM-DD in Asia/Ho_Chi_Minh) from a receipt timestamp.
+ */
+export function toVietnamBusinessDate(isoString) {
+  const ms = parseUtcTimestampMs(isoString);
+  if (!ms) return '';
+  return new Date(ms).toLocaleDateString('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+  });
+}
+
+/**
+ * Deterministic comparator matching backend SQL ORDER BY:
+ * PurchaseReceipt.created_at DESC, PurchaseReceipt.id DESC
+ */
+export function compareReceiptsByCreatedAtDesc(a, b) {
+  const timeA = parseUtcTimestampMs(a?.created_at);
+  const timeB = parseUtcTimestampMs(b?.created_at);
+  if (timeA !== timeB) {
+    return timeB - timeA;
+  }
+  const idA = Number(a?.id) || 0;
+  const idB = Number(b?.id) || 0;
+  return idB - idA;
+}
+
+/**
+ * Generate a cryptographically random UUID v4 for Idempotency-Key.
+ * Never falls back to predictable Date.now() timestamps.
+ */
+export function generateSecureIdempotencyKey() {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto) {
+    if (typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
+    }
+    if (typeof globalThis.crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    }
+  }
+  throw new Error('Trình duyệt hoặc môi trường runtime không hỗ trợ tạo khóa bảo mật (Web Crypto API).');
 }
 
 /**
@@ -263,6 +327,262 @@ export function normalizeAndValidateReceiptLines(rawItems) {
 }
 
 /**
+ * Parse user input in Receipt Search box.
+ * Backend contract only supports exact receipt_id lookup via GET /purchase-receipts/{id}
+ * and supplier_id filter via GET /purchase-receipts?supplier_id=...
+ */
+export function parseReceiptSearchInput(rawQuery) {
+  if (rawQuery === null || rawQuery === undefined) {
+    return { mode: 'NONE', receiptId: null, error: null };
+  }
+  const trimmed = String(rawQuery).trim();
+  if (!trimmed) {
+    return { mode: 'NONE', receiptId: null, error: null };
+  }
+
+  const exactIdMatch = trimmed.match(/^#?([1-9]\d*)$/);
+  if (exactIdMatch) {
+    const parsedId = Number(exactIdMatch[1]);
+    if (Number.isSafeInteger(parsedId) && parsedId > 0 && parsedId <= 2147483647) {
+      return { mode: 'EXACT_ID', receiptId: parsedId, error: null };
+    }
+    return {
+      mode: 'INVALID_ID',
+      receiptId: null,
+      error: 'Mã phiếu nhập vượt quá giới hạn hợp lệ.',
+    };
+  }
+
+  return {
+    mode: 'UNSUPPORTED_QUERY',
+    receiptId: null,
+    error:
+      'API hiện tại chỉ hỗ trợ tra cứu toàn cục theo Mã phiếu chính xác (VD: 12 hoặc #12). Để lọc theo Nhà cung cấp, vui lòng chọn tại ô "Nhà cung cấp".',
+  };
+}
+
+/**
+ * Check whether a single ReceiptRead matches active status, supplier, and Vietnam date filters.
+ */
+export function doesReceiptMatchActiveFilters(
+  receipt,
+  { topTab = 'RECEIPTS', activeTab = 'DRAFT', supplierId = null, fromDate = '', toDate = '' } = {}
+) {
+  if (!receipt || typeof receipt !== 'object') return false;
+
+  if (topTab === 'HISTORY') {
+    if (activeTab === 'ALL_HISTORY') {
+      if (receipt.status !== 'CONFIRMED' && receipt.status !== 'CANCELLED') {
+        return false;
+      }
+    } else if (VALID_RECEIPT_STATUSES.has(activeTab)) {
+      if (receipt.status !== activeTab) return false;
+    }
+  } else if (VALID_RECEIPT_STATUSES.has(activeTab)) {
+    if (receipt.status !== activeTab) return false;
+  }
+
+  if (supplierId && Number(supplierId) > 0) {
+    if (Number(receipt.supplier_id) !== Number(supplierId)) {
+      return false;
+    }
+  }
+
+  const receiptVnDate = toVietnamBusinessDate(receipt.created_at);
+  if (fromDate && typeof fromDate === 'string' && fromDate.trim()) {
+    if (!receiptVnDate || receiptVnDate < fromDate.trim()) {
+      return false;
+    }
+  }
+  if (toDate && typeof toDate === 'string' && toDate.trim()) {
+    if (!receiptVnDate || receiptVnDate > toDate.trim()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Intent-level Idempotency tracker for POST /purchase-receipts/{id}/confirm.
+ * Guarantees:
+ * - One cryptographically random UUID key per (receiptId, expectedDraftVersion) intent.
+ * - Synchronous in-flight guard against double-click / concurrent submission.
+ * - Retrying the same (receiptId, expectedDraftVersion) after timeout/network failure reuses the exact same key and payload.
+ * - Changing receiptId or expectedDraftVersion generates a new key.
+ * - Receiving 409 stale/terminal state reconciles authoritative ReceiptRead via GET /purchase-receipts/{id} without infinite retry.
+ */
+export function createConfirmIntentTracker(keyGenerator = generateSecureIdempotencyKey) {
+  let currentIntent = null; // { receiptId, expectedDraftVersion, idempotencyKey }
+  let inFlight = false;
+
+  return {
+    isInFlight() {
+      return inFlight;
+    },
+
+    getCurrentIntent() {
+      return currentIntent ? { ...currentIntent } : null;
+    },
+
+    getOrCreateKey(receiptId, expectedDraftVersion) {
+      const id = Number(receiptId);
+      const version = Number(expectedDraftVersion);
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error('ID phiếu nhập không hợp lệ.');
+      }
+      if (!Number.isInteger(version) || version <= 0) {
+        throw new Error('Phiên bản nháp (expected_draft_version) không hợp lệ.');
+      }
+
+      if (
+        currentIntent &&
+        currentIntent.receiptId === id &&
+        currentIntent.expectedDraftVersion === version &&
+        typeof currentIntent.idempotencyKey === 'string' &&
+        currentIntent.idempotencyKey.length >= 16
+      ) {
+        return currentIntent.idempotencyKey;
+      }
+
+      const newKey = keyGenerator();
+      currentIntent = {
+        receiptId: id,
+        expectedDraftVersion: version,
+        idempotencyKey: newKey,
+      };
+      return newKey;
+    },
+
+    clearIntent(receiptId = null) {
+      if (receiptId === null || (currentIntent && currentIntent.receiptId === Number(receiptId))) {
+        currentIntent = null;
+      }
+    },
+
+    async executeConfirm(
+      receiptId,
+      expectedDraftVersion,
+      {
+        confirmFn = (id, opts) => receiptsApi.confirm(id, opts),
+        getFn = (id) => receiptsApi.get(id),
+      } = {}
+    ) {
+      if (inFlight) {
+        return {
+          outcome: 'IGNORED_IN_FLIGHT',
+          receipt: null,
+          idempotencyKey: currentIntent?.idempotencyKey || null,
+        };
+      }
+
+      const id = Number(receiptId);
+      const version = Number(expectedDraftVersion);
+      const idempotencyKey = this.getOrCreateKey(id, version);
+      inFlight = true;
+
+      try {
+        const confirmed = await confirmFn(id, {
+          expected_draft_version: version,
+          idempotencyKey,
+        });
+        this.clearIntent(id);
+        return {
+          outcome: 'CONFIRMED',
+          receipt: confirmed,
+          idempotencyKey,
+        };
+      } catch (err) {
+        const status = err?.response?.status;
+        const errorCode = err?.response?.data?.code;
+
+        // If duplicate request is still in progress on backend, keep the same key for retry
+        if (status === 409 && errorCode === 'REQUEST_IN_PROGRESS') {
+          throw err;
+        }
+
+        // For 409 version/state conflict (or if a prior timeout committed under a different state),
+        // fetch authoritative receipt state from backend and clear stale intent.
+        if (status === 409) {
+          this.clearIntent(id);
+          let authoritativeReceipt = null;
+          try {
+            authoritativeReceipt = await getFn(id);
+          } catch {
+            authoritativeReceipt = null;
+          }
+
+          if (authoritativeReceipt && authoritativeReceipt.status === 'CONFIRMED') {
+            return {
+              outcome: 'RECONCILED_CONFIRMED',
+              receipt: authoritativeReceipt,
+              error: err,
+              idempotencyKey,
+            };
+          }
+
+          return {
+            outcome: 'CONFLICT_STALE',
+            receipt: authoritativeReceipt,
+            error: err,
+            idempotencyKey,
+          };
+        }
+
+        // For 400/401/403/404/422 client/domain errors, clear intent;
+        // For network timeouts / 5xx / 429, preserve currentIntent so retry uses the exact same key!
+        if (status && status >= 400 && status < 500 && status !== 429) {
+          this.clearIntent(id);
+        }
+        throw err;
+      } finally {
+        inFlight = false;
+      }
+    },
+  };
+}
+
+/**
+ * Request generation guard for receipt detail modal to prevent async race conditions
+ * (e.g. open Receipt A -> close/switch to Receipt B before A resolves/rejects).
+ */
+export function createDetailRequestGuard() {
+  let currentRequestId = 0;
+  let activeReceiptId = null;
+  let modalOpen = false;
+
+  return {
+    begin(receiptId) {
+      const id = Number(receiptId);
+      currentRequestId += 1;
+      activeReceiptId = Number.isInteger(id) && id > 0 ? id : null;
+      modalOpen = Boolean(activeReceiptId);
+      return currentRequestId;
+    },
+
+    invalidate() {
+      currentRequestId += 1;
+      activeReceiptId = null;
+      modalOpen = false;
+      return currentRequestId;
+    },
+
+    isCurrent(requestId, receiptId) {
+      return (
+        modalOpen &&
+        requestId === currentRequestId &&
+        activeReceiptId !== null &&
+        activeReceiptId === Number(receiptId)
+      );
+    },
+
+    getActiveReceiptId() {
+      return modalOpen ? activeReceiptId : null;
+    },
+  };
+}
+
+/**
  * Standard Receipts API client conforming strictly to contract CF-03 (HTTP-RECEIPT).
  */
 export const receiptsApi = {
@@ -293,6 +613,157 @@ export const receiptsApi = {
 
     const response = await axiosClient.get('/purchase-receipts', { params });
     return validateReceiptPage(response.data);
+  },
+
+  /**
+   * Paginated history merge for ALL_HISTORY (CONFIRMED + CANCELLED) under current single-status backend contract.
+   * - Fetches bounded sorted prefixes from CONFIRMED and CANCELLED without swallowing errors.
+   * - Merges deterministically by (created_at DESC, id DESC) and slices exact pageSize items.
+   * - Rejects with ERR_HISTORY_WINDOW_EXCEEDED if page * pageSize exceeds maxMergedItems (default 500)
+   *   so frontend never fetches unbounded pages.
+   */
+  async listHistory({
+    page = 1,
+    pageSize = 10,
+    supplierId = null,
+    fromDate = '',
+    toDate = '',
+    maxMergedItems = MAX_HISTORY_MERGE_WINDOW,
+  } = {}) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
+    const requiredWindow = safePage * safePageSize;
+
+    if (requiredWindow > maxMergedItems) {
+      const err = new Error(
+        `Chế độ "Tất cả lịch sử" chỉ hỗ trợ phân trang tối đa ${maxMergedItems} phiếu gần nhất do API Backend hiện chỉ lọc từng trạng thái đơn lẻ. Vui lòng lọc theo trạng thái "Đã nhập" / "Đã hủy" hoặc thu hẹp khoảng thời gian.`
+      );
+      err.code = 'ERR_HISTORY_WINDOW_EXCEEDED';
+      throw err;
+    }
+
+    const fetchSortedStatusPrefix = async (statusValue) => {
+      const firstBatchSize = Math.min(100, requiredWindow);
+      const firstPage = await this.list({
+        page: 1,
+        pageSize: firstBatchSize,
+        status: statusValue,
+        supplierId,
+        fromDate,
+        toDate,
+      });
+
+      const items = [...firstPage.items];
+      const totalForStatus = firstPage.total;
+      const targetCount = Math.min(requiredWindow, totalForStatus);
+
+      let nextPage = 2;
+      while (items.length < targetCount) {
+        const res = await this.list({
+          page: nextPage,
+          pageSize: firstBatchSize,
+          status: statusValue,
+          supplierId,
+          fromDate,
+          toDate,
+        });
+        if (!res.items.length) break;
+        items.push(...res.items);
+        nextPage += 1;
+      }
+
+      return {
+        items: items.slice(0, targetCount),
+        total: totalForStatus,
+      };
+    };
+
+    // Fail-closed: if either CONFIRMED or CANCELLED fails, Promise.all rejects immediately
+    const [confirmedRes, cancelledRes] = await Promise.all([
+      fetchSortedStatusPrefix('CONFIRMED'),
+      fetchSortedStatusPrefix('CANCELLED'),
+    ]);
+
+    const dedupMap = new Map();
+    for (const item of [...confirmedRes.items, ...cancelledRes.items]) {
+      dedupMap.set(item.id, item);
+    }
+
+    const sortedCombined = Array.from(dedupMap.values()).sort(compareReceiptsByCreatedAtDesc);
+    const combinedTotal = confirmedRes.total + cancelledRes.total;
+    const isWindowCapped = combinedTotal > maxMergedItems;
+    const effectiveTotal = Math.min(combinedTotal, maxMergedItems);
+    const totalPages = Math.max(1, Math.ceil(effectiveTotal / safePageSize));
+    const startIndex = (safePage - 1) * safePageSize;
+    const pageItems = sortedCombined.slice(startIndex, startIndex + safePageSize);
+
+    return {
+      items: pageItems,
+      total: combinedTotal,
+      effective_total: effectiveTotal,
+      page: safePage,
+      page_size: safePageSize,
+      total_pages: totalPages,
+      is_window_capped: isWindowCapped,
+    };
+  },
+
+  /**
+   * Exact ID lookup via GET /purchase-receipts/:id for global Receipt ID search across pages.
+   * Only treats 404 RESOURCE_NOT_FOUND on this single-item endpoint as "no matching receipt".
+   * Any other error (401/403/429/5xx/network) is rethrown fail-closed.
+   */
+  async findByExactId(
+    receiptId,
+    {
+      pageSize = 10,
+      topTab = 'RECEIPTS',
+      activeTab = 'DRAFT',
+      supplierId = null,
+      fromDate = '',
+      toDate = '',
+    } = {}
+  ) {
+    const safePageSize = Math.min(100, Math.max(1, Number(pageSize) || 10));
+    try {
+      const receipt = await this.get(receiptId);
+      const matches = doesReceiptMatchActiveFilters(receipt, {
+        topTab,
+        activeTab,
+        supplierId,
+        fromDate,
+        toDate,
+      });
+
+      if (!matches) {
+        return {
+          items: [],
+          total: 0,
+          page: 1,
+          page_size: safePageSize,
+          total_pages: 1,
+        };
+      }
+
+      return {
+        items: [receipt],
+        total: 1,
+        page: 1,
+        page_size: safePageSize,
+        total_pages: 1,
+      };
+    } catch (err) {
+      if (err?.response?.status === 404) {
+        return {
+          items: [],
+          total: 0,
+          page: 1,
+          page_size: safePageSize,
+          total_pages: 1,
+        };
+      }
+      throw err;
+    }
   },
 
   /**
@@ -379,7 +850,14 @@ export const receiptsApi = {
       throw new Error('Phiên bản nháp (expected_draft_version) không hợp lệ.');
     }
 
-    const finalKey = idempotencyKey || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `receipt-confirm-${id}-${Date.now()}`);
+    const finalKey =
+      typeof idempotencyKey === 'string' && idempotencyKey.trim()
+        ? idempotencyKey.trim()
+        : generateSecureIdempotencyKey();
+
+    if (!/^[A-Za-z0-9._:-]{16,128}$/.test(finalKey)) {
+      throw new Error('Idempotency-Key không đúng định dạng bảo mật (16-128 ký tự).');
+    }
 
     const response = await axiosClient.post(
       `/purchase-receipts/${id}/confirm`,
@@ -414,4 +892,3 @@ export const receiptsApi = {
     return validateReceiptRead(response.data);
   },
 };
-

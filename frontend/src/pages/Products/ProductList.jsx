@@ -48,6 +48,11 @@ export default function ProductList() {
   const [stockFilter, setStockFilter] = useState(STOCK_FILTER_TABS.ALL);
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [data, setData] = useState([]);
+  const [truncationMeta, setTruncationMeta] = useState({
+    isTruncated: false,
+    loadedCount: 0,
+    totalCount: 0,
+  });
   const [categories, setCategories] = useState([]);
   const [isCategoriesLoading, setIsCategoriesLoading] = useState(!isMock);
   const [categoryLoadError, setCategoryLoadError] = useState('');
@@ -159,15 +164,27 @@ export default function ProductList() {
         });
 
         if (currentRequestId === requestIdRef.current) {
-          setData(res.items || []);
+          const loadedItems = res.items || [];
+          setData(loadedItems);
+          setTruncationMeta({
+            isTruncated: Boolean(res.isTruncated),
+            loadedCount: loadedItems.length,
+            totalCount: res.total || loadedItems.length,
+          });
           if (res.isTruncated) {
             toast.warning(
-              `Chỉ hiển thị được ${res.items.length}/${res.total} sản phẩm do đạt giới hạn tải.`
+              `Chỉ hiển thị được ${loadedItems.length}/${res.total} sản phẩm do đạt giới hạn tải.`
             );
           }
         }
       } catch (error) {
         if (currentRequestId === requestIdRef.current) {
+          setData([]);
+          setTruncationMeta({
+            isTruncated: false,
+            loadedCount: 0,
+            totalCount: 0,
+          });
           toast.error(
             getApiErrorMessage(error) || 'Không thể tải danh sách sản phẩm.'
           );
@@ -770,6 +787,19 @@ export default function ProductList() {
           </button>
         </div>
       </div>
+
+      {truncationMeta.isTruncated && (
+        <div className={styles.categoryErrorBanner} role="status">
+          <span>
+            Đang thống kê và lọc trên{' '}
+            <strong>
+              {truncationMeta.loadedCount.toLocaleString('vi-VN')}/
+              {truncationMeta.totalCount.toLocaleString('vi-VN')}
+            </strong>{' '}
+            sản phẩm đầu tiên (giới hạn an toàn 5.000 sản phẩm). Vui lòng dùng từ khóa hoặc bộ lọc danh mục để thu hẹp phạm vi.
+          </span>
+        </div>
+      )}
 
       {/* Bộ lọc thống kê tồn kho (CHANGE A: Chỉ 3 mục cố định) */}
       <div
