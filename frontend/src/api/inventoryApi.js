@@ -9,6 +9,62 @@ export const STOCK_STATUS_TABS = {
 
 export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
+export const MAX_STOCK_QUANTITY = 2147483647;
+
+/**
+ * Format UTC ISO string sang ngày giờ Việt Nam cố định múi giờ Asia/Ho_Chi_Minh
+ * Không phụ thuộc vào timezone của máy trạm người dùng.
+ * @param {string} isoString
+ */
+export function formatVietnamDateTime(isoString) {
+  if (!isoString) return '-';
+  try {
+    const raw = String(isoString).trim();
+    const utcStr = raw.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(raw)
+      ? raw
+      : `${raw.replace(' ', 'T')}Z`;
+    const d = new Date(utcStr);
+    if (Number.isNaN(d.getTime())) return String(isoString);
+
+    const parts = new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+
+    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}:${map.second}`;
+  } catch {
+    return String(isoString);
+  }
+}
+
+/**
+ * Generate a cryptographically secure UUID v4 for Idempotency-Key.
+ * Never falls back to Math.random() or timestamps.
+ */
+export function generateSecureIdempotencyKey() {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto) {
+    if (typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
+    }
+    if (typeof globalThis.crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    }
+  }
+  throw new Error('Môi trường không hỗ trợ crypto an toàn để sinh Idempotency-Key.');
+}
+
 /**
  * Phân loại tình trạng tồn kho theo chuẩn INV-04:
  * Chỉ áp dụng cảnh báo Tồn thấp (<=5) và Hết hàng (=0) cho sản phẩm Đang bán (ACTIVE).
@@ -80,26 +136,26 @@ export const MOVEMENT_KIND_LABELS = {
 };
 
 /**
- * Định dạng mã chứng từ theo loại biến động và ID
+ * Định dạng mã chứng từ theo loại biến động và reference_id thật từ database.
+ * Không tự suy đoán ngày tháng hoặc tạo mã chứng từ giả dạng ISO date khi backend chỉ trả ID.
  * @param {string} kind
- * @param {number} referenceId
- * @param {string} dateStr (YYYY-MM-DD)
+ * @param {number|string} referenceId
  */
-export function formatReferenceCode(kind, referenceId, dateStr = '') {
-  if (!referenceId) return '-';
-  const paddedId = String(referenceId).padStart(3, '0');
-  const dateFormatted = dateStr ? dateStr.replace(/[^0-9]/g, '').slice(0, 8) : '20261104';
+export function formatReferenceCode(kind, referenceId) {
+  if (!referenceId && referenceId !== 0) return '-';
+  const idStr = String(referenceId);
 
   switch (kind) {
     case 'SALE':
+      return `HĐ-${idStr}`;
     case 'ORDER_CANCEL':
-      return `HĐ-${dateFormatted}-${paddedId}`;
+      return `HỦY-HĐ-${idStr}`;
     case 'PURCHASE_CONFIRM':
-      return `PN-${dateFormatted}-${paddedId}`;
+      return `PN-${idStr}`;
     case 'ADJUSTMENT':
-      return `KK-${dateFormatted}-${paddedId}`;
+      return `KK-${idStr}`;
     default:
-      return `#${referenceId}`;
+      return `#${idStr}`;
   }
 }
 
@@ -225,18 +281,21 @@ export const inventoryApi = {
       throw new Error('Mã sản phẩm không hợp lệ.');
     }
     const counted = Number(countedQuantity);
-    if (!Number.isInteger(counted) || counted < 0) {
-      throw new Error('Số lượng kiểm kê thực tế phải là số nguyên không âm (≥ 0).');
+    if (!Number.isInteger(counted) || counted < 0 || counted > MAX_STOCK_QUANTITY) {
+      throw new Error(`Số lượng kiểm kê thực tế phải là số nguyên từ 0 đến ${MAX_STOCK_QUANTITY.toLocaleString('vi-VN')}.`);
     }
-    if (typeof expectedStockVersion !== 'number' || expectedStockVersion < 0) {
+    if (typeof expectedStockVersion !== 'number' || !Number.isInteger(expectedStockVersion) || expectedStockVersion < 0) {
       throw new Error('Phiên bản tồn kho không hợp lệ.');
     }
     const trimmedReason = (reason || '').trim();
     if (!trimmedReason) {
       throw new Error('Lý do điều chỉnh không được để trống.');
     }
+    if (trimmedReason.length > 500) {
+      throw new Error('Lý do điều chỉnh không được vượt quá 500 ký tự.');
+    }
 
-    const key = idempotencyKey || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`);
+    const key = idempotencyKey || generateSecureIdempotencyKey();
 
     const response = await axiosClient.post(
       `/inventory/${pid}/adjustments`,

@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
-import { inventoryApi } from '../../api/inventoryApi';
+import {
+  MAX_STOCK_QUANTITY,
+  generateSecureIdempotencyKey,
+  inventoryApi,
+} from '../../api/inventoryApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import styles from './InventoryAdjustModal.module.css';
 
@@ -11,21 +15,6 @@ import styles from './InventoryAdjustModal.module.css';
 function formatNumber(num) {
   if (num === null || num === undefined || Number.isNaN(Number(num))) return '0';
   return Number(num).toLocaleString('vi-VN');
-}
-
-/**
- * Lấy thời điểm hiển thị hiện tại định dạng HH:mm:ss - DD/MM/YYYY
- */
-function formatNow() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const hours = pad(d.getHours());
-  const minutes = pad(d.getMinutes());
-  const seconds = pad(d.getSeconds());
-  const day = pad(d.getDate());
-  const month = pad(d.getMonth() + 1);
-  const year = d.getFullYear();
-  return `${hours}:${minutes}:${seconds} - ${day}/${month}/${year}`;
 }
 
 export default function InventoryAdjustModal({
@@ -42,18 +31,32 @@ export default function InventoryAdjustModal({
   const [countedQty, setCountedQty] = useState('');
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [capturedTime, setCapturedTime] = useState('');
   const [conflictData, setConflictData] = useState(null);
 
-  // Đồng bộ giá trị khởi tạo khi mở Modal
+  // Track product identity to only reset when switching to a completely different product or first open
+  const lastOpenedProductIdRef = useRef(null);
+  const isSubmittingSyncRef = useRef(false);
+
+  // Synchronize draft when opening modal for a new product
   useEffect(() => {
     if (isOpen && product) {
-      setCountedQty(product.quantity !== undefined && product.quantity !== null ? String(product.quantity) : '0');
-      setReason('');
-      setErrorMessage('');
+      if (lastOpenedProductIdRef.current !== product.product_id) {
+        lastOpenedProductIdRef.current = product.product_id;
+        setCountedQty(
+          product.quantity !== undefined && product.quantity !== null
+            ? String(product.quantity)
+            : '0'
+        );
+        setReason('');
+        setErrorMessage('');
+        setConflictData(null);
+      }
+    } else if (!isOpen) {
+      lastOpenedProductIdRef.current = null;
       setConflictData(null);
-      setCapturedTime(formatNow());
+      setErrorMessage('');
     }
   }, [isOpen, product]);
 
@@ -62,13 +65,13 @@ export default function InventoryAdjustModal({
     if (!isOpen) return;
 
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && !isSubmitting) {
+      if (e.key === 'Escape' && !isSubmitting && !isReloading) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isSubmitting, onClose]);
+  }, [isOpen, isSubmitting, isReloading, onClose]);
 
   if (!isOpen || !product) return null;
 
@@ -76,8 +79,13 @@ export default function InventoryAdjustModal({
   const currentVersion = Number(product.stock_version) || 0;
 
   // Tính toán Delta và Tỷ lệ %
-  const parsedCounted = countedQty.trim() === '' ? NaN : Number(countedQty);
-  const isValidCounted = !Number.isNaN(parsedCounted) && Number.isInteger(parsedCounted) && parsedCounted >= 0;
+  const trimmedQty = countedQty.trim();
+  const parsedCounted = trimmedQty === '' ? NaN : Number(trimmedQty);
+  const isValidCounted =
+    !Number.isNaN(parsedCounted) &&
+    Number.isInteger(parsedCounted) &&
+    parsedCounted >= 0 &&
+    parsedCounted <= MAX_STOCK_QUANTITY;
 
   const delta = isValidCounted ? parsedCounted - currentQty : 0;
   const deltaSign = delta > 0 ? `+${delta}` : `${delta}`;
@@ -108,35 +116,49 @@ export default function InventoryAdjustModal({
   if (delta > 0) deltaColorClass = styles.deltaPositive;
   else if (delta < 0) deltaColorClass = styles.deltaNegative;
 
-  // Thông tin người thực hiện
-  const actorDisplay = user ? `${user.name || 'Admin'} (#${user.role || 'ADMIN'}-${String(user.id || 1).padStart(3, '0')})` : 'Admin Quản Trị (#ADM-001)';
+  // Thông tin người thực hiện từ AuthContext đã xác thực
+  const actorDisplay = user
+    ? `${user.name || user.email || 'Admin'} (ID #${user.id})`
+    : 'Chưa xác thực';
 
-  // Dự kiến bản ghi Stock Movement & Phiên bản mới
-  let expectedMovementText = 'Không có bất kỳ sự thay đổi'
+  // Dự kiến bản ghi Stock Movement
+  let expectedMovementText = 'Số đếm trùng tồn kho ghi nhận • Không phát sinh biến động';
   if (delta > 0) {
-    expectedMovementText = `Phiên bản mới: v${currentVersion + 1}`;
+    expectedMovementText = `Tạo bản ghi Stock Movement (IN) +${delta} • Tăng tồn kho hệ thống`;
   } else if (delta < 0) {
-    expectedMovementText = `Tạo bản ghi Stock Movement (OUT) ${delta} • Phiên bản mới: v${currentVersion + 1}`;
+    expectedMovementText = `Tạo bản ghi Stock Movement (OUT) ${delta} • Giảm tồn kho hệ thống`;
   }
 
   // Validation
   const trimmedReason = reason.trim();
-  const isReasonValid = trimmedReason.length >= 10;
-  const canSubmit = isValidCounted && isReasonValid && !isSubmitting;
+  const isReasonValid = trimmedReason.length >= 10 && trimmedReason.length <= 250;
+  const canSubmit = isValidCounted && isReasonValid && !isSubmitting && !isReloading;
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || isSubmittingSyncRef.current) return;
 
-    // Nếu không có thay đổi gì về số lượng tồn kho (delta === 0)
+    // F05: No-Op Semantics - Số lượng đếm trùng với tồn kho đang hiển thị
     if (delta === 0) {
-      toast.info('Không có thay đổi gì về số lượng tồn kho.');
+      toast.info('Số đếm trùng với tồn kho đang hiển thị. Không có yêu cầu điều chỉnh nào được gửi.');
       onClose();
       return;
     }
 
+    isSubmittingSyncRef.current = true;
     setIsSubmitting(true);
     setErrorMessage('');
+
+    // F06: Generate a cryptographically secure idempotency key per adjustment intent
+    let intentKey;
+    try {
+      intentKey = generateSecureIdempotencyKey();
+    } catch (keyErr) {
+      setErrorMessage(keyErr.message || 'Không thể tạo khóa bảo mật giao dịch.');
+      setIsSubmitting(false);
+      isSubmittingSyncRef.current = false;
+      return;
+    }
 
     try {
       const response = await inventoryApi.adjustInventory({
@@ -144,6 +166,7 @@ export default function InventoryAdjustModal({
         countedQuantity: parsedCounted,
         expectedStockVersion: currentVersion,
         reason: trimmedReason,
+        idempotencyKey: intentKey,
       });
 
       if (onSuccess) {
@@ -152,21 +175,43 @@ export default function InventoryAdjustModal({
       onClose();
     } catch (err) {
       const msg = getApiErrorMessage(err, 'Không thể điều chỉnh tồn kho.');
-      // Nếu là xung đột phiên bản (409 Conflict)
-      if (err?.response?.status === 409) {
+      const errStatus = err?.response?.status;
+      const errCode = err?.response?.data?.code;
+
+      // F03: Chỉ hiện khối stale-version conflict khi đúng mã STALE_STOCK_VERSION
+      if (errStatus === 409 && errCode === 'STALE_STOCK_VERSION') {
         const errorDetails = err?.response?.data?.details || {};
-        const serverVersion = errorDetails.current_stock_version || (currentVersion + 1);
+        const serverVersion = errorDetails.current_stock_version;
         setConflictData({
-          expectedVersion: currentVersion,
-          actualVersion: serverVersion,
-          reasonDesc: 'Giao dịch khác (POS hoặc Nhập hàng) vừa hoàn tất cập nhật tồn kho',
-          updatedAt: formatNow(),
+          expectedVersion: errorDetails.expected_stock_version ?? currentVersion,
+          actualVersion: serverVersion !== undefined ? serverVersion : 'Chưa xác định',
+          detailsMsg: err?.response?.data?.message || 'Phiên bản tồn kho đã thay đổi trên máy chủ.',
         });
       } else {
+        setConflictData(null);
         setErrorMessage(msg);
       }
     } finally {
       setIsSubmitting(false);
+      isSubmittingSyncRef.current = false;
+    }
+  };
+
+  // F04: Handler tải lại dữ liệu mới nhất mà vẫn giữ draft (countedQty & reason)
+  const handleReloadLatest = async () => {
+    if (isReloading || isSubmitting) return;
+    setIsReloading(true);
+    setErrorMessage('');
+    try {
+      if (onReloadLatest) {
+        await onReloadLatest(product.product_id);
+        // Clear conflict alert after successful reload
+        setConflictData(null);
+      }
+    } catch (reloadErr) {
+      setErrorMessage(getApiErrorMessage(reloadErr, 'Không thể tải lại dữ liệu mới nhất từ máy chủ.'));
+    } finally {
+      setIsReloading(false);
     }
   };
 
@@ -182,7 +227,7 @@ export default function InventoryAdjustModal({
             </div>
             <h2 className={styles.productName}>{product.name}</h2>
             <div className={styles.subInfo}>
-              <span>Nhà cung cấp: Hệ thống • Đơn vị tính: Cái</span>
+              <span>Danh mục: {categoryName || 'Mặc định'}</span>
             </div>
           </div>
 
@@ -191,51 +236,43 @@ export default function InventoryAdjustModal({
               <span className={styles.versionLabel}>stock_version:</span>
               <span className={styles.versionValue}>{currentVersion}</span>
             </div>
-            <span className={styles.versionSubtext}>Bảo vệ chống ghi đè phiên bản cũ</span>
+            <span className={styles.versionSubtext}>Phiên bản tồn kho hiện tại</span>
           </div>
         </div>
 
-        {/* Khối Cảnh báo Xung đột phiên bản dữ liệu (HTTP 409 - Optimistic Lock Violation) */}
+        {/* Khối Cảnh báo Xung đột phiên bản dữ liệu (HTTP 409 - STALE_STOCK_VERSION) */}
         {conflictData && (
           <div className={styles.conflictCard}>
             <div className={styles.conflictHeaderRow}>
               <div className={styles.conflictTitleBlock}>
-                <span className={styles.conflictTitle}>Xung đột phiên bản dữ liệu </span>
+                <span className={styles.conflictTitle}>Xung đột phiên bản dữ liệu</span>
+                <span className={styles.conflictSubtitle}>STALE_STOCK_VERSION • Optimistic Lock</span>
               </div>
-             
+              <span className={styles.httpBadge}>HTTP 409</span>
             </div>
 
             <p className={styles.conflictDesc}>
-              Dữ liệu tồn kho của sản phẩm này vừa thay đổi ở một giao dịch khác (Phiên bản yêu cầu: <span className={styles.versionChip}>v{conflictData.expectedVersion}</span>, Phiên bản thực tế trên máy chủ: <span className={styles.versionChipHighlight}>v{conflictData.actualVersion}</span>). Vui lòng tải lại dữ liệu và kiểm kê lại số thực tế trước khi xác nhận.
+              Dữ liệu tồn kho của sản phẩm này vừa được cập nhật trên máy chủ (Phiên bản gửi lên: <span className={styles.versionChip}>v{conflictData.expectedVersion}</span>, Phiên bản thực tế trên máy chủ: <span className={styles.versionChipHighlight}>v{conflictData.actualVersion}</span>). Vui lòng nhấn &quot;Tải lại dữ liệu mới nhất&quot; để đối soát lại tồn kho trước khi gửi.
             </p>
 
             <div className={styles.conflictDetailsBox}>
               <div className={styles.conflictDetailRow}>
-                <span className={styles.conflictDetailLabel}>Nguyên nhân xung đột:</span>
-                <span className={styles.conflictDetailValue}>{conflictData.reasonDesc}</span>
-              </div>
-              <div className={styles.conflictDetailRow}>
-                <span className={styles.conflictDetailLabel}>Thời điểm máy chủ cập nhật:</span>
-                <span className={styles.conflictDetailValue}>{conflictData.updatedAt}</span>
+                <span className={styles.conflictDetailLabel}>Thông báo máy chủ:</span>
+                <span className={styles.conflictDetailValue}>{conflictData.detailsMsg}</span>
               </div>
               <div className={styles.conflictDetailRow}>
                 <span className={styles.conflictDetailLabel}>Hành vi bảo vệ:</span>
-                <span className={styles.conflictActionProtect}>Hủy bỏ commit để tránh sai lệch âm tồn</span>
+                <span className={styles.conflictActionProtect}>Hủy bỏ commit để bảo đảm tính toàn vẹn tồn kho</span>
               </div>
             </div>
 
             <button
               type="button"
               className={styles.conflictReloadBtn}
-              onClick={() => {
-                if (onReloadLatest) {
-                  onReloadLatest(product.product_id);
-                } else {
-                  onClose();
-                }
-              }}
+              onClick={handleReloadLatest}
+              disabled={isReloading}
             >
-              Tải lại dữ liệu mới nhất
+              {isReloading ? 'Đang tải dữ liệu...' : 'Tải lại dữ liệu mới nhất (Giữ nguyên số đếm & lý do)'}
             </button>
           </div>
         )}
@@ -297,12 +334,13 @@ export default function InventoryAdjustModal({
                 id="adjust-counted-qty"
                 type="number"
                 min="0"
+                max={MAX_STOCK_QUANTITY}
                 step="1"
                 className={styles.textInput}
                 value={countedQty}
                 onChange={(e) => setCountedQty(e.target.value)}
                 placeholder="Nhập số lượng đếm được..."
-                disabled={isSubmitting}
+                disabled={isSubmitting || isReloading}
                 autoFocus
               />
               <span className={styles.inputUnit}>cái</span>
@@ -318,6 +356,7 @@ export default function InventoryAdjustModal({
               <label htmlFor="adjust-reason" className={styles.fieldLabel}>
                 Lý do điều chỉnh <span className={styles.requiredStar}>*</span>
               </label>
+              <span className={styles.helperLabel}>Từ 10 đến 250 ký tự</span>
             </div>
             <textarea
               id="adjust-reason"
@@ -326,13 +365,13 @@ export default function InventoryAdjustModal({
               className={styles.textareaInput}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Nhập lý do kiểm kê..."
-              disabled={isSubmitting}
+              placeholder="Nhập lý do kiểm kê thực tế..."
+              disabled={isSubmitting || isReloading}
             />
             <div className={styles.textareaFooter}>
               <span className={isReasonValid ? styles.validationPassed : styles.validationWarning}>
                 {isReasonValid
-                  ? 'Đầy đủ thông tin kiểm toán ca làm việc'
+                  ? 'Độ dài lý do hợp lệ'
                   : `Cần thêm ít nhất ${Math.max(0, 10 - trimmedReason.length)} ký tự`}
               </span>
               <span className={styles.charCount}>{trimmedReason.length} / 250 ký tự</span>
@@ -346,10 +385,6 @@ export default function InventoryAdjustModal({
               <span className={styles.auditValue}>{actorDisplay}</span>
             </div>
             <div className={styles.auditRow}>
-              <span className={styles.auditLabel}>Thời điểm ghi nhận:</span>
-              <span className={styles.auditValue}>{capturedTime}</span>
-            </div>
-            <div className={styles.auditRow}>
               <span className={styles.auditLabel}>Hành động hệ thống dự kiến:</span>
               <span className={styles.auditValueExpected}>{expectedMovementText}</span>
             </div>
@@ -361,7 +396,7 @@ export default function InventoryAdjustModal({
               type="button"
               className={styles.cancelBtn}
               onClick={onClose}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isReloading}
             >
               Hủy bỏ
             </button>

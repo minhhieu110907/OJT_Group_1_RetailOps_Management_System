@@ -6,29 +6,10 @@ import { productsApi } from '../../api/productsApi';
 import {
   MOVEMENT_KIND_LABELS,
   formatReferenceCode,
+  formatVietnamDateTime,
   inventoryApi,
 } from '../../api/inventoryApi';
 import styles from './StockMovementList.module.css';
-
-/**
- * Format date string ISO -> "DD/MM/YYYY HH:mm:ss"
- */
-function formatVietnamDateTime(isoString) {
-  if (!isoString) return '-';
-  try {
-    const d = new Date(isoString);
-    if (Number.isNaN(d.getTime())) return String(isoString);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    const seconds = String(d.getSeconds()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-  } catch {
-    return String(isoString);
-  }
-}
 
 export default function StockMovementList() {
   const { user } = useAuth();
@@ -36,10 +17,8 @@ export default function StockMovementList() {
 
   const isAdmin = user?.role === 'ADMIN';
 
-  // 1. Bộ lọc Server-side (loại biến động, phân trang) & Search Input giao diện
-  const [searchKeyword, setSearchKeyword] = useState('');
+  // 1. Bộ lọc Server-side (loại biến động)
   const [selectedKind, setSelectedKind] = useState('');
-  const [selectedTimeFilter, setSelectedTimeFilter] = useState('ALL');
 
   // 2. State dữ liệu
   const [movements, setMovements] = useState([]);
@@ -47,37 +26,64 @@ export default function StockMovementList() {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [isLoading, setIsLoading] = useState(false);
 
-  // 3. Cache thông tin sản phẩm (name) để hiển thị tên món theo product_id
+  // 3. Cache thông tin sản phẩm (name) chỉ tra cứu theo IDs xuất hiện trong trang
   const [productMap, setProductMap] = useState(new Map());
 
   // 4. Modal hiển thị chi tiết Lý do điều chỉnh (Admin only)
   const [viewingReasonItem, setViewingReasonItem] = useState(null);
 
+  // F11: Đóng modal xem lý do nếu role thay đổi hoặc session không còn là ADMIN
+  useEffect(() => {
+    if (!isAdmin) {
+      setViewingReasonItem(null);
+    }
+  }, [isAdmin]);
+
   // Ref chống race condition
   const requestIdRef = useRef(0);
 
-  // Nạp danh sách sản phẩm để tra cứu tên sản phẩm theo product_id
+  // F09: Tra cứu tên sản phẩm có giới hạn chỉ cho các product_id có trên trang hiện tại
   useEffect(() => {
     let isMounted = true;
-    async function fetchProducts() {
+    const missingIds = movements
+      .map((m) => m.product_id)
+      .filter((pid) => pid && !productMap.has(pid));
+
+    const uniqueMissingIds = [...new Set(missingIds)];
+    if (uniqueMissingIds.length === 0) return;
+
+    async function resolvePageProductNames() {
       try {
-        const res = await productsApi.getProducts({ page: 1, pageSize: 100 });
-        if (isMounted && res?.items) {
-          const map = new Map();
-          res.items.forEach((p) => {
-            map.set(p.id, p.name);
+        const resolvedEntries = await Promise.all(
+          uniqueMissingIds.map(async (pid) => {
+            try {
+              const p = await productsApi.getProduct(pid);
+              return [pid, p?.name || null];
+            } catch {
+              return [pid, null];
+            }
+          })
+        );
+
+        if (isMounted) {
+          setProductMap((prev) => {
+            const next = new Map(prev);
+            for (const [pid, name] of resolvedEntries) {
+              if (name) next.set(pid, name);
+            }
+            return next;
           });
-          setProductMap(map);
         }
       } catch {
-        // Im lặng fallback nếu lỗi nạp tên
+        // Fallback im lặng
       }
     }
-    fetchProducts();
+
+    resolvePageProductNames();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [movements, productMap]);
 
   // Gọi API lấy lịch sử biến động kho cho STAFF (Server-side)
   const loadMovements = useCallback(async () => {
@@ -170,11 +176,7 @@ export default function StockMovementList() {
         title: 'MÃ CHỨNG TỪ THAM CHIẾU',
         width: '190px',
         render: (row) => {
-          const refCode = formatReferenceCode(
-            row.kind,
-            row.reference_id,
-            row.occurred_at ? String(row.occurred_at).slice(0, 10) : ''
-          );
+          const refCode = formatReferenceCode(row.kind, row.reference_id);
           return <span className={styles.referenceBadge}>{refCode}</span>;
         },
       },
@@ -221,26 +223,9 @@ export default function StockMovementList() {
 
   return (
     <div className={styles.movementContainer}>
-      {/* 1. Thanh bộ lọc giao diện: ô tìm kiếm, loại biến động, thời gian & tổng số lượng */}
+      {/* 1. Thanh bộ lọc: loại biến động & tổng số lượng */}
       <div className={styles.movementFilterCard}>
         <div className={styles.leftFilters}>
-          {/* Ô tìm kiếm giao diện (chưa áp dụng filter client, sẵn sàng cho server-side) */}
-          <div className={styles.searchWrap}>
-            <span className={styles.searchIcon} aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </span>
-            <input
-              type="text"
-              className={styles.searchInput}
-              placeholder="Tìm kiếm theo mã SKU, tên sản phẩm..."
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-            />
-          </div>
-
           {/* Lọc loại biến động (Server-side) */}
           <div className={styles.filterGroup}>
             <label htmlFor="kindSelect" className={styles.filterLabel}>
@@ -260,22 +245,6 @@ export default function StockMovementList() {
               <option value="PURCHASE_CONFIRM">Nhập hàng</option>
               <option value="ORDER_CANCEL">Hoàn trả hủy đơn</option>
               <option value="ADJUSTMENT">Điều chỉnh kho</option>
-            </select>
-          </div>
-
-          {/* Lọc thời gian giao diện */}
-          <div className={styles.filterGroup}>
-            <label htmlFor="timeSelect" className={styles.filterLabel}>
-              Thời gian:
-            </label>
-            <select
-              id="timeSelect"
-              className={styles.selectInput}
-              value={selectedTimeFilter}
-              onChange={(e) => setSelectedTimeFilter(e.target.value)}
-            >
-              <option value="ALL">Tất cả thời gian</option>
-              <option value="TODAY">Hôm nay</option>
             </select>
           </div>
         </div>

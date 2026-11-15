@@ -22,7 +22,6 @@ export default function InventoryList() {
   const [activeMainTab, setActiveMainTab] = useState('OVERVIEW');
 
   // 2. Bộ lọc danh mục & tình trạng còn hàng (Hoàn toàn Server-side)
-  const [searchKeyword, setSearchKeyword] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [stockStatusFilter, setStockStatusFilter] = useState(STOCK_STATUS_TABS.ALL);
 
@@ -32,15 +31,22 @@ export default function InventoryList() {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [isLoading, setIsLoading] = useState(false);
 
-  // 4. Danh mục & Thống kê
+  // 4. Danh mục & Thống kê KPI toàn kho (Authoritative Global Counts)
   const [categories, setCategories] = useState([]);
-  const [lowStockTotal, setLowStockTotal] = useState(0);
+  const [kpiStats, setKpiStats] = useState({
+    totalProducts: null,
+    activeProducts: null,
+    lowStock: null,
+    outOfStock: null,
+    isLoading: true,
+  });
 
   // 5. State Modal Điều chỉnh tồn kho (Admin only)
   const [adjustingProduct, setAdjustingProduct] = useState(null);
 
   // Ref chống race condition
   const requestIdRef = useRef(0);
+  const kpiRequestIdRef = useRef(0);
 
   // Tải danh sách danh mục để hiển thị chips
   useEffect(() => {
@@ -69,6 +75,46 @@ export default function InventoryList() {
     });
     return map;
   }, [categories]);
+
+  // F01: Tải số liệu thống kê KPI toàn kho (Semantics chính xác qua total của API)
+  const loadKpiStats = useCallback(async () => {
+    const currentKpiId = ++kpiRequestIdRef.current;
+    try {
+      // 1. Tổng mã hàng: GET /inventory?page=1&page_size=1
+      // 2. Đang kinh doanh: GET /inventory?status=ACTIVE&page=1&page_size=1
+      // 3. Tồn thấp (P0 <= 5 cho ACTIVE bao gồm = 0): GET /inventory/low-stock?page=1&page_size=1
+      // 4. Hết hàng (ACTIVE và quantity = 0): GET /inventory?status=ACTIVE&in_stock=false&page=1&page_size=1
+      const [totalRes, activeRes, lowStockRes, outOfStockRes] = await Promise.all([
+        inventoryApi.getInventory({ page: 1, pageSize: 1 }),
+        inventoryApi.getInventory({ status: 'ACTIVE', page: 1, pageSize: 1 }),
+        inventoryApi.getLowStock({ page: 1, pageSize: 1 }),
+        inventoryApi.getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 }),
+      ]);
+
+      if (currentKpiId === kpiRequestIdRef.current) {
+        setKpiStats({
+          totalProducts: totalRes?.total ?? 0,
+          activeProducts: activeRes?.total ?? 0,
+          lowStock: lowStockRes?.total ?? 0,
+          outOfStock: outOfStockRes?.total ?? 0,
+          isLoading: false,
+        });
+      }
+    } catch {
+      if (currentKpiId === kpiRequestIdRef.current) {
+        // Không hiển thị số 0 giả mạo khi API lỗi
+        setKpiStats((prev) => ({
+          ...prev,
+          isLoading: false,
+        }));
+      }
+    }
+  }, []);
+
+  // Tải KPI khi mở màn hình
+  useEffect(() => {
+    loadKpiStats();
+  }, [loadKpiStats]);
 
   // Tải dữ liệu tồn kho từ Backend API
   const loadInventory = useCallback(async () => {
@@ -109,25 +155,6 @@ export default function InventoryList() {
       }
     }
   }, [pagination.page, pagination.pageSize, selectedCategoryId, stockStatusFilter, toast]);
-
-  // Tải số liệu thống kê cảnh báo tồn kho thấp INV-04
-  useEffect(() => {
-    let isMounted = true;
-    async function fetchLowStockStats() {
-      try {
-        const res = await inventoryApi.getLowStock({ page: 1, pageSize: 1 });
-        if (isMounted) {
-          setLowStockTotal(res.total || 0);
-        }
-      } catch {
-        // Bỏ qua lỗi thống kê phụ
-      }
-    }
-    fetchLowStockStats();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Gọi loadInventory khi thay đổi trang hoặc bộ lọc
   useEffect(() => {
@@ -259,8 +286,9 @@ export default function InventoryList() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>Tổng mã hàng</div>
           <div className={styles.statBody}>
-            <span className={styles.statValue}>{totalCount}</span>
-           
+            <span className={styles.statValue}>
+              {kpiStats.isLoading && kpiStats.totalProducts === null ? '—' : kpiStats.totalProducts ?? '—'}
+            </span>
           </div>
         </div>
 
@@ -268,9 +296,8 @@ export default function InventoryList() {
           <div className={styles.statHeader}>Đang kinh doanh</div>
           <div className={styles.statBody}>
             <span className={styles.statValue}>
-              {inventoryItems.filter((i) => i.status === 'ACTIVE').length}
+              {kpiStats.isLoading && kpiStats.activeProducts === null ? '—' : kpiStats.activeProducts ?? '—'}
             </span>
-            
           </div>
         </div>
 
@@ -280,7 +307,9 @@ export default function InventoryList() {
             <span>Tồn thấp</span>
           </div>
           <div className={styles.statBody}>
-            <span className={styles.statValue}>{lowStockTotal}</span>
+            <span className={styles.statValue}>
+              {kpiStats.isLoading && kpiStats.lowStock === null ? '—' : kpiStats.lowStock ?? '—'}
+            </span>
             <span className={`${styles.statSubBadge} ${styles.statSubBadgeYellow}`}>
               Cần nhập thêm
             </span>
@@ -294,7 +323,7 @@ export default function InventoryList() {
           </div>
           <div className={styles.statBody}>
             <span className={styles.statValue}>
-              {inventoryItems.filter((i) => i.status === 'ACTIVE' && i.quantity === 0).length}
+              {kpiStats.isLoading && kpiStats.outOfStock === null ? '—' : kpiStats.outOfStock ?? '—'}
             </span>
             <span className={`${styles.statSubBadge} ${styles.statSubBadgeRed}`}>
               Cần bổ sung ngay
@@ -303,24 +332,8 @@ export default function InventoryList() {
         </div>
       </div>
 
-      {/* 5. Khung tìm kiếm & Bộ lọc danh mục / tình trạng tồn */}
+      {/* 5. Bộ lọc danh mục & tình trạng tồn */}
       <div className={styles.filterCard}>
-        <div className={styles.searchWrap}>
-          <span className={styles.searchIcon} aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </span>
-          <input
-            type="text"
-            className={styles.searchInput}
-            placeholder="Tìm theo tên sản phẩm, mã SKU..."
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-          />
-        </div>
-
         <div className={styles.filterControls}>
           {/* Lọc danh mục */}
           <div className={styles.filterRow}>
@@ -454,8 +467,9 @@ export default function InventoryList() {
                 : `Đã kiểm kê ${adjustingProduct.sku}: Số lượng tồn kho không đổi.`
             );
             setAdjustingProduct(null);
-            // Refresh lại danh sách tồn kho
+            // Refresh lại danh sách tồn kho và KPI
             loadInventory();
+            loadKpiStats();
           }}
         />
       )}
