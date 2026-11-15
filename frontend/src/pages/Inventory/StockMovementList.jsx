@@ -187,7 +187,7 @@ export default function StockMovementList() {
               width: '140px',
               render: (row) => (
                 <span className={styles.actorBadge}>
-                  <span>{row.actor_id ? `User #${row.actor_id}` : 'Hệ thống'}</span>
+                  <span>{row.actor_id ? `User ${row.actor_id}` : 'Hệ thống'}</span>
                 </span>
               ),
             },
@@ -337,7 +337,7 @@ export default function StockMovementList() {
               <div className={styles.metaRow}>
                 <span className={styles.metaLabel}>Người thực hiện:</span>
                 <span className={styles.metaValue}>
-                  {viewingReasonItem.actor_id ? `User #${viewingReasonItem.actor_id}` : 'Hệ thống'}
+                  {viewingReasonItem.actor_id ? `User ${viewingReasonItem.actor_id}` : 'Hệ thống'}
                 </span>
               </div>
               <div className={styles.metaRow}>

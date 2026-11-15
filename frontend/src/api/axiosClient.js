@@ -1005,7 +1005,7 @@ export function normalizeBackendUser(rawUser) {
 
   const fallbackName =
     role === 'ADMIN'
-      ? 'Quản trị viên (Admin)'
+      ? 'Quản trị viên'
       : email.split('@')[0] || 'Nhân viên RetailOps';
 
   return {
