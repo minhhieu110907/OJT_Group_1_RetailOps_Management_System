@@ -1,11 +1,18 @@
 import { formatVnd } from '../../utils/posUtils';
 import {
   evaluateCancelOrderEligibility,
+  formatOrderActorLabel,
   formatOrderDateTimeVN,
 } from '../../utils/orderUtils';
 import styles from './Orders.module.css';
 
-function renderWindowBadge(order, eligibility) {
+function renderWindowBadge(order, eligibility, detailStatus) {
+  if (detailStatus === 'loading') {
+    return <span className={styles.windowBadgeMuted}>Đang xác minh trạng thái...</span>;
+  }
+  if (detailStatus === 'error') {
+    return <span className={styles.windowBadgeMuted}>Chưa xác minh được trạng thái</span>;
+  }
   if (order.status === 'CANCELLED') {
     return <span className={styles.windowBadgeMuted}>Đã hoàn trả tồn kho</span>;
   }
@@ -24,13 +31,16 @@ function renderWindowBadge(order, eligibility) {
     return <span className={styles.windowBadgeMuted}>Đã quá hạn 15 phút để hủy</span>;
   }
   if (eligibility.reason === 'NOT_OWNER') {
-    return <span className={styles.windowBadgeMuted}>Đơn của nhân viên khác</span>;
+    return <span className={styles.windowBadgeMuted}>Đơn của tài khoản khác</span>;
   }
   return <span className={styles.windowBadgeMuted}>Đã qua ngày bán hàng</span>;
 }
 
 export default function OrderDetailModal({
   order,
+  detailStatus = 'verified',
+  detailError = '',
+  onRetryDetail,
   user,
   nowMs,
   onClose,
@@ -38,11 +48,14 @@ export default function OrderDetailModal({
 }) {
   if (!order) return null;
 
+  const isVerified = detailStatus === 'verified';
   const eligibility = evaluateCancelOrderEligibility({
     order,
     user,
     nowMs,
   });
+  const canOpenCancel =
+    isVerified && order.status === 'COMPLETED' && eligibility.canCancel;
 
   const totalUnits = Array.isArray(order.items)
     ? order.items.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -78,10 +91,35 @@ export default function OrderDetailModal({
         </div>
 
         <div className={styles.modalBody}>
+          {detailStatus === 'loading' && (
+            <div className={styles.alertBoxAmber} role="status">
+              <strong>Đang xác minh dữ liệu mới nhất</strong>
+              <p>Hệ thống đang tải thông tin mới nhất của đơn #{order.id} từ máy chủ...</p>
+            </div>
+          )}
+
+          {detailStatus === 'error' && (
+            <div className={styles.alertBoxRose} role="alert">
+              <strong>Không thể xác minh chi tiết đơn hàng</strong>
+              <p>{detailError || 'Vui lòng thử lại trước khi thực hiện thao tác hủy đơn.'}</p>
+              {typeof onRetryDetail === 'function' && (
+                <div style={{ marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    className={styles.compactSecondaryBtn}
+                    onClick={() => onRetryDetail(order)}
+                  >
+                    Thử lại
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className={styles.detailMetaBox}>
             <div className={styles.detailMetaLeft}>
               <p className={styles.detailMetaLine}>
-                Người tạo đơn: <strong>Nhân viên #{order.created_by}</strong>
+                Người tạo đơn: <strong>{formatOrderActorLabel(order.created_by, user)}</strong>
               </p>
               <p className={styles.detailMetaLine}>
                 Thời gian tạo: <strong>{formatOrderDateTimeVN(order.sold_at)} (Asia/Ho_Chi_Minh)</strong>
@@ -96,12 +134,14 @@ export default function OrderDetailModal({
                   </p>
                   <p className={styles.detailMetaLine}>
                     Lý do hủy: <strong>{order.cancel_reason || '—'}</strong>
-                    {order.cancelled_by ? ` (Người hủy: #${order.cancelled_by})` : ''}
+                    {order.cancelled_by
+                      ? ` (Người thực hiện: ${formatOrderActorLabel(order.cancelled_by, user)})`
+                      : ''}
                   </p>
                 </>
               )}
             </div>
-            {renderWindowBadge(order, eligibility)}
+            {renderWindowBadge(order, eligibility, detailStatus)}
           </div>
 
           <h3 className={styles.detailSectionTitle}>
@@ -152,7 +192,7 @@ export default function OrderDetailModal({
           >
             Đóng
           </button>
-          {order.status === 'COMPLETED' && eligibility.canCancel && (
+          {canOpenCancel && (
             <button
               type="button"
               className={styles.compactDangerBtn}

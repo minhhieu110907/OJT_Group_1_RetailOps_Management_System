@@ -5,6 +5,9 @@ import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
 import { formatVnd } from '../../utils/posUtils';
 import {
+  executeGuardedOrderListFetch,
+  executeVerifiedOrderDetailFetch,
+  formatOrderActorLabel,
   formatOrderCreatedCellVN,
   getVietnamBusinessDateKey,
 } from '../../utils/orderUtils';
@@ -41,16 +44,38 @@ export default function OrderList() {
     return () => clearInterval(timer);
   }, []);
 
-  // Detail & Cancel modal states
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [cancelTarget, setCancelTarget] = useState(null); // { order, remainingMinutes }
+  // Lifecycle & generation guards
+  const isMountedRef = useRef(true);
+  const listRequestSeqRef = useRef(0);
   const detailRequestSeqRef = useRef(0);
 
-  // Debounce search input
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      listRequestSeqRef.current += 1;
+      detailRequestSeqRef.current += 1;
+    };
+  }, []);
+
+  // Verified detail & Cancel modal states
+  const [detailState, setDetailState] = useState({
+    order: null,
+    status: 'idle', // 'idle' | 'loading' | 'verified' | 'error'
+    error: '',
+  });
+  const [cancelTarget, setCancelTarget] = useState(null); // { order, remainingMinutes }
+  const [cancelIntentsByOrder, setCancelIntentsByOrder] = useState({});
+
+  // Debounce search input without resetting page on initial mount
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-      setPage(1);
+      setDebouncedSearch((prev) => {
+        if (prev !== searchQuery) {
+          setPage(1);
+        }
+        return searchQuery;
+      });
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -58,31 +83,41 @@ export default function OrderList() {
   const todayKey = useMemo(() => getVietnamBusinessDateKey(nowMs), [nowMs]);
 
   const fetchOrders = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage('');
-    try {
-      const response = await ordersApi.getOrders({
-        isMockMode,
-        page,
-        pageSize: PAGE_SIZE,
-        status: statusFilter || undefined,
-        fromDate: selectedDate || undefined,
-        toDate: selectedDate || undefined,
-        search: debouncedSearch || undefined,
-      });
-      setOrders(response.items);
-      setTotal(response.total);
-    } catch (err) {
-      const msg = getApiErrorMessage(
-        err,
-        'Không thể tải danh sách lịch sử đơn hàng.'
-      );
-      setErrorMessage(msg);
-      setOrders([]);
-      setTotal(0);
-    } finally {
-      setIsLoading(false);
-    }
+    await executeGuardedOrderListFetch({
+      seqRef: listRequestSeqRef,
+      isMountedRef,
+      fetchFn: () =>
+        ordersApi.getOrders({
+          isMockMode,
+          page,
+          pageSize: PAGE_SIZE,
+          status: statusFilter || undefined,
+          fromDate: selectedDate || undefined,
+          toDate: selectedDate || undefined,
+          search: debouncedSearch || undefined,
+        }),
+      onStart: () => {
+        setIsLoading(true);
+        setErrorMessage('');
+      },
+      onSuccess: (response) => {
+        setOrders(response.items);
+        setTotal(response.total);
+        setErrorMessage('');
+      },
+      onError: (err) => {
+        const msg = getApiErrorMessage(
+          err,
+          'Không thể tải danh sách lịch sử đơn hàng.'
+        );
+        setErrorMessage(msg);
+        setOrders([]);
+        setTotal(0);
+      },
+      onFinally: () => {
+        setIsLoading(false);
+      },
+    });
   }, [isMockMode, page, statusFilter, selectedDate, debouncedSearch]);
 
   useEffect(() => {
@@ -102,40 +137,88 @@ export default function OrderList() {
     setOrders((prev) =>
       prev.map((item) => (item.id === updatedOrder.id ? updatedOrder : item))
     );
-    setSelectedOrder((prev) =>
-      prev && prev.id === updatedOrder.id ? updatedOrder : prev
+    setDetailState((prev) =>
+      prev.order && prev.order.id === updatedOrder.id
+        ? { order: updatedOrder, status: 'verified', error: '' }
+        : prev
     );
   }, []);
 
-  const handleOpenDetail = async (rowOrder) => {
-    setNowMs(Date.now());
-    setSelectedOrder(rowOrder);
-    const reqSeq = ++detailRequestSeqRef.current;
-
-    try {
-      const freshOrder = await ordersApi.getOrderById({
-        isMockMode,
-        orderId: rowOrder.id,
+  const handleOpenDetail = useCallback(
+    async (rowOrder) => {
+      if (!rowOrder?.id) return;
+      setNowMs(Date.now());
+      await executeVerifiedOrderDetailFetch({
+        seqRef: detailRequestSeqRef,
+        isMountedRef,
+        orderSnapshot: rowOrder,
+        fetchByIdFn: (orderId) =>
+          ordersApi.getOrderById({
+            isMockMode,
+            orderId,
+          }),
+        onLoading: (snapshot) => {
+          setDetailState({
+            order: snapshot,
+            status: 'loading',
+            error: '',
+          });
+        },
+        onVerified: (freshOrder) => {
+          setOrders((prev) =>
+            prev.map((item) => (item.id === freshOrder.id ? freshOrder : item))
+          );
+          setDetailState({
+            order: freshOrder,
+            status: 'verified',
+            error: '',
+          });
+        },
+        onError: (err) => {
+          const msg = getApiErrorMessage(
+            err,
+            'Không thể xác minh thông tin chi tiết đơn hàng từ máy chủ.'
+          );
+          setDetailState((prev) =>
+            prev.order?.id === rowOrder.id
+              ? { ...prev, status: 'error', error: msg }
+              : prev
+          );
+        },
       });
-      if (detailRequestSeqRef.current === reqSeq) {
-        syncUpdatedOrderInState(freshOrder);
-      }
-    } catch {
-      // Keep the row snapshot visible if background refresh fails
-    }
-  };
+    },
+    [isMockMode]
+  );
 
   const handleCloseDetail = () => {
     detailRequestSeqRef.current += 1;
-    setSelectedOrder(null);
+    setDetailState({
+      order: null,
+      status: 'idle',
+      error: '',
+    });
   };
 
   const handleOpenCancelModal = (orderToCancel, remainingMinutes) => {
+    if (
+      detailState.status !== 'verified' ||
+      detailState.order?.id !== orderToCancel?.id
+    ) {
+      return;
+    }
     setCancelTarget({
-      order: orderToCancel,
+      order: detailState.order,
       remainingMinutes,
     });
   };
+
+  const handleUpdateCancelIntent = useCallback((orderId, nextIntent) => {
+    if (!orderId) return;
+    setCancelIntentsByOrder((prev) => ({
+      ...prev,
+      [orderId]: nextIntent,
+    }));
+  }, []);
 
   const handleCloseCancelModal = () => {
     setCancelTarget(null);
@@ -185,17 +268,11 @@ export default function OrderList() {
         key: 'created_by',
         title: 'NGƯỜI TẠO',
         width: '150px',
-        render: (row) => {
-          const isCurrentAdmin =
-            user?.id === row.created_by && user?.role === 'ADMIN';
-          return (
-            <span className={styles.creatorCell}>
-              {isCurrentAdmin
-                ? `Admin #${row.created_by}`
-                : `Nhân viên #${row.created_by}`}
-            </span>
-          );
-        },
+        render: (row) => (
+          <span className={styles.creatorCell}>
+            {formatOrderActorLabel(row.created_by, user)}
+          </span>
+        ),
       },
       {
         key: 'items_count',
@@ -410,9 +487,12 @@ export default function OrderList() {
       </div>
 
       {/* 5. Order Detail Modal */}
-      {selectedOrder && !cancelTarget && (
+      {detailState.order && !cancelTarget && (
         <OrderDetailModal
-          order={selectedOrder}
+          order={detailState.order}
+          detailStatus={detailState.status}
+          detailError={detailState.error}
+          onRetryDetail={handleOpenDetail}
           user={user}
           nowMs={nowMs}
           onClose={handleCloseDetail}
@@ -427,6 +507,8 @@ export default function OrderList() {
           user={user}
           isMockMode={isMockMode}
           remainingMinutes={cancelTarget.remainingMinutes}
+          cancelIntent={cancelIntentsByOrder[cancelTarget.order.id]}
+          onUpdateCancelIntent={handleUpdateCancelIntent}
           onClose={handleCloseCancelModal}
           onCancelled={handleOrderCancelled}
           onReloadOrder={handleReloadOrderFromConflict}

@@ -17,8 +17,13 @@ export function generateCheckoutIdempotencyKey() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return `pos-${globalThis.crypto.randomUUID()}`;
   }
-  const rand = Math.random().toString(36).slice(2, 10);
-  return `pos-${Date.now()}-${rand}`;
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `pos-${hex}`;
+  }
+  throw new Error('Secure cryptographic random generator is required for Idempotency-Key.');
 }
 
 export function validateOrderRead(order) {

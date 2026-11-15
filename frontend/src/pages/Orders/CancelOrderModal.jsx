@@ -6,8 +6,12 @@ import {
 import { formatVnd } from '../../utils/posUtils';
 import {
   classifyCancelOrderError,
+  formatOrderActorLabel,
   formatOrderDateTimeVN,
   formatOrderTimeShortVN,
+  isCancelReasonLocked,
+  reconcileCancelIntentWithAuthoritativeOrder,
+  resolveCancelIntentForOrder,
 } from '../../utils/orderUtils';
 import styles from './Orders.module.css';
 
@@ -16,22 +20,45 @@ export default function CancelOrderModal({
   user,
   isMockMode,
   remainingMinutes,
+  cancelIntent,
+  onUpdateCancelIntent,
   onClose,
   onCancelled,
   onReloadOrder,
   toast,
 }) {
+  const [localIntent, setLocalIntent] = useState(() =>
+    resolveCancelIntentForOrder({
+      existingIntent: cancelIntent,
+      orderId: order?.id,
+      generateKeyFn: generateCheckoutIdempotencyKey,
+    })
+  );
+
+  const activeIntent =
+    cancelIntent && cancelIntent.orderId === order?.id
+      ? cancelIntent
+      : localIntent;
+
+  const commitIntent = (nextIntent) => {
+    setLocalIntent(nextIntent);
+    if (typeof onUpdateCancelIntent === 'function' && order?.id) {
+      onUpdateCancelIntent(order.id, nextIntent);
+    }
+  };
+
   const [phase, setPhase] = useState('CONFIRM'); // 'CONFIRM' | 'INELIGIBLE' | 'DATA_CHANGED'
-  const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
   const [serverErrorMessage, setServerErrorMessage] = useState('');
-  const [ambiguousMessage, setAmbiguousMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isSubmittingRef = useRef(false);
-  const idempotencyKeyRef = useRef(generateCheckoutIdempotencyKey());
 
   if (!order) return null;
+
+  const reason = activeIntent.reason || '';
+  const reasonLocked = isCancelReasonLocked(activeIntent);
+  const ambiguousMessage = activeIntent.ambiguousMessage || '';
 
   const totalUnits = Array.isArray(order.items)
     ? order.items.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -45,12 +72,21 @@ export default function CancelOrderModal({
   const hasMoreItems = Array.isArray(order.items) && order.items.length > 3;
 
   const handleReasonChange = (value) => {
-    setReason(value);
+    if (reasonLocked) return;
     if (reasonError) setReasonError('');
-    if (ambiguousMessage) {
-      setAmbiguousMessage('');
-      idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
-    }
+
+    const shouldRotateKey = activeIntent.outcome === 'definite_failure';
+    commitIntent({
+      ...activeIntent,
+      orderId: order.id,
+      reason: value,
+      normalizedReason: value.trim(),
+      outcome: 'idle',
+      ambiguousMessage: '',
+      idempotencyKey: shouldRotateKey
+        ? generateCheckoutIdempotencyKey()
+        : activeIntent.idempotencyKey,
+    });
   };
 
   const handleConfirmCancel = async () => {
@@ -65,6 +101,15 @@ export default function CancelOrderModal({
       return;
     }
 
+    const pendingIntent = {
+      ...activeIntent,
+      orderId: order.id,
+      reason,
+      normalizedReason: trimmed,
+      outcome: 'pending',
+    };
+    commitIntent(pendingIntent);
+
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
@@ -72,25 +117,89 @@ export default function CancelOrderModal({
         isMockMode,
         orderId: order.id,
         reason: trimmed,
-        idempotencyKey: idempotencyKeyRef.current,
+        idempotencyKey: pendingIntent.idempotencyKey,
       });
 
+      commitIntent({
+        ...pendingIntent,
+        outcome: 'confirmed',
+        ambiguousMessage: '',
+      });
       toast.success(`Đã hủy đơn hàng #${updatedOrder.id} và hoàn tồn kho thành công.`);
       onCancelled(updatedOrder);
     } catch (err) {
-      const classified = classifyCancelOrderError(err);
+      const classified = classifyCancelOrderError(err, {
+        actorRole: user?.role,
+      });
       if (classified.outcome === 'INELIGIBLE') {
+        commitIntent({
+          ...pendingIntent,
+          outcome: 'definite_failure',
+          ambiguousMessage: '',
+        });
         setServerErrorMessage(classified.message);
         setPhase('INELIGIBLE');
       } else if (classified.outcome === 'DATA_CHANGED') {
+        commitIntent({
+          ...pendingIntent,
+          outcome: 'definite_failure',
+          ambiguousMessage: '',
+        });
         setServerErrorMessage(classified.message);
         setPhase('DATA_CHANGED');
       } else if (classified.outcome === 'AMBIGUOUS') {
-        setAmbiguousMessage(classified.message);
+        commitIntent({
+          ...pendingIntent,
+          outcome: 'ambiguous',
+          ambiguousMessage: classified.message,
+        });
         toast.warning(classified.message);
       } else {
+        commitIntent({
+          ...pendingIntent,
+          outcome: 'definite_failure',
+          ambiguousMessage: '',
+        });
         toast.error(classified.message);
       }
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReconcileOrderState = async () => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const latest = await ordersApi.getOrderById({
+        isMockMode,
+        orderId: order.id,
+      });
+      const reconciled = reconcileCancelIntentWithAuthoritativeOrder({
+        intent: activeIntent,
+        authoritativeOrder: latest,
+      });
+      commitIntent(reconciled.nextIntent);
+
+      if (reconciled.status === 'ALREADY_CANCELLED') {
+        toast.info(reconciled.message);
+        onReloadOrder(latest);
+        onClose();
+        return;
+      }
+
+      if (reconciled.status === 'STILL_COMPLETED') {
+        toast.warning(reconciled.message);
+      } else {
+        toast.error(reconciled.message);
+      }
+    } catch (err) {
+      const classified = classifyCancelOrderError(err, {
+        actorRole: user?.role,
+      });
+      toast.error(classified.message);
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);
@@ -106,10 +215,17 @@ export default function CancelOrderModal({
         isMockMode,
         orderId: order.id,
       });
+      commitIntent({
+        ...activeIntent,
+        outcome: 'confirmed',
+        ambiguousMessage: '',
+      });
       onReloadOrder(latest);
       onClose();
     } catch (err) {
-      const classified = classifyCancelOrderError(err);
+      const classified = classifyCancelOrderError(err, {
+        actorRole: user?.role,
+      });
       toast.error(classified.message);
     } finally {
       isSubmittingRef.current = false;
@@ -154,7 +270,8 @@ export default function CancelOrderModal({
               <div className={styles.summaryCard}>
                 <div className={styles.summaryTopRow}>
                   <span className={styles.creatorLabel}>
-                    Người tạo đơn: <strong>Nhân viên #{order.created_by}</strong>
+                    Người tạo đơn:{' '}
+                    <strong>{formatOrderActorLabel(order.created_by, user)}</strong>
                   </span>
                   <span className={styles.windowBadgeAmber}>
                     Tạo lúc {formatOrderTimeShortVN(order.sold_at)}
@@ -202,9 +319,19 @@ export default function CancelOrderModal({
                 <div className={styles.alertBoxAmber} role="alert">
                   <strong>Chưa xác định được kết quả hủy đơn</strong>
                   <p>
-                    {ambiguousMessage} Bấm &quot;Xác nhận hủy đơn&quot; lần nữa để kiểm
-                    tra lại với cùng mã giao dịch.
+                    {ambiguousMessage} Bạn có thể bấm &quot;Kiểm tra trạng thái đơn&quot; để
+                    đối soát hoặc bấm &quot;Xác nhận hủy đơn&quot; để thử lại với cùng mã giao dịch.
                   </p>
+                  <div style={{ marginTop: '10px' }}>
+                    <button
+                      type="button"
+                      className={styles.compactSecondaryBtn}
+                      onClick={handleReconcileOrderState}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? 'Đang kiểm tra...' : 'Kiểm tra trạng thái đơn'}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -222,10 +349,15 @@ export default function CancelOrderModal({
                   maxLength={500}
                   value={reason}
                   onChange={(e) => handleReasonChange(e.target.value)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || reasonLocked}
+                  readOnly={reasonLocked}
                 />
                 {reasonError ? (
                   <span className={styles.reasonError}>{reasonError}</span>
+                ) : reasonLocked ? (
+                  <span className={styles.reasonHint}>
+                    Đang khóa lý do để giữ nguyên mã giao dịch đối soát cho yêu cầu hủy trước đó.
+                  </span>
                 ) : (
                   <span className={styles.reasonHint}>
                     Lý do hủy được lưu cùng thông tin người thực hiện
@@ -267,7 +399,9 @@ export default function CancelOrderModal({
                     Không đủ điều kiện hủy đơn
                   </h2>
                   <p className={styles.modalSubtitle}>
-                    Quá thời hạn 15 phút hoặc khác người tạo
+                    {user?.role === 'ADMIN'
+                      ? 'Chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh (Asia/Ho_Chi_Minh)'
+                      : 'Ngoài thời hạn 15 phút, khác người tạo hoặc khác ngày kinh doanh'}
                   </p>
                 </div>
               </div>
@@ -302,7 +436,7 @@ export default function CancelOrderModal({
               </div>
 
               <div className={styles.alertBoxRose} role="alert">
-                <strong>Không có quyền hủy đơn này</strong>
+                <strong>Không đủ điều kiện hủy đơn này</strong>
                 <p>{serverErrorMessage}</p>
               </div>
             </div>
@@ -331,7 +465,7 @@ export default function CancelOrderModal({
                     Dữ liệu đơn hàng bị thay đổi
                   </h2>
                   <p className={styles.modalSubtitle}>
-                    Đơn hàng đã được xử lý ở thiết bị hoặc cửa sổ khác
+                    Trạng thái đơn hàng trên máy chủ đã thay đổi so với lúc mở màn hình
                   </p>
                 </div>
               </div>
@@ -354,16 +488,16 @@ export default function CancelOrderModal({
                 </div>
                 <div className={styles.kvRow}>
                   <span className={styles.kvLabel}>Trạng thái hiện tại:</span>
-                  <span className={styles.kvValueSuccess}>Đã xử lý trên máy chủ</span>
+                  <span className={styles.kvValueDanger}>Đã thay đổi trên máy chủ</span>
                 </div>
                 <div className={styles.kvRow}>
-                  <span className={styles.kvLabel}>Trạng thái hoàn tồn:</span>
-                  <span className={styles.kvValueSuccess}>Chỉ hoàn trả 1 lần duy nhất</span>
+                  <span className={styles.kvLabel}>Xác minh dữ liệu:</span>
+                  <span className={styles.kvValue}>Cần tải lại trạng thái mới nhất</span>
                 </div>
               </div>
 
               <div className={styles.alertBoxAmber} role="alert">
-                <strong>Đơn hàng đã được hủy trước đó</strong>
+                <strong>Trạng thái đơn hàng đã thay đổi trên máy chủ</strong>
                 <p>{serverErrorMessage}</p>
               </div>
             </div>

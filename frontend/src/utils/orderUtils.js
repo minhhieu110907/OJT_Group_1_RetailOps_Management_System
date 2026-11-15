@@ -2,6 +2,20 @@ export const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
 export const STAFF_CANCEL_WINDOW_MS = 15 * 60 * 1000;
 
 /**
+ * Format neutral actor label without guessing role (since OrderRead only provides user ID).
+ */
+export function formatOrderActorLabel(actorId, currentUser) {
+  if (typeof actorId !== 'number' || !Number.isInteger(actorId) || actorId <= 0) {
+    return '—';
+  }
+  if (currentUser && currentUser.id === actorId) {
+    if (currentUser.role === 'ADMIN') return `Admin #${actorId}`;
+    if (currentUser.role === 'STAFF') return `Nhân viên #${actorId}`;
+  }
+  return `Tài khoản #${actorId}`;
+}
+
+/**
  * Format an ISO timestamp in Asia/Ho_Chi_Minh timezone (HH:mm:ss - dd/MM/yyyy).
  */
 export function formatOrderDateTimeVN(isoString) {
@@ -163,11 +177,11 @@ export function evaluateCancelOrderEligibility({
 /**
  * Classify POST /orders/{id}/cancel errors into:
  * - 'INELIGIBLE' (Lỗi 1: Không đủ điều kiện hủy đơn — 403 or 409 policy refusal)
- * - 'DATA_CHANGED' (Lỗi 2: Dữ liệu đơn hàng bị thay đổi — 409 already cancelled / state changed)
+ * - 'DATA_CHANGED' (Lỗi 2: Dữ liệu đơn hàng bị thay đổi — 409 state changed)
  * - 'AMBIGUOUS' (timeout / network drop / 5xx / REQUEST_IN_PROGRESS)
  * - 'DEFINITE_FAILURE' (validation / 401 replay block / other 4xx)
  */
-export function classifyCancelOrderError(error) {
+export function classifyCancelOrderError(error, { actorRole } = {}) {
   if (!error) {
     return {
       outcome: 'DEFINITE_FAILURE',
@@ -216,11 +230,11 @@ export function classifyCancelOrderError(error) {
       outcome: 'AMBIGUOUS',
       apiCode,
       message:
-        'Chưa xác định được kết quả hủy đơn do mất kết nối hoặc quá thời gian chờ. Vui lòng kiểm tra lại trạng thái đơn.',
+        'Chưa xác định được kết quả hủy đơn do mất kết nối hoặc quá thời gian chờ. Vui lòng kiểm tra lại trạng thái đơn trước khi thao tác tiếp.',
     };
   }
 
-  // Lỗi 2: Dữ liệu đơn hàng bị thay đổi (đã hủy ở thiết bị / cửa sổ khác)
+  // Lỗi 2: Trạng thái đơn hàng đã thay đổi trên máy chủ (không khẳng định đã hủy hay hoàn tồn khi chưa đọc authoritative state)
   if (
     status === 409 &&
     (apiCode === 'INVALID_STATE' ||
@@ -235,11 +249,11 @@ export function classifyCancelOrderError(error) {
       details: apiDetails,
       message:
         apiMessage ||
-        'Đơn hàng đã được hủy trước đó ở phiên làm việc khác. Tồn kho chỉ được hoàn trả một lần duy nhất.',
+        'Trạng thái đơn hàng đã thay đổi trên máy chủ. Vui lòng tải lại trạng thái đơn mới nhất để kiểm tra.',
     };
   }
 
-  // Lỗi 1: Không đủ điều kiện hủy đơn (403 Forbidden hoặc 409 quá hạn 15 phút / khác ngày / khác người tạo)
+  // Lỗi 1: Không đủ điều kiện hủy đơn (403 Forbidden hoặc 409 từ chối điều kiện hủy)
   if (
     (status === 403 && apiCode !== 'CSRF_REJECTED') ||
     (status === 409 &&
@@ -248,13 +262,16 @@ export function classifyCancelOrderError(error) {
         apiCode === 'DIFFERENT_BUSINESS_DAY' ||
         apiCode === 'FORBIDDEN'))
   ) {
+    const fallbackIneligibleMessage =
+      actorRole === 'ADMIN'
+        ? 'Đơn hàng không đủ điều kiện hủy (chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh Asia/Ho_Chi_Minh hoặc tài khoản không có quyền).'
+        : 'Đơn hàng không đủ điều kiện hủy (ngoài thời hạn 15 phút, khác người tạo hoặc khác ngày kinh doanh).';
+
     return {
       outcome: 'INELIGIBLE',
       apiCode,
       details: apiDetails,
-      message:
-        apiMessage ||
-        'Đơn hàng đã quá hạn 15 phút cho phép nhân viên hủy trực tiếp hoặc không thuộc quyền hủy của tài khoản hiện tại.',
+      message: apiMessage || fallbackIneligibleMessage,
     };
   }
 
@@ -266,5 +283,167 @@ export function classifyCancelOrderError(error) {
       apiMessage ||
       error.message ||
       'Không thể hủy đơn hàng. Vui lòng kiểm tra lại.',
+  };
+}
+
+/**
+ * Stale-response & unmount guard for OrderList fetchOrders().
+ * Ensures only the latest active request can mutate orders, total, errorMessage, and isLoading.
+ */
+export async function executeGuardedOrderListFetch({
+  seqRef,
+  isMountedRef,
+  fetchFn,
+  onStart,
+  onSuccess,
+  onError,
+  onFinally,
+}) {
+  const seq = ++seqRef.current;
+  const isCurrent = () =>
+    Boolean(isMountedRef.current) && seqRef.current === seq;
+
+  if (typeof onStart === 'function') {
+    onStart();
+  }
+
+  try {
+    const response = await fetchFn();
+    if (!isCurrent()) {
+      return { applied: false, stale: true };
+    }
+    if (typeof onSuccess === 'function') {
+      onSuccess(response);
+    }
+    return { applied: true, stale: false, response };
+  } catch (err) {
+    if (!isCurrent()) {
+      return { applied: false, stale: true };
+    }
+    if (typeof onError === 'function') {
+      onError(err);
+    }
+    return { applied: false, stale: false, error: err };
+  } finally {
+    if (isCurrent() && typeof onFinally === 'function') {
+      onFinally();
+    }
+  }
+}
+
+/**
+ * Verified-detail loader with generation guard & close/unmount invalidation.
+ * Never marks detail as verified=true unless GET /orders/{order_id} succeeds for the same seq & orderId.
+ */
+export async function executeVerifiedOrderDetailFetch({
+  seqRef,
+  isMountedRef,
+  orderSnapshot,
+  fetchByIdFn,
+  onLoading,
+  onVerified,
+  onError,
+}) {
+  const seq = ++seqRef.current;
+  const targetOrderId = orderSnapshot?.id;
+  const isCurrent = () =>
+    Boolean(isMountedRef.current) && seqRef.current === seq;
+
+  if (typeof onLoading === 'function') {
+    onLoading(orderSnapshot);
+  }
+
+  try {
+    const freshOrder = await fetchByIdFn(targetOrderId);
+    if (!isCurrent() || freshOrder?.id !== targetOrderId) {
+      return { applied: false, stale: true };
+    }
+    if (typeof onVerified === 'function') {
+      onVerified(freshOrder);
+    }
+    return { applied: true, stale: false, order: freshOrder };
+  } catch (err) {
+    if (!isCurrent()) {
+      return { applied: false, stale: true };
+    }
+    if (typeof onError === 'function') {
+      onError(err);
+    }
+    return { applied: false, stale: false, error: err };
+  }
+}
+
+/**
+ * Cancel intent lifecycle helpers (keyed by orderId).
+ * - Preserves (orderId, normalizedReason, idempotencyKey, outcome) across modal close/reopen when pending/ambiguous.
+ * - Prevents changing reason or rotating key while intent is pending or ambiguous.
+ * - Creates a new key only when starting a fresh intent or after definite failure with a new/edited intent.
+ */
+export function resolveCancelIntentForOrder({
+  existingIntent,
+  orderId,
+  generateKeyFn,
+}) {
+  if (
+    existingIntent &&
+    existingIntent.orderId === orderId &&
+    (existingIntent.outcome === 'pending' ||
+      existingIntent.outcome === 'ambiguous')
+  ) {
+    return existingIntent;
+  }
+
+  return {
+    orderId,
+    reason: existingIntent?.orderId === orderId && existingIntent?.outcome === 'definite_failure'
+      ? existingIntent.reason
+      : '',
+    normalizedReason: '',
+    idempotencyKey: generateKeyFn(),
+    outcome: 'idle',
+    ambiguousMessage: '',
+  };
+}
+
+export function isCancelReasonLocked(intent) {
+  return intent?.outcome === 'pending' || intent?.outcome === 'ambiguous';
+}
+
+export function reconcileCancelIntentWithAuthoritativeOrder({
+  intent,
+  authoritativeOrder,
+}) {
+  if (!authoritativeOrder || authoritativeOrder.id !== intent?.orderId) {
+    return {
+      status: 'MISMATCH',
+      nextIntent: intent,
+      message: 'Dữ liệu đơn hàng trả về không khớp mã đơn đang kiểm tra.',
+    };
+  }
+
+  if (authoritativeOrder.status === 'CANCELLED') {
+    return {
+      status: 'ALREADY_CANCELLED',
+      nextIntent: {
+        ...intent,
+        outcome: 'confirmed',
+        ambiguousMessage: '',
+      },
+      message: 'Đơn hàng đã ở trạng thái Đã hủy. Dữ liệu đã được cập nhật.',
+    };
+  }
+
+  // Still COMPLETED after GET: do not assume the earlier request definitely failed to commit;
+  // keep the exact same idempotencyKey & reason so a retry replays/executes safely.
+  return {
+    status: 'STILL_COMPLETED',
+    nextIntent: {
+      ...intent,
+      outcome: 'ambiguous',
+      ambiguousMessage:
+        'Đơn hàng vẫn đang ở trạng thái Đã hoàn tất trên máy chủ. Bạn có thể bấm "Xác nhận hủy đơn" để thử lại với cùng mã giao dịch.',
+    },
+    message:
+      'Đơn hàng vẫn đang ở trạng thái Đã hoàn tất trên máy chủ. Giữ nguyên mã giao dịch cũ để thử lại an toàn.',
   };
 }

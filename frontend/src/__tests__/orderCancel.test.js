@@ -9,10 +9,26 @@ import {
   VN_TIMEZONE,
   classifyCancelOrderError,
   evaluateCancelOrderEligibility,
+  executeGuardedOrderListFetch,
+  executeVerifiedOrderDetailFetch,
+  formatOrderActorLabel,
   formatOrderDateTimeVN,
   getVietnamBusinessDateKey,
+  isCancelReasonLocked,
   normalizeOrderSearchQuery,
+  reconcileCancelIntentWithAuthoritativeOrder,
+  resolveCancelIntentForOrder,
 } from '../utils/orderUtils.js';
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -316,5 +332,346 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
 
     // Route /orders wired to OrderList in App.jsx
     assert.ok(appSrc.includes('path="/orders" element={<OrderList />}'));
+  });
+
+  test('P1 OrderList stale-response guard: slow A vs fast B, late error A, loading accuracy, and unmount isolation', async () => {
+    const seqRef = { current: 0 };
+    const isMountedRef = { current: true };
+    const state = {
+      orders: [],
+      total: 0,
+      errorMessage: '',
+      isLoading: false,
+    };
+
+    const reqA = createDeferred();
+    const reqB = createDeferred();
+
+    // Start Request A (slow) then Request B (fast)
+    const pA = executeGuardedOrderListFetch({
+      seqRef,
+      isMountedRef,
+      fetchFn: () => reqA.promise,
+      onStart: () => {
+        state.isLoading = true;
+        state.errorMessage = '';
+      },
+      onSuccess: (res) => {
+        state.orders = res.items;
+        state.total = res.total;
+      },
+      onError: () => {
+        state.errorMessage = 'errA';
+      },
+      onFinally: () => {
+        state.isLoading = false;
+      },
+    });
+
+    const pB = executeGuardedOrderListFetch({
+      seqRef,
+      isMountedRef,
+      fetchFn: () => reqB.promise,
+      onStart: () => {
+        state.isLoading = true;
+        state.errorMessage = '';
+      },
+      onSuccess: (res) => {
+        state.orders = res.items;
+        state.total = res.total;
+      },
+      onError: () => {
+        state.errorMessage = 'errB';
+      },
+      onFinally: () => {
+        state.isLoading = false;
+      },
+    });
+
+    // If A resolves while B is still pending -> isLoading MUST stay true and state untouched
+    reqA.resolve({ items: [{ id: 101 }], total: 1 });
+    const resA = await pA;
+    assert.equal(resA.stale, true);
+    assert.equal(state.isLoading, true);
+    assert.deepEqual(state.orders, []);
+
+    // B resolves -> B wins
+    reqB.resolve({ items: [{ id: 202 }], total: 1 });
+    const resB = await pB;
+    assert.equal(resB.applied, true);
+    assert.equal(state.isLoading, false);
+    assert.deepEqual(state.orders, [{ id: 202 }]);
+    assert.equal(state.total, 1);
+
+    // Late error from a stale Request C while D succeeded must NOT overwrite D
+    const reqC = createDeferred();
+    const reqD = createDeferred();
+    const pC = executeGuardedOrderListFetch({
+      seqRef,
+      isMountedRef,
+      fetchFn: () => reqC.promise,
+      onStart: () => {
+        state.isLoading = true;
+        state.errorMessage = '';
+      },
+      onSuccess: (res) => {
+        state.orders = res.items;
+        state.total = res.total;
+      },
+      onError: () => {
+        state.errorMessage = 'stale-error';
+        state.orders = [];
+      },
+      onFinally: () => {
+        state.isLoading = false;
+      },
+    });
+    const pD = executeGuardedOrderListFetch({
+      seqRef,
+      isMountedRef,
+      fetchFn: () => reqD.promise,
+      onStart: () => {
+        state.isLoading = true;
+        state.errorMessage = '';
+      },
+      onSuccess: (res) => {
+        state.orders = res.items;
+        state.total = res.total;
+      },
+      onError: () => {
+        state.errorMessage = 'errD';
+      },
+      onFinally: () => {
+        state.isLoading = false;
+      },
+    });
+    reqD.resolve({ items: [{ id: 303 }], total: 1 });
+    await pD;
+    reqC.reject(new Error('late timeout'));
+    await pC;
+    assert.equal(state.errorMessage, '');
+    assert.deepEqual(state.orders, [{ id: 303 }]);
+
+    // Unmount while Request E is in flight -> no state mutation
+    const reqE = createDeferred();
+    let mutatedAfterUnmount = false;
+    const pE = executeGuardedOrderListFetch({
+      seqRef,
+      isMountedRef,
+      fetchFn: () => reqE.promise,
+      onSuccess: () => {
+        mutatedAfterUnmount = true;
+      },
+      onError: () => {
+        mutatedAfterUnmount = true;
+      },
+      onFinally: () => {
+        mutatedAfterUnmount = true;
+      },
+    });
+    isMountedRef.current = false;
+    reqE.resolve({ items: [{ id: 404 }], total: 1 });
+    const resE = await pE;
+    assert.equal(resE.stale, true);
+    assert.equal(mutatedAfterUnmount, false);
+  });
+
+  test('P1 OrderDetail verified state: blocks stale A over B, blocks cancel on close/failure/CANCELLED, allows only verified COMPLETED', async () => {
+    const seqRef = { current: 0 };
+    const isMountedRef = { current: true };
+    let detailState = { order: null, status: 'idle', error: '' };
+
+    const deferredA = createDeferred();
+    const deferredB = createDeferred();
+
+    // Open Order A, then immediately open Order B
+    const pA = executeVerifiedOrderDetailFetch({
+      seqRef,
+      isMountedRef,
+      orderSnapshot: { id: 101, status: 'COMPLETED' },
+      fetchByIdFn: () => deferredA.promise,
+      onLoading: (snap) => {
+        detailState = { order: snap, status: 'loading', error: '' };
+      },
+      onVerified: (fresh) => {
+        detailState = { order: fresh, status: 'verified', error: '' };
+      },
+      onError: () => {
+        detailState = { ...detailState, status: 'error', error: 'errA' };
+      },
+    });
+
+    const pB = executeVerifiedOrderDetailFetch({
+      seqRef,
+      isMountedRef,
+      orderSnapshot: { id: 102, status: 'COMPLETED' },
+      fetchByIdFn: () => deferredB.promise,
+      onLoading: (snap) => {
+        detailState = { order: snap, status: 'loading', error: '' };
+      },
+      onVerified: (fresh) => {
+        detailState = { order: fresh, status: 'verified', error: '' };
+      },
+      onError: () => {
+        detailState = { ...detailState, status: 'error', error: 'errB' };
+      },
+    });
+
+    // B resolves COMPLETED -> verified
+    deferredB.resolve({ id: 102, status: 'COMPLETED', created_by: 1, sold_at: '2026-11-15T10:00:00Z' });
+    await pB;
+    assert.equal(detailState.status, 'verified');
+    assert.equal(detailState.order.id, 102);
+
+    // Stale A resolves late -> MUST NOT overwrite B
+    deferredA.resolve({ id: 101, status: 'COMPLETED', created_by: 1, sold_at: '2026-11-15T09:00:00Z' });
+    const resA = await pA;
+    assert.equal(resA.stale, true);
+    assert.equal(detailState.order.id, 102);
+
+    // Close modal while request C is in flight -> invalidates C
+    const deferredC = createDeferred();
+    const pC = executeVerifiedOrderDetailFetch({
+      seqRef,
+      isMountedRef,
+      orderSnapshot: { id: 103, status: 'COMPLETED' },
+      fetchByIdFn: () => deferredC.promise,
+      onLoading: (snap) => {
+        detailState = { order: snap, status: 'loading', error: '' };
+      },
+      onVerified: (fresh) => {
+        detailState = { order: fresh, status: 'verified', error: '' };
+      },
+      onError: () => {
+        detailState = { ...detailState, status: 'error', error: 'errC' };
+      },
+    });
+    seqRef.current += 1;
+    detailState = { order: null, status: 'idle', error: '' };
+    deferredC.resolve({ id: 103, status: 'COMPLETED' });
+    const resC = await pC;
+    assert.equal(resC.stale, true);
+    assert.equal(detailState.status, 'idle');
+
+    // GET detail fails -> status=error (cancel disabled)
+    const pErr = executeVerifiedOrderDetailFetch({
+      seqRef,
+      isMountedRef,
+      orderSnapshot: { id: 104, status: 'COMPLETED' },
+      fetchByIdFn: async () => {
+        throw new Error('403 Forbidden');
+      },
+      onLoading: (snap) => {
+        detailState = { order: snap, status: 'loading', error: '' };
+      },
+      onVerified: (fresh) => {
+        detailState = { order: fresh, status: 'verified', error: '' };
+      },
+      onError: () => {
+        detailState = { ...detailState, status: 'error', error: 'Không thể xác minh' };
+      },
+    });
+    await pErr;
+    assert.equal(detailState.status, 'error');
+
+    // GET detail returns CANCELLED -> cannot cancel even if list row looked COMPLETED
+    const pCancelled = executeVerifiedOrderDetailFetch({
+      seqRef,
+      isMountedRef,
+      orderSnapshot: { id: 105, status: 'COMPLETED' },
+      fetchByIdFn: async () => ({ id: 105, status: 'CANCELLED', created_by: 1, sold_at: '2026-11-15T10:00:00Z' }),
+      onLoading: (snap) => {
+        detailState = { order: snap, status: 'loading', error: '' };
+      },
+      onVerified: (fresh) => {
+        detailState = { order: fresh, status: 'verified', error: '' };
+      },
+      onError: () => {},
+    });
+    await pCancelled;
+    assert.equal(detailState.status, 'verified');
+    assert.equal(
+      evaluateCancelOrderEligibility({ order: detailState.order, user: { id: 1, role: 'ADMIN' } }).canCancel,
+      false
+    );
+  });
+
+  test('P2 Cancel idempotency & reconciliation: preserves key/reason across modal reopen when ambiguous, reconciles authoritative state, and keeps feedback neutral', () => {
+    let keyCounter = 0;
+    const genKey = () => `pos-00000000-0000-4000-8000-00000000000${++keyCounter}`;
+
+    const initial = resolveCancelIntentForOrder({
+      existingIntent: null,
+      orderId: 108,
+      generateKeyFn: genKey,
+    });
+    assert.equal(initial.idempotencyKey, 'pos-00000000-0000-4000-8000-000000000001');
+
+    // Simulate timeout -> ambiguous intent stored in parent
+    const ambiguousIntent = {
+      ...initial,
+      reason: 'Khách đổi ý',
+      normalizedReason: 'Khách đổi ý',
+      outcome: 'ambiguous',
+      ambiguousMessage: 'Mất kết nối',
+    };
+    assert.equal(isCancelReasonLocked(ambiguousIntent), true);
+
+    // Closing and reopening modal for order 108 MUST reuse exact same key & reason
+    const reopened = resolveCancelIntentForOrder({
+      existingIntent: ambiguousIntent,
+      orderId: 108,
+      generateKeyFn: genKey,
+    });
+    assert.equal(reopened.idempotencyKey, ambiguousIntent.idempotencyKey);
+    assert.equal(reopened.reason, 'Khách đổi ý');
+    assert.equal(reopened.outcome, 'ambiguous');
+
+    // Reconcile when authoritative order is still COMPLETED -> keep same key & ambiguous
+    const stillCompleted = reconcileCancelIntentWithAuthoritativeOrder({
+      intent: reopened,
+      authoritativeOrder: { id: 108, status: 'COMPLETED' },
+    });
+    assert.equal(stillCompleted.status, 'STILL_COMPLETED');
+    assert.equal(stillCompleted.nextIntent.idempotencyKey, ambiguousIntent.idempotencyKey);
+
+    // Reconcile when authoritative order is CANCELLED -> neutral message, confirmed
+    const alreadyCancelled = reconcileCancelIntentWithAuthoritativeOrder({
+      intent: reopened,
+      authoritativeOrder: { id: 108, status: 'CANCELLED' },
+    });
+    assert.equal(alreadyCancelled.status, 'ALREADY_CANCELLED');
+    assert.equal(alreadyCancelled.nextIntent.outcome, 'confirmed');
+    assert.equal(
+      alreadyCancelled.message,
+      'Đơn hàng đã ở trạng thái Đã hủy. Dữ liệu đã được cập nhật.'
+    );
+
+    // Definite failure -> reopening creates fresh key on new intent
+    const failedIntent = { ...initial, outcome: 'definite_failure', reason: 'Lỗi' };
+    const afterDefiniteFailure = resolveCancelIntentForOrder({
+      existingIntent: failedIntent,
+      orderId: 108,
+      generateKeyFn: genKey,
+    });
+    assert.notEqual(afterDefiniteFailure.idempotencyKey, failedIntent.idempotencyKey);
+
+    // Feedback clarity checks
+    assert.equal(formatOrderActorLabel(99, { id: 2, role: 'STAFF' }), 'Tài khoản #99');
+    assert.equal(formatOrderActorLabel(1, { id: 1, role: 'ADMIN' }), 'Admin #1');
+
+    const adminIneligible = classifyCancelOrderError(
+      { response: { status: 403, data: { code: 'FORBIDDEN' } } },
+      { actorRole: 'ADMIN' }
+    );
+    assert.equal(adminIneligible.outcome, 'INELIGIBLE');
+    assert.equal(adminIneligible.message.includes('15 phút'), false);
+
+    const dataChanged = classifyCancelOrderError({
+      response: { status: 409, data: { code: 'INVALID_STATE' } },
+    });
+    assert.equal(dataChanged.outcome, 'DATA_CHANGED');
+    assert.equal(dataChanged.message.includes('đã được hủy trước đó'), false);
+    assert.equal(dataChanged.message.includes('hoàn trả'), false);
   });
 });
