@@ -700,6 +700,424 @@
   cursor: not-allowed;
 }
 
+/* ==========================================================================
+   T04A869 — POS Checkout Result & Conflict Modals (Compact SaaS Buttons)
+   ========================================================================== */
+.posModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.posModalCard {
+  width: 100%;
+  max-width: 560px;
+  background-color: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 40px -12px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.posModalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.posModalTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.posModalTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.posModalSubtitle {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.posModalIconAmber,
+.posModalIconRose,
+.posModalIconSuccess {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.posModalIconAmber {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.posModalIconRose {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.posModalIconSuccess {
+  background-color: #d1fae5;
+  color: #059669;
+}
+
+.posModalCloseBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.posModalCloseBtn:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.posModalBody {
+  padding: 16px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 68vh;
+  overflow-y: auto;
+}
+
+.alertBoxAmber {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alertBoxAmber p,
+.alertBoxRose p {
+  margin: 4px 0 0;
+}
+
+.alertBoxRose {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.conflictTableWrap {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.conflictTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.conflictTable th {
+  background-color: #f8fafc;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.conflictTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.conflictTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.conflictProductName {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.alignCenter {
+  text-align: center !important;
+}
+
+.alignRight {
+  text-align: right !important;
+}
+
+.qtyDanger {
+  color: #dc2626 !important;
+  font-weight: 700;
+}
+
+.qtySafe {
+  color: #059669 !important;
+  font-weight: 700;
+}
+
+.statusPillDanger,
+.statusPillSuccess {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.statusPillDanger {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.statusPillSuccess {
+  background-color: #d1fae5;
+  color: #047857;
+}
+
+.conflictHelperNote {
+  margin: 0;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.priceDiffList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.priceDiffCard {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background-color: #ffffff;
+}
+
+.priceDiffCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+  margin-bottom: 10px;
+}
+
+.priceMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.priceMetricBox {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.priceMetricLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.priceMetricOld {
+  font-size: 14px;
+  color: #475569;
+}
+
+.priceMetricNew {
+  font-size: 14px;
+  color: #059669;
+}
+
+.priceMetricDelta {
+  font-size: 14px;
+  color: #d97706;
+}
+
+.updatedTotalBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.updatedTotalValues {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.strikethroughTotal {
+  text-decoration: line-through;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.receiptItemName {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.receiptItemSub {
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.receiptUnitExpr {
+  font-size: 12px;
+  color: #475569;
+}
+
+.receiptLineTotal {
+  font-weight: 700;
+  color: #059669;
+  margin-top: 2px;
+}
+
+.orderRuleChecklist {
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  border-radius: 10px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12.5px;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.posModalFooterRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 22px;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.posModalFooterBetween {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 22px;
+  background-color: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.completedOrderTotalBox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.completedOrderTotalBox strong {
+  font-size: 17px;
+  font-weight: 700;
+  color: #059669;
+}
+
+.compactSecondaryBtn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.compactSecondaryBtn:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.compactPrimaryBtn {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: none;
+  background-color: #059669;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.compactPrimaryBtn:hover {
+  background-color: #047857;
+}
+
 @media (max-width: 1024px) {
   .posLayoutWithCart {
     grid-template-columns: minmax(0, 1fr);
