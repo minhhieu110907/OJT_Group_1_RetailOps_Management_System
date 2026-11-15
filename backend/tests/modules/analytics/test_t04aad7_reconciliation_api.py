@@ -92,9 +92,10 @@ class FakeProductService:
             name="Sản phẩm kiểm thử",
             sale_price_vnd=50_000,
             status=CatalogStatus.ACTIVE,
+            quantity=10,
+            stock_version=1,
             created_at=datetime(2026, 11, 14, 10, 0, tzinfo=UTC),
             updated_at=datetime(2026, 11, 14, 10, 0, tzinfo=UTC),
-            inventory=None,
         )
 
 

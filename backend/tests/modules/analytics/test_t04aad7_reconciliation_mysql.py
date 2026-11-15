@@ -25,8 +25,9 @@ from app.modules.analytics.service import (
 from app.modules.auth.models import User
 from app.modules.categories.models import Category
 from app.modules.categories.seed import seed_categories
+from app.modules.idempotency.models import IdempotencyRecord
 from app.modules.inventory import InventoryService
-from app.modules.inventory.models import Inventory
+from app.modules.inventory.models import Inventory, StockMovement
 from app.modules.products.models import CatalogStatus, Product
 from app.modules.products.schemas import ProductSortOrder, ProductUpdateRequest
 from app.modules.products.service import ProductService
@@ -75,28 +76,68 @@ def clean_t04aad7_test_rows(migrated_integration_engine: Engine):
                 select(Product.id).where(Product.sku.like(f"{TEST_PREFIX}%"))
             )
         )
+        order_ids_from_users = (
+            list(
+                session.scalars(select(Order.id).where(Order.created_by.in_(user_ids)))
+            )
+            if user_ids
+            else []
+        )
+        order_ids_from_products = (
+            list(
+                session.scalars(
+                    select(OrderItem.order_id).where(
+                        OrderItem.product_id.in_(product_ids)
+                    )
+                )
+            )
+            if product_ids
+            else []
+        )
+        order_ids = list(set(order_ids_from_users + order_ids_from_products))
+
+        # 1. Delete stock_movements (references order_items, inventory, orders)
+        if order_ids:
+            session.execute(
+                delete(StockMovement).where(StockMovement.order_id.in_(order_ids))
+            )
+        if product_ids:
+            session.execute(
+                delete(StockMovement).where(StockMovement.product_id.in_(product_ids))
+            )
+
+        # 2. Delete order_items (references orders, products)
+        if order_ids:
+            session.execute(delete(OrderItem).where(OrderItem.order_id.in_(order_ids)))
         if product_ids:
             session.execute(
                 delete(OrderItem).where(OrderItem.product_id.in_(product_ids))
             )
+
+        # 3. Delete orders (references users)
+        if order_ids:
+            session.execute(delete(Order).where(Order.id.in_(order_ids)))
+
+        # 4. Delete idempotency records (references users)
+        if user_ids:
+            session.execute(
+                delete(IdempotencyRecord).where(IdempotencyRecord.user_id.in_(user_ids))
+            )
+
+        # 5. Delete inventory (references products)
+        if product_ids:
             session.execute(
                 delete(Inventory).where(Inventory.product_id.in_(product_ids))
             )
 
-        if user_ids:
-            order_ids = list(
-                session.scalars(select(Order.id).where(Order.created_by.in_(user_ids)))
-            )
-            if order_ids:
-                session.execute(
-                    delete(OrderItem).where(OrderItem.order_id.in_(order_ids))
-                )
-                session.execute(delete(Order).where(Order.id.in_(order_ids)))
-
+        # 6. Delete products (references categories)
         if product_ids:
             session.execute(delete(Product).where(Product.id.in_(product_ids)))
 
+        # 7. Delete test categories
         session.execute(delete(Category).where(Category.name.like(f"{TEST_PREFIX}%")))
+
+        # 8. Delete test users
         if user_ids:
             session.execute(delete(User).where(User.id.in_(user_ids)))
 
@@ -461,8 +502,8 @@ def test_cross_module_reconciliation_checkout_orders_sales_dashboard(
         prod_service = ProductService()
         p_a = prod_service.get_product(session, prod_a_id)
         p_b = prod_service.get_product(session, prod_b_id)
-        assert p_a.inventory is not None and p_a.inventory.quantity == 17
-        assert p_b.inventory is not None and p_b.inventory.quantity == 27
+        assert p_a.quantity == 17
+        assert p_b.quantity == 27
 
 
 # ==============================================================================
@@ -590,8 +631,7 @@ def test_cancellation_reconciliation_and_rbac_ownership(
 
         # Inventory restoration check: Product C stock restored from 13 back to 15!
         prod_res = ProductService().get_product(session, prod_c_id)
-        assert prod_res.inventory is not None
-        assert prod_res.inventory.quantity == 15
+        assert prod_res.quantity == 15
 
 
 # ==============================================================================
