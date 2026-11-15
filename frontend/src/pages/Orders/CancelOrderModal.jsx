@@ -277,7 +277,7 @@ export default function CancelOrderModal({
                     Tạo lúc {formatOrderTimeShortVN(order.sold_at)}
                     {typeof remainingMinutes === 'number'
                       ? ` (Còn ${remainingMinutes} phút hợp lệ)`
-                      : ''}
+                      : ' (Asia/Ho_Chi_Minh)'}
                   </span>
                 </div>
 

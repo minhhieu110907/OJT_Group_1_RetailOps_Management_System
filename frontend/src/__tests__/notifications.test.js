@@ -118,7 +118,7 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
           isRead: false,
           nowDate,
         }),
-        '10:24 • Hôm nay'
+        '10:24 • Hôm nay (Asia/Ho_Chi_Minh)'
       );
       assert.equal(
         formatNotificationTimeVN('2026-11-11T02:15:00Z', {

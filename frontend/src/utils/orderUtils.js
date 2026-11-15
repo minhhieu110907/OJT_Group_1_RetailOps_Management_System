@@ -12,7 +12,7 @@ export function formatOrderActorLabel(actorId, currentUser) {
     if (currentUser.role === 'ADMIN') return `Admin #${actorId}`;
     if (currentUser.role === 'STAFF') return `Nhân viên #${actorId}`;
   }
-  return `Tài khoản ${actorId}`;
+  return `Tài khoản #${actorId}`;
 }
 
 /**
