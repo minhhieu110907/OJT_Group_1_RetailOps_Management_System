@@ -80,6 +80,9 @@ def resolve_sales_period(
     if resolved_to >= date.max:
         raise DomainValidationError("Giá trị to vượt giới hạn cho phép.")
 
+    if resolved_from <= date.min:
+        raise DomainValidationError("Giá trị from vượt giới hạn cho phép.")
+
     if resolved_from > resolved_to:
         raise DomainValidationError("from must not be greater than to")
 
@@ -88,8 +91,10 @@ def resolve_sales_period(
             "Khoảng thời gian tra cứu không được vượt quá 366 ngày."
         )
 
-    start_utc = datetime.combine(resolved_from, time.min, tzinfo=VN_TZ).astimezone(UTC)
     try:
+        start_utc = datetime.combine(resolved_from, time.min, tzinfo=VN_TZ).astimezone(
+            UTC
+        )
         end_utc_exclusive = datetime.combine(
             resolved_to + timedelta(days=1), time.min, tzinfo=VN_TZ
         ).astimezone(UTC)

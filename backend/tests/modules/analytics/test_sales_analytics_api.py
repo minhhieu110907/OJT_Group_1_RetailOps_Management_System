@@ -314,6 +314,54 @@ async def test_sales_analytics_validation_date_max_422() -> None:
 
 
 @pytest.mark.anyio
+async def test_sales_analytics_validation_date_min_underflow_422() -> None:
+    """from=0001-01-01&to=0001-01-01 returns 422 VALIDATION_ERROR, not 500."""
+    fake_service = FakeSalesAnalyticsService()
+    app = make_test_app(fake_service, authenticated=True, user_role=UserRole.ADMIN)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/analytics/sales?from=0001-01-01&to=0001-01-01")
+
+    assert res.status_code == 422
+    body = res.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "vượt giới hạn" in body["message"]
+
+
+@pytest.mark.anyio
+async def test_sales_analytics_validation_exceeds_max_days_422() -> None:
+    """Span exceeding 365 days returns 422 VALIDATION_ERROR."""
+    fake_service = FakeSalesAnalyticsService()
+    app = make_test_app(fake_service, authenticated=True, user_role=UserRole.ADMIN)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/analytics/sales?from=2024-01-01&to=2025-01-02")
+
+    assert res.status_code == 422
+    body = res.json()
+    assert body["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.anyio
+async def test_sales_analytics_month_boundary_success_200() -> None:
+    """Range crossing month boundary returns 200 OK."""
+    fake_service = FakeSalesAnalyticsService()
+    app = make_test_app(fake_service, authenticated=True, user_role=UserRole.ADMIN)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.get("/api/v1/analytics/sales?from=2026-01-31&to=2026-02-01")
+
+    assert res.status_code == 200
+    assert fake_service.last_period is not None
+
+
+@pytest.mark.anyio
 async def test_sales_analytics_invalid_date_format_422() -> None:
     """Malformed date string returns 422."""
     fake_service = FakeSalesAnalyticsService()
