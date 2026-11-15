@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.modules.analytics.repository import SalesAnalyticsRepository
@@ -163,4 +164,45 @@ def test_default_product_analytics_adapter_delegates_to_repo() -> None:
         start_utc=period.start_utc,
         end_utc_exclusive=period.end_utc_exclusive,
         limit=5,
+        offset=0,
     )
+
+
+def test_default_product_analytics_adapter_pagination_offset() -> None:
+    """Adapter translates page and page_size into SQL limit and offset."""
+    mock_session = MagicMock(spec=Session)
+    mock_repo = MagicMock(spec=SalesAnalyticsRepository)
+    mock_repo.get_top_products.return_value = []
+
+    adapter = DefaultProductAnalyticsAdapter(repository=mock_repo)
+    period = Period(
+        start_utc=datetime(2026, 11, 17, 17, 0, 0, tzinfo=UTC),
+        end_utc_exclusive=datetime(2026, 11, 18, 17, 0, 0, tzinfo=UTC),
+    )
+    adapter.top(mock_session, period=period, page=3, page_size=10)
+
+    mock_repo.get_top_products.assert_called_once_with(
+        mock_session,
+        start_utc=period.start_utc,
+        end_utc_exclusive=period.end_utc_exclusive,
+        limit=10,
+        offset=20,
+    )
+
+
+def test_dashboard_service_default_low_stock_counter_calls_count_low_stock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_default_low_stock_count invokes count_low_stock on InventoryQueryRepository."""
+    mock_session = MagicMock(spec=Session)
+    mock_inv_repo = MagicMock()
+    mock_inv_repo.count_low_stock.return_value = 42
+
+    monkeypatch.setattr(
+        "app.modules.inventory.repository.InventoryQueryRepository",
+        lambda: mock_inv_repo,
+    )
+
+    count = DashboardService._default_low_stock_count(mock_session)
+    assert count == 42
+    mock_inv_repo.count_low_stock.assert_called_once_with(mock_session, threshold=5)

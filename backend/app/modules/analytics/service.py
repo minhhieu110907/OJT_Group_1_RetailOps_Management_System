@@ -197,11 +197,17 @@ class DefaultProductAnalyticsAdapter:
         page: int = 1,
         page_size: int = 5,
     ) -> list[ProductAnalyticsItem]:
+        """Fetch top products by sold quantity and revenue.
+
+        Internal Top-N adapter for Dashboard. Windowing is handled via limit and offset.
+        """
+        offset = max(page - 1, 0) * max(page_size, 0)
         raw_items = self._repository.get_top_products(
             session,
             start_utc=period.start_utc,
             end_utc_exclusive=period.end_utc_exclusive,
             limit=page_size,
+            offset=offset,
         )
         return [
             ProductAnalyticsItem(
@@ -235,12 +241,9 @@ class DashboardService:
         from app.modules.inventory.repository import InventoryQueryRepository
         from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
 
-        res = InventoryQueryRepository().list_low_stock(
-            session, page=1, page_size=1, threshold=DEFAULT_LOW_STOCK_THRESHOLD
+        return InventoryQueryRepository().count_low_stock(
+            session, threshold=DEFAULT_LOW_STOCK_THRESHOLD
         )
-        if isinstance(res, tuple):
-            return int(res[1])
-        return int(getattr(res, "total", 0))
 
     def read(self, session: Session, *, period: Period) -> DashboardData:
         """Aggregate sales summary, low stock count, and top products.

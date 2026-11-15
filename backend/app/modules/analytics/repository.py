@@ -7,6 +7,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.models import Inventory
+from app.modules.products.models import Product
 from app.modules.sales.models import Order, OrderItem, OrderStatus
 
 
@@ -86,11 +87,18 @@ class SalesAnalyticsRepository:
         start_utc: datetime,
         end_utc_exclusive: datetime,
         limit: int = 5,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Retrieve top performing products by sold units in COMPLETED orders.
 
-        Orders strictly filtered by sold_at within [start_utc, end_utc_exclusive).
-        Ties broken by revenue_vnd DESC and product_id ASC.
+        Snapshot policy:
+        - sold_units, revenue_vnd: aggregated from historical OrderItem snapshots
+          for COMPLETED orders within [start_utc, end_utc_exclusive).
+        - sku, name: current product master record from Product.
+        - quantity, first_stocked_at: current inventory level from Inventory.
+
+        Aggregation is grouped strictly by OrderItem.product_id (each product appears
+        at most once). Ties broken by revenue_vnd DESC and product_id ASC.
         """
         start_utc_naive = (
             start_utc.astimezone(UTC).replace(tzinfo=None)
@@ -110,36 +118,51 @@ class SalesAnalyticsRepository:
             "revenue_vnd"
         )
 
-        stmt = (
+        # Subquery: aggregate sales per unique product_id for COMPLETED orders in period
+        sales_subq = (
             select(
-                OrderItem.product_id,
-                OrderItem.sku_snapshot.label("sku"),
-                OrderItem.product_name_snapshot.label("name"),
+                OrderItem.product_id.label("product_id"),
                 sold_units_col,
                 revenue_col,
-                Inventory.quantity.label("quantity"),
-                Inventory.first_stocked_at.label("first_stocked_at"),
             )
             .join(Order, Order.id == OrderItem.order_id)
-            .outerjoin(Inventory, Inventory.product_id == OrderItem.product_id)
             .where(
                 Order.status == OrderStatus.COMPLETED,
                 Order.sold_at >= start_utc_naive,
                 Order.sold_at < end_utc_exclusive_naive,
             )
-            .group_by(
-                OrderItem.product_id,
-                OrderItem.sku_snapshot,
-                OrderItem.product_name_snapshot,
-                Inventory.quantity,
-                Inventory.first_stocked_at,
-            )
+            .group_by(OrderItem.product_id)
             .order_by(
                 sold_units_col.desc(),
                 revenue_col.desc(),
                 OrderItem.product_id.asc(),
             )
-            .limit(limit)
+        )
+        if offset > 0:
+            sales_subq = sales_subq.offset(offset)
+        if limit > 0:
+            sales_subq = sales_subq.limit(limit)
+
+        sales_subq = sales_subq.subquery("top_sales")
+
+        # Outer query: join current Product catalog and Inventory state
+        stmt = (
+            select(
+                sales_subq.c.product_id,
+                Product.sku.label("sku"),
+                Product.name.label("name"),
+                sales_subq.c.sold_units,
+                sales_subq.c.revenue_vnd,
+                Inventory.quantity.label("quantity"),
+                Inventory.first_stocked_at.label("first_stocked_at"),
+            )
+            .join(Product, Product.id == sales_subq.c.product_id)
+            .outerjoin(Inventory, Inventory.product_id == sales_subq.c.product_id)
+            .order_by(
+                sales_subq.c.sold_units.desc(),
+                sales_subq.c.revenue_vnd.desc(),
+                sales_subq.c.product_id.asc(),
+            )
         )
 
         rows = session.execute(stmt).all()
