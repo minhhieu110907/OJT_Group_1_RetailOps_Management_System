@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Pagination, Table, useToast } from '../../components/common';
+import { Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { productsApi } from '../../api/productsApi';
 import {
@@ -28,6 +28,7 @@ export default function StockMovementList() {
 
   // 3. Cache thông tin sản phẩm (name) chỉ tra cứu theo IDs xuất hiện trong trang
   const [productMap, setProductMap] = useState(new Map());
+  const resolvedIdsRef = useRef(new Set());
 
   // 4. Modal hiển thị chi tiết Lý do điều chỉnh (Admin only)
   const [viewingReasonItem, setViewingReasonItem] = useState(null);
@@ -47,10 +48,13 @@ export default function StockMovementList() {
     let isMounted = true;
     const missingIds = movements
       .map((m) => m.product_id)
-      .filter((pid) => pid && !productMap.has(pid));
+      .filter((pid) => pid && !resolvedIdsRef.current.has(pid));
 
     const uniqueMissingIds = [...new Set(missingIds)];
     if (uniqueMissingIds.length === 0) return;
+
+    // Đánh dấu ngay vào resolvedIdsRef để không bao giờ gửi request trùng lặp
+    uniqueMissingIds.forEach((pid) => resolvedIdsRef.current.add(pid));
 
     async function resolvePageProductNames() {
       try {
@@ -83,7 +87,7 @@ export default function StockMovementList() {
     return () => {
       isMounted = false;
     };
-  }, [movements, productMap]);
+  }, [movements]);
 
   // Gọi API lấy lịch sử biến động kho cho STAFF (Server-side)
   const loadMovements = useCallback(async () => {
@@ -279,61 +283,54 @@ export default function StockMovementList() {
         )}
       </div>
 
-      {/* 4. Modal hiển thị chi tiết lý do điều chỉnh (Admin only, tuyệt đối không dùng icon) */}
-      {viewingReasonItem && (
-        <div
-          className={styles.modalBackdrop}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setViewingReasonItem(null);
-          }}
-        >
-          <div className={styles.reasonModalBox}>
-            <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>Lý do điều chỉnh kiểm kê</h3>
+      {/* 4. Modal hiển thị chi tiết lý do điều chỉnh (Admin only, dùng chung Modal component) */}
+      <Modal
+        isOpen={Boolean(viewingReasonItem)}
+        onClose={() => setViewingReasonItem(null)}
+        title="Lý do điều chỉnh kiểm kê"
+        maxWidth="500px"
+        footer={
+          <button
+            type="button"
+            className={styles.modalCloseBtn}
+            onClick={() => setViewingReasonItem(null)}
+          >
+            Đóng
+          </button>
+        }
+      >
+        {viewingReasonItem && (
+          <div className={styles.modalBody}>
+            <div className={styles.metaRow}>
+              <span className={styles.metaLabel}>Mã SKU:</span>
+              <span className={styles.metaValue}>{viewingReasonItem.sku}</span>
+            </div>
+            <div className={styles.metaRow}>
+              <span className={styles.metaLabel}>Sản phẩm:</span>
+              <span className={styles.metaValue}>
+                {productMap.get(viewingReasonItem.product_id) || `Sản phẩm #${viewingReasonItem.product_id}`}
+              </span>
+            </div>
+            <div className={styles.metaRow}>
+              <span className={styles.metaLabel}>Người thực hiện:</span>
+              <span className={styles.metaValue}>
+                {viewingReasonItem.actor_id ? `User ${viewingReasonItem.actor_id}` : 'Hệ thống'}
+              </span>
+            </div>
+            <div className={styles.metaRow}>
+              <span className={styles.metaLabel}>Thời gian:</span>
+              <span className={styles.metaValue}>{formatVietnamDateTime(viewingReasonItem.occurred_at)}</span>
             </div>
 
-            <div className={styles.modalBody}>
-              <div className={styles.metaRow}>
-                <span className={styles.metaLabel}>Mã SKU:</span>
-                <span className={styles.metaValue}>{viewingReasonItem.sku}</span>
+            <div className={styles.reasonBox}>
+              <div className={styles.reasonBoxLabel}>Nội dung lý do kiểm toán:</div>
+              <div className={styles.reasonContent}>
+                {viewingReasonItem.adjustment_reason}
               </div>
-              <div className={styles.metaRow}>
-                <span className={styles.metaLabel}>Sản phẩm:</span>
-                <span className={styles.metaValue}>
-                  {productMap.get(viewingReasonItem.product_id) || `Sản phẩm #${viewingReasonItem.product_id}`}
-                </span>
-              </div>
-              <div className={styles.metaRow}>
-                <span className={styles.metaLabel}>Người thực hiện:</span>
-                <span className={styles.metaValue}>
-                  {viewingReasonItem.actor_id ? `User ${viewingReasonItem.actor_id}` : 'Hệ thống'}
-                </span>
-              </div>
-              <div className={styles.metaRow}>
-                <span className={styles.metaLabel}>Thời gian:</span>
-                <span className={styles.metaValue}>{formatVietnamDateTime(viewingReasonItem.occurred_at)}</span>
-              </div>
-
-              <div className={styles.reasonBox}>
-                <div className={styles.reasonBoxLabel}>Nội dung lý do kiểm toán:</div>
-                <div className={styles.reasonContent}>
-                  {viewingReasonItem.adjustment_reason}
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className={styles.modalCloseBtn}
-                onClick={() => setViewingReasonItem(null)}
-              >
-                Đóng
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }
