@@ -154,9 +154,9 @@ def test_dashboard_mysql_aggregation_and_sources(
         # Product D: INACTIVE, low stock (qty=1 <= 5) -> not in low_stock
         prod_d = Product(
             sku=f"{TEST_PREFIX}SKU_D_{uuid4().hex[:6]}",
-            name="Product D (Archived)",
+            name="Product D (Inactive)",
             category_id=category.id,
-            status=CatalogStatus.ARCHIVED.value,
+            status=CatalogStatus.INACTIVE.value,
             sale_price_vnd=10_000,
             created_at=now_unaware,
             updated_at=now_unaware,
@@ -313,7 +313,7 @@ def test_dashboard_mysql_aggregation_and_sources(
 
     # Verify Low Stock count
     # Prod A (3 <= 5) and Prod B (5 <= 5) are active -> +2
-    # Prod C is > 5; Prod D is ARCHIVED -> not counted
+    # Prod C is > 5; Prod D is INACTIVE -> not counted
     assert data.low_stock_count == baseline_low_stock + 2
 
     # Verify Top Products

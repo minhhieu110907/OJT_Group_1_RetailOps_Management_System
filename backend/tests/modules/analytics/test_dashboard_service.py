@@ -164,4 +164,3 @@ def test_default_product_analytics_adapter_delegates_to_repo() -> None:
         end_utc_exclusive=period.end_utc_exclusive,
         limit=5,
     )
-
