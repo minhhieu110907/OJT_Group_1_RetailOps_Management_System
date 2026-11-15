@@ -6,20 +6,33 @@
 
 ## 1. Tổng quan Dự án & Kiến trúc Hệ thống
 
-### 1.1. Các Phân hệ Nghiệp vụ Chính (Core Modules)
-- **Auth & RBAC (`app.modules.auth`):** Đăng nhập an toàn qua HttpOnly Cookie + CSRF token, phân quyền 2 vai trò chuẩn theo SRS là `ADMIN` và `STAFF`, quy trình phê duyệt tài khoản nhân viên, khôi phục mật khẩu một lần qua email.
-- **Categories & Suppliers (`app.modules.categories`, `app.modules.suppliers`):** Quản lý danh mục hàng hóa phân cấp, chuẩn hóa thông tin nhà cung cấp và xác thực số điện thoại theo định dạng quốc gia E.164.
-- **Products Catalog (`app.modules.products`):** Quản lý vòng đời sản phẩm, bảo đảm tính duy nhất của Barcode/SKU, bảo mật trường giá vốn (`cost_price` / `unit_cost_vnd`) không lộ cho Staff.
-- **Purchasing & Receipts (`app.modules.purchasing`):** Lập phiếu nhập nháp (`DRAFT`), cơ chế tự động gộp dòng sản phẩm trùng giá (item merging), khóa lạc quan (`draft_version`), hủy phiếu nháp không ảnh hưởng tồn kho, và xác nhận phiếu nhập (`CONFIRMED`) tăng tồn kho nguyên tử.
-- **Inventory & Stock Movements (`app.modules.inventory`):** Quản lý tồn kho thời gian thực, cảnh báo tồn thấp (`lowStock`), kiểm kê điều chỉnh tồn kho có `Idempotency-Key` và `stock_version`, ghi nhận thẻ kho (`StockMovement`).
-- **POS Sales & Order Cancel (`app.modules.sales`):** Bán hàng tại quầy POS, tính giá tự động, thanh toán nguyên tử (trừ kho tức thời), chống bán vượt tồn kho (oversell concurrency), hỗ trợ hủy đơn và hoàn trả tồn kho trong cửa sổ 15 phút.
-- **Analytics & Dashboard (`app.modules.analytics`):** Phân tích doanh thu, số lượng đơn hàng, giá trị trung bình đơn (AOV) theo múi giờ `Asia/Ho_Chi_Minh`, top sản phẩm bán chạy và danh sách hàng hóa quay vòng chậm.
-- **Transactional Outbox & Email Worker (`app.modules.outbox`):** Đảm bảo tính toàn vẹn sự kiện miền (Domain Events) qua mô hình Transactional Outbox, nền tảng Email Worker với cơ chế tự phục hồi và retry an toàn.
-- **Read-Only AI Assistant (`app.modules.ai`):** Trợ lý AI khuyến nghị kế hoạch nhập hàng thông minh theo hợp đồng chỉ đọc (read-only tool calling), tuân thủ kiểm soát phân quyền và ngăn chặn prompt injection.
+### 1.1. Hiện trạng Triển khai các Phân hệ Nghiệp vụ (Implementation Status)
+
+Để đảm bảo tính minh bạch và chính xác theo tiến độ dự án, các phân hệ được phân loại rõ ràng theo trạng thái mã nguồn trên Git:
+
+#### A. Đã Hoàn Thành và Đã Merge vào `develop` (Sprint 1 & Sprint 2 Baseline):
+- **Auth & RBAC (`app.modules.auth`):** Đăng nhập an toàn qua HttpOnly Cookie + CSRF token, phân quyền 2 vai trò chuẩn theo SRS là `ADMIN` và `STAFF`, quy trình phê duyệt tài khoản nhân viên mới, thu hồi phiên đăng nhập từ phía server.
+- **Categories & Suppliers (`app.modules.categories`, `app.modules.suppliers`):** Quản lý danh mục hàng hóa phân cấp, chuẩn hóa thông tin nhà cung cấp và xác thực số điện thoại theo định dạng quốc tế E.164.
+- **Products Catalog (`app.modules.products`):** Quản lý vòng đời sản phẩm, bảo đảm tính duy nhất tuyệt đối của Barcode/SKU, bảo mật trường giá vốn (`cost_price` / `unit_cost_vnd`) không lộ cho Staff trên cả API và UI.
+- **Purchasing & Receipts (`app.modules.purchasing`):** Lập phiếu nhập nháp (`DRAFT`), cơ chế tự động gộp dòng sản phẩm trùng giá (item merging), khóa lạc quan (`draft_version`), hủy phiếu nháp không ảnh hưởng tồn kho, và xác nhận phiếu nhập (`CONFIRMED`) tăng tồn kho nguyên tử kèm kiểm tra Idempotency (PR #35, PR #44).
+- **Inventory & Stock Movements (`app.modules.inventory`):** Quản lý tồn kho thời gian thực, cảnh báo tồn thấp theo ngưỡng an toàn cố định (threshold = 5), kiểm kê điều chỉnh tồn kho yêu cầu `Idempotency-Key` và `stock_version`, ghi nhận thẻ kho bất biến (`StockMovement`) với 4 loại giao dịch chuẩn: `PURCHASE_CONFIRM`, `SALE`, `ORDER_CANCEL`, `ADJUSTMENT`.
+- **POS Sales & Order Cancel (`app.modules.sales`):** Bán hàng tại quầy POS, tính giá tự động, thanh toán nguyên tử (trừ kho tức thời), chặn bán vượt tồn kho (HTTP 409 `INSUFFICIENT_STOCK`) và chặn đổi giá (HTTP 409 `PRICE_CHANGED`), hỗ trợ hủy đơn trong vòng 15 phút kèm lý do và hoàn trả tồn kho đúng 1 lần (PR #62).
+
+#### B. Đang Triển Khai / Pull Request Đang Mở Review (Sprint 3 Scope):
+- **Sales Analytics (`app.modules.analytics` / `T04A92B`):** Endpoint `GET /api/v1/analytics/sales` với query parameters `from` và `to` tổng hợp doanh thu, số đơn và AOV loại trừ đơn cancelled (PR #60 đang mở review).
+- **Dashboard API (`app.modules.analytics` / `T04AA36`):** Endpoint `GET /api/v1/dashboard` tổng hợp KPI vận hành toàn diện cho màn hình quản trị (PR #61 đang mở review).
+- **Tài liệu & UAT Master (`T04A996`):** Chuẩn hóa tài liệu vận hành Docker/Nginx, kịch bản UAT E2E và Defect Ledger (PR #63 đang mở review).
+
+#### C. Dự Kiến Triển Khai trong Sprint 3 (Pending Implementation):
+- **Transactional Outbox & Email Worker (`app.modules.outbox` / `T04A90F`, `T04AA00`):** Xử lý bất đồng bộ các sự kiện miền qua mô hình Transactional Outbox, worker định kỳ quét và gửi email thông báo với cơ chế retry và exponential backoff.
+- **Password Reset Flow (`T04AA1C`):** Khôi phục mật khẩu Staff bằng one-time token lưu hash trong DB qua endpoint `POST /api/v1/auth/forgot-password` và `POST /api/v1/auth/reset-password`.
+- **Read-Only AI Assistant & Reorder Advisor (`app.modules.ai` / `T04A9E6`, `T04AA86`, `T04AB0B`):** Trợ lý AI khuyến nghị kế hoạch nhập hàng thông minh theo hợp đồng chỉ đọc qua `POST /api/v1/ai/query` (bắt buộc role `ADMIN`, giới hạn 15s deadline / tối đa 3 tool calls / $\le 32$ KiB dữ liệu).
+
+---
 
 ### 1.2. Kiến trúc Mạng Docker Compose (`proxy` & `application`)
 
-Dự án triển khai theo kiến trúc mạng phân tầng khép kín:
+Hệ thống được tổ chức phân tầng mạng nhằm kiểm soát lưu lượng và tăng cường bảo mật:
 
 ```
                [ Client Browser / Quầy POS ]
@@ -36,45 +49,65 @@ Dự án triển khai theo kiến trúc mạng phân tầng khép kín:
               │     FastAPI Backend         │
               │       (172.30.10.3)         │
               └──────────────┬──────────────┘
-                             │  Network: application (Cô lập nội bộ)
+                             │  Network: application (internal: true)
                  ┌───────────┴───────────┐
                  ▼                       ▼
       ┌─────────────────────┐ ┌─────────────────────┐
       │   MySQL 8.4 InnoDB  │ │   Redis 8.4 Alpine  │
       │   (Dữ liệu nghiệp vụ)│ │   (Rate limit & MQ) │
       └─────────────────────┘ └─────────────────────┘
+                 │ (Loopback only)
+                 ▼
+       Host: 127.0.0.1:3306
 ```
 
-- **Mạng `proxy` (Bridge `172.30.10.0/29`):** Kết nối giữa `nginx` và `backend`. Nginx là cổng tiếp nhận traffic duy nhất từ bên ngoài, chịu trách nhiệm phục vụ SPA tĩnh, xử lý header bảo mật (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`), và reverse proxy các request `/api/` về Backend.
-- **Mạng `application`:** Kết nối Backend với MySQL và Redis. Ở chế độ vận hành chuẩn, mạng này được thiết lập `internal: true`, ngăn chặn hoàn toàn truy cập trực tiếp từ máy host vào cơ sở dữ liệu và bộ nhớ đệm.
+- **Mạng `proxy` (Bridge `172.30.10.0/29`):** Kết nối giữa `nginx` và `backend`. Nginx là cổng tiếp nhận traffic duy nhất từ bên ngoài mạng, phục vụ SPA tĩnh, xử lý header bảo mật (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`), và reverse proxy các request `/api/` về Backend.
+- **Mạng `application` (`internal: true`):** Kết nối Backend với MySQL và Redis. Thiết lập `internal: true` ngăn chặn các container trong mạng này định tuyến trực tiếp ra Internet hoặc các mạng bên ngoài qua gateway của Docker.
+- **Cơ chế Host Loopback Binding:**
+  Trong file `compose.yaml`, cổng MySQL được công bố dưới dạng loopback binding:
+  ```yaml
+  ports:
+    - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
+  ```
+  *Ý nghĩa bảo mật:* Cổng 3306 **chỉ lắng nghe trên địa chỉ loopback cục bộ (`127.0.0.1`) của máy host**, phục vụ các công cụ quản trị (DBeaver, MySQL Workbench) hoặc local FastAPI development. Các máy tính khác trong mạng LAN hoặc Internet **hoàn toàn không thể kết nối** trực tiếp vào MySQL. Redis trong chế độ chuẩn **không** công bố cổng ra máy host.
 
-### 1.3. Phân biệt 2 Chế độ Chạy Docker Compose (Rất quan trọng)
+---
+
+### 1.3. Hai Chế độ Chạy Docker Compose
 
 1. **Chế độ 1 — Chạy Ứng dụng / Demo Chuẩn (`docker compose up -d`):**
    ```powershell
    docker compose up -d
    ```
-   Chỉ sử dụng file `compose.yaml`. Mạng `application` có `internal: true` để cô lập MySQL và Redis khỏi host; lệnh `docker compose port mysql 3306` sẽ hiển thị `:0` theo đúng thiết kế bảo mật, ngăn chặn mọi rò rỉ dữ liệu hoặc can thiệp trực tiếp từ bên ngoài.
+   Chỉ sử dụng file `compose.yaml`. Mạng `application` là `internal: true`. MySQL chỉ bind ra loopback `127.0.0.1`, Redis hoàn toàn đóng kín trong mạng nội bộ Docker.
 
 2. **Chế độ 2 — Chạy Host-side Integration Tests (`docker compose -f compose.yaml -f compose.ci.yaml up -d`):**
    ```powershell
    docker compose -f compose.yaml -f compose.ci.yaml up -d
    ```
-   File overlay `compose.ci.yaml` mở `internal: false` trên mạng `application` để ánh xạ cổng MySQL (`MYSQL_HOST_PORT`, mặc định `3306` hoặc `13306` trên Windows) và Redis (`REDIS_HOST_PORT`, mặc định `16379`) ra `127.0.0.1` cho các test runner (`pytest`) chạy trực tiếp trên máy host kết nối vào schema test `retailops_test`.
+   File overlay `compose.ci.yaml` cấu hình:
+   - Mạng `application` chuyển thành `internal: false`.
+   - Redis được mở thêm cổng loopback máy host tại `127.0.0.1:${REDIS_HOST_PORT:-16379}:6379`.
+   - Backend container chuyển biến môi trường sang kết nối `MYSQL_TEST_DATABASE` (`retailops_test`) với `MYSQL_TEST_USER`.
 
-   *Lệnh cấp quyền tài khoản test user trên MySQL volume hiện có:*
-   Nếu volume database đã khởi tạo từ trước và test user chưa được cấp quyền truy cập test schema, thực thi công cụ sau:
-   ```powershell
-   docker compose exec -e CONFIRM_RETAILOPS_LOCAL_PROVISIONING=retailops-local mysql bash /usr/local/bin/provision-existing-test-user
-   ```
+> [!WARNING]
+> **Lưu ý an toàn về Volume và Dữ liệu:**
+> Cả hai chế độ mặc định đều chia sẻ cùng Docker volume `mysql_data` nếu chạy trong cùng một project name. Do đó, **tuyệt đối không chạy overlay CI trên stack demo đang có dữ liệu cần bảo toàn**, để tránh trường hợp các bài kiểm thử tích hợp ghi dữ liệu hoặc làm thay đổi trạng thái volume.
+
+*Lệnh cấp quyền tài khoản test user trên MySQL volume hiện có:*
+Nếu volume database đã khởi tạo từ trước và test user chưa được cấp quyền trên schema `retailops_test`, thực thi công cụ sau:
+```powershell
+docker compose exec -e CONFIRM_RETAILOPS_LOCAL_PROVISIONING=retailops-local mysql bash /usr/local/bin/provision-existing-test-user
+```
+*(Yêu cầu mật khẩu root hợp lệ; công cụ chỉ tạo/cấp quyền cho test user trên `retailops_test`, không thay đổi mật khẩu của tài khoản ứng dụng `retailops_app`).*
 
 ---
 
 ## 2. Yêu cầu Môi trường (Prerequisites)
 
 - **Docker Desktop** (khuyến nghị kích hoạt WSL2 backend trên Windows) hoặc Docker Engine + Docker Compose v2 (`docker compose version`).
-- **Python 3.12+** cùng công cụ quản lý gói siêu tốc `uv` (cho Backend và kiểm thử tích hợp).
-- **Node.js 24+** (hoặc Node.js >= 18) và `npm` (cho Frontend React + Vite).
+- **Python:** Bắt buộc **`Python >=3.12, <3.13`** theo cấu hình `backend/pyproject.toml`, kèm công cụ quản lý gói `uv`.
+- **Node.js:** Bắt buộc **`Node.js >= 18`** (Dockerfile build sử dụng image `node:24-alpine`) và `npm`.
 
 ---
 
@@ -90,7 +123,7 @@ Copy-Item .env.example .env
 > **Quy tắc bảo mật bắt buộc:**
 > - Thay thế **toàn bộ** các giá trị chứa `CHANGE_ME_*` bằng chuỗi ngẫu nhiên độc lập.
 > - Các khóa `RETAILOPS_JWT_SECRET`, `RETAILOPS_CSRF_SECRET`, và `RETAILOPS_IDEMPOTENCY_SECRET` bắt buộc phải có độ dài **tối thiểu 32 bytes ngẫu nhiên** và tuyệt đối không được giữ tiền tố `CHANGE_ME`.
-> - Thiết lập `RETAILOPS_ADMIN_SEED_EMAIL` và `RETAILOPS_ADMIN_SEED_PASSWORD` trong `.env` hoặc truyền qua biến môi trường khi cần thực hiện seed tài khoản Quản trị viên khởi tạo.
+> - Thiết lập `RETAILOPS_ADMIN_SEED_EMAIL` và `RETAILOPS_ADMIN_SEED_PASSWORD` trong `.env` khi cần thực hiện seed tài khoản Quản trị viên khởi tạo.
 > - Tuyệt đối không commit file `.env` chứa thông tin thật lên Git repository.
 
 ### Xử lý Xung đột Cổng thường gặp trên Windows
@@ -139,11 +172,11 @@ Sau khi schema đạt revision mới nhất (`20261113_01`), tiến hành nạp 
    ```powershell
    docker compose run --rm --no-deps -e RETAILOPS_ADMIN_SEED_EMAIL -e RETAILOPS_ADMIN_SEED_PASSWORD backend python -m app.modules.auth.seed
    ```
-2. **Seed Danh mục Hàng hóa (Categories — 5 danh mục: Đồ uống, Bánh kẹo & Đồ ăn vặt, Thực phẩm đóng hộp, Hóa mỹ phẩm & Tẩy rửa, Đồ gia dụng tiện ích):**
+2. **Seed Danh mục Hàng hóa (Categories — 5 danh mục chuẩn từ code: "Đồ uống", "Bánh kẹo & Đồ ăn vặt", "Thực phẩm đóng hộp", "Hóa mỹ phẩm & Tẩy rửa", "Đồ gia dụng tiện ích"):**
    ```powershell
    docker compose run --rm --no-deps backend python -m app.modules.categories.seed
    ```
-3. **Seed Nhà cung cấp Mẫu (Suppliers — 3 nhà cung cấp: Công ty TNHH Phân phối Nước giải khát Việt, Công ty Cổ phần Thực phẩm An Toàn, Đại lý Phân phối Hàng gia dụng Miền Bắc):**
+3. **Seed Nhà cung cấp Mẫu (Suppliers — 3 đối tác chuẩn từ code: "Công ty TNHH Phân phối Nước giải khát Việt", "Công ty Cổ phần Thực phẩm An Toàn", "Đại lý Phân phối Hàng gia dụng Miền Bắc"):**
    ```powershell
    docker compose run --rm --no-deps backend python -m app.modules.suppliers.seed
    ```
@@ -199,16 +232,30 @@ Giao diện lập trình mở tại `http://127.0.0.1:5173`. Vite dev proxy tự
   Khởi động container test với overlay `compose.ci.yaml`:
   ```powershell
   docker compose -f compose.yaml -f compose.ci.yaml up -d --wait mysql redis
-  cd backend
-  uv run dotenv -f ../.env run -- pytest -m integration
-  # Hoặc chạy riêng suite kiểm thử phiếu nhập và khóa lạc quan:
-  uv run dotenv -f ../.env run -- pytest tests/integration/test_purchase_receipts_mysql.py
   ```
+  Nạp biến môi trường an toàn từ `.env` trước khi thực thi pytest:
+  - *Trên Linux / macOS / WSL (Bash):*
+    ```bash
+    cd backend
+    set -a && source ../.env && set +a
+    uv run pytest -m integration
+    # Hoặc chạy riêng suite kiểm thử phiếu nhập và khóa lạc quan:
+    uv run pytest tests/integration/test_purchase_receipts_mysql.py -v
+    ```
+  - *Trên Windows (PowerShell):*
+    ```powershell
+    cd backend
+    Get-Content ..\.env | Where-Object { $_ -match '^[^#=]+=' } | ForEach-Object {
+        $k, $v = $_.Split('=', 2)
+        [System.Environment]::SetEnvironmentVariable($k.Trim(), $v.Trim(), 'Process')
+    }
+    uv run pytest -m integration
+    ```
 - **Kiểm thử Tích hợp Redis Rate Limit & Proxy Registration:**
   ```powershell
   cd backend
-  uv run dotenv -f ../.env run -- pytest tests/integration/test_redis_rate_limit.py
-  uv run dotenv -f ../.env run -- pytest tests/integration/test_proxy_registration.py
+  uv run pytest tests/integration/test_redis_rate_limit.py
+  uv run pytest tests/integration/test_proxy_registration.py
   ```
 
 ### 6.2. Frontend Testing
@@ -247,7 +294,7 @@ Lệnh này dừng các container nhưng giữ nguyên toàn bộ dữ liệu da
 ## 8. Liên kết Nhanh tới Bộ Tài liệu Dự án (`docs/`)
 
 - [docs/START_HERE.md](docs/START_HERE.md): Quy chế kỹ thuật, danh sách task Sprint 1-3, nguyên tắc bất biến nghiệp vụ và Security Gate.
-- [docs/sprint3/UAT_SCENARIOS_AND_DEFECT_LEDGER.md](docs/sprint3/UAT_SCENARIOS_AND_DEFECT_LEDGER.md): Kịch bản kiểm thử nghiệm thu người dùng đầu cuối (E2E UAT), ma trận 20 task Sprint 3, sổ cái theo dõi lỗi (Defect Ledger) và bằng chứng kiểm chứng.
+- [docs/sprint3/UAT_SCENARIOS_AND_DEFECT_LEDGER.md](docs/sprint3/UAT_SCENARIOS_AND_DEFECT_LEDGER.md): Kịch bản kiểm thử nghiệm thu người dùng đầu cuối (E2E UAT), ma trận task Sprint 3, sổ cái theo dõi lỗi (Defect Ledger) và bằng chứng kiểm chứng.
 - [docs/runbooks/DOCKER_NGINX_RUNBOOK.md](docs/runbooks/DOCKER_NGINX_RUNBOOK.md): Sổ tay vận hành Docker Compose, cấu hình Nginx, thủ tục sao lưu & phục hồi dữ liệu (Backup & Disaster Recovery).
 - [docs/SPRINT2_SPRINT3_CF2_4_README.md](docs/SPRINT2_SPRINT3_CF2_4_README.md): Hướng dẫn phối hợp, tích hợp và kiểm thử giữa các module Sprint 2 và Sprint 3.
 - [docs/contracts/API_INTEGRATION.md](docs/contracts/API_INTEGRATION.md) & [docs/contracts/BACKEND_INTERFACES.md](docs/contracts/BACKEND_INTERFACES.md): Đặc tả hợp đồng API và giao diện backend.

@@ -17,7 +17,12 @@
 
 ### 2.1. Hướng dẫn mở cổng phục vụ Integration Test trên máy Host (`compose.ci.yaml`)
 
-Trong file cấu hình chuẩn `compose.yaml`, mạng `application` được thiết lập `internal: true` nhằm cô lập an toàn MySQL và Redis khỏi truy cập ngoài máy host. Khi cần chạy các bài kiểm thử tích hợp (integration tests) trực tiếp từ máy host (ví dụ `pytest -m integration`):
+Trong file cấu hình chuẩn `compose.yaml`:
+- Mạng `application` được thiết lập `internal: true` nhằm ngăn các container nội bộ (MySQL, Redis) định tuyến ra Internet hoặc các mạng bên ngoài qua gateway của Docker.
+- Cổng MySQL được bind vào loopback máy host: `127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306`. Điều này cho phép các tiến trình cục bộ trên máy host kết nối được, nhưng ngăn chặn hoàn toàn kết nối từ bên ngoài mạng LAN hoặc Internet.
+- Redis trong `compose.yaml` chuẩn **không** công bố cổng ra máy host.
+
+Khi cần chạy các bài kiểm thử tích hợp (integration tests) trực tiếp từ máy host (ví dụ `pytest -m integration`):
 
 1. **Khởi động dịch vụ test với overlay `compose.ci.yaml`:**
    ```bash
@@ -26,8 +31,12 @@ Trong file cấu hình chuẩn `compose.yaml`, mạng `application` được thi
 2. **Cơ chế mở cổng và ánh xạ:**
    - Overlay `compose.ci.yaml` chuyển cấu hình mạng `application` thành `internal: false`.
    - Redis được ánh xạ ra loopback máy host tại cổng `${REDIS_HOST_PORT:-16379}` (mặc định: `127.0.0.1:16379`).
-   - MySQL mở cổng host `${MYSQL_HOST_PORT:-3306}` vào database `retailops_test`.
-3. **Xử lý xung đột cổng trên Windows:**
+   - Backend container chuyển biến môi trường kết nối sang `MYSQL_TEST_DATABASE` (`retailops_test`) với `MYSQL_TEST_USER`.
+3. **Lưu ý an toàn về Volume & Schema:**
+   - Cả hai chế độ mặc định đều chia sẻ cùng Docker volume `mysql_data` nếu chạy chung project name.
+   - **Tuyệt đối không** dùng overlay CI trên stack demo có dữ liệu cần bảo toàn; integration tests phải trỏ vào database test `retailops_test`.
+   - Tuyệt đối không xóa volume (`down -v`) để khắc phục lỗi kết nối khi dữ liệu chưa được xác nhận có thể bỏ đi.
+4. **Xử lý xung đột cổng trên Windows:**
    - Nếu cổng `3306` bị Hyper-V/WinNAT hoặc dịch vụ MySQL cục bộ chiếm dụng, hãy đặt `MYSQL_HOST_PORT=13306` trong `.env` và cập nhật tương ứng `RETAILOPS_TEST_DATABASE_URL=mysql+pymysql://retailops_test_runner:...@127.0.0.1:13306/retailops_test?charset=utf8mb4`.
    - Nếu cổng `80` bị chiếm bởi IIS/HTTP.sys (System PID 4), hãy cấu hình `NGINX_HOST_PORT=8080`.
 
