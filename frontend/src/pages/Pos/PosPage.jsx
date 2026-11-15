@@ -13,8 +13,12 @@ import {
   LOW_STOCK_THRESHOLD,
   SEARCH_POS_PRODUCT_LIMIT,
   addProductToCart,
+  applyInsufficientStockResolution,
+  applyPriceChangedAcceptance,
   buildCheckoutPayload,
+  buildInsufficientStockViewModel,
   buildPendingCheckoutOwnerScope,
+  buildPriceChangedViewModel,
   calculateCartTotals,
   clearPendingCheckout,
   executeSafePosCheckout,
@@ -86,6 +90,9 @@ export default function PosPage() {
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [manualReconciliationConfirmed, setManualReconciliationConfirmed] =
     useState(false);
+  const [completedOrder, setCompletedOrder] = useState(null);
+  const [stockConflictDetails, setStockConflictDetails] = useState(null);
+  const [priceConflictDetails, setPriceConflictDetails] = useState(null);
   const isCheckingOutRef = useRef(false);
   const idempotencyKeyRef = useRef(
     pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
@@ -102,6 +109,9 @@ export default function PosPage() {
     setPendingCheckout(restored);
     setCart(restored?.cartSnapshot || []);
     setManualReconciliationConfirmed(false);
+    setCompletedOrder(null);
+    setStockConflictDetails(null);
+    setPriceConflictDetails(null);
   }
 
   useEffect(() => {
@@ -317,6 +327,9 @@ export default function PosPage() {
       });
 
       if (result.ok) {
+        setCompletedOrder(result.order);
+        setStockConflictDetails(null);
+        setPriceConflictDetails(null);
         toast.success(
           `Thanh toán thành công đơn #${result.order.id} — Tổng ${formatVnd(result.order.total_vnd)}.`
         );
@@ -334,6 +347,18 @@ export default function PosPage() {
         toast.warning(result.message);
       } else if (result.outcome === 'PERSIST_FAILED') {
         toast.error(result.message);
+      } else if (result.apiCode === 'INSUFFICIENT_STOCK') {
+        setPendingCheckout(null);
+        setManualReconciliationConfirmed(false);
+        idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+        setStockConflictDetails(result.details || {});
+        setRefreshTrigger((prev) => prev + 1);
+      } else if (result.apiCode === 'PRICE_CHANGED') {
+        setPendingCheckout(null);
+        setManualReconciliationConfirmed(false);
+        idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+        setPriceConflictDetails(result.details || {});
+        setRefreshTrigger((prev) => prev + 1);
       } else if (result.outcome === 'IDEMPOTENCY_CONFLICT') {
         setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
@@ -342,6 +367,9 @@ export default function PosPage() {
       } else {
         setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
+        if (result.rotateKey) {
+          idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+        }
         toast.error(result.message);
         setRefreshTrigger((prev) => prev + 1);
       }
@@ -349,6 +377,61 @@ export default function PosPage() {
       isCheckingOutRef.current = false;
       setIsCheckingOut(false);
     }
+  };
+
+  const stockConflictVm = useMemo(
+    () =>
+      stockConflictDetails
+        ? buildInsufficientStockViewModel(cart, stockConflictDetails)
+        : null,
+    [cart, stockConflictDetails]
+  );
+
+  const priceConflictVm = useMemo(
+    () =>
+      priceConflictDetails
+        ? buildPriceChangedViewModel(cart, priceConflictDetails)
+        : null,
+    [cart, priceConflictDetails]
+  );
+
+  const handleRemoveInsufficientItems = () => {
+    const nextCart = applyInsufficientStockResolution(
+      cart,
+      stockConflictDetails,
+      'REMOVE_INSUFFICIENT'
+    );
+    setCart(nextCart);
+    setStockConflictDetails(null);
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+    toast.info('Đã xóa sản phẩm vượt tồn kho khỏi giỏ hàng.');
+  };
+
+  const handleAdjustStockToMax = () => {
+    const nextCart = applyInsufficientStockResolution(
+      cart,
+      stockConflictDetails,
+      'ADJUST_TO_MAX'
+    );
+    setCart(nextCart);
+    setStockConflictDetails(null);
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+    toast.info('Đã điều chỉnh số lượng sản phẩm về mức tồn kho khả dụng tối đa.');
+  };
+
+  const handleCancelPriceChanged = () => {
+    setPriceConflictDetails(null);
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+  };
+
+  const handleAcceptNewPrices = () => {
+    const nextCart = applyPriceChangedAcceptance(cart, priceConflictDetails);
+    setCart(nextCart);
+    setPriceConflictDetails(null);
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+    toast.success(
+      'Đã cập nhật giá bán mới từ máy chủ. Vui lòng kiểm tra lại giỏ hàng và xác nhận bán.'
+    );
   };
 
   return (
@@ -703,6 +786,328 @@ export default function PosPage() {
             </button>
           </div>
         </aside>
+      )}
+
+      {/* Modal 1: Lỗi tồn kho không đủ (HTTP 409 INSUFFICIENT_STOCK) — dữ liệu thật từ Backend */}
+      {stockConflictVm && (
+        <div
+          className={styles.posModalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pos-stock-conflict-title"
+        >
+          <div className={styles.posModalCard}>
+            <div className={styles.posModalHeader}>
+              <div className={styles.posModalTitleRow}>
+                <span className={styles.posModalIconAmber} aria-hidden="true">
+                  ⚠
+                </span>
+                <h2 id="pos-stock-conflict-title" className={styles.posModalTitle}>
+                  Tồn kho không đủ (Insufficient Stock)
+                </h2>
+              </div>
+              <button
+                type="button"
+                className={styles.posModalCloseBtn}
+                onClick={() => setStockConflictDetails(null)}
+                aria-label="Đóng thông báo tồn kho"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.posModalBody}>
+              <div className={styles.alertBoxAmber}>
+                <strong>Phát hiện sản phẩm vượt tồn kho khả dụng!</strong>
+                <p>
+                  {stockConflictVm.primaryConflict ? (
+                    <>
+                      Sản phẩm <strong>{stockConflictVm.primaryConflict.name}</strong>{' '}
+                      khách yêu cầu{' '}
+                      <strong>{stockConflictVm.primaryConflict.requestedQty}</strong>,
+                      tuy nhiên máy chủ xác nhận kho hiện tại chỉ còn{' '}
+                      <strong>{stockConflictVm.primaryConflict.availableQty}</strong>.
+                    </>
+                  ) : (
+                    'Số lượng yêu cầu vượt quá tồn kho thực tế trên máy chủ.'
+                  )}
+                </p>
+              </div>
+
+              <div className={styles.conflictTableWrap}>
+                <table className={styles.conflictTable}>
+                  <thead>
+                    <tr>
+                      <th>Tên sản phẩm</th>
+                      <th className={styles.alignCenter}>Yêu cầu</th>
+                      <th className={styles.alignCenter}>Tồn khả dụng</th>
+                      <th className={styles.alignRight}>Đơn giá</th>
+                      <th className={styles.alignRight}>Trạng thái</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockConflictVm.rows.map((row) => (
+                      <tr key={row.productId}>
+                        <td className={styles.conflictProductName}>{row.name}</td>
+                        <td
+                          className={`${styles.alignCenter} ${
+                            row.isInsufficient ? styles.qtyDanger : ''
+                          }`}
+                        >
+                          {row.requestedQty}
+                        </td>
+                        <td
+                          className={`${styles.alignCenter} ${
+                            row.isInsufficient ? styles.qtySafe : ''
+                          }`}
+                        >
+                          {row.availableQty}
+                        </td>
+                        <td className={styles.alignRight}>
+                          {formatVnd(row.unitPriceVnd)}
+                        </td>
+                        <td className={styles.alignRight}>
+                          {row.isInsufficient ? (
+                            <span className={styles.statusPillDanger}>
+                              Thiếu {row.shortageQty}
+                            </span>
+                          ) : (
+                            <span className={styles.statusPillSuccess}>Hợp lệ</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className={styles.conflictHelperNote}>
+                Hệ thống bảo lưu nguyên vẹn các mặt hàng hợp lệ khác trong giỏ. Vui
+                lòng chọn hành động xử lý:
+              </p>
+            </div>
+
+            <div className={styles.posModalFooterRight}>
+              <button
+                type="button"
+                className={styles.compactSecondaryBtn}
+                onClick={handleRemoveInsufficientItems}
+              >
+                <span>Xóa sản phẩm khỏi giỏ</span>
+              </button>
+              <button
+                type="button"
+                className={styles.compactPrimaryBtn}
+                onClick={handleAdjustStockToMax}
+              >
+                <span>
+                  {stockConflictVm.singleAdjustableQty != null
+                    ? `Điều chỉnh về số lượng tối đa (${stockConflictVm.singleAdjustableQty})`
+                    : 'Điều chỉnh về số lượng tối đa'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Xung đột giá bán (HTTP 409 PRICE_CHANGED) — dữ liệu thật từ Backend */}
+      {priceConflictVm && (
+        <div
+          className={styles.posModalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pos-price-conflict-title"
+        >
+          <div className={styles.posModalCard}>
+            <div className={styles.posModalHeader}>
+              <div className={styles.posModalTitleRow}>
+                <span className={styles.posModalIconRose} aria-hidden="true">
+                  🏷
+                </span>
+                <h2 id="pos-price-conflict-title" className={styles.posModalTitle}>
+                  Xung đột giá bán (HTTP 409)
+                </h2>
+              </div>
+              <button
+                type="button"
+                className={styles.posModalCloseBtn}
+                onClick={handleCancelPriceChanged}
+                aria-label="Đóng thông báo xung đột giá"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.posModalBody}>
+              <div className={styles.alertBoxRose}>
+                <strong>Giá niêm yết đã thay đổi trong lúc thao tác!</strong>
+                <p>
+                  Hệ thống không tự động bán giá cũ và yêu cầu xác nhận giá mới từ
+                  máy chủ.
+                </p>
+              </div>
+
+              <div className={styles.priceDiffList}>
+                {priceConflictVm.changedItems.map((item) => (
+                  <div key={item.productId} className={styles.priceDiffCard}>
+                    <div className={styles.priceDiffCardHeader}>
+                      <strong>
+                        {item.name}
+                        {item.sku ? ` (Mã: ${item.sku})` : ''}
+                      </strong>
+                      <span>Số lượng: {item.quantity}</span>
+                    </div>
+                    <div className={styles.priceMetricGrid}>
+                      <div className={styles.priceMetricBox}>
+                        <span className={styles.priceMetricLabel}>
+                          GIÁ CŨ LÚC CHỌN
+                        </span>
+                        <strong className={styles.priceMetricOld}>
+                          {formatVnd(item.oldPriceVnd)}
+                        </strong>
+                      </div>
+                      <div className={styles.priceMetricBox}>
+                        <span className={styles.priceMetricLabel}>
+                          GIÁ MỚI MÁY CHỦ
+                        </span>
+                        <strong className={styles.priceMetricNew}>
+                          {formatVnd(item.newPriceVnd)}
+                        </strong>
+                      </div>
+                      <div className={styles.priceMetricBox}>
+                        <span className={styles.priceMetricLabel}>CHÊNH LỆCH</span>
+                        <strong className={styles.priceMetricDelta}>
+                          {item.diffVnd >= 0 ? '+' : ''}
+                          {formatVnd(item.diffVnd)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className={styles.updatedTotalBar}>
+                <span>Tổng tiền giỏ sau cập nhật:</span>
+                <div className={styles.updatedTotalValues}>
+                  <span className={styles.strikethroughTotal}>
+                    {formatVnd(priceConflictVm.oldTotalVnd)}
+                  </span>
+                  <strong>{formatVnd(priceConflictVm.newTotalVnd)}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.posModalFooterRight}>
+              <button
+                type="button"
+                className={styles.compactSecondaryBtn}
+                onClick={handleCancelPriceChanged}
+              >
+                <span>Hủy bỏ thanh toán</span>
+              </button>
+              <button
+                type="button"
+                className={styles.compactPrimaryBtn}
+                onClick={handleAcceptNewPrices}
+              >
+                <span>Chấp nhận giá mới &amp; Xem lại giỏ hàng</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: Xác nhận bán hàng thành công (HTTP 201 OrderRead) — dữ liệu thật từ Backend */}
+      {completedOrder && (
+        <div
+          className={styles.posModalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pos-order-success-title"
+        >
+          <div className={styles.posModalCard}>
+            <div className={styles.posModalHeader}>
+              <div className={styles.posModalTitleRow}>
+                <span className={styles.posModalIconSuccess} aria-hidden="true">
+                  ✓
+                </span>
+                <div>
+                  <h2 id="pos-order-success-title" className={styles.posModalTitle}>
+                    Xác nhận bán hàng thành công
+                  </h2>
+                  <p className={styles.posModalSubtitle}>
+                    Đơn hàng #{completedOrder.id} • Trạng thái:{' '}
+                    <strong>{completedOrder.status}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.posModalCloseBtn}
+                onClick={() => setCompletedOrder(null)}
+                aria-label="Đóng xác nhận đơn hàng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={styles.posModalBody}>
+              <div className={styles.conflictTableWrap}>
+                <table className={styles.conflictTable}>
+                  <thead>
+                    <tr>
+                      <th>MẶT HÀNG</th>
+                      <th className={styles.alignRight}>SL × ĐƠN GIÁ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completedOrder.items.map((line) => (
+                      <tr key={`${line.product_id}-${line.sku_snapshot}`}>
+                        <td>
+                          <div className={styles.receiptItemName}>
+                            {line.product_name_snapshot}
+                          </div>
+                          <div className={styles.receiptItemSub}>
+                            SKU: {line.sku_snapshot}
+                          </div>
+                        </td>
+                        <td className={styles.alignRight}>
+                          <div className={styles.receiptUnitExpr}>
+                            {line.quantity} × {formatVnd(line.unit_price_vnd)}
+                          </div>
+                          <div className={styles.receiptLineTotal}>
+                            {formatVnd(line.line_total_vnd)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <ul className={styles.orderRuleChecklist}>
+                <li>Chỉ bán sản phẩm trạng thái Đang bán</li>
+                <li>Giá bán nguyên số VND</li>
+                <li>Đã ghi nhận trừ tồn kho trên máy chủ</li>
+              </ul>
+            </div>
+
+            <div className={styles.posModalFooterBetween}>
+              <div className={styles.completedOrderTotalBox}>
+                <span>Tổng tiền ({completedOrder.items.length} món):</span>
+                <strong>{formatVnd(completedOrder.total_vnd)}</strong>
+              </div>
+              <button
+                type="button"
+                className={styles.compactPrimaryBtn}
+                onClick={() => setCompletedOrder(null)}
+              >
+                <span>✓ Xác nhận bán hàng</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

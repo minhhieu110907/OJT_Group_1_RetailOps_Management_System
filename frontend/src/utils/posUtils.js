@@ -155,6 +155,8 @@ export function classifyCheckoutError(error) {
   if (!error) {
     return {
       outcome: 'DEFINITE_FAILURE',
+      apiCode: null,
+      details: null,
       message: 'Không thể xác nhận bán hàng. Vui lòng thử lại.',
     };
   }
@@ -167,6 +169,8 @@ export function classifyCheckoutError(error) {
   ) {
     return {
       outcome: 'DEFINITE_FAILURE',
+      apiCode: error.code || null,
+      details: null,
       message:
         error.isReplayBlocked || error.code === 'ERR_UNSAFE_MUTATION_REPLAY'
           ? 'Phiên đăng nhập vừa hết hạn nên hệ thống không tự động gửi lại đơn. Vui lòng bấm xác nhận lại.'
@@ -175,12 +179,15 @@ export function classifyCheckoutError(error) {
   }
 
   const status = error.response?.status;
-  const apiCode = error.response?.data?.code;
+  const apiCode = error.response?.data?.code || null;
   const apiMessage = error.response?.data?.message;
+  const apiDetails = error.response?.data?.details || null;
 
   if (apiCode === 'IDEMPOTENCY_KEY_REUSED') {
     return {
       outcome: 'IDEMPOTENCY_CONFLICT',
+      apiCode,
+      details: apiDetails,
       message:
         apiMessage ||
         'Mã giao dịch đã được sử dụng cho nội dung khác. Vui lòng kiểm tra lại giỏ hàng.',
@@ -190,6 +197,8 @@ export function classifyCheckoutError(error) {
   if (apiCode === 'REQUEST_IN_PROGRESS') {
     return {
       outcome: 'AMBIGUOUS',
+      apiCode,
+      details: apiDetails,
       message:
         apiMessage ||
         'Đơn hàng trước vẫn đang được máy chủ xử lý. Vui lòng kiểm tra lại kết quả trước khi tạo đơn mới.',
@@ -205,6 +214,8 @@ export function classifyCheckoutError(error) {
   ) {
     return {
       outcome: 'AMBIGUOUS',
+      apiCode,
+      details: apiDetails,
       message:
         'Chưa xác định được kết quả đơn hàng do mất kết nối hoặc quá thời gian chờ. Đơn hàng có thể đã được ghi nhận trên máy chủ.',
     };
@@ -212,6 +223,8 @@ export function classifyCheckoutError(error) {
 
   return {
     outcome: 'DEFINITE_FAILURE',
+    apiCode,
+    details: apiDetails,
     message:
       apiMessage ||
       error.message ||
@@ -603,9 +616,198 @@ export async function executeSafePosCheckout({
     return {
       ok: false,
       outcome: classified.outcome,
+      apiCode: classified.apiCode || null,
+      details: classified.details || null,
       pendingCheckout: null,
-      rotateKey: classified.outcome === 'IDEMPOTENCY_CONFLICT',
+      rotateKey:
+        classified.outcome === 'IDEMPOTENCY_CONFLICT' ||
+        classified.apiCode === 'PRICE_CHANGED' ||
+        classified.apiCode === 'INSUFFICIENT_STOCK' ||
+        classified.apiCode === 'PRODUCT_INACTIVE',
       message: classified.message,
     };
   }
+}
+
+/**
+ * Build view model for HTTP 409 INSUFFICIENT_STOCK modal using real Backend details.items
+ * and current POS cart lines (no mock data).
+ */
+export function buildInsufficientStockViewModel(cart = [], details = null) {
+  const rawItems = Array.isArray(details?.items) ? details.items : [];
+  const insufficientMap = new Map();
+
+  for (const entry of rawItems) {
+    if (
+      entry &&
+      Number.isInteger(entry.product_id) &&
+      typeof entry.available_quantity === 'number'
+    ) {
+      insufficientMap.set(
+        entry.product_id,
+        Math.max(0, Math.floor(entry.available_quantity))
+      );
+    }
+  }
+
+  const rows = (Array.isArray(cart) ? cart : []).map((item) => {
+    const isInsufficient = insufficientMap.has(item.productId);
+    const availableQty = isInsufficient
+      ? insufficientMap.get(item.productId)
+      : typeof item.availableStock === 'number'
+      ? item.availableStock
+      : item.quantity;
+    const shortageQty = isInsufficient
+      ? Math.max(0, item.quantity - availableQty)
+      : 0;
+
+    return {
+      productId: item.productId,
+      sku: item.sku || '',
+      name: item.name || `Sản phẩm #${item.productId}`,
+      requestedQty: item.quantity,
+      availableQty,
+      unitPriceVnd: item.unitPriceVnd,
+      isInsufficient,
+      shortageQty,
+    };
+  });
+
+  const insufficientRows = rows.filter((r) => r.isInsufficient);
+  const primaryConflict = insufficientRows[0] || null;
+  const singleAdjustableQty =
+    insufficientRows.length === 1 && primaryConflict.availableQty > 0
+      ? primaryConflict.availableQty
+      : null;
+
+  return {
+    rows,
+    insufficientRows,
+    primaryConflict,
+    singleAdjustableQty,
+  };
+}
+
+/**
+ * Resolve HTTP 409 INSUFFICIENT_STOCK on cart:
+ * - 'REMOVE_INSUFFICIENT': remove only conflicting lines, preserving valid lines.
+ * - 'ADJUST_TO_MAX': clamp conflicting lines to available_quantity (or remove if 0).
+ */
+export function applyInsufficientStockResolution(
+  cart = [],
+  details = null,
+  mode = 'ADJUST_TO_MAX'
+) {
+  const rawItems = Array.isArray(details?.items) ? details.items : [];
+  const insufficientMap = new Map();
+
+  for (const entry of rawItems) {
+    if (
+      entry &&
+      Number.isInteger(entry.product_id) &&
+      typeof entry.available_quantity === 'number'
+    ) {
+      insufficientMap.set(
+        entry.product_id,
+        Math.max(0, Math.floor(entry.available_quantity))
+      );
+    }
+  }
+
+  if (mode === 'REMOVE_INSUFFICIENT') {
+    return (Array.isArray(cart) ? cart : []).filter(
+      (item) => !insufficientMap.has(item.productId)
+    );
+  }
+
+  const nextCart = [];
+  for (const item of Array.isArray(cart) ? cart : []) {
+    if (!insufficientMap.has(item.productId)) {
+      nextCart.push(item);
+      continue;
+    }
+    const maxAvail = insufficientMap.get(item.productId);
+    if (maxAvail > 0) {
+      nextCart.push({
+        ...item,
+        quantity: Math.min(item.quantity, maxAvail),
+        availableStock: maxAvail,
+      });
+    }
+  }
+  return nextCart;
+}
+
+/**
+ * Build view model for HTTP 409 PRICE_CHANGED modal using real Backend details.changed_items
+ * and current POS cart lines (no mock data).
+ */
+export function buildPriceChangedViewModel(cart = [], details = null) {
+  const rawChanged = Array.isArray(details?.changed_items)
+    ? details.changed_items
+    : [];
+  const cartMap = new Map(
+    (Array.isArray(cart) ? cart : []).map((item) => [item.productId, item])
+  );
+
+  const changedItems = rawChanged
+    .filter(
+      (entry) =>
+        entry &&
+        Number.isInteger(entry.product_id) &&
+        typeof entry.viewed_unit_price_vnd === 'number' &&
+        typeof entry.current_unit_price_vnd === 'number'
+    )
+    .map((entry) => {
+      const cartItem = cartMap.get(entry.product_id);
+      const diffVnd = entry.current_unit_price_vnd - entry.viewed_unit_price_vnd;
+      return {
+        productId: entry.product_id,
+        sku: cartItem?.sku || '',
+        name: cartItem?.name || `Sản phẩm #${entry.product_id}`,
+        quantity: cartItem?.quantity || 1,
+        oldPriceVnd: entry.viewed_unit_price_vnd,
+        newPriceVnd: entry.current_unit_price_vnd,
+        diffVnd,
+      };
+    });
+
+  const oldTotalVnd = calculateCartTotals(cart).totalVnd;
+  const updatedCart = applyPriceChangedAcceptance(cart, details);
+  const newTotalVnd = calculateCartTotals(updatedCart).totalVnd;
+
+  return {
+    changedItems,
+    oldTotalVnd,
+    newTotalVnd,
+  };
+}
+
+/**
+ * Apply new server unit prices from HTTP 409 PRICE_CHANGED to cart items.
+ */
+export function applyPriceChangedAcceptance(cart = [], details = null) {
+  const rawChanged = Array.isArray(details?.changed_items)
+    ? details.changed_items
+    : [];
+  const priceMap = new Map();
+
+  for (const entry of rawChanged) {
+    if (
+      entry &&
+      Number.isInteger(entry.product_id) &&
+      typeof entry.current_unit_price_vnd === 'number' &&
+      entry.current_unit_price_vnd > 0
+    ) {
+      priceMap.set(entry.product_id, entry.current_unit_price_vnd);
+    }
+  }
+
+  return (Array.isArray(cart) ? cart : []).map((item) => {
+    if (!priceMap.has(item.productId)) return item;
+    return {
+      ...item,
+      unitPriceVnd: priceMap.get(item.productId),
+    };
+  });
 }
