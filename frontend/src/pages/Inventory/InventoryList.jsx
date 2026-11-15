@@ -430,6 +430,23 @@ export default function InventoryList() {
           product={adjustingProduct}
           categoryName={categoryMap.get(adjustingProduct.category_id) || ''}
           onClose={() => setAdjustingProduct(null)}
+          onReloadLatest={async (productId) => {
+            try {
+              setIsLoading(true);
+              const latestData = await inventoryApi.getProductInventory(productId);
+              if (latestData) {
+                setAdjustingProduct(latestData);
+                toast.info(`Đã cập nhật phiên bản tồn kho mới nhất (v${latestData.stock_version}).`);
+              }
+              // Đồng thời làm mới bảng danh sách bên ngoài
+              loadInventory();
+            } catch (err) {
+              const msg = getApiErrorMessage(err, 'Không thể làm mới dữ liệu sản phẩm.');
+              toast.error(msg);
+            } finally {
+              setIsLoading(false);
+            }
+          }}
           onSuccess={(res) => {
             toast.success(
               res?.movement_created

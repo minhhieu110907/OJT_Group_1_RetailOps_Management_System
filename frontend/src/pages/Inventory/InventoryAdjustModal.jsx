@@ -34,6 +34,7 @@ export default function InventoryAdjustModal({
   categoryName,
   onClose,
   onSuccess,
+  onReloadLatest,
 }) {
   const { user } = useAuth();
   const toast = useToast();
@@ -43,6 +44,7 @@ export default function InventoryAdjustModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [capturedTime, setCapturedTime] = useState('');
+  const [conflictData, setConflictData] = useState(null);
 
   // Đồng bộ giá trị khởi tạo khi mở Modal
   useEffect(() => {
@@ -50,6 +52,7 @@ export default function InventoryAdjustModal({
       setCountedQty(product.quantity !== undefined && product.quantity !== null ? String(product.quantity) : '0');
       setReason('');
       setErrorMessage('');
+      setConflictData(null);
       setCapturedTime(formatNow());
     }
   }, [isOpen, product]);
@@ -151,7 +154,14 @@ export default function InventoryAdjustModal({
       const msg = getApiErrorMessage(err, 'Không thể điều chỉnh tồn kho.');
       // Nếu là xung đột phiên bản (409 Conflict)
       if (err?.response?.status === 409) {
-        setErrorMessage('Dữ liệu tồn kho của sản phẩm này đã bị thay đổi bởi phiên làm việc khác. Vui lòng đóng modal và tải lại trang.');
+        const errorDetails = err?.response?.data?.details || {};
+        const serverVersion = errorDetails.current_stock_version || (currentVersion + 1);
+        setConflictData({
+          expectedVersion: currentVersion,
+          actualVersion: serverVersion,
+          reasonDesc: 'Giao dịch khác (POS hoặc Nhập hàng) vừa hoàn tất cập nhật tồn kho',
+          updatedAt: formatNow(),
+        });
       } else {
         setErrorMessage(msg);
       }
@@ -185,7 +195,52 @@ export default function InventoryAdjustModal({
           </div>
         </div>
 
-        {errorMessage && (
+        {/* Khối Cảnh báo Xung đột phiên bản dữ liệu (HTTP 409 - Optimistic Lock Violation) */}
+        {conflictData && (
+          <div className={styles.conflictCard}>
+            <div className={styles.conflictHeaderRow}>
+              <div className={styles.conflictTitleBlock}>
+                <span className={styles.conflictTitle}>Xung đột phiên bản dữ liệu </span>
+              </div>
+             
+            </div>
+
+            <p className={styles.conflictDesc}>
+              Dữ liệu tồn kho của sản phẩm này vừa thay đổi ở một giao dịch khác (Phiên bản yêu cầu: <span className={styles.versionChip}>v{conflictData.expectedVersion}</span>, Phiên bản thực tế trên máy chủ: <span className={styles.versionChipHighlight}>v{conflictData.actualVersion}</span>). Vui lòng tải lại dữ liệu và kiểm kê lại số thực tế trước khi xác nhận.
+            </p>
+
+            <div className={styles.conflictDetailsBox}>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel}>Nguyên nhân xung đột:</span>
+                <span className={styles.conflictDetailValue}>{conflictData.reasonDesc}</span>
+              </div>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel}>Thời điểm máy chủ cập nhật:</span>
+                <span className={styles.conflictDetailValue}>{conflictData.updatedAt}</span>
+              </div>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel}>Hành vi bảo vệ:</span>
+                <span className={styles.conflictActionProtect}>Hủy bỏ commit để tránh sai lệch âm tồn</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className={styles.conflictReloadBtn}
+              onClick={() => {
+                if (onReloadLatest) {
+                  onReloadLatest(product.product_id);
+                } else {
+                  onClose();
+                }
+              }}
+            >
+              Tải lại dữ liệu mới nhất
+            </button>
+          </div>
+        )}
+
+        {errorMessage && !conflictData && (
           <div className={styles.errorAlert}>
             {errorMessage}
           </div>
@@ -214,7 +269,7 @@ export default function InventoryAdjustModal({
           </div>
 
           <div className={`${styles.statCard} ${styles.statCardDelta}`}>
-            <span className={styles.statCardTitle}>CHÊNH LỆCH (DELTA)</span>
+            <span className={styles.statCardTitle}>CHÊNH LỆCH</span>
             <div className={styles.statCardMain}>
               <span className={`${styles.statCardDeltaNumber} ${deltaColorClass}`}>
                 {isValidCounted ? deltaSign : '-'}
