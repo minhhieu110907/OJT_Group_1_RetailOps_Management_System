@@ -1,6 +1,6 @@
 """Unit tests for SalesAnalyticsService and period resolution."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from unittest.mock import MagicMock
 
 import pytest
@@ -79,6 +79,51 @@ def test_resolve_sales_period_validation_date_max_overflow() -> None:
     """to_date >= date.max raises 422 DomainValidationError."""
     with pytest.raises(DomainValidationError, match="vượt giới hạn"):
         resolve_sales_period(to_date=date.max)
+
+
+def test_resolve_sales_period_validation_date_min_underflow() -> None:
+    """from_date <= date.min raises 422 DomainValidationError."""
+    with pytest.raises(DomainValidationError, match="vượt giới hạn"):
+        resolve_sales_period(from_date=date.min, to_date=date.min)
+
+
+def test_resolve_sales_period_month_boundaries() -> None:
+    """Valid range across month boundary resolves correct UTC bounds."""
+    # Month boundary: Jan 31 -> Feb 1
+    period = resolve_sales_period(from_date=date(2026, 1, 31), to_date=date(2026, 2, 1))
+    assert period.start_utc == datetime(2026, 1, 30, 17, 0, 0, tzinfo=UTC)
+    assert period.end_utc_exclusive == datetime(2026, 2, 1, 17, 0, 0, tzinfo=UTC)
+
+    # Leap year month boundary: Feb 28 -> Mar 1 (2024 is leap year)
+    period_leap = resolve_sales_period(
+        from_date=date(2024, 2, 28), to_date=date(2024, 3, 1)
+    )
+    assert period_leap.start_utc == datetime(2024, 2, 27, 17, 0, 0, tzinfo=UTC)
+    assert period_leap.end_utc_exclusive == datetime(2024, 3, 1, 17, 0, 0, tzinfo=UTC)
+
+
+def test_resolve_sales_period_utc_boundary_shift() -> None:
+    """Verify Vietnam business date shifts exactly -7 hours to half-open UTC bounds."""
+    period = resolve_sales_period(
+        from_date=date(2026, 6, 15), to_date=date(2026, 6, 15)
+    )
+    # 2026-06-15 00:00:00+07:00 == 2026-06-14 17:00:00 UTC
+    assert period.start_utc == datetime(2026, 6, 14, 17, 0, 0, tzinfo=UTC)
+    # 2026-06-16 00:00:00+07:00 == 2026-06-15 17:00:00 UTC
+    assert period.end_utc_exclusive == datetime(2026, 6, 15, 17, 0, 0, tzinfo=UTC)
+
+
+def test_resolve_sales_period_valid_near_min_date() -> None:
+    """Earliest safely convertible date 0001-01-02 resolves without error."""
+    period = resolve_sales_period(from_date=date(1, 1, 2), to_date=date(1, 1, 2))
+    expected_start = datetime.combine(date(1, 1, 2), time.min, tzinfo=VN_TZ).astimezone(
+        UTC
+    )
+    expected_end = datetime.combine(date(1, 1, 3), time.min, tzinfo=VN_TZ).astimezone(
+        UTC
+    )
+    assert period.start_utc == expected_start
+    assert period.end_utc_exclusive == expected_end
 
 
 def test_resolve_sales_period_validation_exceeds_max_days() -> None:

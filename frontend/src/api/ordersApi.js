@@ -1,8 +1,10 @@
 import axiosClient from './axiosClient.js';
 import { assertRealApiMode, isValidIsoTimestamp } from './productsApi.js';
+import { normalizeOrderSearchQuery } from '../utils/orderUtils.js';
 
 const MAX_CHECKOUT_LINES = 100;
 const CHECKOUT_REQUEST_TIMEOUT_MS = 15000;
+const CANCEL_REASON_MAX_LENGTH = 500;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{16,128}$/;
 
 function createClientValidationError(message) {
@@ -15,8 +17,13 @@ export function generateCheckoutIdempotencyKey() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return `pos-${globalThis.crypto.randomUUID()}`;
   }
-  const rand = Math.random().toString(36).slice(2, 10);
-  return `pos-${Date.now()}-${rand}`;
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `pos-${hex}`;
+  }
+  throw new Error('Secure cryptographic random generator is required for Idempotency-Key.');
 }
 
 export function validateOrderRead(order) {
@@ -98,5 +105,152 @@ export const ordersApi = {
     );
 
     return validateOrderRead(response.data);
+  },
+
+  /**
+   * Fetch paginated order history via GET /api/v1/orders (Real API only).
+   */
+  async getOrders({
+    isMockMode,
+    page = 1,
+    pageSize = 20,
+    status,
+    fromDate,
+    toDate,
+    search,
+  } = {}) {
+    assertRealApiMode(isMockMode);
+
+    const params = {
+      page,
+      page_size: pageSize,
+    };
+    if (status) params.status = status;
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
+    const normalizedSearch = normalizeOrderSearchQuery(search);
+    if (normalizedSearch) {
+      params.search = normalizedSearch;
+    }
+
+    const response = await axiosClient.get('/orders', { params });
+    const data = response.data;
+    if (!data || !Array.isArray(data.items) || typeof data.total !== 'number') {
+      throw new Error('Order list response payload is invalid.');
+    }
+
+    return {
+      items: data.items.map(validateOrderRead),
+      total: data.total,
+      page: data.page ?? page,
+      pageSize: data.page_size ?? pageSize,
+    };
+  },
+
+  /**
+   * Fetch single order details via GET /api/v1/orders/{order_id} (Real API only).
+   */
+  async getOrderById({ isMockMode, orderId } = {}) {
+    assertRealApiMode(isMockMode);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      throw createClientValidationError('Mã đơn hàng không hợp lệ.');
+    }
+
+    const response = await axiosClient.get(`/orders/${orderId}`);
+    return validateOrderRead(response.data);
+  },
+
+  /**
+   * Cancel a COMPLETED order via POST /api/v1/orders/{order_id}/cancel (Real API only).
+   */
+  async cancelOrder({ isMockMode, orderId, reason, idempotencyKey } = {}) {
+    assertRealApiMode(isMockMode);
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      throw createClientValidationError('Mã đơn hàng không hợp lệ.');
+    }
+
+    const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+    if (!trimmedReason) {
+      throw createClientValidationError('Vui lòng nhập lý do hủy đơn hàng.');
+    }
+    if (trimmedReason.length > CANCEL_REASON_MAX_LENGTH) {
+      throw createClientValidationError(
+        `Lý do hủy đơn không được vượt quá ${CANCEL_REASON_MAX_LENGTH} ký tự.`
+      );
+    }
+
+    const key =
+      typeof idempotencyKey === 'string' && IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)
+        ? idempotencyKey
+        : generateCheckoutIdempotencyKey();
+
+    const response = await axiosClient.post(
+      `/orders/${orderId}/cancel`,
+      { reason: trimmedReason },
+      {
+        timeout: CHECKOUT_REQUEST_TIMEOUT_MS,
+        headers: {
+          'Idempotency-Key': key,
+        },
+      }
+    );
+
+    return validateOrderRead(response.data);
+  },
+
+  /**
+   * Contract alias: ordersApi.list(query) -> GET /api/v1/orders
+   */
+  async list(options = {}) {
+    return this.getOrders(options);
+  },
+
+  /**
+   * Contract alias: ordersApi.get(orderId) -> GET /api/v1/orders/{order_id}
+   */
+  async get(orderId, options = {}) {
+    if (orderId && typeof orderId === 'object') {
+      return this.getOrderById(orderId);
+    }
+    return this.getOrderById({ ...options, orderId });
+  },
+
+  /**
+   * Contract alias: ordersApi.cancel(orderId, reason, key) -> POST /api/v1/orders/{order_id}/cancel
+   */
+  async cancel(orderId, reason, idempotencyKey, options = {}) {
+    if (orderId && typeof orderId === 'object') {
+      return this.cancelOrder(orderId);
+    }
+    return this.cancelOrder({
+      ...options,
+      orderId,
+      reason,
+      idempotencyKey,
+    });
+  },
+};
+
+export const checkoutApi = {
+  /**
+   * Contract alias: checkoutApi.checkout(items, key) -> POST /api/v1/orders/checkout
+   */
+  async checkout(items, idempotencyKey, options = {}) {
+    if (items && !Array.isArray(items) && typeof items === 'object') {
+      const payloadItems = Array.isArray(items.items) ? items.items : [];
+      return ordersApi.checkoutOrder({
+        ...options,
+        ...items,
+        items: payloadItems,
+        idempotencyKey: idempotencyKey || items.idempotencyKey,
+      });
+    }
+    return ordersApi.checkoutOrder({
+      ...options,
+      items,
+      idempotencyKey,
+    });
   },
 };
