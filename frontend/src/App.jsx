@@ -15,6 +15,7 @@ import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
 import PurchaseList from './pages/Purchases/PurchaseList';
 import PosPage from './pages/Pos/PosPage';
+import OrderList from './pages/Orders/OrderList';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -87,10 +88,7 @@ export default function App() {
                   path="/inventory"
                   element={<PlaceholderPage title="Màn hình Quản lý Tồn kho" />}
                 />
-                <Route
-                  path="/orders"
-                  element={<PlaceholderPage title="Màn hình Quản lý Đơn hàng" />}
-                />
+                <Route path="/orders" element={<OrderList />} />
 
                 {/* 2.2. Nhánh Quản trị (CHỈ DÀNH RIÊNG CHO ADMIN) */}
                 <Route element={<ProtectedRoute allowedRoles={['ADMIN']} />}>
