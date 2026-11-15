@@ -1165,3 +1165,94 @@ async def test_api_products_query_params_validation_and_staff_admin_access() -> 
             assert bad_resp.status_code == 422, f"Expected 422 for {invalid_params}"
             err_body = bad_resp.json()
             assert err_body["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.anyio
+async def test_api_products_sort_by_quantity_asc_and_tie_breaker() -> None:
+    """Verify sort=quantity_asc orders by 0, 0, 5, 20 with id tie-breaker."""
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(dbapi_conn: object, _record: object) -> None:
+        conn = dbapi_conn  # type: ignore[assignment]
+        conn.create_collation(  # type: ignore[attr-defined]
+            "ascii_bin", lambda a, b: (a > b) - (a < b)
+        )
+
+    Category.__table__.create(engine)
+    Product.__table__.create(engine)
+    Inventory.__table__.create(engine)
+    session = Session(bind=engine)
+
+    now = datetime(2026, 11, 15, 10, 0, 0)
+    category = Category(
+        id=1,
+        name="Danh mục mẫu",
+        status=CategoryStatus.ACTIVE.value,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(category)
+
+    # Seed 4 products with quantities: 0, 0 (tie-breaker check), 5, 20
+    for pid, sku, name, qty in (
+        (11, "SKU-ZERO-2", "Sản phẩm Tồn 0 (ID 11)", 0),
+        (10, "SKU-ZERO-1", "Sản phẩm Tồn 0 (ID 10)", 0),
+        (13, "SKU-TWENTY", "Sản phẩm Tồn 20", 20),
+        (12, "SKU-FIVE", "Sản phẩm Tồn 5", 5),
+    ):
+        session.add(
+            Product(
+                id=pid,
+                category_id=1,
+                sku=sku,
+                name=name,
+                status=CatalogStatus.ACTIVE.value,
+                sale_price_vnd=10_000,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            Inventory(
+                product_id=pid,
+                quantity=qty,
+                stock_version=1,
+                first_stocked_at=now if qty > 0 else None,
+                updated_at=now,
+            )
+        )
+    session.commit()
+
+    settings = test_settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_db_session] = lambda: session
+    app.dependency_overrides[get_current_principal] = lambda: make_principal(
+        UserRole.STAFF
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/v1/products?sort=quantity_asc")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 4
+    items = body["items"]
+    assert len(items) == 4
+
+    # Verify quantities: 0, 0, 5, 20
+    assert [item["quantity"] for item in items] == [0, 0, 5, 20]
+
+    # Verify IDs: 10, 11 (tie-breaker id.asc() for same quantity 0), 12, 13
+    assert [item["id"] for item in items] == [10, 11, 12, 13]

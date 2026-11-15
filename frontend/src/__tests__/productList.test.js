@@ -1411,33 +1411,35 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       );
     });
 
-    test('FINAL SORTING FIX: Removes "Mặc định" and "Tồn kho: ít → nhiều", sets "Cần nhập trước" (restock_first) as default, and sends sort to Backend', async () => {
+    test('SORTING: Dropdown renders both "Cần nhập trước" (default) and "Tồn kho: ít → nhiều" (quantity_asc), sending correct sort to Backend', async () => {
       assert.equal(RESTOCK_FIRST_SORT, 'restock_first');
+      assert.equal(QUANTITY_ASC_SORT, 'quantity_asc');
       assert.equal(DEFAULT_PRODUCT_SORT, 'restock_first');
       assert.ok(ALLOWED_PRODUCT_SORTS.has('restock_first'));
+      assert.ok(ALLOWED_PRODUCT_SORTS.has('quantity_asc'));
 
       const productListSource = fs.readFileSync(
         path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
         'utf8'
       );
 
-      // 1. "Mặc định" and "Tồn kho: ít → nhiều" options must be completely removed from sort dropdown
+      // 1. "Mặc định" option must be completely removed from sort dropdown
       assert.doesNotMatch(
         productListSource,
         /<option[^>]*>\s*Mặc định\s*<\/option>/,
         'Must completely remove "Mặc định" option from sort dropdown'
       );
-      assert.doesNotMatch(
-        productListSource,
-        /Tồn kho:\s*ít\s*→\s*nhiều/,
-        'Must remove duplicate "Tồn kho: ít → nhiều" option from sort dropdown'
-      );
 
-      // 2. "Cần nhập trước" must be present and default sort state must be DEFAULT_PRODUCT_SORT (restock_first)
+      // 2. Both "Cần nhập trước" and "Tồn kho: ít → nhiều" must be present in sort dropdown
       assert.match(
         productListSource,
         /<option value=\{RESTOCK_FIRST_SORT\}>Cần nhập trước<\/option>/,
-        'Must render "Cần nhập trước" option as default in sort dropdown'
+        'Must render "Cần nhập trước" option in sort dropdown'
+      );
+      assert.match(
+        productListSource,
+        /<option value=\{QUANTITY_ASC_SORT\}>Tồn kho: ít → nhiều<\/option>/,
+        'Must render "Tồn kho: ít → nhiều" option in sort dropdown'
       );
       assert.match(
         productListSource,

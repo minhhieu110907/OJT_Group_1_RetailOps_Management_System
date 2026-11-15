@@ -132,7 +132,11 @@ class ProductRepository:
             status=status,
         )
 
-        count_stmt = select(func.count(Product.id)).select_from(Product)
+        count_stmt = (
+            select(func.count(Product.id))
+            .select_from(Product)
+            .join(Inventory, Inventory.product_id == Product.id)
+        )
         if predicates:
             count_stmt = count_stmt.where(*predicates)
         total = int(session.scalar(count_stmt) or 0)
