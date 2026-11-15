@@ -730,7 +730,7 @@ def test_top_products_inactive_and_missing_inventory(
         # Product without Inventory record
         o = Order(
             status=OrderStatus.COMPLETED.value,
-            total_vnd=500_000,
+            total_vnd=5_000_000,
             created_by=admin.id,
             sold_at=t_sold,
         )
@@ -744,7 +744,7 @@ def test_top_products_inactive_and_missing_inventory(
                 product_name_snapshot=p_inactive.name,
                 quantity=100,  # massive quantity to guarantee rank 1
                 unit_price_vnd=50_000,
-                line_total_vnd=500_000,
+                line_total_vnd=5_000_000,
             )
         )
         session.flush()
@@ -758,6 +758,7 @@ def test_top_products_inactive_and_missing_inventory(
     assert inactive_id in top_ids
     item = next(p for p in data.top_products if p.product_id == inactive_id)
     assert item.sold_units == 100
+    assert item.revenue_vnd == 5_000_000
     assert item.quantity is None
     assert item.first_stocked_at is None
 
