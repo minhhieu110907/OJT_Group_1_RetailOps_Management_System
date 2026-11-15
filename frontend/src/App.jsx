@@ -10,6 +10,7 @@ import ForgotPassword from './pages/Auth/ForgotPassword';
 import ResetPassword from './pages/Auth/ResetPassword';
 import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
+import InventoryList from './pages/Inventory/InventoryList';
 import StaffApprovalList from './pages/Staff/StaffApprovalList';
 import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
@@ -83,10 +84,7 @@ export default function App() {
                 {/* 2.1. Nhánh dùng chung (cả ADMIN và STAFF đều truy cập được) */}
                 <Route path="/pos" element={<PosPage />} />
                 <Route path="/products" element={<ProductList />} />
-                <Route
-                  path="/inventory"
-                  element={<PlaceholderPage title="Màn hình Quản lý Tồn kho" />}
-                />
+                <Route path="/inventory" element={<InventoryList />} />
                 <Route
                   path="/orders"
                   element={<PlaceholderPage title="Màn hình Quản lý Đơn hàng" />}
