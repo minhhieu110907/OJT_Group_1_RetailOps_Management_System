@@ -9,8 +9,12 @@ import {
   DEFAULT_POS_PRODUCT_LIMIT,
   PENDING_CHECKOUT_TTL_MS,
   addProductToCart,
+  applyInsufficientStockResolution,
+  applyPriceChangedAcceptance,
   buildCheckoutPayload,
+  buildInsufficientStockViewModel,
   buildPendingCheckoutOwnerScope,
+  buildPriceChangedViewModel,
   calculateCartTotals,
   classifyCheckoutError,
   clearPendingCheckout,
@@ -651,5 +655,162 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
       loadPendingCheckout(fakeSessionStorage, ownerScope, pendingCreatedMs + 1000),
       null
     );
+  });
+
+  test('T04A869 behavioral: handles HTTP 409 PRICE_CHANGED and INSUFFICIENT_STOCK using real Backend details and rotates Idempotency-Key', async () => {
+    const backingStore = new Map();
+    const fakeStorage = {
+      getItem: (k) => (backingStore.has(k) ? backingStore.get(k) : null),
+      setItem: (k, v) => backingStore.set(k, String(v)),
+      removeItem: (k) => backingStore.delete(k),
+    };
+    const ownerScope = 'api:101';
+
+    const cart = [
+      {
+        productId: 1,
+        sku: 'SP0001',
+        name: 'Nước suối 500ml',
+        unitPriceVnd: 5000,
+        quantity: 5,
+        availableStock: 10,
+      },
+      {
+        productId: 2,
+        sku: 'SP0002',
+        name: 'Sữa tươi 1L',
+        unitPriceVnd: 28000,
+        quantity: 2,
+        availableStock: 42,
+      },
+      {
+        productId: 5,
+        sku: 'SP0005',
+        name: 'Dầu ăn Tường An 1L',
+        unitPriceVnd: 54000,
+        quantity: 1,
+        availableStock: 15,
+      },
+    ];
+
+    // 1. Simulate HTTP 409 INSUFFICIENT_STOCK from Backend
+    const stockDetails = {
+      items: [{ product_id: 1, available_quantity: 3 }],
+    };
+    const stockRes = await executeSafePosCheckout({
+      storage: fakeStorage,
+      ownerScope,
+      isMockMode: false,
+      itemsSnapshot: buildCheckoutPayload(cart),
+      cartSnapshot: cart,
+      totalVnd: calculateCartTotals(cart).totalVnd,
+      lineCount: cart.length,
+      idempotencyKey: generateCheckoutIdempotencyKey(),
+      checkoutOrderFn: async () => {
+        const err = new Error('Không đủ tồn kho.');
+        err.response = {
+          status: 409,
+          data: {
+            code: 'INSUFFICIENT_STOCK',
+            message: 'Không đủ tồn kho.',
+            details: stockDetails,
+          },
+        };
+        throw err;
+      },
+    });
+    assert.equal(stockRes.ok, false);
+    assert.equal(stockRes.outcome, 'DEFINITE_FAILURE');
+    assert.equal(stockRes.apiCode, 'INSUFFICIENT_STOCK');
+    assert.equal(stockRes.rotateKey, true);
+    assert.deepEqual(stockRes.details, stockDetails);
+
+    const stockVm = buildInsufficientStockViewModel(cart, stockRes.details);
+    assert.equal(stockVm.primaryConflict.name, 'Nước suối 500ml');
+    assert.equal(stockVm.primaryConflict.requestedQty, 5);
+    assert.equal(stockVm.primaryConflict.availableQty, 3);
+    assert.equal(stockVm.primaryConflict.shortageQty, 2);
+    assert.equal(stockVm.singleAdjustableQty, 3);
+
+    // Adjust to max (3) preserves other valid items and clamps product 1 to 3
+    const adjustedCart = applyInsufficientStockResolution(
+      cart,
+      stockRes.details,
+      'ADJUST_TO_MAX'
+    );
+    assert.equal(adjustedCart.length, 3);
+    assert.equal(adjustedCart[0].quantity, 3);
+    assert.equal(adjustedCart[0].availableStock, 3);
+    assert.equal(adjustedCart[1].quantity, 2);
+
+    // Remove insufficient removes only product 1, keeping products 2 and 5 intact
+    const removedCart = applyInsufficientStockResolution(
+      cart,
+      stockRes.details,
+      'REMOVE_INSUFFICIENT'
+    );
+    assert.equal(removedCart.length, 2);
+    assert.deepEqual(
+      removedCart.map((i) => i.productId),
+      [2, 5]
+    );
+
+    // 2. Simulate HTTP 409 PRICE_CHANGED from Backend
+    const priceDetails = {
+      changed_items: [
+        {
+          product_id: 5,
+          viewed_unit_price_vnd: 54000,
+          current_unit_price_vnd: 56000,
+        },
+      ],
+    };
+    const priceRes = await executeSafePosCheckout({
+      storage: fakeStorage,
+      ownerScope,
+      isMockMode: false,
+      itemsSnapshot: buildCheckoutPayload(adjustedCart),
+      cartSnapshot: adjustedCart,
+      totalVnd: calculateCartTotals(adjustedCart).totalVnd,
+      lineCount: adjustedCart.length,
+      idempotencyKey: generateCheckoutIdempotencyKey(),
+      checkoutOrderFn: async () => {
+        const err = new Error('Giá bán đã thay đổi.');
+        err.response = {
+          status: 409,
+          data: {
+            code: 'PRICE_CHANGED',
+            message: 'Giá bán đã thay đổi. Vui lòng xác nhận lại.',
+            details: priceDetails,
+          },
+        };
+        throw err;
+      },
+    });
+    assert.equal(priceRes.ok, false);
+    assert.equal(priceRes.apiCode, 'PRICE_CHANGED');
+    assert.equal(priceRes.rotateKey, true);
+
+    const priceVm = buildPriceChangedViewModel(adjustedCart, priceRes.details);
+    assert.equal(priceVm.changedItems.length, 1);
+    assert.equal(priceVm.changedItems[0].oldPriceVnd, 54000);
+    assert.equal(priceVm.changedItems[0].newPriceVnd, 56000);
+    assert.equal(priceVm.changedItems[0].diffVnd, 2000);
+    assert.equal(priceVm.oldTotalVnd, 3 * 5000 + 2 * 28000 + 54000); // 125000
+    assert.equal(priceVm.newTotalVnd, 3 * 5000 + 2 * 28000 + 56000); // 127000
+
+    const repricedCart = applyPriceChangedAcceptance(adjustedCart, priceRes.details);
+    assert.equal(
+      repricedCart.find((i) => i.productId === 5).unitPriceVnd,
+      56000
+    );
+
+    // 3. Verify PosPage.jsx contains the 3 real-API modals without trigger badges or mock data
+    const posContent = fs.readFileSync(posPagePath, 'utf8');
+    assert.ok(posContent.includes('Tồn kho không đủ (Insufficient Stock)'));
+    assert.ok(posContent.includes('Xung đột giá bán (HTTP 409)'));
+    assert.ok(posContent.includes('Xác nhận bán hàng thành công'));
+    assert.ok(posContent.includes('✓ Xác nhận bán hàng'));
+    assert.equal(posContent.includes('Trigger:'), false);
   });
 });

@@ -675,6 +675,7 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
       assert.match(helpersSource, /staffApprovalsApi\.rejectStaff/);
       assert.match(staffSource, /closeDetailModalProgrammatic/);
       assert.match(staffSource, /canUserCloseApprovalModal/);
+      assert.match(staffSource, /handledDeepLinkParamRef/);
       assert.match(staffSource, /staffApprovalsApi\s*\.findApprovalByIdBounded/);
       assert.match(staffSource, /parsePositiveApprovalId/);
       assert.match(staffSource, /isModalStale/);
