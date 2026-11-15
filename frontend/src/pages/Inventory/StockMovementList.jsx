@@ -28,7 +28,9 @@ export default function StockMovementList() {
 
   // 3. Cache thông tin sản phẩm (name) chỉ tra cứu theo IDs xuất hiện trong trang
   const [productMap, setProductMap] = useState(new Map());
-  const resolvedIdsRef = useRef(new Set());
+  const pendingIdsRef = useRef(new Set());
+  const failedRetryCountsRef = useRef(new Map()); // pid -> retryCount
+  const MAX_PRODUCT_LOOKUP_RETRIES = 2;
 
   // 4. Modal hiển thị chi tiết Lý do điều chỉnh (Admin only)
   const [viewingReasonItem, setViewingReasonItem] = useState(null);
@@ -48,13 +50,22 @@ export default function StockMovementList() {
     let isMounted = true;
     const missingIds = movements
       .map((m) => m.product_id)
-      .filter((pid) => pid && !resolvedIdsRef.current.has(pid));
+      .filter((pid) => {
+        if (!pid) return false;
+        // Nếu đã có tên trong cache -> không cần nạp
+        if (productMap.has(pid)) return false;
+        // Nếu đang trong tiến trình nạp (pending) -> không gửi trùng
+        if (pendingIdsRef.current.has(pid)) return false;
+        // Nếu đã thử thất bại quá số lần cho phép -> ngừng retry
+        const retryCount = failedRetryCountsRef.current.get(pid) || 0;
+        return retryCount < MAX_PRODUCT_LOOKUP_RETRIES;
+      });
 
     const uniqueMissingIds = [...new Set(missingIds)];
     if (uniqueMissingIds.length === 0) return;
 
-    // Đánh dấu ngay vào resolvedIdsRef để không bao giờ gửi request trùng lặp
-    uniqueMissingIds.forEach((pid) => resolvedIdsRef.current.add(pid));
+    // Đánh dấu ngay vào pendingIdsRef để chống duplicate in-flight requests
+    uniqueMissingIds.forEach((pid) => pendingIdsRef.current.add(pid));
 
     async function resolvePageProductNames() {
       try {
@@ -62,24 +73,37 @@ export default function StockMovementList() {
           uniqueMissingIds.map(async (pid) => {
             try {
               const p = await productsApi.getProduct(pid);
-              return [pid, p?.name || null];
+              return { pid, name: p?.name || null, success: Boolean(p?.name) };
             } catch {
-              return [pid, null];
+              return { pid, name: null, success: false };
             }
           })
         );
 
+        // Giải phóng cờ pending và ghi nhận retry count nếu thất bại
+        resolvedEntries.forEach(({ pid, success }) => {
+          pendingIdsRef.current.delete(pid);
+          if (!success) {
+            const count = failedRetryCountsRef.current.get(pid) || 0;
+            failedRetryCountsRef.current.set(pid, count + 1);
+          }
+        });
+
         if (isMounted) {
-          setProductMap((prev) => {
-            const next = new Map(prev);
-            for (const [pid, name] of resolvedEntries) {
-              if (name) next.set(pid, name);
-            }
-            return next;
-          });
+          const successfulEntries = resolvedEntries.filter((e) => e.success);
+          if (successfulEntries.length > 0) {
+            setProductMap((prev) => {
+              const next = new Map(prev);
+              for (const { pid, name } of successfulEntries) {
+                next.set(pid, name);
+              }
+              return next;
+            });
+          }
         }
       } catch {
-        // Fallback im lặng
+        // Giải phóng cờ pending nếu có lỗi bất ngờ
+        uniqueMissingIds.forEach((pid) => pendingIdsRef.current.delete(pid));
       }
     }
 
@@ -87,7 +111,7 @@ export default function StockMovementList() {
     return () => {
       isMounted = false;
     };
-  }, [movements]);
+  }, [movements, productMap]);
 
   // Gọi API lấy lịch sử biến động kho cho STAFF (Server-side)
   const loadMovements = useCallback(async () => {
@@ -285,7 +309,7 @@ export default function StockMovementList() {
 
       {/* 4. Modal hiển thị chi tiết lý do điều chỉnh (Admin only, dùng chung Modal component) */}
       <Modal
-        isOpen={Boolean(viewingReasonItem)}
+        isOpen={isAdmin && Boolean(viewingReasonItem)}
         onClose={() => setViewingReasonItem(null)}
         title="Lý do điều chỉnh kiểm kê"
         maxWidth="500px"
@@ -299,7 +323,7 @@ export default function StockMovementList() {
           </button>
         }
       >
-        {viewingReasonItem && (
+        {isAdmin && viewingReasonItem && (
           <div className={styles.modalBody}>
             <div className={styles.metaRow}>
               <span className={styles.metaLabel}>Mã SKU:</span>

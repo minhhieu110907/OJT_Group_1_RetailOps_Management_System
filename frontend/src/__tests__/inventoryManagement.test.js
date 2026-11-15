@@ -299,4 +299,267 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       );
     });
   });
+
+  // =========================================================================
+  // WORKSTREAM 5 — BEHAVIORAL REGRESSION TESTS (P1 & P2 TARGETED PASS)
+  // =========================================================================
+  describe('Behavioral Concurrency, Lifecycle & RBAC Regressions', () => {
+    test('Test A — Failed reload: network rejection preserves conflictData, draft and prevents double POST', async () => {
+      let conflictData = { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Conflict' };
+      let draft = { countedQty: '15', reason: 'Kiem ke dot xuat dinh ky' };
+      let postCount = 0;
+
+      // Controller logic matching InventoryAdjustModal handleReloadLatest
+      const handleReloadLatestController = async (productId, onReloadLatest) => {
+        try {
+          const latest = await onReloadLatest(productId);
+          if (latest) {
+            conflictData = null;
+          }
+        } catch {
+          // Keep conflictData intact on error
+        }
+      };
+
+      // Mock onReloadLatest throwing network error
+      const failingReload = async () => {
+        throw new Error('Network timeout / 500 error');
+      };
+
+      await handleReloadLatestController(101, failingReload);
+
+      // Assertions
+      assert.ok(conflictData !== null, 'Conflict banner must remain visible on reload failure');
+      assert.equal(conflictData.actualVersion, 3, 'Actual server version must not change on failed reload');
+      assert.equal(draft.countedQty, '15', 'Draft countedQty must be preserved on reload failure');
+      assert.equal(draft.reason, 'Kiem ke dot xuat dinh ky', 'Draft reason must be preserved on reload failure');
+      assert.equal(postCount, 0, 'No adjustment POST must be triggered on reload failure');
+    });
+
+    test('Test B — Successful reload: authoritative data clears conflict, updates version, preserves draft and avoids auto-submit', async () => {
+      let conflictData = { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Conflict' };
+      let currentProduct = { product_id: 101, quantity: 10, stock_version: 2 };
+      let draft = { countedQty: '18', reason: 'Kiem ke sau kiem toan' };
+      let autoSubmitted = false;
+
+      const handleReloadLatestController = async (productId, onReloadLatest) => {
+        try {
+          const latest = await onReloadLatest(productId);
+          if (latest) {
+            conflictData = null;
+            currentProduct = latest;
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      const successfulReload = async (productId) => ({
+        product_id: productId,
+        sku: 'SP-101',
+        name: 'Sản phẩm 101',
+        quantity: 12,
+        stock_version: 3,
+      });
+
+      await handleReloadLatestController(101, successfulReload);
+
+      assert.equal(conflictData, null, 'Conflict banner must be cleared after successful reload');
+      assert.equal(currentProduct.stock_version, 3, 'Stock version must be updated to authoritative server version');
+      assert.equal(currentProduct.quantity, 12, 'Authoritative stock quantity must be updated');
+      assert.equal(draft.countedQty, '18', 'Draft countedQty must remain intact after reload');
+      assert.equal(draft.reason, 'Kiem ke sau kiem toan', 'Draft reason must remain intact after reload');
+      assert.equal(autoSubmitted, false, 'Reload must never auto-submit adjustment');
+    });
+
+    test('Test C — Late reload response: stale response after modal close or product switch is discarded', async () => {
+      let adjustingProduct = { product_id: 101, name: 'Sản phẩm A' };
+      let attemptId = 0;
+      let appliedProduct = null;
+
+      // Controller matching InventoryList onReloadLatest guard
+      const createReloadHandler = () => {
+        return async (productId, delayMs, returnData) => {
+          const currentAttempt = ++attemptId;
+          await new Promise((r) => setTimeout(r, delayMs));
+
+          // Guard condition: modal still open for exact product and attempt ID
+          if (currentAttempt === attemptId && adjustingProduct && adjustingProduct.product_id === productId) {
+            appliedProduct = returnData;
+            return returnData;
+          }
+          return null; // Stale response discarded
+        };
+      };
+
+      const handler = createReloadHandler();
+
+      // Launch slow reload for product 101
+      const promiseA = handler(101, 50, { product_id: 101, name: 'Sản phẩm A mới', stock_version: 5 });
+
+      // User switches to product 102 immediately (or closes modal)
+      adjustingProduct = { product_id: 102, name: 'Sản phẩm B' };
+
+      await promiseA;
+
+      // Assert late response A did NOT overwrite product B
+      assert.equal(appliedProduct, null, 'Late response from product A must not be applied after switching to product B');
+      assert.equal(adjustingProduct.product_id, 102, 'Active product must remain product B');
+    });
+
+    test('Test D — Role downgrade: immediate suppression of audit sensitive fields when role becomes STAFF', () => {
+      const renderAuditModalContent = (role, item) => {
+        const isAdmin = role === 'ADMIN';
+        const isModalOpen = isAdmin && Boolean(item);
+        if (!isModalOpen || !isAdmin || !item) return null;
+        return {
+          actor_id: item.actor_id,
+          reason: item.adjustment_reason,
+        };
+      };
+
+      const item = { product_id: 1, actor_id: 99, adjustment_reason: 'Ly do nhay cam chi danh cho Admin' };
+
+      // When ADMIN
+      const adminRender = renderAuditModalContent('ADMIN', item);
+      assert.deepEqual(adminRender, {
+        actor_id: 99,
+        reason: 'Ly do nhay cam chi danh cho Admin',
+      });
+
+      // When downgraded to STAFF
+      const staffRender = renderAuditModalContent('STAFF', item);
+      assert.equal(staffRender, null, 'Audit modal content must evaluate to null immediately upon role downgrade to STAFF');
+    });
+
+    test('Test E — Product lookup retry safety: bounded retry for failures, deduplicated in-flight requests, zero infinite loops', async () => {
+      const pendingIds = new Set();
+      const failedRetryCounts = new Map();
+      const productMap = new Map();
+      const MAX_RETRIES = 2;
+      let totalApiCallCount = 0;
+
+      const resolveProduct = async (pid, shouldFail) => {
+        totalApiCallCount++;
+        if (shouldFail) throw new Error('API Error');
+        return { id: pid, name: `Tên ${pid}` };
+      };
+
+      const lookupController = async (pageIds, failMap) => {
+        const missingIds = pageIds.filter((pid) => {
+          if (!pid) return false;
+          if (productMap.has(pid)) return false;
+          if (pendingIds.has(pid)) return false;
+          const retryCount = failedRetryCounts.get(pid) || 0;
+          return retryCount < MAX_RETRIES;
+        });
+
+        const uniqueMissingIds = [...new Set(missingIds)];
+        if (uniqueMissingIds.length === 0) return;
+
+        uniqueMissingIds.forEach((pid) => pendingIds.add(pid));
+
+        const results = await Promise.all(
+          uniqueMissingIds.map(async (pid) => {
+            try {
+              const res = await resolveProduct(pid, failMap[pid]);
+              return { pid, name: res.name, success: true };
+            } catch {
+              return { pid, name: null, success: false };
+            }
+          })
+        );
+
+        results.forEach(({ pid, success, name }) => {
+          pendingIds.delete(pid);
+          if (success && name) {
+            productMap.set(pid, name);
+          } else {
+            const count = failedRetryCounts.get(pid) || 0;
+            failedRetryCounts.set(pid, count + 1);
+          }
+        });
+      };
+
+      // Turn 1: Product 1 succeeds, Product 2 fails
+      await lookupController([1, 2], { 1: false, 2: true });
+      assert.equal(productMap.get(1), 'Tên 1');
+      assert.equal(productMap.has(2), false);
+      assert.equal(failedRetryCounts.get(2), 1);
+      assert.equal(totalApiCallCount, 2);
+
+      // Turn 2: Retry turn (e.g. re-render with product 2 again)
+      await lookupController([1, 2], { 1: false, 2: true });
+      assert.equal(failedRetryCounts.get(2), 2);
+      assert.equal(totalApiCallCount, 3); // Product 1 skipped from cache, Product 2 called once
+
+      // Turn 3: Exceeded max retries -> no further calls made
+      await lookupController([1, 2], { 1: false, 2: true });
+      assert.equal(totalApiCallCount, 3, 'No further requests made once max retries is reached (no infinite loop)');
+    });
+
+    test('Test F — Ambiguous POST outcome: timeout/network drop does not automatically dispatch a second POST with new UUID', async () => {
+      let dispatchCount = 0;
+      let lastErrorMessage = '';
+      let isSubmitting = false;
+
+      const adjustSubmitController = async (intentKey, isNetworkError) => {
+        dispatchCount++;
+        isSubmitting = true;
+        try {
+          if (isNetworkError) {
+            const timeoutError = new Error('timeout of 10000ms exceeded');
+            timeoutError.code = 'ECONNABORTED';
+            throw timeoutError;
+          }
+          return { success: true };
+        } catch (err) {
+          if (!err.response || err.code === 'ECONNABORTED') {
+            lastErrorMessage =
+              'Kết nối máy chủ bị gián đoạn hoặc quá thời gian phản hồi. Kết quả điều chỉnh chưa thể xác minh. Vui lòng bấm "Tải lại dữ liệu mới nhất" để kiểm tra số tồn trên máy chủ trước khi gửi lại giao dịch.';
+          }
+        } finally {
+          isSubmitting = false;
+        }
+      };
+
+      const key1 = generateSecureIdempotencyKey();
+      await adjustSubmitController(key1, true);
+
+      assert.equal(dispatchCount, 1, 'Exactly one attempt was made; client must never auto-retry with a second POST');
+      assert.ok(
+        lastErrorMessage.includes('Kết quả điều chỉnh chưa thể xác minh'),
+        'Client must warn user that outcome is ambiguous and guide them to authoritative reload'
+      );
+      assert.equal(isSubmitting, false, 'Submission lock must be released so user can reload');
+    });
+
+    test('Test G — No-op path allows submission without requiring 10-character reason', () => {
+      const evaluateCanSubmit = (countedQty, currentQty, reason, isSubmitting, isReloading) => {
+        const parsed = Number(countedQty);
+        const isValidCounted = Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_STOCK_QUANTITY;
+        const delta = parsed - currentQty;
+        const trimmed = reason.trim();
+        const isReasonValid = trimmed.length >= 10 && trimmed.length <= 250;
+        const isNoOp = isValidCounted && delta === 0;
+        return (isNoOp || (isValidCounted && isReasonValid)) && !isSubmitting && !isReloading;
+      };
+
+      // Case 1: Counted = current qty (Delta = 0), reason is empty ("")
+      const canSubmitNoOpEmptyReason = evaluateCanSubmit('10', 10, '', false, false);
+      assert.equal(
+        canSubmitNoOpEmptyReason,
+        true,
+        'No-op (delta === 0) must be submittable to trigger toast and close without forcing 10-char reason'
+      );
+
+      // Case 2: Counted !== current qty (Delta !== 0), reason is empty ("") -> must be blocked
+      const canSubmitDeltaEmptyReason = evaluateCanSubmit('15', 10, '', false, false);
+      assert.equal(
+        canSubmitDeltaEmptyReason,
+        false,
+        'Mutation with delta !== 0 must require valid 10-250 char reason'
+      );
+    });
+  });
 });

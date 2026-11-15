@@ -132,18 +132,24 @@ export default function InventoryAdjustModal({
   // Validation
   const trimmedReason = reason.trim();
   const isReasonValid = trimmedReason.length >= 10 && trimmedReason.length <= 250;
-  const canSubmit = isValidCounted && isReasonValid && !isSubmitting && !isReloading;
+  // Cho phép submit nếu delta === 0 (để kích hoạt No-op toast & close mà không bắt nhập lý do 10 ký tự)
+  // hoặc nếu delta !== 0 thì bắt buộc isValidCounted & isReasonValid
+  const isNoOp = isValidCounted && delta === 0;
+  const canSubmit = (isNoOp || (isValidCounted && isReasonValid)) && !isSubmitting && !isReloading;
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!canSubmit || isSubmittingSyncRef.current) return;
+    if (isSubmittingSyncRef.current) return;
 
     // F05: No-Op Semantics - Số lượng đếm trùng với tồn kho đang hiển thị
-    if (delta === 0) {
+    // Không yêu cầu lý do 10 ký tự cho thao tác No-Op
+    if (isValidCounted && delta === 0) {
       toast.info('Số đếm trùng với tồn kho đang hiển thị. Không có yêu cầu điều chỉnh nào được gửi.');
       onClose();
       return;
     }
+
+    if (!canSubmit) return;
 
     isSubmittingSyncRef.current = true;
     setIsSubmitting(true);
@@ -187,6 +193,12 @@ export default function InventoryAdjustModal({
           actualVersion: serverVersion !== undefined ? serverVersion : 'Chưa xác định',
           detailsMsg: err?.response?.data?.message || 'Phiên bản tồn kho đã thay đổi trên máy chủ.',
         });
+      } else if (!err?.response || err?.code === 'ECONNABORTED') {
+        // Ambiguous network failure: Timeout hoặc mất kết nối mạng sau khi đã gửi request
+        setConflictData(null);
+        setErrorMessage(
+          'Kết nối máy chủ bị gián đoạn hoặc quá thời gian phản hồi. Kết quả điều chỉnh chưa thể xác minh. Vui lòng bấm "Tải lại dữ liệu mới nhất" để kiểm tra số tồn trên máy chủ trước khi gửi lại giao dịch.'
+        );
       } else {
         setConflictData(null);
         setErrorMessage(msg);
@@ -204,11 +216,14 @@ export default function InventoryAdjustModal({
     setErrorMessage('');
     try {
       if (onReloadLatest) {
-        await onReloadLatest(product.product_id);
-        // Clear conflict alert after successful reload
-        setConflictData(null);
+        const latest = await onReloadLatest(product.product_id);
+        // Chỉ xóa conflict banner khi dữ liệu mới thực sự đã được tải về thành công
+        if (latest) {
+          setConflictData(null);
+        }
       }
     } catch (reloadErr) {
+      // Giữ nguyên conflictData, không xóa banner khi reload thất bại
       setErrorMessage(getApiErrorMessage(reloadErr, 'Không thể tải lại dữ liệu mới nhất từ máy chủ.'));
     } finally {
       setIsReloading(false);

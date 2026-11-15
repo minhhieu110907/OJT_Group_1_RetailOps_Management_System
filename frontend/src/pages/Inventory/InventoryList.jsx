@@ -47,6 +47,7 @@ export default function InventoryList() {
   // Ref chống race condition
   const requestIdRef = useRef(0);
   const kpiRequestIdRef = useRef(0);
+  const modalReloadRequestIdRef = useRef(0);
 
   // Tải danh sách danh mục để hiển thị chips
   useEffect(() => {
@@ -442,22 +443,41 @@ export default function InventoryList() {
           isOpen={Boolean(adjustingProduct)}
           product={adjustingProduct}
           categoryName={categoryMap.get(adjustingProduct.category_id) || ''}
-          onClose={() => setAdjustingProduct(null)}
+          onClose={() => {
+            modalReloadRequestIdRef.current++;
+            setAdjustingProduct(null);
+          }}
           onReloadLatest={async (productId) => {
+            const currentAttemptId = ++modalReloadRequestIdRef.current;
             try {
               setIsLoading(true);
               const latestData = await inventoryApi.getProductInventory(productId);
-              if (latestData) {
+
+              // Stale check: modal must still be open for this exact product and attempt
+              if (
+                currentAttemptId === modalReloadRequestIdRef.current &&
+                adjustingProduct &&
+                adjustingProduct.product_id === productId &&
+                isAdmin
+              ) {
                 setAdjustingProduct(latestData);
                 toast.info(`Đã cập nhật phiên bản tồn kho mới nhất (v${latestData.stock_version}).`);
+                loadInventory();
+                return latestData;
               }
-              // Đồng thời làm mới bảng danh sách bên ngoài
-              loadInventory();
+              return null;
             } catch (err) {
               const msg = getApiErrorMessage(err, 'Không thể làm mới dữ liệu sản phẩm.');
-              toast.error(msg);
+              // Chỉ toast lỗi nếu reload attempt này vẫn đang active
+              if (currentAttemptId === modalReloadRequestIdRef.current) {
+                toast.error(msg);
+              }
+              // Rethrow để modal con bắt được thất bại và giữ nguyên conflictData
+              throw err;
             } finally {
-              setIsLoading(false);
+              if (currentAttemptId === modalReloadRequestIdRef.current) {
+                setIsLoading(false);
+              }
             }
           }}
           onSuccess={(res) => {
@@ -466,6 +486,7 @@ export default function InventoryList() {
                 ? `Đã điều chỉnh tồn kho cho ${adjustingProduct.sku} thành công!`
                 : `Đã kiểm kê ${adjustingProduct.sku}: Số lượng tồn kho không đổi.`
             );
+            modalReloadRequestIdRef.current++;
             setAdjustingProduct(null);
             // Refresh lại danh sách tồn kho và KPI
             loadInventory();
