@@ -1,0 +1,17 @@
+HTTP/1.1 409
+date: Sun, 15 Nov 2026 17:44:12 GMT
+server: uvicorn
+content-length: 201
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "RECEIPT_VERSION_CONFLICT",
+  "message": "Phiên bản nháp không khớp: kỳ vọng 999, hiện tại là 1.",
+  "details": {
+    "receipt_id": 11,
+    "current_draft_version": 1,
+    "expected_draft_version": 999
+  }
+}

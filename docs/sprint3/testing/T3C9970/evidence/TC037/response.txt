@@ -1,0 +1,15 @@
+HTTP/1.1 409
+date: Sun, 15 Nov 2026 17:44:12 GMT
+server: uvicorn
+content-length: 138
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "INVALID_STATE",
+  "message": "Sản phẩm đang ngừng kinh doanh, không thể giao dịch tồn kho.",
+  "details": {
+    "product_id": 5
+  }
+}

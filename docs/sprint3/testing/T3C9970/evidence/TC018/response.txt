@@ -1,0 +1,13 @@
+HTTP/1.1 409
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 118
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "IDEMPOTENCY_KEY_REUSED",
+  "message": "Idempotency key was already used for a different request.",
+  "details": null
+}

@@ -1,0 +1,9 @@
+POST http://127.0.0.1:8001/api/v1/inventory/4/adjustments HTTP/1.1
+Content-Type: application/json
+Idempotency-Key: t3c9970-adj-401-764651
+
+{
+  "counted_quantity": 5,
+  "expected_stock_version": 3,
+  "reason": "Unauth"
+}

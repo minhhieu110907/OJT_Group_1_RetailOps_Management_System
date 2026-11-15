@@ -1,0 +1,15 @@
+HTTP/1.1 200
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 84
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "product_id": 4,
+  "quantity": 7,
+  "stock_version": 2,
+  "audit_id": 5,
+  "movement_created": true
+}
