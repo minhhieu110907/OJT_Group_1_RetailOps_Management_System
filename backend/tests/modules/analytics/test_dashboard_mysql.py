@@ -167,26 +167,30 @@ def test_dashboard_mysql_aggregation_and_sources(
         inv_a = Inventory(
             product_id=prod_a.id,
             quantity=3,
+            stock_version=0,
             first_stocked_at=now_unaware,
-            last_stocked_at=now_unaware,
+            updated_at=now_unaware,
         )
         inv_b = Inventory(
             product_id=prod_b.id,
             quantity=5,
+            stock_version=0,
             first_stocked_at=now_unaware,
-            last_stocked_at=now_unaware,
+            updated_at=now_unaware,
         )
         inv_c = Inventory(
             product_id=prod_c.id,
             quantity=20,
+            stock_version=0,
             first_stocked_at=now_unaware,
-            last_stocked_at=now_unaware,
+            updated_at=now_unaware,
         )
         inv_d = Inventory(
             product_id=prod_d.id,
             quantity=1,
+            stock_version=0,
             first_stocked_at=now_unaware,
-            last_stocked_at=now_unaware,
+            updated_at=now_unaware,
         )
         session.add_all([inv_a, inv_b, inv_c, inv_d])
         session.flush()
