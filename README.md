@@ -107,7 +107,7 @@ docker compose exec -e CONFIRM_RETAILOPS_LOCAL_PROVISIONING=retailops-local mysq
 
 - **Docker Desktop** (khuyến nghị kích hoạt WSL2 backend trên Windows) hoặc Docker Engine + Docker Compose v2 (`docker compose version`).
 - **Python:** Bắt buộc **`Python >=3.12, <3.13`** theo cấu hình `backend/pyproject.toml`, kèm công cụ quản lý gói `uv`.
-- **Node.js:** Bắt buộc **`Node.js >= 18`** (Dockerfile build sử dụng image `node:24-alpine`) và `npm`.
+- **Node.js:** Bắt buộc phiên bản Node.js tương thích với ràng buộc của Vite 8.x (`^20.19.0 || >=22.12.0` theo `frontend/package-lock.json`). Khuyến nghị sử dụng **Node.js LTS >= 20.19.0**, **Node.js 22 LTS (>= 22.12.0)** hoặc **Node.js 24** (phiên bản cấu hình trong CI `.github/workflows/frontend-ci.yml`), kèm `npm`. *(Lưu ý: Node.js 18 và các bản Node.js 20 < 20.19.0 không được Vite 8.x và Oxlint hỗ trợ).*
 
 ---
 

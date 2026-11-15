@@ -37,16 +37,16 @@ Tài liệu này xác lập quy trình kiểm thử nghiệm thu người dùng 
 
 Trước khi tiến hành thực thi bất kỳ kịch bản UAT nào, kỹ sư QA và người kiểm thử bắt buộc phải hoàn thành bảng kiểm tra điều kiện tiên quyết sau:
 
-| STT | Hạng mục Kiểm tra | Tiêu chuẩn Đạt yêu cầu | Lệnh Kiểm chứng Thực tế | Trạng thái |
-|:---:|:---|:---|:---|:---:|
-| 1 | **Mã nguồn Git** | Nhánh `feature/T04A996-docs-and-uat`, đồng bộ với develop mới nhất (`b0d4dc9`). | `git status --short --branch`<br>`git rev-parse origin/develop` | **PASS** |
-| 2 | **Docker Containers** | 4 container khởi chạy: `mysql` (healthy), `redis` (healthy), `backend` (healthy), `nginx` (running). | `docker compose ps` | **PASS** |
-| 3 | **Database Revision** | Schema MySQL đã áp dụng đủ 11 migrations lên revision mới nhất của Sprint 3. | `docker compose run --rm --no-deps backend alembic current`<br>*(Kết quả: `20261113_01 (head)`)* | **PASS** |
-| 4 | **Admin Seed** | 1 tài khoản quản trị viên duy nhất (`ADMIN`, trạng thái `ACTIVE`), mật khẩu đạt chuẩn. | `docker compose run --rm --no-deps backend python -m app.modules.auth.seed` | **PASS** |
-| 5 | **Categories Seed** | 5 danh mục hàng hóa chuẩn từ code: "Đồ uống", "Bánh kẹo & Đồ ăn vặt", "Thực phẩm đóng hộp", "Hóa mỹ phẩm & Tẩy rửa", "Đồ gia dụng tiện ích". | `docker compose run --rm --no-deps backend python -m app.modules.categories.seed` | **PASS** |
-| 6 | **Suppliers Seed** | 3 nhà cung cấp chuẩn từ code: "Công ty TNHH Phân phối Nước giải khát Việt", "Công ty Cổ phần Thực phẩm An Toàn", "Đại lý Phân phối Hàng gia dụng Miền Bắc". | `docker compose run --rm --no-deps backend python -m app.modules.suppliers.seed` | **PASS** |
-| 7 | **Proxy & Ingress** | Cổng Nginx mở tại `http://127.0.0.1:80` (hoặc `8080`), API health phản hồi `{"status":"ok"}`. | `curl -fsS http://127.0.0.1:80/api/v1/health` | **PASS** |
-| 8 | **Test Network (CI Overlay)** | Mạng `application` chuyển `internal: false`, Redis mở `16379`, MySQL test db `retailops_test`. | `docker compose -f compose.yaml -f compose.ci.yaml up -d` | **PASS** |
+| STT | Hạng mục Kiểm tra | Tiêu chuẩn Đạt yêu cầu | Lệnh Kiểm chứng Thực tế | Trạng thái | Bằng chứng Kiểm chứng Thực tế (Evidence) |
+|:---:|:---|:---|:---|:---:|:---|
+| 1 | **Mã nguồn Git** | Nhánh `feature/T04A996-docs-and-uat`, đồng bộ với develop mới nhất (`b0d4dc9`). | `git status --short --branch`<br>`git rev-parse HEAD`<br>`git rev-parse origin/develop` | **VERIFIED** | Đã xác minh qua Git CLI cục bộ & remote. HEAD: commit `89f210f` (merge `f9339f9` từ `origin/develop:b0d4dc9`). Cây làm việc sạch (0 uncommitted changes). |
+| 2 | **Docker Containers** | 4 container khởi chạy: `mysql` (healthy), `redis` (healthy), `backend` (healthy), `nginx` (running). | `docker compose ps` | **PENDING_CHECK** | File `compose.yaml` sẵn sàng; chưa có phiên chạy `docker compose ps` ghi nhận healthy đủ 4 container trong môi trường UAT demo; cần kiểm tra khi dựng stack trước phiên UAT thực tế. |
+| 3 | **Database Revision** | Schema MySQL đã áp dụng đủ 11 migrations lên revision mới nhất của Sprint 3. | `docker compose run --rm --no-deps backend alembic current`<br>*(Kết quả: `20261113_01 (head)`)* | **PENDING_CHECK**<br>*(CI: VERIFIED)* | Đã xác minh trên GitHub Actions CI Backend (PR #44, commit `b0d4dc9` áp dụng đủ 11 migrations tới `20261113_01`). Cần kiểm chứng lại trên container MySQL demo cục bộ trước phiên UAT. |
+| 4 | **Admin Seed** | 1 tài khoản quản trị viên duy nhất (`ADMIN`, trạng thái `ACTIVE`), mật khẩu đạt chuẩn. | `docker compose run --rm --no-deps -e RETAILOPS_ADMIN_SEED_EMAIL -e RETAILOPS_ADMIN_SEED_PASSWORD backend python -m app.modules.auth.seed` | **PENDING_CHECK** | Script `app/modules/auth/seed.py` đã sẵn sàng và idempotent; cần thực thi và ghi nhận log nạp thành công khi khởi tạo môi trường UAT demo. |
+| 5 | **Categories Seed** | 5 danh mục hàng hóa chuẩn từ code: "Đồ uống", "Bánh kẹo & Đồ ăn vặt", "Thực phẩm đóng hộp", "Hóa mỹ phẩm & Tẩy rửa", "Đồ gia dụng tiện ích". | `docker compose run --rm --no-deps backend python -m app.modules.categories.seed` | **PENDING_CHECK** | Script `app/modules/categories/seed.py` định nghĩa 5 danh mục chuẩn; cần thực thi và xác nhận nạp thành công khi khởi tạo môi trường UAT demo. |
+| 6 | **Suppliers Seed** | 3 nhà cung cấp chuẩn từ code: "Công ty TNHH Phân phối Nước giải khát Việt", "Công ty Cổ phần Thực phẩm An Toàn", "Đại lý Phân phối Hàng gia dụng Miền Bắc". | `docker compose run --rm --no-deps backend python -m app.modules.suppliers.seed` | **PENDING_CHECK** | Script `app/modules/suppliers/seed.py` định nghĩa 3 nhà cung cấp chuẩn; cần thực thi và xác nhận nạp thành công khi khởi tạo môi trường UAT demo. |
+| 7 | **Proxy & Ingress** | Cổng Nginx mở tại `http://127.0.0.1:80` (hoặc `8080`), API health phản hồi `{"status":"ok"}`. | `curl -fsS http://127.0.0.1:80/api/v1/health` | **PENDING_CHECK** | File cấu hình `docker/nginx/nginx.conf` và route `/api/v1/health` đã được khai báo; cần thực hiện probe HTTP thực tế khi Nginx container đang chạy. |
+| 8 | **Test Network (CI Overlay)** | Mạng `application` chuyển `internal: false`, Redis mở `16379`, MySQL test db `retailops_test`. | `docker compose -f compose.yaml -f compose.ci.yaml up -d`<br>`pytest tests/integration/test_purchase_receipts_mysql.py` | **VERIFIED**<br>*(CI Environment)* | GitHub Actions Backend CI (`compose.ci.yaml`), suite `test_purchase_receipts_mysql.py` (7 tests) pass 100% trên commit `b0d4dc9`. Cần khởi chạy host overlay khi thực hiện integration test cục bộ. |
 
 ---
 
@@ -167,17 +167,17 @@ Bảng theo dõi tiến độ và trạng thái tích hợp thực tế của to
 | Task LMS | Tên Tác vụ Nghiệp vụ | Người phụ trách (Owner) | Mốc trong Excel | Hợp đồng / Gate | Trạng thái Git / PR | Cổng Nghiệm thu | Ghi chú & Bằng chứng |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|:---|
 | `T04A90F` | Transactional Outbox và Email Worker | Hiếu | 18–19/11 | `BE-OUTBOX` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
-| `T04A92B` | Analytics doanh thu và đơn hàng | Na Na | 18–19/11 | `HTTP-ANALYTICS` | `PR_OPEN` | **STARTABLE** | PR #60 đang mở review trên GitHub |
+| `T04A92B` | Analytics doanh thu và đơn hàng | Na Na | 18–19/11 | `HTTP-ANALYTICS` | `PR_OPEN` | **IN_REVIEW** | PR #60 đang mở review trên GitHub (head: `21d9542`, base: `b0d4dc9`) |
 | `T04A947` | Analytics sản phẩm | Dương | 18–19/11 | `HTTP-ANALYTICS` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
-| `T04A961` | Hoàn thiện lịch sử và hủy đơn UI | Lâm | 18–19/11 | `HTTP-ORDER,FE-ADAPTER` | `NOT_STARTED` | **STARTABLE** | Nền tảng T04A869/T04A883 đã merge qua PR #62; task hoàn thiện UI Sprint 3 |
+| `T04A961` | Hoàn thiện lịch sử và hủy đơn UI | Lâm | 18–19/11 | `HTTP-ORDER,FE-ADAPTER` | `NOT_STARTED` | **STARTABLE** | Nền tảng T04A869/T04A883 đã merge qua PR #62 (commit `b0d4dc9`); task hoàn thiện UI Sprint 3 |
 | `T04A97C` | Hoàn thiện giao diện tồn kho | Tân | 18–19/11 | `HTTP-INVENTORY,FE-ADAPTER` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
-| `T04A996` | Tài liệu và UAT | Lan Anh | 18–19/11 | `GATE-E2E,DEPLOY` | `PR_OPEN` | **IN_PROGRESS** | PR #63 đang mở review (Corrective Pass) |
+| `T04A996` | Tài liệu và UAT | Lan Anh | 18–19/11 | `GATE-E2E,DEPLOY` | `PR_OPEN` | **IN_REVIEW** | PR #63 đang mở review trên GitHub (head: `89f210f`, base: `b0d4dc9`) |
 | `T04A9B0` | Kiểm thử giao diện quản lý | Tân | 18–19/11 | `FE-ADAPTER,GATE-E2E` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04A9CA` | Kiểm thử Auth, Checkout và Cancel | Dương | 18–19/11 | `TEST-DB` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04A9E6` | AI Tool Executor | Hiếu | 20–21/11 | `BE-AI` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AA00` | Retry và phục hồi Email Worker | Hiếu | 20–21/11 | `BE-OUTBOX` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AA1C` | Đặt lại mật khẩu và tích hợp email | Dương | 20–21/11 | `HTTP-RESET,BE-OUTBOX` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
-| `T04AA36` | Dashboard API | Na Na | 20–21/11 | `HTTP-ANALYTICS` | `PR_OPEN` | **STARTABLE** | PR #61 đang mở review trên GitHub |
+| `T04AA36` | Dashboard API | Na Na | 20–21/11 | `HTTP-ANALYTICS` | `PR_OPEN` | **IN_REVIEW** | PR #61 đang mở review trên GitHub (head: `018800e`, base: `be7469d`) |
 | `T04AA50` | Automated Integration Tests | Dương | 20–21/11 | `TEST-DB,GATE-CI` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AA6A` | Responsive và UI States | Tân | 20–21/11 | `FE-ADAPTER` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AA86` | AI chỉ đọc và Tool Calling | Dương | 20–21/11 | `BE-AI,HTTP-AI` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
