@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -38,6 +39,28 @@ class SalesSummary:
     completed_orders: int
     cancelled_orders: int
     aov_vnd: int
+
+
+@dataclass(frozen=True)
+class ProductAnalyticsItem:
+    """Product performance metric item matching retailops_extended_ports.pyi."""
+
+    product_id: int
+    sku: str
+    name: str
+    sold_units: int
+    revenue_vnd: int
+    quantity: int | None = None
+    first_stocked_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class DashboardData:
+    """Dashboard metrics aggregate matching ports DashboardRead."""
+
+    sales: SalesSummary
+    low_stock_count: int
+    top_products: tuple[ProductAnalyticsItem, ...]
 
 
 def resolve_sales_period(
@@ -144,4 +167,97 @@ class SalesAnalyticsService:
             completed_orders=completed_orders,
             cancelled_orders=cancelled_orders,
             aov_vnd=aov_vnd,
+        )
+
+
+class ProductAnalyticsPort(Protocol):
+    """Protocol for product analytics top product query."""
+
+    def top(
+        self,
+        session: Session,
+        *,
+        period: Period,
+        page: int = 1,
+        page_size: int = 5,
+    ) -> list[ProductAnalyticsItem]: ...
+
+
+class DefaultProductAnalyticsAdapter:
+    """Default SQL-backed adapter implementing ProductAnalyticsPort."""
+
+    def __init__(self, repository: SalesAnalyticsRepository | None = None) -> None:
+        self._repository = repository or SalesAnalyticsRepository()
+
+    def top(
+        self,
+        session: Session,
+        *,
+        period: Period,
+        page: int = 1,
+        page_size: int = 5,
+    ) -> list[ProductAnalyticsItem]:
+        """Fetch top products by sold quantity and revenue.
+
+        Internal Top-N adapter for Dashboard. Windowing is handled via limit and offset.
+        """
+        offset = max(page - 1, 0) * max(page_size, 0)
+        raw_items = self._repository.get_top_products(
+            session,
+            start_utc=period.start_utc,
+            end_utc_exclusive=period.end_utc_exclusive,
+            limit=page_size,
+            offset=offset,
+        )
+        return [
+            ProductAnalyticsItem(
+                product_id=item["product_id"],
+                sku=item["sku"],
+                name=item["name"],
+                sold_units=item["sold_units"],
+                revenue_vnd=item["revenue_vnd"],
+                quantity=item["quantity"],
+                first_stocked_at=item["first_stocked_at"],
+            )
+            for item in raw_items
+        ]
+
+
+class DashboardService:
+    """Read-only dashboard façade aggregating sales, low stock, and top products."""
+
+    def __init__(
+        self,
+        sales_service: SalesAnalyticsService | None = None,
+        product_analytics: ProductAnalyticsPort | None = None,
+        low_stock_counter: Callable[[Session], int] | None = None,
+    ) -> None:
+        self._sales_service = sales_service or SalesAnalyticsService()
+        self._product_analytics = product_analytics or DefaultProductAnalyticsAdapter()
+        self._low_stock_counter = low_stock_counter or self._default_low_stock_count
+
+    @staticmethod
+    def _default_low_stock_count(session: Session) -> int:
+        from app.modules.inventory.repository import InventoryQueryRepository
+        from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
+
+        return InventoryQueryRepository().count_low_stock(
+            session, threshold=DEFAULT_LOW_STOCK_THRESHOLD
+        )
+
+    def read(self, session: Session, *, period: Period) -> DashboardData:
+        """Aggregate sales summary, low stock count, and top products.
+
+        Never commits or rolls back the session (read-only invariant).
+        """
+        sales = self._sales_service.summary(session, period=period)
+        low_stock_count = self._low_stock_counter(session)
+        top_products = self._product_analytics.top(
+            session, period=period, page=1, page_size=5
+        )
+
+        return DashboardData(
+            sales=sales,
+            low_stock_count=low_stock_count,
+            top_products=tuple(top_products),
         )

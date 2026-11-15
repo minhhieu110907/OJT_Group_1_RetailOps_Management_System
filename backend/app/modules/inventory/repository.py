@@ -140,6 +140,26 @@ class InventoryQueryRepository:
         row = session.execute(stmt).mappings().first()
         return dict(row) if row is not None else None
 
+    def count_low_stock(
+        self,
+        session: Session,
+        threshold: int = DEFAULT_LOW_STOCK_THRESHOLD,
+    ) -> int:
+        """Count products with active status and inventory quantity <= threshold.
+
+        Single COUNT query optimized for dashboard metrics without fetching rows.
+        """
+        active_status = CatalogStatus.ACTIVE.value
+        stmt = (
+            select(func.count(Product.id))
+            .join(Inventory, Product.id == Inventory.product_id)
+            .where(
+                Product.status == active_status,
+                Inventory.quantity <= threshold,
+            )
+        )
+        return int(session.scalar(stmt) or 0)
+
     def list_low_stock(
         self,
         session: Session,
