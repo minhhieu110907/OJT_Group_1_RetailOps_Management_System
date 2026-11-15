@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { productsApi } from '../../api/productsApi';
@@ -30,7 +31,10 @@ function formatVietnamDateTime(isoString) {
 }
 
 export default function StockMovementList() {
+  const { user } = useAuth();
   const toast = useToast();
+
+  const isAdmin = user?.role === 'ADMIN';
 
   // 1. Bộ lọc Server-side (loại biến động, phân trang) & Search Input giao diện
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -45,6 +49,9 @@ export default function StockMovementList() {
 
   // 3. Cache thông tin sản phẩm (name) để hiển thị tên món theo product_id
   const [productMap, setProductMap] = useState(new Map());
+
+  // 4. Modal hiển thị chi tiết Lý do điều chỉnh (Admin only)
+  const [viewingReasonItem, setViewingReasonItem] = useState(null);
 
   // Ref chống race condition
   const requestIdRef = useRef(0);
@@ -171,8 +178,44 @@ export default function StockMovementList() {
           return <span className={styles.referenceBadge}>{refCode}</span>;
         },
       },
+      // Cột NGƯỜI THỰC HIỆN & LÝ DO: Chỉ hiển thị cho Quản trị viên (ADMIN)
+      ...(isAdmin
+        ? [
+            {
+              key: 'actor',
+              title: 'NGƯỜI THỰC HIỆN',
+              width: '140px',
+              render: (row) => (
+                <span className={styles.actorBadge}>
+                  <span>{row.actor_id ? `User #${row.actor_id}` : 'Hệ thống'}</span>
+                </span>
+              ),
+            },
+            {
+              key: 'adjustment_reason',
+              title: 'LÝ DO ĐIỀU CHỈNH',
+              width: '160px',
+              align: 'center',
+              render: (row) => {
+                if (row.kind === 'ADJUSTMENT' && row.adjustment_reason) {
+                  return (
+                    <button
+                      type="button"
+                      className={styles.viewReasonBtn}
+                      onClick={() => setViewingReasonItem(row)}
+                      title="Xem lý do điều chỉnh"
+                    >
+                      Xem lý do
+                    </button>
+                  );
+                }
+                return <span className={styles.reasonEmpty}>-</span>;
+              },
+            },
+          ]
+        : []),
     ];
-  }, [productMap]);
+  }, [productMap, isAdmin]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pagination.pageSize));
 
@@ -266,6 +309,62 @@ export default function StockMovementList() {
           </div>
         )}
       </div>
+
+      {/* 4. Modal hiển thị chi tiết lý do điều chỉnh (Admin only, tuyệt đối không dùng icon) */}
+      {viewingReasonItem && (
+        <div
+          className={styles.modalBackdrop}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setViewingReasonItem(null);
+          }}
+        >
+          <div className={styles.reasonModalBox}>
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>Lý do điều chỉnh kiểm kê</h3>
+            </div>
+
+            <div className={styles.modalBody}>
+              <div className={styles.metaRow}>
+                <span className={styles.metaLabel}>Mã SKU:</span>
+                <span className={styles.metaValue}>{viewingReasonItem.sku}</span>
+              </div>
+              <div className={styles.metaRow}>
+                <span className={styles.metaLabel}>Sản phẩm:</span>
+                <span className={styles.metaValue}>
+                  {productMap.get(viewingReasonItem.product_id) || `Sản phẩm #${viewingReasonItem.product_id}`}
+                </span>
+              </div>
+              <div className={styles.metaRow}>
+                <span className={styles.metaLabel}>Người thực hiện:</span>
+                <span className={styles.metaValue}>
+                  {viewingReasonItem.actor_id ? `User #${viewingReasonItem.actor_id}` : 'Hệ thống'}
+                </span>
+              </div>
+              <div className={styles.metaRow}>
+                <span className={styles.metaLabel}>Thời gian:</span>
+                <span className={styles.metaValue}>{formatVietnamDateTime(viewingReasonItem.occurred_at)}</span>
+              </div>
+
+              <div className={styles.reasonBox}>
+                <div className={styles.reasonBoxLabel}>Nội dung lý do kiểm toán:</div>
+                <div className={styles.reasonContent}>
+                  {viewingReasonItem.adjustment_reason}
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className={styles.modalCloseBtn}
+                onClick={() => setViewingReasonItem(null)}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

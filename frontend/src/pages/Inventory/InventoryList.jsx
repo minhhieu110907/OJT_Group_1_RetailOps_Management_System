@@ -9,6 +9,7 @@ import {
   inventoryApi,
 } from '../../api/inventoryApi';
 import StockMovementList from './StockMovementList';
+import InventoryAdjustModal from './InventoryAdjustModal';
 import styles from './InventoryList.module.css';
 
 export default function InventoryList() {
@@ -34,6 +35,9 @@ export default function InventoryList() {
   // 4. Danh mục & Thống kê
   const [categories, setCategories] = useState([]);
   const [lowStockTotal, setLowStockTotal] = useState(0);
+
+  // 5. State Modal Điều chỉnh tồn kho (Admin only)
+  const [adjustingProduct, setAdjustingProduct] = useState(null);
 
   // Ref chống race condition
   const requestIdRef = useRef(0);
@@ -202,31 +206,10 @@ export default function InventoryList() {
                   type="button"
                   className={styles.actionBtn}
                   onClick={() => {
-                    toast.info(`Chức năng điều chỉnh cho SKU ${row.sku} sẽ có trong Modal điều chỉnh.`);
+                    setAdjustingProduct(row);
                   }}
                   title="Điều chỉnh tồn kho"
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ flexShrink: 0 }}
-                  >
-                    <line x1="4" y1="21" x2="4" y2="14" />
-                    <line x1="4" y1="10" x2="4" y2="3" />
-                    <line x1="12" y1="21" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12" y2="3" />
-                    <line x1="20" y1="21" x2="20" y2="16" />
-                    <line x1="20" y1="12" x2="20" y2="3" />
-                    <line x1="1" y1="14" x2="7" y2="14" />
-                    <line x1="9" y1="8" x2="15" y2="8" />
-                    <line x1="17" y1="16" x2="23" y2="16" />
-                  </svg>
                   <span className={styles.actionBtnText}>Điều chỉnh</span>
                 </button>
               ),
@@ -234,7 +217,7 @@ export default function InventoryList() {
           ]
         : []),
     ];
-  }, [categoryMap, toast, isAdmin]);
+  }, [categoryMap, isAdmin]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pagination.pageSize));
 
@@ -253,7 +236,6 @@ export default function InventoryList() {
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
           <span>Tổng quan tồn kho</span>
-          <span className={styles.tabCountBadge}>{totalCount} mã</span>
         </button>
 
         <button
@@ -440,6 +422,26 @@ export default function InventoryList() {
           </div>
         )}
       </div>
+
+      {/* 8. Modal Điều chỉnh tồn kho (Admin only, hoàn toàn không dùng icon) */}
+      {isAdmin && adjustingProduct && (
+        <InventoryAdjustModal
+          isOpen={Boolean(adjustingProduct)}
+          product={adjustingProduct}
+          categoryName={categoryMap.get(adjustingProduct.category_id) || ''}
+          onClose={() => setAdjustingProduct(null)}
+          onSuccess={(res) => {
+            toast.success(
+              res?.movement_created
+                ? `Đã điều chỉnh tồn kho cho ${adjustingProduct.sku} thành công!`
+                : `Đã kiểm kê ${adjustingProduct.sku}: Số lượng tồn kho không đổi.`
+            );
+            setAdjustingProduct(null);
+            // Refresh lại danh sách tồn kho
+            loadInventory();
+          }}
+        />
+      )}
         </>
       )}
     </div>

@@ -203,5 +203,56 @@ export const inventoryApi = {
       totalPages: Math.max(1, Math.ceil((Number(data.total) || 0) / (Number(data.page_size) || pageSize))),
     };
   },
+
+  /**
+   * Điều chỉnh tồn kho thực tế theo chuẩn INV-02 (Admin only)
+   * @param {Object} params
+   * @param {number} params.productId
+   * @param {number} params.countedQuantity
+   * @param {number} params.expectedStockVersion
+   * @param {string} params.reason
+   * @param {string} [params.idempotencyKey]
+   */
+  async adjustInventory({
+    productId,
+    countedQuantity,
+    expectedStockVersion,
+    reason,
+    idempotencyKey,
+  }) {
+    const pid = Number(productId);
+    if (!pid || pid <= 0) {
+      throw new Error('Mã sản phẩm không hợp lệ.');
+    }
+    const counted = Number(countedQuantity);
+    if (!Number.isInteger(counted) || counted < 0) {
+      throw new Error('Số lượng kiểm kê thực tế phải là số nguyên không âm (≥ 0).');
+    }
+    if (typeof expectedStockVersion !== 'number' || expectedStockVersion < 0) {
+      throw new Error('Phiên bản tồn kho không hợp lệ.');
+    }
+    const trimmedReason = (reason || '').trim();
+    if (!trimmedReason) {
+      throw new Error('Lý do điều chỉnh không được để trống.');
+    }
+
+    const key = idempotencyKey || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `adj-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`);
+
+    const response = await axiosClient.post(
+      `/inventory/${pid}/adjustments`,
+      {
+        counted_quantity: counted,
+        expected_stock_version: expectedStockVersion,
+        reason: trimmedReason,
+      },
+      {
+        headers: {
+          'Idempotency-Key': key,
+        },
+      }
+    );
+
+    return response.data;
+  },
 };
 
