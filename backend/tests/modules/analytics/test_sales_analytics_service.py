@@ -1,6 +1,6 @@
 """Unit tests for SalesAnalyticsService and period resolution."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from unittest.mock import MagicMock
 
 import pytest
@@ -116,8 +116,14 @@ def test_resolve_sales_period_utc_boundary_shift() -> None:
 def test_resolve_sales_period_valid_near_min_date() -> None:
     """Earliest safely convertible date 0001-01-02 resolves without error."""
     period = resolve_sales_period(from_date=date(1, 1, 2), to_date=date(1, 1, 2))
-    assert period.start_utc == datetime(1, 1, 1, 17, 0, 0, tzinfo=UTC)
-    assert period.end_utc_exclusive == datetime(1, 1, 2, 17, 0, 0, tzinfo=UTC)
+    expected_start = datetime.combine(date(1, 1, 2), time.min, tzinfo=VN_TZ).astimezone(
+        UTC
+    )
+    expected_end = datetime.combine(date(1, 1, 3), time.min, tzinfo=VN_TZ).astimezone(
+        UTC
+    )
+    assert period.start_utc == expected_start
+    assert period.end_utc_exclusive == expected_end
 
 
 def test_resolve_sales_period_validation_exceeds_max_days() -> None:
