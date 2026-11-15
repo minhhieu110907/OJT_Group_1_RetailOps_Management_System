@@ -15,6 +15,22 @@
   - **Demo / Production (sau HTTPS / Cloudflare Tunnel):** `RETAILOPS_ENVIRONMENT=production`, `RETAILOPS_COOKIE_SECURE=true`. Khi `RETAILOPS_ENVIRONMENT=production`, backend bắt buộc có `RETAILOPS_JWT_SECRET`, `RETAILOPS_CSRF_SECRET` hợp lệ và từ chối `RETAILOPS_COOKIE_SECURE=false`.
   - **CI / Integration test:** dùng `compose.yaml` + `compose.ci.yaml` để trỏ `backend` vào `MYSQL_TEST_DATABASE` (`retailops_test`) bằng `MYSQL_TEST_USER`. **Không dùng `compose.ci.yaml` cho stack demo/development.**
 
+### 2.1. Hướng dẫn mở cổng phục vụ Integration Test trên máy Host (`compose.ci.yaml`)
+
+Trong file cấu hình chuẩn `compose.yaml`, mạng `application` được thiết lập `internal: true` nhằm cô lập an toàn MySQL và Redis khỏi truy cập ngoài máy host. Khi cần chạy các bài kiểm thử tích hợp (integration tests) trực tiếp từ máy host (ví dụ `pytest -m integration`):
+
+1. **Khởi động dịch vụ test với overlay `compose.ci.yaml`:**
+   ```bash
+   docker compose -f compose.yaml -f compose.ci.yaml up -d --wait mysql redis
+   ```
+2. **Cơ chế mở cổng và ánh xạ:**
+   - Overlay `compose.ci.yaml` chuyển cấu hình mạng `application` thành `internal: false`.
+   - Redis được ánh xạ ra loopback máy host tại cổng `${REDIS_HOST_PORT:-16379}` (mặc định: `127.0.0.1:16379`).
+   - MySQL mở cổng host `${MYSQL_HOST_PORT:-3306}` vào database `retailops_test`.
+3. **Xử lý xung đột cổng trên Windows:**
+   - Nếu cổng `3306` bị Hyper-V/WinNAT hoặc dịch vụ MySQL cục bộ chiếm dụng, hãy đặt `MYSQL_HOST_PORT=13306` trong `.env` và cập nhật tương ứng `RETAILOPS_TEST_DATABASE_URL=mysql+pymysql://retailops_test_runner:...@127.0.0.1:13306/retailops_test?charset=utf8mb4`.
+   - Nếu cổng `80` bị chiếm bởi IIS/HTTP.sys (System PID 4), hãy cấu hình `NGINX_HOST_PORT=8080`.
+
 ## 3. Trình tự triển khai Cold-Start (Migration trước khi mở traffic)
 
 > **Phân biệt Container Health và Database Schema Readiness:**
@@ -30,7 +46,7 @@
      ```bash
      docker compose up -d --wait mysql redis
      ```
-3. Chạy Migration / Preflight có kiểm soát trên `mysql` (xem mục 4) và Admin Seed (xem mục 5) **trước khi bật `nginx`**.
+3. Chạy Migration / Preflight có kiểm soát trên `mysql` (xem mục 4) và các Seed dữ liệu nền tảng (Admin, Categories, Suppliers - xem mục 5) **trước khi bật `nginx`**.
 4. Mở traffic bằng cách khởi động `backend` (chờ `healthy`) và `nginx` (`running`):
    - *(Bash / PowerShell)*:
      ```bash
@@ -51,7 +67,11 @@
   ```
 - **Lưu ý rollback:** Không chạy `alembic downgrade` như bước rollback mặc định khi có dữ liệu thật; ưu tiên restore từ bản backup đã được kiểm chứng.
 
-## 5. Admin Seed
+## 5. Dữ liệu Hạt giống (Seeds: Admin, Categories, Suppliers)
+
+Toàn bộ các script seed dưới đây đều được thiết kế **idempotent**, an toàn khi chạy lại nhiều lần và không làm trùng lặp hay ghi đè dữ liệu nghiệp vụ đã có.
+
+### 5.1. Admin Seed
 
 - Lệnh seed là idempotent theo `admin_slot=1`. **Không** truyền mật khẩu dạng plaintext trực tiếp trong câu lệnh CLI nếu có nguy cơ lưu vào shell history.
 - Khuyến nghị cấu hình tạm `RETAILOPS_ADMIN_SEED_EMAIL` và `RETAILOPS_ADMIN_SEED_PASSWORD` qua file env bảo mật (`chmod 600` / file tạm ngoài repo) hoặc nhập tương tác từ biến phiên rồi xóa ngay sau khi chạy:
@@ -82,6 +102,20 @@
       Remove-Item Env:RETAILOPS_ADMIN_SEED_EMAIL, Env:RETAILOPS_ADMIN_SEED_PASSWORD -ErrorAction SilentlyContinue
     }
     ```
+
+### 5.2. Categories Seed (Danh mục hàng hóa mẫu)
+
+Nạp 5 danh mục hàng hóa khởi tạo ("Đồ uống", "Bánh kẹo & Đồ ăn vặt", "Thực phẩm đóng hộp", "Hóa mỹ phẩm & Tẩy rửa", "Đồ gia dụng tiện ích"):
+```bash
+docker compose run --rm --no-deps backend python -m app.modules.categories.seed
+```
+
+### 5.3. Suppliers Seed (Nhà cung cấp mẫu)
+
+Nạp 3 nhà cung cấp mẫu khởi tạo ("Công ty TNHH Phân phối Nước giải khát Việt", "Công ty Cổ phần Thực phẩm An Toàn", "Đại lý Phân phối Hàng gia dụng Miền Bắc") kèm số điện thoại chuẩn hóa:
+```bash
+docker compose run --rm --no-deps backend python -m app.modules.suppliers.seed
+```
 
 ## 6. Health & Smoke Checks
 
