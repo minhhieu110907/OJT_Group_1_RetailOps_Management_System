@@ -25,4 +25,3 @@ class SalesSummaryRead(BaseModel):
         else:
             utc_dt = value.astimezone(UTC)
         return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-

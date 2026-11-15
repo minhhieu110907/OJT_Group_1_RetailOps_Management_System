@@ -106,7 +106,11 @@ def test_sales_analytics_mysql_aggregation_and_boundaries(
             created_at=now_unaware,
             updated_at=now_unaware,
         )
-        category = Category(name=f"{TEST_PREFIX}Cat_{uuid4().hex[:6]}")
+        category = Category(
+            name=f"{TEST_PREFIX}Cat_{uuid4().hex[:6]}",
+            created_at=now_unaware,
+            updated_at=now_unaware,
+        )
         session.add_all([admin, category])
         session.flush()
 
