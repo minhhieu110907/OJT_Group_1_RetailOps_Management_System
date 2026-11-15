@@ -4,6 +4,7 @@ from typing import Literal, TypedDict
 
 from fastapi import APIRouter, status
 
+from app.modules.analytics.router import dashboard_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.approval_router import router as staff_approval_router
 from app.modules.auth.router import router as auth_router
@@ -39,6 +40,7 @@ api_router.include_router(products_router)
 api_router.include_router(purchasing_router)
 api_router.include_router(sales_router)
 api_router.include_router(analytics_router)
+api_router.include_router(dashboard_router)
 
 
 @api_router.get("/health", status_code=status.HTTP_200_OK)

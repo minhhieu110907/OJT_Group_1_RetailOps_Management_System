@@ -25,3 +25,38 @@ class SalesSummaryRead(BaseModel):
         else:
             utc_dt = value.astimezone(UTC)
         return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ProductAnalyticsItemRead(BaseModel):
+    """Product metric item matching openapi ProductAnalyticsItem."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: int = Field(ge=1)
+    sku: str
+    name: str
+    sold_units: int = Field(ge=0)
+    revenue_vnd: int = Field(ge=0)
+    quantity: int | None = Field(default=None, ge=0)
+    first_stocked_at: datetime | None = None
+
+    @field_serializer("first_stocked_at")
+    def serialize_first_stocked_at(self, value: datetime | None) -> str | None:
+        """Format UTC datetime into ISO-8601 with trailing Z if present."""
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            utc_dt = value.replace(tzinfo=UTC)
+        else:
+            utc_dt = value.astimezone(UTC)
+        return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class DashboardRead(BaseModel):
+    """Executive dashboard summary matching openapi DashboardRead."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sales: SalesSummaryRead
+    low_stock_count: int = Field(ge=0)
+    top_products: list[ProductAnalyticsItemRead]
