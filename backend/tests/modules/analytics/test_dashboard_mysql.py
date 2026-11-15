@@ -38,7 +38,10 @@ __all__ = [
 @pytest.fixture(autouse=True)
 def clean_dashboard_test_rows(migrated_integration_engine: Engine):
     yield
-    with Session(migrated_integration_engine) as session, session.begin():
+    with (
+        Session(migrated_integration_engine, expire_on_commit=False) as session,
+        session.begin(),
+    ):
         user_ids = list(
             session.scalars(
                 select(User.id).where(
@@ -102,7 +105,10 @@ def test_dashboard_mysql_aggregation_and_sources(
             session, page=1, page_size=1, threshold=5
         )[1]
 
-    with Session(migrated_integration_engine) as session, session.begin():
+    with (
+        Session(migrated_integration_engine, expire_on_commit=False) as session,
+        session.begin(),
+    ):
         admin = User(
             email_normalized=f"{TEST_PREFIX.lower()}admin_{uuid4().hex[:6]}@example.com",
             password_hash="$2b$04$test.hash.admin",
@@ -304,6 +310,11 @@ def test_dashboard_mysql_aggregation_and_sources(
             )
         )
 
+        session.flush()
+        prod_a_sku = prod_a.sku
+        prod_b_sku = prod_b.sku
+        prod_c_sku = prod_c.sku
+
     # Query with DashboardService on real MySQL
     service = DashboardService()
     with Session(migrated_integration_engine) as session:
@@ -326,14 +337,14 @@ def test_dashboard_mysql_aggregation_and_sources(
     # Prod C: 1 unit, 30,000 VND
     # Both B and A have 5 sold_units, but B has higher revenue -> B rank 1, A rank 2
     top_skus = [p.sku for p in data.top_products]
-    assert prod_b.sku in top_skus
-    assert prod_a.sku in top_skus
-    assert prod_c.sku in top_skus
+    assert prod_b_sku in top_skus
+    assert prod_a_sku in top_skus
+    assert prod_c_sku in top_skus
 
     # Find the positions
-    b_idx = top_skus.index(prod_b.sku)
-    a_idx = top_skus.index(prod_a.sku)
-    c_idx = top_skus.index(prod_c.sku)
+    b_idx = top_skus.index(prod_b_sku)
+    a_idx = top_skus.index(prod_a_sku)
+    c_idx = top_skus.index(prod_c_sku)
 
     assert b_idx < a_idx < c_idx
     assert data.top_products[b_idx].sold_units == 5
