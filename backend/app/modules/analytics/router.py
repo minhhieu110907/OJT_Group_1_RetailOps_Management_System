@@ -10,7 +10,6 @@ from app.core.exceptions import DomainValidationError
 from app.db.session import get_db_session
 from app.modules.analytics.schemas import (
     DashboardRead,
-    LowStockAnalyticsPageRead,
     ProductAnalyticsItemRead,
     ProductAnalyticsPageRead,
     SalesSummaryRead,
@@ -25,7 +24,6 @@ from app.modules.analytics.service import (
 )
 from app.modules.auth.dependencies import require_active_admin
 from app.modules.auth.models import User
-from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 dashboard_router = APIRouter(tags=["dashboard"])
@@ -189,25 +187,4 @@ def get_slow_products(
         total=result.total,
         page=result.page,
         page_size=result.page_size,
-    )
-
-
-@router.get("/products/low-stock", response_model=LowStockAnalyticsPageRead)
-def get_low_stock_products(
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-    _admin: Annotated[User, Depends(require_active_admin)] = None,  # type: ignore[assignment]
-    session: Annotated[Session, Depends(get_db_session)] = None,  # type: ignore[assignment]
-    service: Annotated[
-        ProductAnalyticsService, Depends(get_product_analytics_service)
-    ] = None,  # type: ignore[assignment]
-) -> LowStockAnalyticsPageRead:
-    """Retrieve paginated low-stock ACTIVE products (ADMIN only)."""
-    result = service.low_stock(session, page=page, page_size=page_size)
-    return LowStockAnalyticsPageRead(
-        items=result.items,
-        total=result.total,
-        page=result.page,
-        page_size=result.page_size,
-        threshold=DEFAULT_LOW_STOCK_THRESHOLD,
     )

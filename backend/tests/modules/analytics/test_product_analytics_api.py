@@ -25,11 +25,6 @@ from app.modules.auth.dependencies import (
     get_current_principal,
 )
 from app.modules.auth.models import User
-from app.modules.inventory.schemas import (
-    DEFAULT_LOW_STOCK_THRESHOLD,
-    LowStockItem,
-    LowStockPage,
-)
 
 
 def make_test_app(
@@ -97,30 +92,12 @@ def _sample_page() -> ProductAnalyticsPage:
     )
 
 
-def _sample_low_stock_page() -> LowStockPage:
-    return LowStockPage(
-        items=[
-            LowStockItem(
-                product_id=10,
-                sku="SKU-010",
-                name="Sample Item",
-                quantity=3,
-                threshold=DEFAULT_LOW_STOCK_THRESHOLD,
-            )
-        ],
-        total=1,
-        page=1,
-        page_size=20,
-    )
-
-
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "path",
     [
         "/api/v1/analytics/products/top",
         "/api/v1/analytics/products/slow",
-        "/api/v1/analytics/products/low-stock",
     ],
 )
 async def test_product_analytics_rbac_and_auth(path: str) -> None:
@@ -128,7 +105,6 @@ async def test_product_analytics_rbac_and_auth(path: str) -> None:
     fake_service = MagicMock()
     fake_service.top.return_value = _sample_page()
     fake_service.slow.return_value = _sample_page()
-    fake_service.low_stock.return_value = _sample_low_stock_page()
 
     # 1. No token -> 401
     unauth_app = make_test_app(fake_service, authenticated=False)
@@ -190,38 +166,30 @@ async def test_top_products_validation_422() -> None:
 
 
 @pytest.mark.anyio
-async def test_slow_and_low_stock_validation_422() -> None:
-    """Invalid page or page_size on slow and low-stock return 422."""
+async def test_slow_validation_422() -> None:
+    """Invalid page or page_size on slow return 422."""
     fake_service = MagicMock()
     app = make_test_app(fake_service, authenticated=True, user_role="ADMIN")
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
     ) as client:
-        for path in [
-            "/api/v1/analytics/products/slow",
-            "/api/v1/analytics/products/low-stock",
-        ]:
-            for query in ["?page=0", "?page_size=0", "?page_size=101"]:
-                resp = await client.get(f"{path}{query}")
-                assert resp.status_code == 422
+        for query in ["?page=0", "?page_size=0", "?page_size=101"]:
+            resp = await client.get(f"/api/v1/analytics/products/slow{query}")
+            assert resp.status_code == 422
 
 
 @pytest.mark.anyio
-async def test_low_stock_response_includes_threshold_5() -> None:
-    """Low-stock analytics response explicitly states threshold=5."""
+async def test_unapproved_analytics_low_stock_route_not_exposed() -> None:
+    """Unapproved /analytics/products/low-stock route must not be exposed (404)."""
     fake_service = MagicMock()
-    fake_service.low_stock.return_value = _sample_low_stock_page()
     app = make_test_app(fake_service, authenticated=True, user_role="ADMIN")
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
     ) as client:
         resp = await client.get("/api/v1/analytics/products/low-stock")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["threshold"] == DEFAULT_LOW_STOCK_THRESHOLD
-        assert body["items"][0]["threshold"] == DEFAULT_LOW_STOCK_THRESHOLD
+        assert resp.status_code == 404
 
 
 def test_resolve_days_period_vn_boundaries() -> None:

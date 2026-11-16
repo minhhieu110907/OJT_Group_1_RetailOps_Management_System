@@ -4,8 +4,6 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD, LowStockPage
-
 
 class SalesSummaryRead(BaseModel):
     """Aggregated sales KPI summary matching contracts/openapi.yaml SalesSummary."""
@@ -63,18 +61,6 @@ class ProductAnalyticsPageRead(BaseModel):
     total: int = Field(ge=0)
     page: int = Field(ge=1)
     page_size: int = Field(ge=1, le=100)
-
-
-class LowStockAnalyticsPageRead(LowStockPage):
-    """Paginated low-stock analytics response aligned with Inventory threshold."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    threshold: int = Field(
-        default=DEFAULT_LOW_STOCK_THRESHOLD,
-        ge=0,
-        description="Ngưỡng tồn kho thấp đang áp dụng (P0 = 5)",
-    )
 
 
 class DashboardRead(BaseModel):
