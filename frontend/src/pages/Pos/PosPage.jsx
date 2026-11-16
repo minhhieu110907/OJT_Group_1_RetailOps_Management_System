@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../components/common';
+import { Pagination, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { productsApi } from '../../api/productsApi';
 import { categoriesApi } from '../../api/categoriesApi';
@@ -11,7 +11,6 @@ import {
 import {
   DEFAULT_POS_PRODUCT_LIMIT,
   LOW_STOCK_THRESHOLD,
-  SEARCH_POS_PRODUCT_LIMIT,
   addProductToCart,
   applyInsufficientStockResolution,
   applyPriceChangedAcceptance,
@@ -72,6 +71,8 @@ export default function PosPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
 
   const [products, setProducts] = useState([]);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
   const [latestProductsSnapshot, setLatestProductsSnapshot] = useState([]);
   const [categories, setCategories] = useState([]);
 
@@ -141,6 +142,7 @@ export default function PosPage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
+      setCurrentPage(1);
     }, 280);
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -176,7 +178,12 @@ export default function PosPage() {
     };
   }, [isMockMode, refreshTrigger]);
 
-  // Tải sản phẩm hiển thị tại POS (mặc định 6 sản phẩm mới nhất; khi tìm kiếm/lọc mở rộng để tra cứu đầy đủ)
+  const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
+  const posPageSize = hasCartItems ? 10 : 12;
+
+  // Tải danh sách sản phẩm hiển thị tại POS:
+  // - Chưa có sản phẩm trong giỏ: 12 sản phẩm/trang (2 dòng x 6 cột)
+  // - Có ít nhất 1 sản phẩm trong giỏ: 10 sản phẩm/trang (2 dòng x 5 cột)
   const isFiltering = Boolean(debouncedSearch || selectedCategoryId);
 
   useEffect(() => {
@@ -191,8 +198,8 @@ export default function PosPage() {
       try {
         const res = await productsApi.getProducts({
           isMockMode,
-          page: 1,
-          pageSize: isFiltering ? SEARCH_POS_PRODUCT_LIMIT : DEFAULT_POS_PRODUCT_LIMIT,
+          page: currentPage,
+          pageSize: posPageSize,
           keyword: debouncedSearch,
           categoryId: selectedCategoryId,
           status: 'ACTIVE',
@@ -200,7 +207,14 @@ export default function PosPage() {
         });
 
         if (currentRequestId === requestIdRef.current) {
+          const nextTotal = res.total || 0;
+          const nextTotalPages = Math.max(1, Math.ceil(nextTotal / posPageSize));
+          if (currentPage > nextTotalPages) {
+            setCurrentPage(nextTotalPages);
+            return;
+          }
           setProducts(res.items || []);
+          setTotalProducts(nextTotal);
         }
       } catch (err) {
         if (currentRequestId === requestIdRef.current) {
@@ -216,7 +230,14 @@ export default function PosPage() {
     }
 
     fetchPosProducts();
-  }, [isMockMode, debouncedSearch, selectedCategoryId, isFiltering, refreshTrigger]);
+  }, [
+    isMockMode,
+    currentPage,
+    posPageSize,
+    debouncedSearch,
+    selectedCategoryId,
+    refreshTrigger,
+  ]);
 
   const orderedCategories = useMemo(
     () => prioritizeCategoriesByLatestProducts(categories, latestProductsSnapshot),
@@ -240,7 +261,6 @@ export default function PosPage() {
     }
     return calculateCartTotals(cart);
   }, [cart, pendingCheckout]);
-  const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
   const isCartLocked = isCheckingOut || Boolean(pendingCheckout);
 
   const cartQuantityMap = useMemo(() => {
@@ -448,7 +468,6 @@ export default function PosPage() {
         <div className={styles.pageHeader}>
           <div className={styles.titleGroup}>
             <h1 className={styles.pageTitle}>Bán hàng tại quầy (POS)</h1>
-            <span className={styles.storeBadge}>Cửa hàng RetailOps</span>
           </div>
         </div>
 
@@ -497,7 +516,10 @@ export default function PosPage() {
               className={`${styles.categoryPill} ${
                 selectedCategoryId === '' ? styles.categoryPillActive : ''
               }`}
-              onClick={() => setSelectedCategoryId('')}
+              onClick={() => {
+                setSelectedCategoryId('');
+                setCurrentPage(1);
+              }}
             >
               Tất cả
             </button>
@@ -513,7 +535,10 @@ export default function PosPage() {
                   className={`${styles.categoryPill} ${
                     isSelected ? styles.categoryPillActive : ''
                   }`}
-                  onClick={() => setSelectedCategoryId(String(cat.id))}
+                  onClick={() => {
+                    setSelectedCategoryId(String(cat.id));
+                    setCurrentPage(1);
+                  }}
                 >
                   {cat.name}
                 </button>
@@ -537,8 +562,13 @@ export default function PosPage() {
               : 'Chưa có sản phẩm đang hoạt động để bán tại quầy.'}
           </div>
         ) : (
-          <div className={styles.productGrid}>
-            {products.map((product) => {
+          <>
+            <div
+              className={`${styles.productGrid} ${
+                hasCartItems ? styles.productGridWithCart : ''
+              }`}
+            >
+              {products.map((product) => {
               const inCartQty = cartQuantityMap.get(product.id) || 0;
               const isOutOfStock = product.quantity <= 0;
               const isLowStock =
@@ -613,7 +643,21 @@ export default function PosPage() {
                 </article>
               );
             })}
-          </div>
+            </div>
+
+            {Math.ceil(totalProducts / posPageSize) > 1 && (
+              <div className={styles.paginationRow}>
+                <span className={styles.paginationInfo}>
+                  Hiển thị {products.length} / {totalProducts} sản phẩm ({posPageSize} sản phẩm/trang)
+                </span>
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={Math.max(1, Math.ceil(totalProducts / posPageSize))}
+                  onPageChange={setCurrentPage}
+                />
+              </div>
+            )}
+          </>
         )}
       </section>
 
