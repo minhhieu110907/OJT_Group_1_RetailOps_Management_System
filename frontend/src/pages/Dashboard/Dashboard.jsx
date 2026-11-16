@@ -39,6 +39,7 @@ export default function Dashboard() {
   const activeRange = useMemo(() => resolveDashboardDateRange(preset), [preset]);
   const seriesBuckets = useMemo(() => buildDashboardSeriesBuckets(preset), [preset]);
 
+  const [loadedPreset, setLoadedPreset] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
   const [prevMonthSales, setPrevMonthSales] = useState(null);
   const [seriesRows, setSeriesRows] = useState([]);
@@ -129,6 +130,7 @@ export default function Dashboard() {
           return { mainData, resolvedBuckets, ordersPage, prevSales };
         },
         onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales }) => {
+          setLoadedPreset(targetPreset);
           setDashboardData(mainData);
           setPrevMonthSales(prevSales);
           setSeriesRows(resolvedBuckets);
@@ -199,26 +201,54 @@ export default function Dashboard() {
     setDetailError('');
   }, []);
 
-  const sales = dashboardData?.sales;
-  const lowStockCount = dashboardData?.low_stock_count ?? 0;
+  const handlePresetChange = useCallback(
+    (nextPreset) => {
+      if (nextPreset === preset) return;
+      setPreset(nextPreset);
+      setLoadedPreset(null);
+      setDashboardData(null);
+      setPrevMonthSales(null);
+      setSeriesRows([]);
+      setTodayOrders([]);
+      setTodayOrdersTotal(0);
+      setHoveredPointKey(null);
+      setErrorMessage('');
+      setErrorStatus(null);
+    },
+    [preset]
+  );
+
+  // Render-time guard: never expose data from a previously loaded preset under a new active preset
+  const hasActivePeriodData = loadedPreset === preset && dashboardData !== null;
+  const activeDashboardData = hasActivePeriodData ? dashboardData : null;
+  const activePrevMonthSales = hasActivePeriodData ? prevMonthSales : null;
+  const activeSeriesRows = useMemo(
+    () => (hasActivePeriodData ? seriesRows : []),
+    [hasActivePeriodData, seriesRows]
+  );
+  const activeTodayOrders = hasActivePeriodData ? todayOrders : [];
+  const activeTodayOrdersTotal = hasActivePeriodData ? todayOrdersTotal : 0;
+
+  const sales = activeDashboardData?.sales ?? null;
+  const lowStockCount = activeDashboardData ? activeDashboardData.low_stock_count : null;
 
   const monthDeltas = useMemo(() => {
-    if (preset !== DASHBOARD_PRESETS.THIS_MONTH) return null;
+    if (preset !== DASHBOARD_PRESETS.THIS_MONTH || !sales) return null;
     return {
       revenue: computeMonthOverMonthDelta(
-        sales?.revenue_vnd ?? 0,
-        prevMonthSales?.revenue_vnd ?? 0
+        sales.revenue_vnd,
+        activePrevMonthSales?.revenue_vnd ?? 0
       ),
       completed: computeMonthOverMonthDelta(
-        sales?.completed_orders ?? 0,
-        prevMonthSales?.completed_orders ?? 0
+        sales.completed_orders,
+        activePrevMonthSales?.completed_orders ?? 0
       ),
       cancelled: computeMonthOverMonthDelta(
-        sales?.cancelled_orders ?? 0,
-        prevMonthSales?.cancelled_orders ?? 0
+        sales.cancelled_orders,
+        activePrevMonthSales?.cancelled_orders ?? 0
       ),
     };
-  }, [preset, sales, prevMonthSales]);
+  }, [preset, sales, activePrevMonthSales]);
 
   const orderStructure = useMemo(
     () =>
@@ -229,9 +259,9 @@ export default function Dashboard() {
     [sales]
   );
 
-  // Compute chart geometry & 3 summary stats from seriesRows
+  // Compute chart geometry & 3 summary stats from activeSeriesRows
   const chartModel = useMemo(() => {
-    const items = seriesRows || [];
+    const items = activeSeriesRows || [];
     if (items.length === 0) {
       return {
         points: [],
@@ -309,29 +339,29 @@ export default function Dashboard() {
       peakRevenue: revenues[peakIdx] || 0,
       totalRevenue,
     };
-  }, [seriesRows]);
+  }, [activeSeriesRows]);
 
   const tableRowsNewestFirst = useMemo(
-    () => [...seriesRows].reverse(),
-    [seriesRows]
+    () => [...activeSeriesRows].reverse(),
+    [activeSeriesRows]
   );
 
   const tableTotals = useMemo(() => {
-    const completed = seriesRows.reduce(
+    const completed = activeSeriesRows.reduce(
       (acc, r) => acc + (r.summary?.completed_orders || 0),
       0
     );
-    const cancelled = seriesRows.reduce(
+    const cancelled = activeSeriesRows.reduce(
       (acc, r) => acc + (r.summary?.cancelled_orders || 0),
       0
     );
-    const revenue = seriesRows.reduce(
+    const revenue = activeSeriesRows.reduce(
       (acc, r) => acc + (r.summary?.revenue_vnd || 0),
       0
     );
     const aov = completed > 0 ? Math.round(revenue / completed) : 0;
     return { completed, cancelled, revenue, aov };
-  }, [seriesRows]);
+  }, [activeSeriesRows]);
 
   if (!isAdmin) {
     return (
@@ -376,7 +406,7 @@ export default function Dashboard() {
                 className={`${styles.segmentBtn} ${
                   preset === opt.key ? styles.segmentBtnActive : ''
                 }`}
-                onClick={() => setPreset(opt.key)}
+                onClick={() => handlePresetChange(opt.key)}
               >
                 {opt.label}
               </button>
@@ -434,7 +464,7 @@ export default function Dashboard() {
             <span className={`${styles.kpiIconBox} ${styles.kpiIconEmerald}`}>₫</span>
           </div>
           <div className={styles.kpiValue}>
-            {sales ? formatVnd(sales.revenue_vnd) : '0 ₫'}
+            {sales ? formatVnd(sales.revenue_vnd) : '—'}
           </div>
           {monthDeltas ? (
             <span
@@ -468,7 +498,7 @@ export default function Dashboard() {
             <span className={`${styles.kpiIconBox} ${styles.kpiIconSlate}`}>✓</span>
           </div>
           <div className={styles.kpiValue}>
-            {sales ? sales.completed_orders.toLocaleString('vi-VN') : '0'}{' '}
+            {sales ? sales.completed_orders.toLocaleString('vi-VN') : '—'}{' '}
             <span className={styles.kpiUnit}>đơn</span>
           </div>
           {monthDeltas ? (
@@ -506,7 +536,7 @@ export default function Dashboard() {
             <span className={`${styles.kpiIconBox} ${styles.kpiIconRed}`}>✕</span>
           </div>
           <div className={`${styles.kpiValue} ${styles.kpiValueRed}`}>
-            {sales ? sales.cancelled_orders.toLocaleString('vi-VN') : '0'}{' '}
+            {sales ? sales.cancelled_orders.toLocaleString('vi-VN') : '—'}{' '}
             <span className={styles.kpiUnitRed}>đơn</span>
           </div>
           {monthDeltas ? (
@@ -537,7 +567,7 @@ export default function Dashboard() {
             <span className={`${styles.kpiIconBox} ${styles.kpiIconEmerald}`}>≡</span>
           </div>
           <div className={styles.kpiValue}>
-            {sales ? formatVnd(sales.aov_vnd) : '0 ₫'}
+            {sales ? formatVnd(sales.aov_vnd) : '—'}
           </div>
           <span className={styles.kpiSub}>Tính trên các đơn đã hoàn thành</span>
         </div>
@@ -724,7 +754,7 @@ export default function Dashboard() {
                 {isWeeklyMode ? 'Trung bình tuần:' : 'Trung bình ngày:'}
               </span>
               <span className={styles.chartStatValue}>
-                {formatVnd(chartModel.avgRevenue)}
+                {hasActivePeriodData ? formatVnd(chartModel.avgRevenue) : '—'}
               </span>
             </div>
             <div className={styles.chartStatBox}>
@@ -734,7 +764,7 @@ export default function Dashboard() {
                   : `Ngày cao nhất (${chartModel.peakLabel}):`}
               </span>
               <span className={styles.chartStatValue}>
-                {formatVnd(chartModel.peakRevenue)}
+                {hasActivePeriodData ? formatVnd(chartModel.peakRevenue) : '—'}
               </span>
             </div>
             <div className={styles.chartStatBox}>
@@ -742,7 +772,7 @@ export default function Dashboard() {
                 {isWeeklyMode ? 'Tổng cộng kỳ:' : 'Tổng tuần 7 ngày:'}
               </span>
               <span className={styles.chartStatValueEmerald}>
-                {formatVnd(chartModel.totalRevenue)}
+                {hasActivePeriodData ? formatVnd(chartModel.totalRevenue) : '—'}
               </span>
             </div>
           </div>
@@ -795,30 +825,41 @@ export default function Dashboard() {
               </svg>
               <div className={styles.donutCenterText}>
                 <span className={styles.donutPercent}>
-                  {orderStructure.completedPctLabel}
+                  {hasActivePeriodData ? orderStructure.completedPctLabel : '—'}
                 </span>
                 <span className={styles.donutSub}>
-                  Hoàn tất ({orderStructure.total.toLocaleString('vi-VN')} đơn)
+                  Hoàn tất (
+                  {hasActivePeriodData
+                    ? orderStructure.total.toLocaleString('vi-VN')
+                    : '—'}{' '}
+                  đơn)
                 </span>
               </div>
             </div>
 
             <div className={styles.donutStatsCol}>
               <div className={styles.statPillGreen}>
-                Hoàn tất: {orderStructure.completed.toLocaleString('vi-VN')} đơn (
-                {orderStructure.completedPctLabel})
+                Hoàn tất:{' '}
+                {hasActivePeriodData
+                  ? `${orderStructure.completed.toLocaleString('vi-VN')} đơn (${orderStructure.completedPctLabel})`
+                  : '—'}
               </div>
               <div className={styles.statPillRed}>
-                Đã hủy: {orderStructure.cancelled.toLocaleString('vi-VN')} đơn (
-                {orderStructure.cancelledPctLabel})
+                Đã hủy:{' '}
+                {hasActivePeriodData
+                  ? `${orderStructure.cancelled.toLocaleString('vi-VN')} đơn (${orderStructure.cancelledPctLabel})`
+                  : '—'}
               </div>
             </div>
           </div>
 
           <div className={styles.lowStockAlertBar}>
             <span>
-              ⚠ Cảnh báo tồn kho: {lowStockCount.toLocaleString('vi-VN')} sản phẩm sắp
-              hết (≤ 5)
+              ⚠ Cảnh báo tồn kho:{' '}
+              {lowStockCount !== null
+                ? lowStockCount.toLocaleString('vi-VN')
+                : '—'}{' '}
+              sản phẩm sắp hết (≤ 5)
             </span>
             <Link to="/inventory" className={styles.lowStockLink}>
               → Xem tồn kho
@@ -846,8 +887,9 @@ export default function Dashboard() {
                 <span className={styles.tableMetaText}>
                   Tổng cộng:{' '}
                   <strong>
-                    {(sales?.completed_orders ?? todayOrdersTotal).toLocaleString('vi-VN')}{' '}
-                    giao dịch
+                    {hasActivePeriodData
+                      ? `${(sales?.completed_orders ?? activeTodayOrdersTotal).toLocaleString('vi-VN')} giao dịch`
+                      : '—'}
                   </strong>
                 </span>
                 <Link to="/orders" className={styles.viewAllLink}>
@@ -856,7 +898,13 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {todayOrders.length === 0 ? (
+            {!hasActivePeriodData ? (
+              <p className={styles.emptyText}>
+                {errorMessage
+                  ? 'Không thể tải danh sách giao dịch cho kỳ thống kê này.'
+                  : 'Đang tải dữ liệu...'}
+              </p>
+            ) : activeTodayOrders.length === 0 ? (
               <p className={styles.emptyText}>
                 Chưa có giao dịch nào phát sinh trong ngày hôm nay.
               </p>
@@ -875,7 +923,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {todayOrders.map((ord) => {
+                    {activeTodayOrders.map((ord) => {
                       const itemCount = Array.isArray(ord.items)
                         ? ord.items.reduce((sum, it) => sum + (it.quantity || 0), 0)
                         : ord.item_count ?? '—';
@@ -947,79 +995,87 @@ export default function Dashboard() {
               </span>
             </div>
 
-            <div className={styles.tableWrap}>
-              <table className={styles.dataTable}>
-                <thead>
-                  <tr>
-                    <th>
-                      {isWeeklyMode
-                        ? 'KHOẢNG THỜI GIAN (TUẦN)'
-                        : 'NGÀY KINH DOANH'}
-                    </th>
-                    <th className={styles.numCell}>ĐƠN HOÀN TẤT</th>
-                    <th className={styles.numCell}>ĐƠN HỦY</th>
-                    <th className={styles.numCell}>DOANH THU HOÀN TẤT (VND)</th>
-                    <th className={styles.numCell}>GIÁ TRỊ TB ĐƠN</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRowsNewestFirst.map((row) => {
-                    const s = row.summary;
-                    return (
-                      <tr key={row.key}>
-                        <td>
-                          {row.isToday && <span className={styles.greenDot} />}{' '}
-                          <strong>{row.tableLabel}</strong>
-                        </td>
-                        <td className={`${styles.numCell} ${styles.completedNum}`}>
-                          {s ? `${s.completed_orders.toLocaleString('vi-VN')} đơn` : '0 đơn'}
-                        </td>
-                        <td className={`${styles.numCell} ${styles.cancelledNum}`}>
-                          {s ? `${s.cancelled_orders.toLocaleString('vi-VN')} đơn` : '0 đơn'}
-                        </td>
-                        <td className={styles.numCell}>
-                          <strong>{s ? formatVnd(s.revenue_vnd) : '0 ₫'}</strong>
-                        </td>
-                        <td className={styles.numCell}>
-                          {s ? formatVnd(s.aov_vnd) : '0 ₫'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td>
-                      TỔNG CỘNG KỲ PHÂN TÍCH (
-                      {preset === DASHBOARD_PRESETS.LAST_7_DAYS
-                        ? '7 NGÀY'
-                        : preset === DASHBOARD_PRESETS.LAST_30_DAYS
-                        ? '30 NGÀY'
-                        : 'THÁNG NÀY'}
-                      )
-                    </td>
-                    <td className={`${styles.numCell} ${styles.completedNum}`}>
-                      {(sales?.completed_orders ?? tableTotals.completed).toLocaleString(
-                        'vi-VN'
-                      )}{' '}
-                      đơn
-                    </td>
-                    <td className={`${styles.numCell} ${styles.cancelledNum}`}>
-                      {(sales?.cancelled_orders ?? tableTotals.cancelled).toLocaleString(
-                        'vi-VN'
-                      )}{' '}
-                      đơn
-                    </td>
-                    <td className={`${styles.numCell} ${styles.revenueNum}`}>
-                      {formatVnd(sales?.revenue_vnd ?? tableTotals.revenue)}
-                    </td>
-                    <td className={styles.numCell}>
-                      {formatVnd(sales?.aov_vnd ?? tableTotals.aov)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            {!hasActivePeriodData ? (
+              <p className={styles.emptyText}>
+                {errorMessage
+                  ? 'Không thể tải dữ liệu đối soát cho kỳ thống kê này.'
+                  : 'Đang tải dữ liệu...'}
+              </p>
+            ) : (
+              <div className={styles.tableWrap}>
+                <table className={styles.dataTable}>
+                  <thead>
+                    <tr>
+                      <th>
+                        {isWeeklyMode
+                          ? 'KHOẢNG THỜI GIAN (TUẦN)'
+                          : 'NGÀY KINH DOANH'}
+                      </th>
+                      <th className={styles.numCell}>ĐƠN HOÀN TẤT</th>
+                      <th className={styles.numCell}>ĐƠN HỦY</th>
+                      <th className={styles.numCell}>DOANH THU HOÀN TẤT (VND)</th>
+                      <th className={styles.numCell}>GIÁ TRỊ TB ĐƠN</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRowsNewestFirst.map((row) => {
+                      const s = row.summary;
+                      return (
+                        <tr key={row.key}>
+                          <td>
+                            {row.isToday && <span className={styles.greenDot} />}{' '}
+                            <strong>{row.tableLabel}</strong>
+                          </td>
+                          <td className={`${styles.numCell} ${styles.completedNum}`}>
+                            {s ? `${s.completed_orders.toLocaleString('vi-VN')} đơn` : '0 đơn'}
+                          </td>
+                          <td className={`${styles.numCell} ${styles.cancelledNum}`}>
+                            {s ? `${s.cancelled_orders.toLocaleString('vi-VN')} đơn` : '0 đơn'}
+                          </td>
+                          <td className={styles.numCell}>
+                            <strong>{s ? formatVnd(s.revenue_vnd) : '0 ₫'}</strong>
+                          </td>
+                          <td className={styles.numCell}>
+                            {s ? formatVnd(s.aov_vnd) : '0 ₫'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td>
+                        TỔNG CỘNG KỲ PHÂN TÍCH (
+                        {preset === DASHBOARD_PRESETS.LAST_7_DAYS
+                          ? '7 NGÀY'
+                          : preset === DASHBOARD_PRESETS.LAST_30_DAYS
+                          ? '30 NGÀY'
+                          : 'THÁNG NÀY'}
+                        )
+                      </td>
+                      <td className={`${styles.numCell} ${styles.completedNum}`}>
+                        {(sales?.completed_orders ?? tableTotals.completed).toLocaleString(
+                          'vi-VN'
+                        )}{' '}
+                        đơn
+                      </td>
+                      <td className={`${styles.numCell} ${styles.cancelledNum}`}>
+                        {(sales?.cancelled_orders ?? tableTotals.cancelled).toLocaleString(
+                          'vi-VN'
+                        )}{' '}
+                        đơn
+                      </td>
+                      <td className={`${styles.numCell} ${styles.revenueNum}`}>
+                        {formatVnd(sales?.revenue_vnd ?? tableTotals.revenue)}
+                      </td>
+                      <td className={styles.numCell}>
+                        {formatVnd(sales?.aov_vnd ?? tableTotals.aov)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </>
         )}
 

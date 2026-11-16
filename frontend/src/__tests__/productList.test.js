@@ -1484,4 +1484,57 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       assert.deepEqual(capturedSortParams, ['quantity_asc', 'restock_first']);
     });
   });
+
+  // ==========================================================================
+  // 9. P2 Regression: ProductRead vs CategoryRead product_count separation
+  // ==========================================================================
+  describe('P2 Regression: validateProductRead & validateCategoryRead boundary', () => {
+    test('validateProductRead accepts valid ProductRead without product_count and validates image_url', () => {
+      const validated = validateProductRead({
+        ...VALID_PRODUCT_FIXTURE,
+        image_url: 'https://cdn.example.com/coca.png',
+      });
+      assert.equal(validated.id, VALID_PRODUCT_FIXTURE.id);
+      assert.equal(validated.image_url, 'https://cdn.example.com/coca.png');
+      assert.equal('product_count' in validated, false);
+
+      // Should NOT throw CategoryRead product_count error inside validateProductRead
+      assert.doesNotThrow(() =>
+        validateProductRead({
+          ...VALID_PRODUCT_FIXTURE,
+          product_count: -1,
+        })
+      );
+
+      // Should still reject invalid non-HTTPS image_url
+      assert.throws(
+        () =>
+          validateProductRead({
+            ...VALID_PRODUCT_FIXTURE,
+            image_url: 'http://insecure.example.com/coca.png',
+          }),
+        /invalid image_url/
+      );
+    });
+
+    test('validateCategoryRead enforces non-negative integer product_count when provided', () => {
+      const baseCategory = {
+        id: 1,
+        name: 'Đồ uống',
+        status: 'ACTIVE',
+        created_at: '2026-11-01T00:00:00Z',
+        updated_at: '2026-11-01T00:00:00Z',
+      };
+
+      assert.equal(validateCategoryRead({ ...baseCategory, product_count: 0 }).product_count, 0);
+      assert.equal(validateCategoryRead({ ...baseCategory, product_count: 12 }).product_count, 12);
+
+      for (const badCount of [-1, 1.5, '5', null]) {
+        assert.throws(
+          () => validateCategoryRead({ ...baseCategory, product_count: badCount }),
+          /invalid product_count/
+        );
+      }
+    });
+  });
 });

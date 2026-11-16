@@ -517,16 +517,6 @@ export function validateProductRead(item) {
   }
 
   // F01: Strict timestamp validation - Must be valid ISO string, no fallback
-  if (
-    item.product_count !== undefined &&
-    (typeof item.product_count !== 'number' ||
-      !Number.isInteger(item.product_count) ||
-      item.product_count < 0)
-  ) {
-    throw new Error(
-      `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid product_count: ${item.product_count}.`
-    );
-  }
   if (!isValidIsoTimestamp(item.created_at)) {
     throw new Error(
       `Schema violation: Product "${item.name}" (SKU: ${item.sku}) has invalid or missing created_at timestamp: ${item.created_at}.`
