@@ -7,7 +7,66 @@ export const ADJUSTMENT_STATUS = Object.freeze({
   STALE_VERSION: 'STALE_VERSION',
   AMBIGUOUS: 'AMBIGUOUS',
   RECONCILING: 'RECONCILING',
+  AWAITING_ACKNOWLEDGEMENT: 'AWAITING_ACKNOWLEDGEMENT',
 });
+
+/**
+ * Centralized close guard for the adjustment modal.
+ * Pure logic determining if the modal can safely be closed/unmounted.
+ * Blocks during SUBMITTING, RECONCILING, AMBIGUOUS, and AWAITING_ACKNOWLEDGEMENT.
+ *
+ * @param {string} status Current ADJUSTMENT_STATUS
+ * @param {any} pendingIntent Active ambiguous intent
+ * @returns {boolean} True if the modal is safe to close/dismiss
+ */
+export function canCloseAdjustmentModal(status, pendingIntent) {
+  if (status === ADJUSTMENT_STATUS.SUBMITTING) {
+    return false;
+  }
+  if (status === ADJUSTMENT_STATUS.AMBIGUOUS || Boolean(pendingIntent)) {
+    return false;
+  }
+  if (status === ADJUSTMENT_STATUS.RECONCILING) {
+    return false;
+  }
+  if (status === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validates authoritative product inventory response from GET /inventory/{id}.
+ * Strictly fail-closed.
+ *
+ * @param {any} data Response object from server
+ * @param {number} expectedProductId Expected product ID
+ * @returns {boolean}
+ */
+export function isValidAuthoritativeInventory(data, expectedProductId) {
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+  if (data.product_id !== expectedProductId) {
+    return false;
+  }
+  if (
+    typeof data.quantity !== 'number' ||
+    !Number.isInteger(data.quantity) ||
+    data.quantity < 0 ||
+    data.quantity > 2147483647
+  ) {
+    return false;
+  }
+  if (
+    typeof data.stock_version !== 'number' ||
+    !Number.isInteger(data.stock_version) ||
+    data.stock_version < 0
+  ) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Classifies an adjustment error response.
@@ -48,7 +107,7 @@ export function classifyAdjustmentError(err) {
 
 /**
  * Determines whether the user is permitted to submit a new adjustment POST.
- * Blocks during submitting, reconciling, ambiguous, and stale version states.
+ * Blocks during submitting, reconciling, ambiguous, awaiting acknowledgement, and stale version states.
  * Also checks No-op vs valid input.
  */
 export function canSubmitAdjustment({
@@ -57,7 +116,7 @@ export function canSubmitAdjustment({
   isReasonValid,
   delta,
 }) {
-  // If in any non-idle state (submitting, stale, ambiguous, reconciling), submission is locked
+  // If in any non-idle state (submitting, stale, ambiguous, reconciling, awaiting_acknowledgement), submission is locked
   if (status !== ADJUSTMENT_STATUS.IDLE) {
     return false;
   }
@@ -75,7 +134,21 @@ export function canSubmitAdjustment({
 }
 
 /**
+ * Initial state factory for adjustment modal state.
+ */
+export function createInitialAdjustmentState() {
+  return {
+    status: ADJUSTMENT_STATUS.IDLE,
+    errorMessage: '',
+    conflictData: null,
+    ambiguousIntent: null,
+    reconciledResult: null,
+  };
+}
+
+/**
  * Pure transition handler for adjustment modal state.
+ * Used directly by InventoryAdjustModal and test suites.
  */
 export function reduceAdjustmentState(state, action) {
   switch (action.type) {
@@ -119,7 +192,26 @@ export function reduceAdjustmentState(state, action) {
         errorMessage: '',
       };
 
-    case 'RELOAD_SUCCESS':
+    case 'RELOAD_SUCCESS': {
+      const fromAmbiguous =
+        state.status === ADJUSTMENT_STATUS.AMBIGUOUS ||
+        action.payload.previousStatus === ADJUSTMENT_STATUS.AMBIGUOUS ||
+        Boolean(state.ambiguousIntent);
+
+      if (fromAmbiguous) {
+        // Must gate with AWAITING_ACKNOWLEDGEMENT before unlocking to IDLE
+        return {
+          ...state,
+          status: ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT,
+          conflictData: null,
+          errorMessage: '',
+          reconciledResult: action.payload.reconciledResult,
+          // Retain ambiguousIntent until user explicitly acknowledges
+          ambiguousIntent: state.ambiguousIntent,
+        };
+      }
+
+      // If came from STALE_VERSION, valid reload clears conflict and returns to IDLE
       return {
         ...state,
         status: ADJUSTMENT_STATUS.IDLE,
@@ -128,23 +220,30 @@ export function reduceAdjustmentState(state, action) {
         reconciledResult: action.payload.reconciledResult || null,
         ambiguousIntent: null,
       };
+    }
 
     case 'RELOAD_FAILURE':
-      // Preserve current status (AMBIGUOUS or STALE_VERSION)
+      // Preserve current status (AMBIGUOUS or STALE_VERSION) and retain all drafts & intents
       return {
         ...state,
-        status: state.status === ADJUSTMENT_STATUS.RECONCILING ? action.payload.previousStatus : state.status,
+        status:
+          state.status === ADJUSTMENT_STATUS.RECONCILING
+            ? action.payload.previousStatus
+            : state.status,
         errorMessage: action.payload.errorMessage,
       };
 
-    case 'RESET_PRODUCT':
+    case 'ACKNOWLEDGE_RECONCILIATION':
       return {
+        ...state,
         status: ADJUSTMENT_STATUS.IDLE,
-        conflictData: null,
-        errorMessage: '',
         ambiguousIntent: null,
         reconciledResult: null,
+        errorMessage: '',
       };
+
+    case 'RESET_PRODUCT':
+      return createInitialAdjustmentState();
 
     default:
       return state;

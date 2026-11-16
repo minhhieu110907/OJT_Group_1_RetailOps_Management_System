@@ -43,6 +43,7 @@ export default function InventoryList() {
 
   // 5. State Modal Điều chỉnh tồn kho (Admin only)
   const [adjustingProduct, setAdjustingProduct] = useState(null);
+  const [pendingAmbiguousProduct, setPendingAmbiguousProduct] = useState(null);
 
   // Ref chống race condition
   const requestIdRef = useRef(0);
@@ -234,6 +235,10 @@ export default function InventoryList() {
                   type="button"
                   className={styles.actionBtn}
                   onClick={() => {
+                    if (pendingAmbiguousProduct && pendingAmbiguousProduct.product_id !== row.product_id) {
+                      toast.warning('Đang có phiên kiểm kê chưa rõ kết quả đối soát. Vui lòng hoàn tất đối soát trước khi mở sản phẩm khác.');
+                      return;
+                    }
                     setAdjustingProduct(row);
                   }}
                   title="Điều chỉnh tồn kho"
@@ -245,7 +250,7 @@ export default function InventoryList() {
           ]
         : []),
     ];
-  }, [categoryMap, isAdmin]);
+  }, [categoryMap, isAdmin, pendingAmbiguousProduct, toast]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pagination.pageSize));
 
@@ -256,7 +261,13 @@ export default function InventoryList() {
         <button
           type="button"
           className={`${styles.tabBtn} ${activeMainTab === 'OVERVIEW' ? styles.tabBtnActive : ''}`}
-          onClick={() => setActiveMainTab('OVERVIEW')}
+          onClick={() => {
+            if (pendingAmbiguousProduct) {
+              toast.warning('Đang có phiên kiểm kê chưa rõ kết quả đối soát. Vui lòng hoàn tất đối soát trước khi chuyển tab.');
+              return;
+            }
+            setActiveMainTab('OVERVIEW');
+          }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -269,7 +280,13 @@ export default function InventoryList() {
         <button
           type="button"
           className={`${styles.tabBtn} ${activeMainTab === 'HISTORY' ? styles.tabBtnActive : ''}`}
-          onClick={() => setActiveMainTab('HISTORY')}
+          onClick={() => {
+            if (pendingAmbiguousProduct) {
+              toast.warning('Đang có phiên kiểm kê chưa rõ kết quả đối soát. Vui lòng hoàn tất đối soát trước khi chuyển tab.');
+              return;
+            }
+            setActiveMainTab('HISTORY');
+          }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
@@ -438,14 +455,18 @@ export default function InventoryList() {
       </div>
 
       {/* 8. Modal Điều chỉnh tồn kho (Admin only, hoàn toàn không dùng icon) */}
-      {isAdmin && adjustingProduct && (
+      {isAdmin && (adjustingProduct || pendingAmbiguousProduct) && (
         <InventoryAdjustModal
-          isOpen={Boolean(adjustingProduct)}
-          product={adjustingProduct}
-          categoryName={categoryMap.get(adjustingProduct.category_id) || ''}
+          isOpen={Boolean(adjustingProduct || pendingAmbiguousProduct)}
+          product={adjustingProduct || pendingAmbiguousProduct}
+          categoryName={categoryMap.get((adjustingProduct || pendingAmbiguousProduct).category_id) || ''}
+          onAmbiguousStateChange={(ambiguousProd) => {
+            setPendingAmbiguousProduct(ambiguousProd);
+          }}
           onClose={() => {
             modalReloadRequestIdRef.current++;
             setAdjustingProduct(null);
+            setPendingAmbiguousProduct(null);
           }}
           onReloadLatest={async (productId) => {
             const currentAttemptId = ++modalReloadRequestIdRef.current;
@@ -454,10 +475,11 @@ export default function InventoryList() {
               const latestData = await inventoryApi.getProductInventory(productId);
 
               // Stale check: modal must still be open for this exact product and attempt
+              const currentActiveProduct = adjustingProduct || pendingAmbiguousProduct;
               if (
                 currentAttemptId === modalReloadRequestIdRef.current &&
-                adjustingProduct &&
-                adjustingProduct.product_id === productId &&
+                currentActiveProduct &&
+                currentActiveProduct.product_id === productId &&
                 isAdmin
               ) {
                 setAdjustingProduct(latestData);
@@ -477,13 +499,15 @@ export default function InventoryList() {
             }
           }}
           onSuccess={(res) => {
+            const currentActiveProduct = adjustingProduct || pendingAmbiguousProduct;
             toast.success(
               res?.movement_created
-                ? `Đã điều chỉnh tồn kho cho ${adjustingProduct.sku} thành công!`
-                : `Đã kiểm kê ${adjustingProduct.sku}: Số lượng tồn kho không đổi.`
+                ? `Đã điều chỉnh tồn kho cho ${currentActiveProduct?.sku} thành công!`
+                : `Đã kiểm kê ${currentActiveProduct?.sku}: Số lượng tồn kho không đổi.`
             );
             modalReloadRequestIdRef.current++;
             setAdjustingProduct(null);
+            setPendingAmbiguousProduct(null);
             // Refresh lại danh sách tồn kho và KPI
             loadInventory();
             loadKpiStats();

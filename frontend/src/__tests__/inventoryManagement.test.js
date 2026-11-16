@@ -14,8 +14,11 @@ import {
 } from '../api/inventoryApi.js';
 import {
   ADJUSTMENT_STATUS,
+  canCloseAdjustmentModal,
   canSubmitAdjustment,
   classifyAdjustmentError,
+  createInitialAdjustmentState,
+  isValidAuthoritativeInventory,
   reduceAdjustmentState,
 } from '../pages/Inventory/inventoryAdjustmentController.js';
 
@@ -344,7 +347,7 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
   // WORKSTREAM 5 — PRODUCTION BEHAVIORAL REGRESSION TESTS (T01 - T07)
   // =========================================================================
   describe('Production Behavioral Regressions (Using Production Controller)', () => {
-    test('T01 & T04 — Timeout classifies as AMBIGUOUS, locks submit, renders reload button and prevents duplicate POST with new UUID', () => {
+    test('T01 — Ambiguous submit locks modal and preserves pending intent and Idempotency-Key', () => {
       const timeoutErr = new Error('timeout of 10000ms exceeded');
       timeoutErr.code = 'ECONNABORTED';
 
@@ -353,65 +356,124 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       assert.ok(classified.message.includes('Kết quả điều chỉnh chưa thể xác minh'));
 
       // Transition state to AMBIGUOUS using production reducer
-      const initialState = {
-        status: ADJUSTMENT_STATUS.SUBMITTING,
-        conflictData: null,
-        errorMessage: '',
-        ambiguousIntent: null,
-      };
+      const initialState = createInitialAdjustmentState();
+      const submittingState = reduceAdjustmentState(initialState, { type: 'START_SUBMIT' });
+      assert.equal(submittingState.status, ADJUSTMENT_STATUS.SUBMITTING);
 
-      const ambiguousState = reduceAdjustmentState(initialState, {
+      const fixedKey = 'uuid-fixed-intent-key-1234';
+      const ambiguousState = reduceAdjustmentState(submittingState, {
         type: 'SUBMIT_AMBIGUOUS',
         payload: {
           message: classified.message,
-          intent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
+          intent: { key: fixedKey, payload: { countedQuantity: 20, reason: 'Kiem ke thuc te' } },
         },
       });
 
       assert.equal(ambiguousState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
-      assert.equal(ambiguousState.ambiguousIntent.key, 'uuid-1');
+      assert.equal(ambiguousState.ambiguousIntent.key, fixedKey);
+      assert.equal(ambiguousState.ambiguousIntent.payload.countedQuantity, 20);
 
-      // T04: Verify submission is locked in AMBIGUOUS state
+      // Submission must be locked: canSubmitAdjustment returns false
       const canSubmitInAmbiguous = canSubmitAdjustment({
         status: ambiguousState.status,
         isValidCounted: true,
         isReasonValid: true,
         delta: 5,
       });
-
-      assert.equal(
-        canSubmitInAmbiguous,
-        false,
-        'User must NOT be allowed to submit a new adjustment while outcome is AMBIGUOUS'
-      );
+      assert.equal(canSubmitInAmbiguous, false, 'User must NOT be allowed to submit a new adjustment while outcome is AMBIGUOUS');
     });
 
-    test('T02 — Reload failure preserves AMBIGUOUS state, draft and intent, and keeps submit locked', () => {
+    test('T02 — Centralized Close Guard blocks close on AMBIGUOUS, RECONCILING, and AWAITING_ACKNOWLEDGEMENT', () => {
+      // 1. In IDLE without pendingIntent: close is permitted
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.IDLE, null), true, 'IDLE must permit closing');
+
+      // 2. In SUBMITTING: close is blocked
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.SUBMITTING, null), false, 'SUBMITTING must block closing');
+
+      // 3. In AMBIGUOUS: close is blocked
+      const pendingIntent = { key: 'uuid-1', payload: {} };
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.AMBIGUOUS, pendingIntent), false, 'AMBIGUOUS must block closing');
+
+      // 4. In RECONCILING: close is blocked
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.RECONCILING, pendingIntent), false, 'RECONCILING must block closing');
+
+      // 5. In AWAITING_ACKNOWLEDGEMENT: close is blocked until acknowledged
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT, pendingIntent), false, 'AWAITING_ACKNOWLEDGEMENT must block closing');
+
+      // 6. Even if status is mistakenly IDLE but pendingIntent remains, close is blocked
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.IDLE, pendingIntent), false, 'Pending intent must block closing even if status is IDLE');
+    });
+
+    test('T03 — No-Op bypass regression: No-Op cannot bypass lock when status is AMBIGUOUS', () => {
+      // In AMBIGUOUS, even if counted quantity equals current quantity (delta === 0)
+      const canSubmitAmbiguousNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.AMBIGUOUS,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitAmbiguousNoOp, false, 'No-Op must not bypass submit lock in AMBIGUOUS status');
+
+      // In AWAITING_ACKNOWLEDGEMENT, No-Op is also blocked
+      const canSubmitAckNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitAckNoOp, false, 'No-Op must not bypass submit lock in AWAITING_ACKNOWLEDGEMENT status');
+
+      // Only in IDLE is No-Op allowed
+      const canSubmitIdleNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitIdleNoOp, true, 'No-Op is only permitted in IDLE status');
+    });
+
+    test('T04 — Authoritative reload validation (isValidAuthoritativeInventory) and failure preservation', () => {
+      const currentProductId = 42;
+
+      // Fail-closed validation checks
+      assert.equal(isValidAuthoritativeInventory(null, currentProductId), false, 'null is invalid');
+      assert.equal(isValidAuthoritativeInventory(undefined, currentProductId), false, 'undefined is invalid');
+      assert.equal(isValidAuthoritativeInventory({}, currentProductId), false, 'empty object is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 99, quantity: 10, stock_version: 1 }, currentProductId), false, 'wrong product_id is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: -5, stock_version: 1 }, currentProductId), false, 'negative quantity is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: '10', stock_version: 1 }, currentProductId), false, 'string quantity is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 10, stock_version: -1 }, currentProductId), false, 'negative version is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 10, stock_version: null }, currentProductId), false, 'null version is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 2147483648, stock_version: 1 }, currentProductId), false, 'overflow quantity is invalid');
+
+      // Valid response passes
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 10, stock_version: 2 }, currentProductId), true, 'valid response passes');
+
+      // Failure transition preserves AMBIGUOUS state, draft and intent
       const ambiguousState = {
         status: ADJUSTMENT_STATUS.AMBIGUOUS,
         conflictData: null,
-        errorMessage: 'Ambiguous error message',
+        errorMessage: 'Original network error',
         ambiguousIntent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
       };
 
-      // User starts reload
       const reconcilingState = reduceAdjustmentState(ambiguousState, { type: 'START_RELOAD' });
       assert.equal(reconcilingState.status, ADJUSTMENT_STATUS.RECONCILING);
 
-      // Reload fails (e.g. 500 or network drop)
       const failedReloadState = reduceAdjustmentState(reconcilingState, {
         type: 'RELOAD_FAILURE',
         payload: {
           previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
-          errorMessage: 'Cannot connect to server to reload authoritative data',
+          errorMessage: 'Dữ liệu nhận từ máy chủ không hợp lệ hoặc không đúng sản phẩm.',
         },
       });
 
       assert.equal(failedReloadState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
       assert.equal(failedReloadState.ambiguousIntent.key, 'uuid-1');
-      assert.equal(failedReloadState.errorMessage, 'Cannot connect to server to reload authoritative data');
+      assert.equal(failedReloadState.errorMessage, 'Dữ liệu nhận từ máy chủ không hợp lệ hoặc không đúng sản phẩm.');
 
-      // Submit must remain locked
+      // Submit remains strictly locked
       const canSubmitAfterFailedReload = canSubmitAdjustment({
         status: failedReloadState.status,
         isValidCounted: true,
@@ -421,7 +483,7 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       assert.equal(canSubmitAfterFailedReload, false);
     });
 
-    test('T03 — Reload success transitions to IDLE with reconciledResult, updates version, and does not auto-submit', () => {
+    test('T05 — Valid reload transitions to AWAITING_ACKNOWLEDGEMENT; explicit user acknowledgement gates return to IDLE', () => {
       const ambiguousState = {
         status: ADJUSTMENT_STATUS.AMBIGUOUS,
         conflictData: null,
@@ -431,10 +493,11 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
 
       const reconcilingState = reduceAdjustmentState(ambiguousState, { type: 'START_RELOAD' });
 
-      // Authoritative GET /inventory/{id} succeeds with new quantity 20, version 3
-      const successState = reduceAdjustmentState(reconcilingState, {
+      // Valid reload response processed
+      const ackState = reduceAdjustmentState(reconcilingState, {
         type: 'RELOAD_SUCCESS',
         payload: {
+          previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
           reconciledResult: {
             previousVersion: 2,
             latestVersion: 3,
@@ -443,75 +506,65 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
         },
       });
 
-      assert.equal(successState.status, ADJUSTMENT_STATUS.IDLE);
-      assert.equal(successState.ambiguousIntent, null);
-      assert.deepEqual(successState.reconciledResult, {
+      // Must be in AWAITING_ACKNOWLEDGEMENT, NOT IDLE yet!
+      assert.equal(ackState.status, ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT);
+      assert.ok(ackState.ambiguousIntent !== null, 'ambiguousIntent must be retained during acknowledgement stage');
+      assert.deepEqual(ackState.reconciledResult, {
         previousVersion: 2,
         latestVersion: 3,
         latestQuantity: 20,
       });
 
-      // Submit is now enabled for next legitimate action on version 3
-      const canSubmitNewIntent = canSubmitAdjustment({
-        status: successState.status,
+      // Submit must remain LOCKED before user acknowledges
+      const canSubmitBeforeAck = canSubmitAdjustment({
+        status: ackState.status,
         isValidCounted: true,
         isReasonValid: true,
-        delta: 0, // delta on new quantity 20 is 0 (No-Op)
+        delta: 5,
       });
-      assert.equal(canSubmitNewIntent, true);
+      assert.equal(canSubmitBeforeAck, false, 'Submit must remain locked while awaiting acknowledgement');
+
+      // Modal close must also be BLOCKED before user acknowledges
+      assert.equal(canCloseAdjustmentModal(ackState.status, ackState.ambiguousIntent), false, 'Modal close must remain blocked while awaiting acknowledgement');
+
+      // User actively clicks "Đã kiểm tra đối soát • Tiếp tục thao tác"
+      const idleState = reduceAdjustmentState(ackState, { type: 'ACKNOWLEDGE_RECONCILIATION' });
+      assert.equal(idleState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(idleState.ambiguousIntent, null);
+      assert.equal(idleState.reconciledResult, null);
+
+      // Now and only now, submit is unlocked for next legitimate user intent
+      const canSubmitAfterAck = canSubmitAdjustment({
+        status: idleState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+      assert.equal(canSubmitAfterAck, true, 'Submit is unlocked after explicit user acknowledgement');
     });
 
-    test('T05 — Modal lifecycle: stale reload response after modal close or product switch is discarded without locking table', async () => {
-      let adjustingProduct = { product_id: 101, name: 'Sản phẩm 101' };
-      let attemptId = 0;
-      let appliedProduct = null;
-
-      // Production logic extracted from InventoryList.jsx onReloadLatest
-      const reloadHandler = async (productId, delayMs, returnData) => {
-        const currentAttempt = ++attemptId;
-        await new Promise((r) => setTimeout(r, delayMs));
-
-        if (currentAttempt === attemptId && adjustingProduct && adjustingProduct.product_id === productId) {
-          appliedProduct = returnData;
-          return returnData;
-        }
-        return null; // Stale response discarded
+    test('T06 — HTTP 500 error after dispatch is classified as AMBIGUOUS and does not retry automatically', () => {
+      const server500Err = {
+        response: {
+          status: 500,
+          data: { message: 'Internal Server Error' },
+        },
       };
 
-      // Launch slow reload for product 101
-      const promise101 = reloadHandler(101, 40, { product_id: 101, stock_version: 5 });
+      const classified = classifyAdjustmentError(server500Err);
+      assert.equal(classified.type, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.ok(classified.message.includes('Kết quả điều chỉnh chưa thể xác minh'));
 
-      // User switches to product 102 immediately
-      adjustingProduct = { product_id: 102, name: 'Sản phẩm 102' };
+      // 502 Bad Gateway and 503 Service Unavailable are also AMBIGUOUS
+      const error503 = { response: { status: 503, data: {} } };
+      assert.equal(classifyAdjustmentError(error503).type, ADJUSTMENT_STATUS.AMBIGUOUS);
 
-      const result = await promise101;
-      assert.equal(result, null, 'Stale reload response must return null');
-      assert.equal(appliedProduct, null, 'Stale product data must not be applied to state');
-      assert.equal(adjustingProduct.product_id, 102, 'Active product must remain 102');
+      // 400 Bad Request is CONFIRMED_ERROR, not AMBIGUOUS
+      const error400 = { response: { status: 400, data: { message: 'Dữ liệu không hợp lệ' } } };
+      assert.equal(classifyAdjustmentError(error400).type, 'CONFIRMED_ERROR');
     });
 
-    test('T06 — Role downgrade: immediate suppression of audit sensitive modal in render', () => {
-      const getModalVisibility = (role, viewingItem) => {
-        const isAdmin = role === 'ADMIN';
-        const isOpen = isAdmin && Boolean(viewingItem);
-        const shouldRenderContent = isAdmin && Boolean(viewingItem);
-        return { isOpen, shouldRenderContent };
-      };
-
-      const item = { product_id: 1, actor_id: 10, adjustment_reason: 'Audit sensitive reason' };
-
-      // Case 1: ADMIN
-      const adminView = getModalVisibility('ADMIN', item);
-      assert.equal(adminView.isOpen, true);
-      assert.equal(adminView.shouldRenderContent, true);
-
-      // Case 2: Downgraded to STAFF
-      const staffView = getModalVisibility('STAFF', item);
-      assert.equal(staffView.isOpen, false);
-      assert.equal(staffView.shouldRenderContent, false);
-    });
-
-    test('T07 — STALE_STOCK_VERSION error classification and No-Op canSubmit behavior', () => {
+    test('T07 — Preserve existing behaviors: 409 STALE_STOCK_VERSION, No-Op in IDLE, and normal reload', () => {
       // 1. STALE_STOCK_VERSION 409
       const error409 = {
         response: {
@@ -528,20 +581,40 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       assert.equal(classified409.type, ADJUSTMENT_STATUS.STALE_VERSION);
       assert.equal(classified409.details.current_stock_version, 2);
 
-      // 2. No-op canSubmit allows delta === 0 without requiring 10-character reason
+      // 2. Normal reload from STALE_VERSION transitions directly to IDLE without forcing ACKNOWLEDGEMENT
+      const staleState = {
+        status: ADJUSTMENT_STATUS.STALE_VERSION,
+        conflictData: { expectedVersion: 1, actualVersion: 2 },
+        errorMessage: '',
+        ambiguousIntent: null,
+      };
+
+      const reconcilingFromStale = reduceAdjustmentState(staleState, { type: 'START_RELOAD' });
+      const reloadedStaleState = reduceAdjustmentState(reconcilingFromStale, {
+        type: 'RELOAD_SUCCESS',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.STALE_VERSION,
+          reconciledResult: { previousVersion: 1, latestVersion: 2, latestQuantity: 15 },
+        },
+      });
+
+      assert.equal(reloadedStaleState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(reloadedStaleState.conflictData, null);
+
+      // 3. No-op canSubmit allows delta === 0 without requiring 10-character reason in IDLE
       const canSubmitNoOp = canSubmitAdjustment({
         status: ADJUSTMENT_STATUS.IDLE,
         isValidCounted: true,
-        isReasonValid: false, // empty reason
+        isReasonValid: false,
         delta: 0,
       });
-      assert.equal(canSubmitNoOp, true, 'No-op must allow submission with empty reason');
+      assert.equal(canSubmitNoOp, true, 'No-op must allow submission with empty reason in IDLE');
 
-      // 3. Non No-op (delta !== 0) requires valid reason
+      // 4. Non No-op (delta !== 0) requires valid reason
       const canSubmitMutation = canSubmitAdjustment({
         status: ADJUSTMENT_STATUS.IDLE,
         isValidCounted: true,
-        isReasonValid: false, // empty reason
+        isReasonValid: false,
         delta: 5,
       });
       assert.equal(canSubmitMutation, false, 'Mutation with delta !== 0 must require 10-char reason');
