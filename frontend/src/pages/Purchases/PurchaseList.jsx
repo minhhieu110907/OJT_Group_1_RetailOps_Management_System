@@ -1763,9 +1763,9 @@ export default function PurchaseList() {
               Hủy bỏ
             </button>
             <button
-              type="button"
+              type="submit"
+              form="create-purchase-receipt-form"
               className={modalStyles.confirmBtn}
-              onClick={handleSubmitCreateDraft}
               disabled={isActionLoading || Boolean(masterDataError) || isMasterDataLoading}
             >
               {isActionLoading ? 'Đang tạo...' : 'Tạo bản nháp'}
@@ -1773,7 +1773,7 @@ export default function PurchaseList() {
           </>
         }
       >
-        <form onSubmit={handleSubmitCreateDraft}>
+        <form id="create-purchase-receipt-form" onSubmit={handleSubmitCreateDraft}>
           {suppliersMeta.isTruncated && (
             <div className={styles.readOnlyNotice} style={{ marginBottom: '12px' }}>
               Đang hiển thị {activeSuppliers.length}/{suppliersMeta.total} nhà cung cấp đang hoạt động đầu tiên.

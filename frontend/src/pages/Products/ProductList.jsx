@@ -891,9 +891,9 @@ export default function ProductList() {
                 Hủy
               </button>
               <button
-                type="button"
+                type="submit"
+                form="product-modal-form"
                 className={modalStyles.confirmBtn}
-                onClick={handleSubmitProductForm}
                 disabled={isSubmittingForm}
               >
                 {isSubmittingForm
@@ -905,7 +905,11 @@ export default function ProductList() {
             </>
           }
         >
-          <form onSubmit={handleSubmitProductForm} className={styles.modalForm}>
+          <form
+            id="product-modal-form"
+            onSubmit={handleSubmitProductForm}
+            className={styles.modalForm}
+          >
             {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
             <div className={styles.formRowTwoCols}>
