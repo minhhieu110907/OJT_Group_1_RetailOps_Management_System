@@ -266,7 +266,15 @@ export default function InventoryList() {
 
   return (
     <div className={styles.container}>
-     
+      <div className={styles.header}>
+        <div className={styles.titleArea}>
+          <h1 className={styles.mainTitle}>Quản lý tồn kho</h1>
+          <p className={styles.subTitle}>
+            Theo dõi tồn kho hiện tại, cảnh báo tồn thấp và lịch sử biến động kho
+          </p>
+        </div>
+      </div>
+
       <div className={styles.tabsContainer}>
         <button
           type="button"
