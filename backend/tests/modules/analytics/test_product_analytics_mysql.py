@@ -79,8 +79,9 @@ def _seed_user_and_category(session: Session) -> tuple[User, Category]:
     user = User(
         email_normalized=f"{TEST_PREFIX.lower()}{tag}@example.com",
         password_hash="x",
-        role=UserRole.ADMIN,
+        role=UserRole.STAFF,
         status=UserStatus.ACTIVE,
+        admin_slot=None,
         created_at=now,
         updated_at=now,
     )
