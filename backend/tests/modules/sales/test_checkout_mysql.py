@@ -21,6 +21,7 @@ from app.modules.auth.models import User
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
 from app.modules.idempotency.service import IdempotencyExecutor
+from app.modules.idempotency.validation import key_digest, request_digest
 from app.modules.inventory import (
     Inventory,
     InventoryService,
@@ -111,6 +112,7 @@ def seed_checkout(
         actor = User(
             email_normalized=f"{TEST_EMAIL_PREFIX}{suffix}@example.com",
             password_hash="$2b$04$checkout.integration.test.hash",
+            full_name=f"Actor {suffix}",
             role="STAFF",
             status="ACTIVE",
             admin_slot=None,
@@ -203,6 +205,8 @@ def test_success_replay_and_different_payload_conflict(
             ],
         )
         assert replay == first
+        assert first.created_by_name == "Actor replay"
+        assert replay.created_by_name == "Actor replay"
         with pytest.raises(IdempotencyKeyReusedError):
             service.checkout(
                 session,
@@ -229,6 +233,88 @@ def test_success_replay_and_different_payload_conflict(
             )
             == 1
         )
+
+
+def _persist_legacy_response(
+    session: Session,
+    *,
+    actor_id: int,
+    operation: str,
+    idempotency_key: str,
+    identity: dict[str, object],
+    body: dict[str, object],
+) -> None:
+    completed_at = datetime(2026, 11, 14, 3, 0)
+    session.add(
+        IdempotencyRecord(
+            user_id=actor_id,
+            operation=operation,
+            key_digest=key_digest(idempotency_key, IDEMPOTENCY_SECRET),
+            request_digest=request_digest(identity),
+            response_status=201 if operation == "CHECKOUT" else 200,
+            response_body=body,
+            created_at=completed_at,
+            completed_at=completed_at,
+            expires_at=completed_at + timedelta(hours=24),
+        )
+    )
+    session.commit()
+
+
+def _legacy_order_body(
+    *, order_id: int, actor_id: int, status: str
+) -> dict[str, object]:
+    cancelled = status == "CANCELLED"
+    return {
+        "id": order_id,
+        "status": status,
+        "total_vnd": 50_000,
+        "created_by": actor_id,
+        "sold_at": "2026-11-14T03:00:00Z",
+        "cancelled_by": actor_id if cancelled else None,
+        "cancelled_at": "2026-11-14T03:01:00Z" if cancelled else None,
+        "cancel_reason": "Legacy cancel" if cancelled else None,
+        "items": [],
+    }
+
+
+def test_checkout_replays_persisted_legacy_response_without_actor_names(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id = seed_checkout(migrated_integration_engine, "legacy-replay")
+    key = "checkout-legacy-replay-0001"
+    identity = {
+        "operation": "CHECKOUT",
+        "body": {
+            "items": [
+                {
+                    "product_id": product_id,
+                    "quantity": 1,
+                    "viewed_unit_price_vnd": 50_000,
+                }
+            ]
+        },
+    }
+    with Session(migrated_integration_engine) as session:
+        _persist_legacy_response(
+            session,
+            actor_id=actor_id,
+            operation="CHECKOUT",
+            idempotency_key=key,
+            identity=identity,
+            body=_legacy_order_body(
+                order_id=987654, actor_id=actor_id, status="COMPLETED"
+            ),
+        )
+        replay = checkout_service().checkout(
+            session,
+            actor_id=actor_id,
+            idempotency_key=key,
+            items=[checkout_line(product_id)],
+        )
+
+    assert replay.created_by_name is None
+    assert replay.cancelled_by_name is None
 
 
 @pytest.mark.parametrize(
@@ -496,6 +582,47 @@ def create_order_for_cancel(
     return actor_id, product_id, order.id, sold_at
 
 
+def test_cancel_replays_persisted_legacy_response_without_actor_names(
+    migrated_integration_engine: Engine,
+) -> None:
+    actor_id, product_id, order_id, sold_at = create_order_for_cancel(
+        migrated_integration_engine, "legacy-cancel"
+    )
+    key = "cancel-legacy-replay-0001"
+    identity = {
+        "operation": "CANCEL_ORDER",
+        "resource_id": order_id,
+        "body": {"reason": "Legacy cancel"},
+    }
+    with Session(migrated_integration_engine) as session:
+        _persist_legacy_response(
+            session,
+            actor_id=actor_id,
+            operation="CANCEL_ORDER",
+            idempotency_key=key,
+            identity=identity,
+            body=_legacy_order_body(
+                order_id=order_id, actor_id=actor_id, status="CANCELLED"
+            ),
+        )
+        replay = cancel_service(now=sold_at + timedelta(minutes=1)).cancel(
+            session,
+            actor_id=actor_id,
+            actor_role="STAFF",
+            order_id=order_id,
+            reason="Legacy cancel",
+            idempotency_key=key,
+        )
+
+    assert replay.created_by_name is None
+    assert replay.cancelled_by_name is None
+    with Session(migrated_integration_engine) as verify:
+        order = verify.get(Order, order_id)
+        inventory = verify.get(Inventory, product_id)
+        assert order is not None and order.status == "COMPLETED"
+        assert inventory is not None and inventory.quantity == 3
+
+
 def test_cancel_replay_restores_stock_and_movement_once(
     migrated_integration_engine: Engine,
 ) -> None:
@@ -521,6 +648,10 @@ def test_cancel_replay_restores_stock_and_movement_once(
             idempotency_key="cancel-replay-key-0001",
         )
     assert replay == first
+    assert first.created_by_name == "Actor cancel-replay"
+    assert first.cancelled_by_name == "Actor cancel-replay"
+    assert replay.created_by_name == "Actor cancel-replay"
+    assert replay.cancelled_by_name == "Actor cancel-replay"
     with Session(migrated_integration_engine) as verify:
         inventory = verify.get(Inventory, product_id)
         assert inventory is not None and inventory.quantity == 5

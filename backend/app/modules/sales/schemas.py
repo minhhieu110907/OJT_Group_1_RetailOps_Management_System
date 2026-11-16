@@ -2,7 +2,14 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 MAX_SQL_INT = 2_147_483_647
 MAX_SQL_BIGINT = 9_223_372_036_854_775_807
@@ -53,11 +60,25 @@ class OrderRead(BaseModel):
     status: str
     total_vnd: int
     created_by: int
+    created_by_name: str | None = Field(max_length=120)
     sold_at: datetime
     cancelled_by: int | None
+    cancelled_by_name: str | None = Field(max_length=120)
     cancelled_at: datetime | None
     cancel_reason: str | None
     items: tuple[OrderLineRead, ...]
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_idempotency_snapshot(cls, value: object) -> object:
+        """Old committed response snapshots predate actor display-name fields."""
+        if isinstance(value, dict):
+            return {
+                "created_by_name": None,
+                "cancelled_by_name": None,
+                **value,
+            }
+        return value
 
 
 class OrderPage(BaseModel):

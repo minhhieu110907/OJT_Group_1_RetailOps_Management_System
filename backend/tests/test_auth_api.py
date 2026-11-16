@@ -75,6 +75,7 @@ class FakeLoginService:
                 user=AuthenticatedUser(
                     id=1,
                     email_normalized="active@example.com",
+                    full_name=None,
                     role="STAFF",
                     status="ACTIVE",
                 ),
@@ -87,7 +88,11 @@ class FakeLoginService:
 
 class FakeRegisterService:
     def register(
-        self, _session: object, _email: str, _password: str
+        self,
+        _session: object,
+        _email: str,
+        _password: str,
+        _full_name: str | None = None,
     ) -> RegisterResponse:
         return RegisterResponse(message=REGISTER_ACCEPTED_MESSAGE)
 

@@ -3,11 +3,37 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    StrictInt,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from app.modules.products.models import CatalogStatus
 
 MAX_PRODUCT_SEARCH_LENGTH = 100
+_HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
+
+
+def validate_image_url(value: str | None) -> str | None:
+    """Accept only absolute HTTPS references; the backend never fetches them."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized or len(normalized) > 500:
+        raise ValueError("image_url must contain 1 to 500 characters")
+    try:
+        parsed = _HTTP_URL_ADAPTER.validate_python(normalized)
+    except ValueError as error:
+        raise ValueError("image_url must be an absolute HTTPS URL") from error
+    if parsed.scheme != "https":
+        raise ValueError("image_url must use the HTTPS scheme")
+    return normalized
 
 
 class ProductSortOrder(StrEnum):
@@ -73,6 +99,11 @@ class ProductCreateRequest(StrictRequest):
     name: str = Field(min_length=1, max_length=160)
     category_id: StrictInt = Field(gt=0)
     sale_price_vnd: StrictInt = Field(gt=0)
+    image_url: str | None = Field(
+        default=None,
+        max_length=500,
+        json_schema_extra={"format": "uri", "pattern": "^https://"},
+    )
 
     @field_validator("sku")
     @classmethod
@@ -84,6 +115,8 @@ class ProductCreateRequest(StrictRequest):
     def validate_name(cls, value: str) -> str:
         return normalize_product_name(value)
 
+    _validate_image_url = field_validator("image_url")(validate_image_url)
+
 
 class ProductUpdateRequest(StrictRequest):
     """Whitelisted payload for updating product master fields (excluding stock)."""
@@ -92,6 +125,11 @@ class ProductUpdateRequest(StrictRequest):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     category_id: StrictInt | None = Field(default=None, gt=0)
     sale_price_vnd: StrictInt | None = Field(default=None, gt=0)
+    image_url: str | None = Field(
+        default=None,
+        max_length=500,
+        json_schema_extra={"format": "uri", "pattern": "^https://"},
+    )
 
     @field_validator("sku")
     @classmethod
@@ -106,6 +144,8 @@ class ProductUpdateRequest(StrictRequest):
         if value is None:
             return None
         return normalize_product_name(value)
+
+    _validate_image_url = field_validator("image_url")(validate_image_url)
 
 
 class ProductStatusUpdateRequest(StrictRequest):
@@ -123,12 +163,23 @@ class ProductRead(BaseModel):
     category_id: int
     sku: str
     name: str
+    image_url: str | None = Field(
+        max_length=500,
+        json_schema_extra={"format": "uri", "pattern": "^https://"},
+    )
     status: CatalogStatus
     sale_price_vnd: int
     quantity: int
     stock_version: int
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_image_url_defaults_to_null(cls, value: object) -> object:
+        if isinstance(value, dict) and "image_url" not in value:
+            return {**value, "image_url": None}
+        return value
 
 
 class ProductListResponse(BaseModel):

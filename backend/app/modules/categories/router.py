@@ -71,8 +71,7 @@ def get_category(
     service: Annotated[CategoryService, Depends(get_category_service)],
 ) -> CategoryRead:
     """Retrieve details of a single category (accessible by active Staff and Admin)."""
-    category = service.get_by_id(session, id)
-    return CategoryRead.model_validate(category)
+    return service.get_by_id(session, id)
 
 
 @category_router.post(
@@ -87,8 +86,7 @@ def create_category(
     service: Annotated[CategoryService, Depends(get_category_service)],
 ) -> CategoryRead:
     """Create a new category (Admin only)."""
-    category = service.create_category(session, data)
-    return CategoryRead.model_validate(category)
+    return service.create_category(session, data)
 
 
 @category_router.patch(
@@ -104,8 +102,7 @@ def update_category(
     service: Annotated[CategoryService, Depends(get_category_service)],
 ) -> CategoryRead:
     """Partially update category details (Admin only)."""
-    category = service.update_category(session, id, data)
-    return CategoryRead.model_validate(category)
+    return service.update_category(session, id, data)
 
 
 @category_router.patch(
@@ -121,5 +118,4 @@ def update_category_status(
     service: Annotated[CategoryService, Depends(get_category_service)],
 ) -> CategoryRead:
     """Change category status (ACTIVE/INACTIVE, Admin only)."""
-    category = service.update_category_status(session, id, data)
-    return CategoryRead.model_validate(category)
+    return service.update_category_status(session, id, data)
