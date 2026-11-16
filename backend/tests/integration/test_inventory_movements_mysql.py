@@ -664,7 +664,7 @@ def test_stock_movements_order_cancel_restores_stock_and_creates_movement(
     migrated_integration_engine: Engine,
 ) -> None:
     """Verify order cancellation restores stock and records ORDER_CANCEL (PR #52)."""
-    now = datetime.now(UTC)
+    now = datetime(2026, 11, 14, 5, 0, tzinfo=UTC)
     now_unaware = now.replace(tzinfo=None)
 
     with Session(migrated_integration_engine) as session, session.begin():

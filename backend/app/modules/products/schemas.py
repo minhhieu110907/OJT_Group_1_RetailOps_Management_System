@@ -13,6 +13,8 @@ MAX_PRODUCT_SEARCH_LENGTH = 100
 class ProductSortOrder(StrEnum):
     """Whitelisted sort keys for the product catalog query API."""
 
+    QUANTITY_ASC = "quantity_asc"
+    RESTOCK_FIRST = "restock_first"
     NAME_ASC = "name_asc"
     NAME_DESC = "name_desc"
     SKU_ASC = "sku_asc"

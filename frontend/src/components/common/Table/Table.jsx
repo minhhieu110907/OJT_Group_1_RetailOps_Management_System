@@ -14,6 +14,7 @@ export default function Table({
   rowKey = 'id',
   isLoading = false,
   emptyText = 'Không có dữ liệu hiển thị',
+  rowClassName,
 }) {
   const colSpan = columns.length || 1;
 
@@ -58,8 +59,17 @@ export default function Table({
           ) : (
             data.map((row, rowIndex) => {
               const key = row[rowKey] !== undefined ? row[rowKey] : rowIndex;
+              const extraRowClass =
+                typeof rowClassName === 'function'
+                  ? rowClassName(row, rowIndex)
+                  : typeof rowClassName === 'string'
+                  ? rowClassName
+                  : '';
+              const trClassName = extraRowClass
+                ? `${styles.tr} ${extraRowClass}`
+                : styles.tr;
               return (
-                <tr key={key} className={styles.tr}>
+                <tr key={key} className={trClassName}>
                   {columns.map((col) => (
                     <td
                       key={col.key}

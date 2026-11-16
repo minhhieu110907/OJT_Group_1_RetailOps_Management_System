@@ -62,6 +62,7 @@ export default function StaffApprovalList() {
 
   const requestIdRef = useRef(0);
   const deepLinkGenRef = useRef(0);
+  const handledDeepLinkParamRef = useRef(null);
   const lastFetchedCountsRefreshRef = useRef(-1);
   const isDecisionPendingRef = useRef(false);
   const reasonInputRef = useRef(null);
@@ -187,7 +188,16 @@ export default function StaffApprovalList() {
 
   // Xử lý deep-link ?approval_request_id=<id> (tìm trên trang hiện tại hoặc tìm có giới hạn across statuses/pages)
   useEffect(() => {
-    if (isMock || !targetRequestIdParam || isLoading || loadError) {
+    if (!targetRequestIdParam) {
+      handledDeepLinkParamRef.current = null;
+      return undefined;
+    }
+
+    if (isMock || isLoading || loadError) {
+      return undefined;
+    }
+
+    if (handledDeepLinkParamRef.current === targetRequestIdParam) {
       return undefined;
     }
 
@@ -195,6 +205,7 @@ export default function StaffApprovalList() {
     const currentDeepLinkGen = ++deepLinkGenRef.current;
 
     if (!parsedId) {
+      handledDeepLinkParamRef.current = targetRequestIdParam;
       Promise.resolve().then(() => {
         if (currentDeepLinkGen !== deepLinkGenRef.current) return;
         toast.warning('Mã hồ sơ trên đường dẫn không hợp lệ.');
@@ -205,10 +216,6 @@ export default function StaffApprovalList() {
       return () => {
         deepLinkGenRef.current += 1;
       };
-    }
-
-    if (selectedApproval?.id === parsedId) {
-      return undefined;
     }
 
     staffApprovalsApi
@@ -222,6 +229,8 @@ export default function StaffApprovalList() {
       })
       .then((found) => {
         if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+
+        handledDeepLinkParamRef.current = targetRequestIdParam;
 
         if (!found) {
           toast.warning(
@@ -245,6 +254,7 @@ export default function StaffApprovalList() {
       })
       .catch((error) => {
         if (currentDeepLinkGen !== deepLinkGenRef.current) return;
+        handledDeepLinkParamRef.current = targetRequestIdParam;
         const status = error?.response?.status;
         if (status === 401 || status === 403) {
           return;
@@ -264,7 +274,6 @@ export default function StaffApprovalList() {
     isMock,
     items,
     loadError,
-    selectedApproval?.id,
     setUrlSearchParams,
     targetRequestIdParam,
     toast,
@@ -297,6 +306,15 @@ export default function StaffApprovalList() {
   // Chuyển tab trạng thái (Chờ duyệt / Đã duyệt / Đã từ chối)
   const handleSelectStatusTab = (nextStatus) => {
     if (nextStatus === activeStatus) return;
+    if (targetRequestIdParam) {
+      handledDeepLinkParamRef.current = targetRequestIdParam;
+    }
+    deepLinkGenRef.current += 1;
+    if (urlSearchParams.has('approval_request_id')) {
+      const nextParams = new URLSearchParams(urlSearchParams);
+      nextParams.delete('approval_request_id');
+      setUrlSearchParams(nextParams, { replace: true });
+    }
     setIsLoading(true);
     setLoadError('');
     setActiveStatus(nextStatus);
@@ -319,6 +337,10 @@ export default function StaffApprovalList() {
 
   // Mở Modal khi bấm vào thẻ hồ sơ của nhân viên bất kỳ
   const handleOpenDetailModal = (item) => {
+    if (targetRequestIdParam) {
+      handledDeepLinkParamRef.current = targetRequestIdParam;
+    }
+    deepLinkGenRef.current += 1;
     setSelectedApproval(item);
     setRejectReason(item.decision_reason || '');
     setIsModalStale(false);
@@ -327,6 +349,9 @@ export default function StaffApprovalList() {
 
   // Đóng Modal nội bộ (dùng cho cả programmatic close sau khi POST thành công và user close sau khi qua guard)
   const closeDetailModalProgrammatic = useCallback(() => {
+    if (targetRequestIdParam) {
+      handledDeepLinkParamRef.current = targetRequestIdParam;
+    }
     deepLinkGenRef.current += 1;
     setSelectedApproval(null);
     setRejectReason('');
@@ -337,7 +362,7 @@ export default function StaffApprovalList() {
       nextParams.delete('approval_request_id');
       setUrlSearchParams(nextParams, { replace: true });
     }
-  }, [setUrlSearchParams, urlSearchParams]);
+  }, [setUrlSearchParams, targetRequestIdParam, urlSearchParams]);
 
   // Đóng Modal do người dùng thao tác (X, nút Đóng, Escape hoặc click nền mờ) — bị chặn khi đang gửi POST
   const handleCloseDetailModal = () => {
@@ -434,7 +459,7 @@ export default function StaffApprovalList() {
         <div className={styles.titleGroup}>
           <div className={styles.titleRow}>
             <h1 className={styles.title}>Duyệt tài khoản nhân viên</h1>
-            <span className={styles.authCodeBadge}>AUTH-01 &amp; AUTH-03</span>
+            
           </div>
           <p className={styles.subtitle}>
             Hàng đợi xét duyệt hồ sơ đăng ký tài khoản nhân viên (Staff) • Quyền
@@ -681,17 +706,17 @@ export default function StaffApprovalList() {
                         className={styles.statusDotPending}
                         aria-hidden="true"
                       />
-                      <span>PENDING</span>
+                      <span>ĐANG CHỜ</span>
                     </span>
                   ) : item.status === 'APPROVED' ? (
                     <span className={styles.statusPillApproved}>
                       <span aria-hidden="true">✓</span>
-                      <span>APPROVED</span>
+                      <span>ĐÃ DUYỆT</span>
                     </span>
                   ) : (
                     <span className={styles.statusPillRejected}>
                       <span aria-hidden="true">✕</span>
-                      <span>REJECTED</span>
+                      <span>ĐÃ TỪ CHỐI</span>
                     </span>
                   )}
                 </div>
@@ -767,7 +792,7 @@ export default function StaffApprovalList() {
           </svg>
         </span>
         <span>
-          Theo quy chuẩn AUTH-01: Chỉ tài khoản đăng ký qua luồng nội bộ được
+          Chỉ tài khoản đăng ký qua luồng nội bộ được
           hiển thị tại đây. Đảm bảo nhân viên đã ký hợp đồng thử việc trước khi
           cấp mã truy cập.
         </span>
@@ -834,17 +859,17 @@ export default function StaffApprovalList() {
                     className={styles.statusDotPending}
                     aria-hidden="true"
                   />
-                  <span>PENDING</span>
+                  <span>ĐANG CHỜ</span>
                 </span>
               ) : selectedApproval.status === 'APPROVED' ? (
                 <span className={styles.statusPillApproved}>
                   <span aria-hidden="true">✓</span>
-                  <span>APPROVED</span>
+                  <span>ĐÃ DUYỆT</span>
                 </span>
               ) : (
                 <span className={styles.statusPillRejected}>
                   <span aria-hidden="true">✕</span>
-                  <span>REJECTED</span>
+                  <span>ĐÃ TỪ CHỐI</span>
                 </span>
               )}
             </div>
@@ -947,7 +972,7 @@ export default function StaffApprovalList() {
                 <h3 className={styles.sectionTitle}>
                   VAI TRÒ HỆ THỐNG SẼ CẤP
                 </h3>
-                <span className={styles.sectionTag}>Cố định (AUTH-01)</span>
+               
               </div>
 
               <div className={styles.roleBox}>
@@ -959,7 +984,7 @@ export default function StaffApprovalList() {
                 </div>
 
                 <p className={styles.roleDescParagraph}>
-                  <strong>Quyền hạn được cấp:</strong> Bán hàng tại quầy (POS),
+                  <strong>Quyền hạn được cấp:</strong> Bán hàng tại quầy ,
                   tra cứu &amp; xem chi tiết sản phẩm, xem tồn kho hiện tại, xem
                   biến động kho đã lọc (không hiển thị giá vốn/giá nhập/lý do
                   nội bộ), xem danh sách &amp; chi tiết đơn hàng.
@@ -967,7 +992,7 @@ export default function StaffApprovalList() {
 
                 <p className={styles.roleDescParagraph}>
                   <strong>Không có quyền:</strong> Tổng quan/Báo cáo quản trị,
-                  Phân tích (Analytics), Trợ lý AI, Quản lý nhập hàng, Nhà cung
+                  Phân tích, Trợ lý AI, Quản lý nhập hàng, Nhà cung
                   cấp hoặc Quản lý nhân viên.
                 </p>
 

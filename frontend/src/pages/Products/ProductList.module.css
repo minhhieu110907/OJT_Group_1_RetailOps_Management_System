@@ -183,6 +183,98 @@
   color: #111827;
 }
 
+/* CHANGE A: Hàng 3 bộ lọc thống kê tồn kho (Tất cả / Hết hàng / Sắp hết) */
+.stockFilterBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stockFilterPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stockFilterPill:focus-visible {
+  outline: 2px solid var(--color-primary, #087F5B);
+  outline-offset: 2px;
+}
+
+.stockPillAll {
+  background-color: #F3F4F6;
+  color: #374151;
+  border-color: #E5E7EB;
+}
+
+.stockPillAll:hover {
+  background-color: #E5E7EB;
+  color: #111827;
+}
+
+.stockPillAll.stockPillActive {
+  background-color: #111827;
+  color: #FFFFFF;
+  border-color: #111827;
+}
+
+.stockPillOut {
+  background-color: #FEF2F2;
+  color: #DC2626;
+  border-color: #FECACA;
+}
+
+.stockPillOut:hover {
+  background-color: #FEE2E2;
+}
+
+.stockPillOut.stockPillActive {
+  background-color: #FEE2E2;
+  color: #B91C1C;
+  border-color: #DC2626;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.25);
+}
+
+.stockPillLow {
+  background-color: #FFFBEB;
+  color: #B45309;
+  border-color: #FDE68A;
+}
+
+.stockPillLow:hover {
+  background-color: #FEF3C7;
+}
+
+.stockPillLow.stockPillActive {
+  background-color: #FEF3C7;
+  color: #92400E;
+  border-color: #D97706;
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.25);
+}
+
+.stockPillCount {
+  font-weight: 700;
+}
+
+/* CHANGE B: Tô nền hồng rất nhạt cho hàng sản phẩm có tồn kho thực tế = 0 */
+.outOfStockRow {
+  background-color: #FFF7F7;
+}
+
+.outOfStockRow:hover {
+  background-color: #FEF2F2;
+}
+
 /* Định dạng cột bên trong Bảng */
 .skuText {
   font-size: 13.5px;
