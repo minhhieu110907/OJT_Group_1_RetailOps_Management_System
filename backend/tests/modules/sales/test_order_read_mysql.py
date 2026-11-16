@@ -82,6 +82,7 @@ def test_order_read_mysql_sorting_dates_and_search_no_duplicates(
         staff = User(
             email_normalized=f"{TEST_PREFIX.lower()}staff_{uuid4().hex[:6]}@example.com",
             password_hash="$2b$04$test.hash.staff",
+            full_name="Order Reader",
             role=UserRole.STAFF.value,
             status=UserStatus.ACTIVE.value,
             admin_slot=None,
@@ -239,6 +240,9 @@ def test_order_read_mysql_sorting_dates_and_search_no_duplicates(
         assert page_all.total == 3
         returned_ids = [order.id for order in page_all.items]
         assert returned_ids == [o2_id, o1_id, o3_id]
+        assert all(order.created_by_name == "Order Reader" for order in page_all.items)
+        assert page_all.items[0].cancelled_by_name == "Order Reader"
+        assert page_all.items[1].cancelled_by_name is None
 
         # 2. Test Vietnam business date boundaries:
         # 2026-11-14 VN covers [2026-11-13 17:00:00 UTC, 2026-11-14 17:00:00 UTC)

@@ -175,6 +175,34 @@ def test_mysql_product_create_atomically_creates_zero_inventory(
         assert inv.first_stocked_at is None
 
 
+def test_mysql_product_image_url_create_update_and_explicit_null(
+    migrated_integration_engine: Engine,
+) -> None:
+    service = ProductService()
+    sku = f"{SKU_PREFIX}{unique_token('IMAGE')}"
+    with Session(migrated_integration_engine) as session:
+        category = add_category(session, "IMAGE", status="ACTIVE")
+        created = service.create(
+            session,
+            ProductCreateRequest(
+                sku=sku,
+                name="Image product",
+                category_id=category.id,
+                sale_price_vnd=25_000,
+                image_url="https://cdn.example.com/one.png",
+            ),
+        )
+        assert created.image_url == "https://cdn.example.com/one.png"
+        unchanged = service.update(
+            session, created.id, ProductUpdateRequest(name="Image renamed")
+        )
+        assert unchanged.image_url == "https://cdn.example.com/one.png"
+        cleared = service.update(
+            session, created.id, ProductUpdateRequest(image_url=None)
+        )
+        assert cleared.image_url is None
+
+
 def test_mysql_forced_inventory_failure_rolls_back_product_row(
     migrated_integration_engine: Engine,
 ) -> None:

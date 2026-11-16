@@ -8,7 +8,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 from redis.exceptions import RedisError
-from sqlalchemy import BigInteger, create_engine
+from sqlalchemy import BigInteger, create_engine, event, text
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -54,7 +54,15 @@ def db_engine():
         poolclass=StaticPool,
     )
     Category.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE products ("
+            "id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL, "
+            "status VARCHAR(8) NOT NULL)"
+        )
     yield engine
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE products")
     Category.__table__.drop(bind=engine, checkfirst=True)
     engine.dispose()
 
@@ -174,6 +182,45 @@ async def test_get_categories_empty_list(staff_client: httpx.AsyncClient) -> Non
     assert data["total"] == 0
     assert data["page"] == 1
     assert data["page_size"] == 20
+
+
+@pytest.mark.anyio
+async def test_product_count_includes_inactive_and_has_no_n_plus_one(
+    staff_client: httpx.AsyncClient, db_session: Session, db_engine
+) -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    categories = [
+        Category(name=f"Count {index}", status="ACTIVE", created_at=now, updated_at=now)
+        for index in range(3)
+    ]
+    db_session.add_all(categories)
+    db_session.flush()
+    db_session.execute(
+        text(
+            "INSERT INTO products (id, category_id, status) VALUES "
+            "(1, :first, 'ACTIVE'), (2, :first, 'INACTIVE'), (3, :second, 'INACTIVE')"
+        ),
+        {"first": categories[0].id, "second": categories[1].id},
+    )
+    db_session.commit()
+
+    select_count = 0
+
+    def count_selects(_conn, _cursor, statement, _params, _context, _many):
+        nonlocal select_count
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_count += 1
+
+    event.listen(db_engine, "before_cursor_execute", count_selects)
+    try:
+        response = await staff_client.get("/api/v1/categories?page=1&page_size=2")
+    finally:
+        event.remove(db_engine, "before_cursor_execute", count_selects)
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
+    assert [item["product_count"] for item in response.json()["items"]] == [2, 1]
+    assert select_count == 2
 
 
 @pytest.mark.anyio

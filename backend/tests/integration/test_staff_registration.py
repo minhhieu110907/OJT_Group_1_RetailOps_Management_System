@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.exceptions import AppException
 from app.modules.auth.models import AuthSession, StaffApprovalRequest, User
 from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import REGISTER_ACCEPTED_MESSAGE, AuthService
@@ -166,7 +167,9 @@ def test_register_creates_pending_user_approval_and_notification_once(
     email = f"{EMAIL_PREFIX}success@example.com"
     service = auth_service()
     with Session(migrated_integration_engine) as session:
-        first = service.register(session, email.upper(), "valid-password")
+        first = service.register(
+            session, email.upper(), "valid-password", "Nguyen Registration"
+        )
         second = service.register(session, email, "different-password")
 
         user = session.scalar(select(User).where(User.email_normalized == email))
@@ -183,6 +186,7 @@ def test_register_creates_pending_user_approval_and_notification_once(
         assert user.role == "STAFF"
         assert user.status == "PENDING_APPROVAL"
         assert user.password_hash != "valid-password"
+        assert user.full_name == "Nguyen Registration"
         assert approval.attempt_no == 1
         assert approval.status == "PENDING"
         assert notification.admin_user_id == registration_admin
@@ -195,6 +199,42 @@ def test_register_creates_pending_user_approval_and_notification_once(
             "schema_version": 1,
             "approval_request_id": approval.id,
         }
+
+
+def test_direct_register_normalizes_full_name_and_duplicate_stays_generic(
+    migrated_integration_engine: Engine,
+    registration_admin: int,
+) -> None:
+    del registration_admin
+    email = f"{EMAIL_PREFIX}direct-normalization@example.com"
+    service = auth_service()
+    with Session(migrated_integration_engine) as session:
+        first = service.register(session, email, "valid-password", f"  {'N' * 120}  ")
+        duplicate = service.register(
+            session, email, "different-password", "Different Display Name"
+        )
+        user = session.scalar(select(User).where(User.email_normalized == email))
+
+        assert first.message == duplicate.message == REGISTER_ACCEPTED_MESSAGE
+        assert user is not None
+        assert user.full_name == "N" * 120
+        assert registration_counts(session, email) == (1, 1, 1, 1, 0)
+
+
+@pytest.mark.parametrize("invalid_name", ["   ", "x" * 121])
+def test_direct_register_rejects_invalid_full_name(
+    migrated_integration_engine: Engine,
+    registration_admin: int,
+    invalid_name: str,
+) -> None:
+    del registration_admin
+    email = f"{EMAIL_PREFIX}direct-invalid-{len(invalid_name)}@example.com"
+    with Session(migrated_integration_engine) as session:
+        with pytest.raises(AppException) as exc_info:
+            auth_service().register(session, email, "valid-password", invalid_name)
+
+        assert exc_info.value.status_code == 422
+        assert registration_counts(session, email) == (0, 0, 0, 0, 0)
 
 
 @pytest.mark.parametrize("status", ["ACTIVE", "REJECTED"])

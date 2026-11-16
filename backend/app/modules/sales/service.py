@@ -206,8 +206,10 @@ class CheckoutService:
             "status": "COMPLETED",
             "total_vnd": total,
             "created_by": actor_id,
+            "created_by_name": self._repository.user_full_name(session, actor_id),
             "sold_at": sold_at_aware.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             "cancelled_by": None,
+            "cancelled_by_name": None,
             "cancelled_at": None,
             "cancel_reason": None,
             "items": snapshots,
@@ -347,8 +349,12 @@ class OrderService:
             "status": "CANCELLED",
             "total_vnd": order.total_vnd,
             "created_by": order.created_by,
+            "created_by_name": self._repository.user_full_name(
+                session, order.created_by
+            ),
             "sold_at": sold_at_utc.isoformat().replace("+00:00", "Z"),
             "cancelled_by": actor_id,
+            "cancelled_by_name": self._repository.user_full_name(session, actor_id),
             "cancelled_at": now_utc.isoformat().replace("+00:00", "Z"),
             "cancel_reason": reason,
             "items": [
@@ -387,6 +393,8 @@ class OrderReadService:
 
     @staticmethod
     def _to_order_read(order: Order) -> OrderRead:
+        creator = getattr(order, "creator", None)
+        canceller = getattr(order, "canceller", None)
         sold_at = (
             order.sold_at.replace(tzinfo=UTC)
             if order.sold_at.tzinfo is None
@@ -413,8 +421,10 @@ class OrderReadService:
             status=order.status,
             total_vnd=order.total_vnd,
             created_by=order.created_by,
+            created_by_name=(creator.full_name if creator is not None else None),
             sold_at=sold_at,
             cancelled_by=order.cancelled_by,
+            cancelled_by_name=(canceller.full_name if canceller is not None else None),
             cancelled_at=cancelled_at,
             cancel_reason=order.cancel_reason,
             items=items,

@@ -28,6 +28,45 @@ def test_product_create_request_normalizes_and_validates_fields() -> None:
     assert payload.name == "Nước khoáng thiên nhiên"
     assert payload.category_id == 2
     assert payload.sale_price_vnd == 15_000
+    assert payload.image_url is None
+
+
+def test_image_url_https_and_patch_null_semantics() -> None:
+    created = ProductCreateRequest(
+        sku="SKU-IMG",
+        name="Product image",
+        category_id=2,
+        sale_price_vnd=15_000,
+        image_url="  https://cdn.example.com/products/1.png  ",
+    )
+    assert created.image_url == "https://cdn.example.com/products/1.png"
+    assert ProductUpdateRequest().model_dump(exclude_unset=True) == {}
+    assert ProductUpdateRequest(image_url=None).model_dump(exclude_unset=True) == {
+        "image_url": None
+    }
+
+
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        "http://example.com/a.png",
+        "javascript:alert(1)",
+        "data:image/png;base64,AAAA",
+        "file:///tmp/a.png",
+        "not-a-url",
+        "https://",
+        "https://example.com/" + "a" * 490,
+    ],
+)
+def test_image_url_rejects_unapproved_or_invalid_values(image_url: str) -> None:
+    with pytest.raises(ValidationError):
+        ProductCreateRequest(
+            sku="SKU-IMG",
+            name="Product image",
+            category_id=2,
+            sale_price_vnd=15_000,
+            image_url=image_url,
+        )
 
 
 @pytest.mark.parametrize(
@@ -161,6 +200,7 @@ def test_product_read_whitelists_exact_10_fields_without_cost() -> None:
         "category_id",
         "sku",
         "name",
+        "image_url",
         "status",
         "sale_price_vnd",
         "quantity",

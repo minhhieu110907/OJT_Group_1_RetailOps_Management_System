@@ -55,6 +55,7 @@ class FakeApprovalService:
     ) -> Page[ApprovalListItemRead]:
         item = ApprovalListItemRead(
             email="staff@example.com",
+            full_name=None,
             id=10,
             user_id=2,
             attempt_no=1,
@@ -138,6 +139,8 @@ def test_generated_openapi_matches_frozen_approval_contract() -> None:
     )
     assert "email" in runtime_schemas["ApprovalListItemRead"]["required"]
     assert "email" in frozen_schemas["ApprovalListItemRead"]["required"]
+    assert "full_name" in runtime_schemas["ApprovalListItemRead"]["required"]
+    assert "full_name" in frozen_schemas["ApprovalListItemRead"]["required"]
 
 
 @pytest.mark.anyio

@@ -17,6 +17,15 @@
 
 ## Checkout 409 PRICE_CHANGED — schema kiểm chứng
 - `POST /orders/checkout` trả `409 PRICE_CHANGED` với `details.changed_items[]` mỗi item có `product_id`, `viewed_unit_price_vnd`, `current_unit_price_vnd`; nhánh lỗi khác như `IDEMPOTENCY_KEY_REUSED` dùng `ErrorResponse`. Không tạo Order/Movement/Stock khi PRICE_CHANGED.
+
+## API enrichment 2026-11-16
+
+- Product create/update/read bổ sung `image_url: string | null`. Request bỏ trường này khi create tạo `NULL`; PATCH bỏ trường giữ nguyên, gửi `null` xóa liên kết. Chỉ URL tuyệt đối `https://`, tối đa 500 ký tự; backend không fetch/proxy. `http:`, `javascript:`, `data:`, `file:` và URL không hợp lệ bị từ chối `422`.
+- `POST /auth/register` nhận tùy chọn `full_name: string | null`; nếu có sẽ trim rồi yêu cầu 1–120 ký tự. Bỏ trường hoặc gửi `null` giữ tương thích với frontend hiện tại, vốn chỉ gửi `{email,password}`. HTTP `202`, anti-enumeration, email normalization, password hashing, JWT/session không đổi.
+- `CategoryRead.product_count` là số toàn bộ Product thuộc Category, gồm cả `ACTIVE` và `INACTIVE`; Category rỗng trả `0`. Đây là aggregate query, không phải cột database và không đổi pagination/filter total.
+- `OrderRead` bổ sung `created_by_name` và `cancelled_by_name`, đều nullable và lấy từ `users.full_name` hiện tại, không suy đoán từ email. Order chưa hủy có `cancelled_by_name=null`.
+- Snapshot idempotency mới lưu hai trường tên. Snapshot lịch sử thiếu trường vẫn deserialize thành `null`; server không sửa digest hoặc payload cache lịch sử. Vì vậy replay của snapshot cũ có thể trả `null` dù user hiện đã có tên, nhằm giữ tính bất biến của response đã commit.
+- Danh sách Staff approval (Admin-only) bổ sung `full_name: string | null`, giữ email, pagination và RBAC hiện hữu.
 - FE chỉ đổi key khi người dùng xác nhận giá mới và tạo **ý định mới**; network timeout chưa biết kết quả phải retry **cùng key và body**.
 
 # RETAILOPS CF-2.4 — HỢP ĐỒNG TÍCH HỢP API
@@ -132,7 +141,7 @@
 - **Service port (đề xuất chữ ký chính thức):** `StaffApprovalService.list(session, *, status, page, page_size) -> ApprovalPage`; `decide(session, *, actor_id, approval_id, decision: Literal['APPROVED','REJECTED'], reason: str | None) -> ApprovalRead`.
 - **Transaction:** lock approval request + Staff user theo thứ tự cố định, kiểm tra pending, đổi trạng thái User tương ứng, đóng approval request, `OutboxWriter.append(..., event_type='STAFF_APPROVED'/'STAFF_REJECTED')`, một commit ở `StaffApprovalService`. Race 2 ADMIN: chính xác một transition thành công, một 409; event không nhân đôi. Broker/email offline không rollback quyết định đã commit.
 - **Đừng bỏ quên AUTH-01:** Registration hợp lệ phải ghi event `STAFF_REGISTERED` bền vững khi Outbox Writer đã được thêm. Trường hợp REJECTED reapply phải xác thực quyền kiểm soát email; giữ nguyên User ID, tối đa một lần/24 giờ, không tạo trùng notification; phải bổ sung integration tests và endpoint dưới contract Auth ở S3 hoặc trước P0 signoff nếu flow được nghiệm thu. Hành vi đã có trong SRS, không tự cắt scope.
-- **Danh sách đã triển khai (AUTH-03):** `GET /api/v1/staff-approvals?status=PENDING&page=1&page_size=20` trả `ApprovalPage.items: ApprovalListItemRead[]`, mỗi item giữ tất cả trường `ApprovalRead` và bổ sung `email` (từ `users.email_normalized`). `id` là approval request ID dùng trong URL quyết định, **khác** `user_id`. Query JOIN theo `user_id` ngay tại repository; không gọi endpoint riêng từng user. Phân trang/total/status/ordering giữ nguyên. Không bổ sung `full_name`, không sửa database.
+- **Danh sách đã triển khai (AUTH-03):** `GET /api/v1/staff-approvals?status=PENDING&page=1&page_size=20` trả `ApprovalPage.items: ApprovalListItemRead[]`, mỗi item giữ tất cả trường `ApprovalRead`, bổ sung `email` (từ `users.email_normalized`) và `full_name` required-but-nullable (từ `users.full_name`; tài khoản legacy trả `null`, không suy đoán từ email). `id` là approval request ID dùng trong URL quyết định, **khác** `user_id`. Query JOIN theo `user_id` ngay tại repository; không gọi endpoint riêng từng user. Phân trang/total/status/ordering và Admin-only RBAC giữ nguyên.
 - **Decision API không đổi:** `POST /api/v1/staff-approvals/{id}/approve` và `POST /api/v1/staff-approvals/{id}/reject` vẫn trả `ApprovalRead` (không có `email`); `reject` yêu cầu `{ "reason": "lý do" }` không rỗng, tối đa 500 ký tự. Chỉ Admin ACTIVE có quyền, 409 khi stale/đã xử lý.
 - **Handoff FE-02 (Lâm):** Bảng gồm Email, Ngày yêu cầu (`requested_at`, chuyển UTC sang giờ Việt Nam khi hiển thị), Trạng thái và nút Duyệt/Từ chối. Dùng `item.id`, không dùng `user_id` cho hai action. Sau khi thành công, refetch danh sách và tổng số; gặp 409 thông báo hồ sơ không còn hợp lệ rồi refetch, không retry quyết định ghi. Loading, empty, lỗi mạng, 401/403 phải hiển thị rõ; không dựa vào ẩn nút để bảo vệ RBAC. Consumer ACK bằng contract test.
 

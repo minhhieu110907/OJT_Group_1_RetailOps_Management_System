@@ -76,6 +76,10 @@ class FakeRepository:
             )
         ]
 
+    def user_full_name(self, session: object, user_id: int) -> str:
+        del session, user_id
+        return "Order Staff"
+
 
 class FakeInventory:
     def __init__(self, *, fail_restore: bool = False) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -19,6 +20,9 @@ from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.modules.auth.models import User
 
 
 class OrderStatus(StrEnum):
@@ -65,6 +69,12 @@ class Order(Base):
     cancel_reason: Mapped[str | None] = mapped_column(String(500))
     items: Mapped[list[OrderItem]] = relationship(
         back_populates="order", cascade="all, delete-orphan", lazy="selectin"
+    )
+    creator: Mapped[User] = relationship(
+        "User", foreign_keys=[created_by], lazy="raise", viewonly=True
+    )
+    canceller: Mapped[User | None] = relationship(
+        "User", foreign_keys=[cancelled_by], lazy="raise", viewonly=True
     )
 
 

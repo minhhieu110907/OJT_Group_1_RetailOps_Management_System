@@ -28,7 +28,12 @@ from app.modules.auth.models import (
     UserStatus,
 )
 from app.modules.auth.repository import AuthRepository
-from app.modules.auth.schemas import AuthenticatedUser, RegisterResponse, TokenResponse
+from app.modules.auth.schemas import (
+    AuthenticatedUser,
+    RegisterResponse,
+    TokenResponse,
+    normalize_full_name,
+)
 from app.modules.auth.security import (
     CsrfService,
     InvalidEmailError,
@@ -105,12 +110,14 @@ class AuthService:
         session: Session,
         email: str,
         password: str,
+        full_name: str | None = None,
     ) -> RegisterResponse:
         """Create a pending Staff identity, approval request, and notification."""
         try:
             normalized = normalize_email(email)
             password_hash = self.password_hasher.hash(password)
-        except (InvalidEmailError, InvalidPasswordError) as error:
+            normalized_full_name = normalize_full_name(full_name)
+        except (InvalidEmailError, InvalidPasswordError, ValueError) as error:
             raise AppException(
                 code="VALIDATION_ERROR",
                 message=str(error),
@@ -134,6 +141,7 @@ class AuthService:
         user = User(
             email_normalized=normalized,
             password_hash=password_hash,
+            full_name=normalized_full_name,
             role=UserRole.STAFF,
             status=UserStatus.PENDING_APPROVAL,
             admin_slot=None,
@@ -391,6 +399,7 @@ class AuthService:
                 user=AuthenticatedUser(
                     id=user.id,
                     email_normalized=user.email_normalized,
+                    full_name=user.full_name,
                     role=user.role,
                     status=user.status,
                 ),
