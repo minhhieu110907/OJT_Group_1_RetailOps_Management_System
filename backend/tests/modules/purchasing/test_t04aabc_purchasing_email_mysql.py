@@ -223,9 +223,14 @@ class TestRunContext:
                     delete(Supplier).where(Supplier.id.in_(self.supplier_ids))
                 )
 
-            # Step 10: users (test-created users only)
+            # Step 10: users (test-created users only, never delete shared admin)
             if self.user_ids:
-                session.execute(delete(User).where(User.id.in_(self.user_ids)))
+                session.execute(
+                    delete(User).where(
+                        User.id.in_(self.user_ids),
+                        User.admin_slot.is_(None),
+                    )
+                )
 
 
 @pytest.fixture
@@ -242,15 +247,15 @@ def run_ctx(
         ctx.cleanup()
 
 
-def _ensure_admin(engine: Engine, ctx: TestRunContext) -> int:
-    """Find existing seed admin or create an isolated test admin."""
+def _ensure_admin(engine: Engine, _ctx: TestRunContext | None = None) -> int:
+    """Find existing seed admin or create an isolated shared test admin."""
     with Session(engine) as session, session.begin():
         admin = session.scalar(select(User).where(User.admin_slot == 1))
         if admin is not None:
             return admin.id
         now = datetime(2026, 11, 16, 8, 0, 0)
         new_admin = User(
-            email_normalized=f"{ctx.run_id}_admin@example.com",
+            email_normalized="t04aabc_shared_admin@example.com",
             password_hash=PasswordHasher().hash("AdminSecurePass!123"),
             role=UserRole.ADMIN.value,
             status=UserStatus.ACTIVE.value,
@@ -260,7 +265,6 @@ def _ensure_admin(engine: Engine, ctx: TestRunContext) -> int:
         )
         session.add(new_admin)
         session.flush()
-        ctx.user_ids.append(new_admin.id)
         return new_admin.id
 
 
