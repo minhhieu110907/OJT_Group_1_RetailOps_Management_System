@@ -4,12 +4,14 @@ import { Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   DEFAULT_PRODUCT_SORT,
+  PRODUCT_IMAGE_URL_MAX_LENGTH,
   RESTOCK_FIRST_SORT,
   STOCK_FILTER_TABS,
   classifyProductStock,
   computeProductStockStats,
   filterProductsByStockTab,
   isOutOfStockProduct,
+  parseAndValidateProductImageUrl,
   parseAndValidateSalePriceVnd,
   productsApi,
 } from '../../api/productsApi';
@@ -28,6 +30,7 @@ const INITIAL_PRODUCT_FORM = {
   name: '',
   category_id: '',
   sale_price_vnd: '',
+  image_url: '',
   status: 'ACTIVE',
 };
 
@@ -84,6 +87,10 @@ export default function ProductList() {
   const [initialProductForm, setInitialProductForm] = useState(INITIAL_PRODUCT_FORM);
   const [formError, setFormError] = useState('');
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
+  const [imagePreviewState, setImagePreviewState] = useState({
+    url: '',
+    status: 'idle',
+  });
 
   // 3. State Modal xác nhận ngừng kích hoạt / kích hoạt lại
   const [productToDeactivate, setProductToDeactivate] = useState(null);
@@ -301,6 +308,7 @@ export default function ProductList() {
     const firstActiveCategory = categories.find((c) => c.status === 'ACTIVE');
     setFormMode('create');
     setFormError('');
+    setImagePreviewState({ url: '', status: 'idle' });
     setProductForm({
       ...INITIAL_PRODUCT_FORM,
       category_id: firstActiveCategory ? String(firstActiveCategory.id) : '',
@@ -314,14 +322,19 @@ export default function ProductList() {
       if (isMock) return;
       setFormMode('edit');
       setFormError('');
+      const initialImage = row.image_url || '';
       const formData = {
         id: row.id,
         sku: row.sku || '',
         name: row.name || '',
         category_id: String(row.category_id || ''),
         sale_price_vnd: String(row.sale_price_vnd || ''),
+        image_url: initialImage,
         status: row.status || 'ACTIVE',
       };
+      setImagePreviewState(
+        initialImage ? { url: initialImage, status: 'loading' } : { url: '', status: 'idle' }
+      );
       setProductForm(formData);
       setInitialProductForm(formData);
       setIsProductModalOpen(true);
@@ -348,6 +361,13 @@ export default function ProductList() {
     }
     const salePriceVnd = priceValidation.value;
 
+    const imageValidation = parseAndValidateProductImageUrl(productForm.image_url);
+    if (!imageValidation.isValid) {
+      setFormError(imageValidation.error);
+      return;
+    }
+    const normalizedImageUrl = imageValidation.value;
+
     if (formMode === 'create' && !sku) {
       setFormError('Vui lòng nhập Mã SKU cho sản phẩm mới.');
       return;
@@ -359,12 +379,16 @@ export default function ProductList() {
     }
 
     // Dirty-state check: Nếu là chế độ Edit mà không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    let isImageUrlSame = true;
     if (formMode === 'edit') {
       const isNameSame = name === (initialProductForm.name || '').trim();
       const isCategorySame = categoryId === Number(initialProductForm.category_id);
       const isPriceSame = salePriceVnd === Number(initialProductForm.sale_price_vnd);
+      const initialImageNormalized =
+        (initialProductForm.image_url || '').trim() || null;
+      isImageUrlSame = normalizedImageUrl === initialImageNormalized;
 
-      if (isNameSame && isCategorySame && isPriceSame) {
+      if (isNameSame && isCategorySame && isPriceSame && isImageUrlSame) {
         toast.info('Không có thay đổi nào để lưu.');
         setIsProductModalOpen(false);
         return;
@@ -374,26 +398,35 @@ export default function ProductList() {
     setIsSubmittingForm(true);
     try {
       if (formMode === 'create') {
+        const createPayload = {
+          sku,
+          name,
+          category_id: categoryId,
+          sale_price_vnd: salePriceVnd,
+        };
+        if (normalizedImageUrl !== null) {
+          createPayload.image_url = normalizedImageUrl;
+        }
         await productsApi.createProduct({
-          data: {
-            sku,
-            name,
-            category_id: categoryId,
-            sale_price_vnd: salePriceVnd,
-          },
+          data: createPayload,
         });
         toast.success(`Đã thêm sản phẩm "${name}" thành công!`);
       } else {
         // PROD-01 & Backend contract:
         // Cập nhật thông tin sản phẩm KHÔNG gửi status (status dùng PATCH /products/{id}/status)
         // và KHÔNG sửa mã SKU khi đang cập nhật.
+        // PATCH omit image_url nếu không đổi; gửi null nếu xóa; gửi HTTPS URL nếu cập nhật.
+        const updatePayload = {
+          name,
+          category_id: categoryId,
+          sale_price_vnd: salePriceVnd,
+        };
+        if (!isImageUrlSame) {
+          updatePayload.image_url = normalizedImageUrl;
+        }
         await productsApi.updateProduct({
           id: productForm.id,
-          data: {
-            name,
-            category_id: categoryId,
-            sale_price_vnd: salePriceVnd,
-          },
+          data: updatePayload,
         });
         toast.success(`Đã lưu thay đổi cho "${name}"!`);
       }
@@ -1019,6 +1052,95 @@ export default function ProductList() {
                 className={styles.formInput}
                 disabled={isSubmittingForm}
               />
+            </div>
+
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>
+                LINK ẢNH SẢN PHẨM (TÙY CHỌN)
+              </label>
+              <input
+                type="url"
+                value={productForm.image_url}
+                onChange={(e) => {
+                  const nextUrl = e.target.value;
+                  setProductForm((prev) => ({
+                    ...prev,
+                    image_url: nextUrl,
+                  }));
+                  const check = parseAndValidateProductImageUrl(nextUrl);
+                  if (check.isValid && check.value) {
+                    setImagePreviewState({ url: check.value, status: 'loading' });
+                  } else {
+                    setImagePreviewState({ url: '', status: 'idle' });
+                  }
+                }}
+                placeholder="https://..."
+                maxLength={PRODUCT_IMAGE_URL_MAX_LENGTH}
+                className={styles.formInput}
+                disabled={isSubmittingForm}
+              />
+
+              {(() => {
+                const previewCheck = parseAndValidateProductImageUrl(
+                  productForm.image_url
+                );
+                const previewUrl = previewCheck.isValid ? previewCheck.value : null;
+                const previewStatus = !previewUrl
+                  ? 'idle'
+                  : imagePreviewState.url === previewUrl
+                  ? imagePreviewState.status
+                  : 'loading';
+
+                return (
+                  <div className={styles.imagePreviewRow}>
+                    <div className={styles.imagePreviewBox}>
+                      {previewUrl && previewStatus !== 'error' ? (
+                        <img
+                          key={previewUrl}
+                          src={previewUrl}
+                          alt="Xem trước ảnh sản phẩm"
+                          className={styles.imagePreviewImg}
+                          onLoad={() =>
+                            setImagePreviewState({
+                              url: previewUrl,
+                              status: 'loaded',
+                            })
+                          }
+                          onError={() =>
+                            setImagePreviewState({
+                              url: previewUrl,
+                              status: 'error',
+                            })
+                          }
+                        />
+                      ) : (
+                        <span className={styles.imagePreviewPlaceholder}>
+                          {previewStatus === 'error' ? 'Lỗi ảnh' : 'Chưa có ảnh'}
+                        </span>
+                      )}
+                    </div>
+                    <div className={styles.imagePreviewMeta}>
+                      {!previewCheck.isValid ? (
+                        <span className={styles.imagePreviewError}>
+                          {previewCheck.error}
+                        </span>
+                      ) : previewStatus === 'loading' ? (
+                        <span className={styles.imagePreviewLoading}>
+                          Đang tải xem trước ảnh...
+                        </span>
+                      ) : previewStatus === 'error' ? (
+                        <span className={styles.imagePreviewError}>
+                          Không thể tải ảnh từ URL này. Bạn vẫn có thể kiểm tra lại liên kết.
+                        </span>
+                      ) : (
+                        <span className={styles.imagePreviewHint}>
+                          Chỉ chấp nhận đường dẫn tuyệt đối HTTPS (tối đa 500 ký tự).
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </form>
         </Modal>

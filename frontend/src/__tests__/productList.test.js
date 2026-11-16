@@ -43,6 +43,7 @@ const VALID_PRODUCT_FIXTURE = {
   category_id: 1,
   sku: 'COCA-330ML',
   name: 'Coca Cola lon 330ml',
+  image_url: null,
   status: 'ACTIVE',
   sale_price_vnd: 12000,
   quantity: 48,

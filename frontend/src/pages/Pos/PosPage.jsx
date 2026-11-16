@@ -31,17 +31,20 @@ import {
 import styles from './PosPage.module.css';
 
 function ProductThumbnail({ product }) {
-  const [hasImageError, setHasImageError] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState('');
   const imageUrl = typeof product?.image_url === 'string' ? product.image_url.trim() : '';
+  const isValidHttpsImage = /^https:\/\/\S+$/i.test(imageUrl);
+  const hasImageError = isValidHttpsImage && failedImageUrl === imageUrl;
 
-  if (imageUrl && !hasImageError) {
+  if (isValidHttpsImage && !hasImageError) {
     return (
       <img
+        key={imageUrl}
         src={imageUrl}
         alt={product.name}
         className={styles.productImage}
         loading="lazy"
-        onError={() => setHasImageError(true)}
+        onError={() => setFailedImageUrl(imageUrl)}
       />
     );
   }
