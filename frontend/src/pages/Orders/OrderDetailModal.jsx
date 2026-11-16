@@ -91,13 +91,6 @@ export default function OrderDetailModal({
         </div>
 
         <div className={styles.modalBody}>
-          {detailStatus === 'loading' && (
-            <div className={styles.alertBoxAmber} role="status">
-              <strong>Đang xác minh dữ liệu mới nhất</strong>
-              <p>Hệ thống đang tải thông tin mới nhất của đơn #{order.id} từ máy chủ...</p>
-            </div>
-          )}
-
           {detailStatus === 'error' && (
             <div className={styles.alertBoxRose} role="alert">
               <strong>Không thể xác minh chi tiết đơn hàng</strong>
@@ -192,7 +185,7 @@ export default function OrderDetailModal({
           >
             Đóng
           </button>
-          {canOpenCancel && (
+          {canOpenCancel && typeof onOpenCancelModal === 'function' && (
             <button
               type="button"
               className={styles.compactDangerBtn}
