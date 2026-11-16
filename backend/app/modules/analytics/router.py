@@ -10,16 +10,22 @@ from app.core.exceptions import DomainValidationError
 from app.db.session import get_db_session
 from app.modules.analytics.schemas import (
     DashboardRead,
+    LowStockAnalyticsPageRead,
     ProductAnalyticsItemRead,
+    ProductAnalyticsPageRead,
     SalesSummaryRead,
 )
 from app.modules.analytics.service import (
     DashboardService,
+    ProductAnalyticsItem,
+    ProductAnalyticsService,
     SalesAnalyticsService,
+    resolve_days_period,
     resolve_sales_period,
 )
 from app.modules.auth.dependencies import require_active_admin
 from app.modules.auth.models import User
+from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 dashboard_router = APIRouter(tags=["dashboard"])
@@ -33,6 +39,23 @@ def get_sales_analytics_service() -> SalesAnalyticsService:
 def get_dashboard_service() -> DashboardService:
     """Dependency provider for DashboardService."""
     return DashboardService()
+
+
+def get_product_analytics_service() -> ProductAnalyticsService:
+    """Dependency provider for ProductAnalyticsService."""
+    return ProductAnalyticsService()
+
+
+def _to_product_item_read(item: ProductAnalyticsItem) -> ProductAnalyticsItemRead:
+    return ProductAnalyticsItemRead(
+        product_id=item.product_id,
+        sku=item.sku,
+        name=item.name,
+        sold_units=item.sold_units,
+        revenue_vnd=item.revenue_vnd,
+        quantity=item.quantity,
+        first_stocked_at=item.first_stocked_at,
+    )
 
 
 @router.get("/sales", response_model=SalesSummaryRead)
@@ -123,16 +146,68 @@ def get_dashboard(
             aov_vnd=data.sales.aov_vnd,
         ),
         low_stock_count=data.low_stock_count,
-        top_products=[
-            ProductAnalyticsItemRead(
-                product_id=p.product_id,
-                sku=p.sku,
-                name=p.name,
-                sold_units=p.sold_units,
-                revenue_vnd=p.revenue_vnd,
-                quantity=p.quantity,
-                first_stocked_at=p.first_stocked_at,
-            )
-            for p in data.top_products
-        ],
+        top_products=[_to_product_item_read(p) for p in data.top_products],
+    )
+
+
+@router.get("/products/top", response_model=ProductAnalyticsPageRead)
+def get_top_products(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    days: Annotated[int, Query(ge=1, le=366)] = 7,
+    _admin: Annotated[User, Depends(require_active_admin)] = None,  # type: ignore[assignment]
+    session: Annotated[Session, Depends(get_db_session)] = None,  # type: ignore[assignment]
+    service: Annotated[
+        ProductAnalyticsService, Depends(get_product_analytics_service)
+    ] = None,  # type: ignore[assignment]
+) -> ProductAnalyticsPageRead:
+    """Retrieve paginated top-selling products for COMPLETED orders (ADMIN only)."""
+    period = resolve_days_period(days)
+    result = service.top(session, period=period, page=page, page_size=page_size)
+    return ProductAnalyticsPageRead(
+        items=[_to_product_item_read(item) for item in result.items],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+    )
+
+
+@router.get("/products/slow", response_model=ProductAnalyticsPageRead)
+def get_slow_products(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    _admin: Annotated[User, Depends(require_active_admin)] = None,  # type: ignore[assignment]
+    session: Annotated[Session, Depends(get_db_session)] = None,  # type: ignore[assignment]
+    service: Annotated[
+        ProductAnalyticsService, Depends(get_product_analytics_service)
+    ] = None,  # type: ignore[assignment]
+) -> ProductAnalyticsPageRead:
+    """Retrieve paginated slow-moving ACTIVE products (ADMIN only)."""
+    result = service.slow(session, page=page, page_size=page_size)
+    return ProductAnalyticsPageRead(
+        items=[_to_product_item_read(item) for item in result.items],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+    )
+
+
+@router.get("/products/low-stock", response_model=LowStockAnalyticsPageRead)
+def get_low_stock_products(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    _admin: Annotated[User, Depends(require_active_admin)] = None,  # type: ignore[assignment]
+    session: Annotated[Session, Depends(get_db_session)] = None,  # type: ignore[assignment]
+    service: Annotated[
+        ProductAnalyticsService, Depends(get_product_analytics_service)
+    ] = None,  # type: ignore[assignment]
+) -> LowStockAnalyticsPageRead:
+    """Retrieve paginated low-stock ACTIVE products (ADMIN only)."""
+    result = service.low_stock(session, page=page, page_size=page_size)
+    return LowStockAnalyticsPageRead(
+        items=result.items,
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+        threshold=DEFAULT_LOW_STOCK_THRESHOLD,
     )
