@@ -280,8 +280,6 @@ def test_e2e_purchasing_lifecycle_and_stock_movements(
             quantity=5,
             stock_version=1,
             first_stocked_at=now,
-            last_stocked_at=now,
-            created_at=now,
             updated_at=now,
         )
         session.add(inventory)
@@ -428,8 +426,6 @@ def test_no_second_stock_increase_and_concurrency_protection(
             quantity=10,
             stock_version=1,
             first_stocked_at=now,
-            last_stocked_at=now,
-            created_at=now,
             updated_at=now,
         )
         session.add(inventory)
@@ -616,7 +612,10 @@ def test_transactional_outbox_intent_durability(
     with (
         Session(migrated_integration_engine) as session,
         session.begin(),
-        pytest.raises(ValueError, match="Secret event types require"),
+        pytest.raises(
+            ValueError,
+            match="Secret-bearing event requires encrypted secret and expiry",
+        ),
     ):
         outbox_writer.append(
             session,
