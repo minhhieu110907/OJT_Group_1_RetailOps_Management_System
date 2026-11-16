@@ -29,7 +29,7 @@
   left: 0;
   bottom: 0;
   width: 250px;
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
@@ -224,7 +224,7 @@
    ========================================================= */
 .header {
   height: 64px;
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   border-bottom: 1px solid var(--color-border);
   padding: 0 32px;
   display: flex;
@@ -279,7 +279,7 @@
 }
 
 .iconBtn:hover {
-  background-color: #F1F5F9;
+  background-color: var(--color-bg-hover, #F1F5F9);
   color: var(--color-neutral);
 }
 
@@ -381,7 +381,7 @@
   top: calc(100% + 10px);
   right: 0;
   width: 310px;
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.1),
@@ -591,7 +591,7 @@
   right: -8px;
   width: 420px;
   max-width: calc(100vw - 24px);
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.14),
