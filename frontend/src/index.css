@@ -37,6 +37,127 @@
   --color-border: #1E293B;     /* Viền tối */
   --color-bg-surface: #131E30; /* Nền sidebar, header, card */
   --color-bg-hover: #1E293B;   /* Nền hover tối */
+  --color-bg-input: #0B1320;   /* Nền input tối */
+}
+
+/* =========================================================
+   DARK THEME COMPREHENSIVE RULES
+   Đảm bảo tất cả bảng, modal, card, input, dropdown không bị sót nền trắng
+   ========================================================= */
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+[data-theme='dark'] body {
+  background-color: var(--color-bg-page);
+  color: var(--color-neutral);
+}
+
+/* 1. Bảng dữ liệu (Tables) */
+[data-theme='dark'] table {
+  background-color: transparent !important;
+  color: var(--color-neutral) !important;
+}
+
+[data-theme='dark'] thead,
+[data-theme='dark'] th {
+  background-color: #172338 !important;
+  color: var(--color-secondary) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] tbody tr {
+  background-color: transparent !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] tbody tr:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] td {
+  color: var(--color-neutral) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 2. Modals & Dialogs */
+[data-theme='dark'] [class*="modalBox"],
+[data-theme='dark'] [class*="modalContainer"],
+[data-theme='dark'] [class*="modalContent"],
+[data-theme='dark'] [class*="Modal_modalBox"] {
+  background-color: var(--color-bg-surface) !important;
+  color: var(--color-neutral) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="footerSection"],
+[data-theme='dark'] [class*="modalFooter"],
+[data-theme='dark'] [class*="footerRow"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 3. Cards, Containers, Boxes */
+[data-theme='dark'] [class*="card"],
+[data-theme='dark'] [class*="Card"],
+[data-theme='dark'] [class*="statCard"],
+[data-theme='dark'] [class*="filterCard"],
+[data-theme='dark'] [class*="tableWrap"],
+[data-theme='dark'] [class*="tableContainer"],
+[data-theme='dark'] [class*="auditBox"],
+[data-theme='dark'] [class*="paginationWrap"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-neutral) !important;
+}
+
+/* 4. Inputs, Textareas & Selects */
+[data-theme='dark'] input:not([type="checkbox"]):not([type="radio"]),
+[data-theme='dark'] textarea,
+[data-theme='dark'] select {
+  background-color: var(--color-bg-input, #0B1320) !important;
+  color: var(--color-neutral) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] input::placeholder,
+[data-theme='dark'] textarea::placeholder {
+  color: #64748B !important;
+}
+
+/* 5. Buttons & Controls */
+[data-theme='dark'] [class*="cancelBtn"],
+[data-theme='dark'] [class*="btnCancel"],
+[data-theme='dark'] button[class*="secondary"],
+[data-theme='dark'] [class*="pageBtn"]:not([class*="active"]) {
+  background-color: var(--color-bg-surface) !important;
+  color: var(--color-neutral) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="cancelBtn"]:hover,
+[data-theme='dark'] [class*="btnCancel"]:hover,
+[data-theme='dark'] [class*="pageBtn"]:hover:not(:disabled):not([class*="active"]) {
+  background-color: var(--color-bg-hover) !important;
+  border-color: var(--color-secondary) !important;
+}
+
+[data-theme='dark'] [class*="chipBtn"]:not([class*="active"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: var(--color-secondary) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 6. Typography & Text */
+[data-theme='dark'] h1,
+[data-theme='dark'] h2,
+[data-theme='dark'] h3,
+[data-theme='dark'] h4,
+[data-theme='dark'] [class*="title"],
+[data-theme='dark'] [class*="Title"],
+[data-theme='dark'] [class*="statValue"],
+[data-theme='dark'] [class*="productName"] {
+  color: var(--color-neutral) !important;
 }
 
 * {

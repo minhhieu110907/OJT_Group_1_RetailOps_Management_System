@@ -1,7 +1,7 @@
 /* Khung bọc ngoài của bảng dữ liệu */
 .tableContainer {
   width: 100%;
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   border: 1px solid var(--color-border, #E2E8F0);
   border-radius: 12px;
   overflow-x: auto;
@@ -15,7 +15,7 @@
 
 /* Phần tiêu đề bảng (thead) */
 .thead {
-  background-color: #F8FAFC;
+  background-color: var(--color-bg-hover, #F8FAFC);
   border-bottom: 1px solid var(--color-border, #E2E8F0);
 }
 
@@ -31,7 +31,7 @@
 
 /* Phần nội dung bảng (tbody) */
 .tr {
-  border-bottom: 1px solid #F1F5F9;
+  border-bottom: 1px solid var(--color-border, #F1F5F9);
   transition: background-color 0.15s ease;
 }
 
@@ -40,7 +40,7 @@
 }
 
 .tr:hover {
-  background-color: #F8FAFC;
+  background-color: var(--color-bg-hover, #F8FAFC);
 }
 
 .td {
