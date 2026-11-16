@@ -136,6 +136,7 @@ class ProductService:
             category_id=data.category_id,
             sku=data.sku,
             name=data.name,
+            image_url=data.image_url,
             status=CatalogStatus.ACTIVE.value,
             sale_price_vnd=data.sale_price_vnd,
             created_at=now,
@@ -168,7 +169,7 @@ class ProductService:
 
         updates = data.model_dump(exclude_unset=True)
         for field_name, value in updates.items():
-            if value is None:
+            if value is None and field_name != "image_url":
                 session.rollback()
                 raise DomainValidationError(
                     f"Trường '{field_name}' không được để trống."
@@ -243,6 +244,7 @@ class ProductService:
             category_id=product.category_id,
             sku=product.sku,
             name=product.name,
+            image_url=product.image_url,
             status=CatalogStatus(product.status),
             sale_price_vnd=product.sale_price_vnd,
             quantity=inv.quantity,

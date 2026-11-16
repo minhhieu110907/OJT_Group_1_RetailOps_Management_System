@@ -84,6 +84,7 @@ class Product(Base):
         String(160),
         nullable=False,
     )
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(
         String(8),
         nullable=False,

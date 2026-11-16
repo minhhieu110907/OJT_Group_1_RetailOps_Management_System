@@ -82,6 +82,10 @@ class FakeOrderRepository:
         self.arguments = kwargs
         return SimpleNamespace(id=91)
 
+    def user_full_name(self, session: object, user_id: int) -> str:
+        del session, user_id
+        return "Checkout Staff"
+
 
 def stock(
     product_id: int = 1,
