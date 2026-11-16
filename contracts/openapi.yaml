@@ -2352,6 +2352,13 @@ components:
         name:
           type: string
           maxLength: 160
+        image_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 500
+          nullable: true
+          description: Absolute HTTPS URL; backend does not fetch or proxy it
         status:
           type: string
           enum:
@@ -2382,10 +2389,183 @@ components:
       - category_id
       - sku
       - name
+      - image_url
       - status
       - sale_price_vnd
       - quantity
       - stock_version
+      - created_at
+      - updated_at
+    ProductCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        category_id:
+          type: integer
+          minimum: 1
+        sale_price_vnd:
+          type: integer
+          minimum: 1
+        image_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 500
+          nullable: true
+          description: Optional absolute HTTPS URL; omitted or null creates NULL
+      required:
+      - sku
+      - name
+      - category_id
+      - sale_price_vnd
+    ProductUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          nullable: true
+        category_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        sale_price_vnd:
+          type: integer
+          minimum: 1
+          nullable: true
+        image_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 500
+          nullable: true
+          description: Omitted preserves the value; explicit null clears it
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+          maxLength: 72
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          nullable: true
+          description: Optional; trimmed before validating length
+      required:
+      - email
+      - password
+    UserRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        email_normalized:
+          type: string
+        full_name:
+          type: string
+          maxLength: 120
+          nullable: true
+        role:
+          type: string
+          enum: [ADMIN, STAFF]
+        status:
+          type: string
+          enum: [PENDING_APPROVAL, ACTIVE, REJECTED]
+        last_reapplied_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - email_normalized
+      - full_name
+      - role
+      - status
+      - last_reapplied_at
+      - created_at
+      - updated_at
+    AuthenticatedUser:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        email_normalized:
+          type: string
+        full_name:
+          type: string
+          maxLength: 120
+          nullable: true
+        role:
+          type: string
+          enum: [ADMIN, STAFF]
+        status:
+          type: string
+          enum: [PENDING_APPROVAL, ACTIVE, REJECTED]
+      required:
+      - id
+      - email_normalized
+      - full_name
+      - role
+      - status
+    CategoryRead:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE]
+        product_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+      - description
+      - status
+      - product_count
       - created_at
       - updated_at
     ProductPage:
@@ -2471,6 +2651,10 @@ components:
         email:
           type: string
           format: email
+        full_name:
+          type: string
+          maxLength: 120
+          nullable: true
         attempt_no:
           type: integer
           format: int64
@@ -2499,6 +2683,7 @@ components:
       - id
       - user_id
       - email
+      - full_name
       - attempt_no
       - status
       - requested_at
@@ -3051,6 +3236,11 @@ components:
           type: integer
           format: int64
           minimum: 1
+        created_by_name:
+          type: string
+          maxLength: 120
+          nullable: true
+          description: Current users.full_name; never inferred from email
         sold_at:
           type: string
           format: date-time
@@ -3058,6 +3248,11 @@ components:
         cancelled_by:
           type: integer
           nullable: true
+        cancelled_by_name:
+          type: string
+          maxLength: 120
+          nullable: true
+          description: Current users.full_name, null for non-cancelled orders
         cancelled_at:
           type: string
           format: date-time
@@ -3074,8 +3269,10 @@ components:
       - status
       - total_vnd
       - created_by
+      - created_by_name
       - sold_at
       - cancelled_by
+      - cancelled_by_name
       - cancelled_at
       - cancel_reason
       - items

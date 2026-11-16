@@ -64,6 +64,7 @@ class User(Base):
         String(254, collation="ascii_bin"), nullable=False
     )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     role: Mapped[str] = mapped_column(String(5), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     admin_slot: Mapped[int | None] = mapped_column(TINYINT, nullable=True)

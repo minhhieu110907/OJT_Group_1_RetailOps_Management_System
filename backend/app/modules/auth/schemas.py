@@ -15,6 +15,18 @@ from pydantic import (
 from app.modules.auth.models import ApprovalStatus, UserRole, UserStatus
 
 
+def normalize_full_name(value: str | None) -> str | None:
+    """Normalize an optional display name at every application boundary."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("full_name must contain non-whitespace characters")
+    if len(normalized) > 120:
+        raise ValueError("full_name must not exceed 120 characters after trim")
+    return normalized
+
+
 class OrmReadModel(BaseModel):
     """Base configuration for safe ORM-backed response schemas."""
 
@@ -26,6 +38,7 @@ class UserRead(OrmReadModel):
 
     id: int
     email_normalized: str
+    full_name: str | None = Field(max_length=120)
     role: UserRole
     status: UserStatus
     last_reapplied_at: datetime | None
@@ -60,6 +73,7 @@ class ApprovalListItemRead(ApprovalRead):
     """Admin-only list item including the Staff account email."""
 
     email: EmailStr
+    full_name: str | None = Field(max_length=120)
 
 
 StaffApprovalRead = ApprovalRead
@@ -117,6 +131,7 @@ class LoginRequest(StrictRequest):
 class AuthenticatedUser(BaseModel):
     id: int
     email_normalized: str
+    full_name: str | None = Field(max_length=120)
     role: UserRole
     status: UserStatus
 
@@ -135,6 +150,12 @@ class CsrfResponse(BaseModel):
 class RegisterRequest(StrictRequest):
     email: EmailStr
     password: str = Field(min_length=1, max_length=72)
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def validate_full_name(cls, value: str | None) -> str | None:
+        return normalize_full_name(value)
 
 
 class RegisterResponse(BaseModel):

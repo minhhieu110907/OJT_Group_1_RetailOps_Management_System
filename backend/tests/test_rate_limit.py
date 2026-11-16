@@ -110,6 +110,7 @@ class CountingRefreshService:
                 user=AuthenticatedUser(
                     id=1,
                     email_normalized="active@example.com",
+                    full_name=None,
                     role="STAFF",
                     status="ACTIVE",
                 ),

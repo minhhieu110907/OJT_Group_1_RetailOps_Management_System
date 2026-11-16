@@ -4,8 +4,9 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import exists, func, or_, select
-from sqlalchemy.orm import Session, lazyload, selectinload
+from sqlalchemy.orm import Session, joinedload, lazyload, selectinload
 
+from app.modules.auth.models import User
 from app.modules.sales.models import Order, OrderItem
 
 
@@ -18,7 +19,11 @@ class OrderRepository:
     def lock_by_id(self, session: Session, order_id: int) -> Order | None:
         return session.scalar(
             select(Order)
-            .options(lazyload(Order.items))
+            .options(
+                lazyload(Order.items),
+                lazyload(Order.creator),
+                lazyload(Order.canceller),
+            )
             .where(Order.id == order_id)
             .with_for_update()
         )
@@ -26,7 +31,13 @@ class OrderRepository:
     def get_by_id(self, session: Session, order_id: int) -> Order | None:
         """Fetch a single order by ID with eagerly loaded items."""
         return session.scalar(
-            select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
+            select(Order)
+            .options(
+                selectinload(Order.items),
+                joinedload(Order.creator),
+                joinedload(Order.canceller),
+            )
+            .where(Order.id == order_id)
         )
 
     def list_orders(
@@ -77,7 +88,11 @@ class OrderRepository:
 
         stmt = (
             select(Order)
-            .options(selectinload(Order.items))
+            .options(
+                selectinload(Order.items),
+                joinedload(Order.creator),
+                joinedload(Order.canceller),
+            )
             .where(*conditions)
             .order_by(Order.sold_at.desc(), Order.id.desc())
             .offset(offset)
@@ -116,3 +131,6 @@ class OrderRepository:
             session.add(OrderItem(order_id=order.id, **item))
         session.flush()
         return order
+
+    def user_full_name(self, session: Session, user_id: int) -> str | None:
+        return session.scalar(select(User.full_name).where(User.id == user_id))

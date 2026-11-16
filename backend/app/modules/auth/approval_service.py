@@ -45,8 +45,9 @@ class StaffApprovalService:
                 ApprovalListItemRead(
                     **ApprovalRead.model_validate(approval).model_dump(),
                     email=email,
+                    full_name=full_name,
                 )
-                for approval, email in items
+                for approval, email, full_name in items
             ),
             total=total,
             page=page,
