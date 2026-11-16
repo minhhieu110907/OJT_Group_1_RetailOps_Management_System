@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { InventorySessionProvider } from './context/InventorySessionContext';
 import { ToastProvider } from './components/common';
 import AuthLayout from './layouts/AuthLayout/AuthLayout';
 import MainLayout from './layouts/MainLayout/MainLayout';
@@ -63,8 +64,9 @@ export default function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <BrowserRouter>
-          <Routes>
+        <InventorySessionProvider>
+          <BrowserRouter>
+            <Routes>
             {/* 0. Route kiểm tra kết nối hệ thống (Bảo toàn minh chứng Sprint 0) */}
             <Route path="/health" element={<HealthCheckPage />} />
 
@@ -128,7 +130,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
-  );
+      </InventorySessionProvider>
+    </AuthProvider>
+  </ToastProvider>
+);
 }

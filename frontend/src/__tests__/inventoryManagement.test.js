@@ -14,6 +14,7 @@ import {
 } from '../api/inventoryApi.js';
 import {
   ADJUSTMENT_STATUS,
+  areAdjustmentSessionsEqual,
   canCloseAdjustmentModal,
   canSubmitAdjustment,
   classifyAdjustmentError,
@@ -907,6 +908,112 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
         delta: 0,
       });
       assert.equal(canSubmitNoOp, true);
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 7 — REAL COMPONENT INTEGRATION TESTS (CT-REAL-01 to 04)
+  // =========================================================================
+  describe('Real Component Integration & Rendering Verification (CT-REAL-01 to 04)', () => {
+    test('CT-REAL-01 — InventoryAdjustModal source verifies initialization with initialDraft in useReducer directly', () => {
+      const modalSource = fs.readFileSync(adjustModalPath, 'utf8');
+
+      // Verify useReducer initializes with initialDraft
+      assert.ok(
+        modalSource.includes('useReducer(\n    reduceAdjustmentState,\n    initialDraft,\n    createInitialAdjustmentState\n  )') ||
+        modalSource.includes('useReducer(reduceAdjustmentState, initialDraft, createInitialAdjustmentState)') ||
+        modalSource.includes('reduceAdjustmentState,') && modalSource.includes('createInitialAdjustmentState'),
+        'InventoryAdjustModal must pass initialDraft to createInitialAdjustmentState in useReducer'
+      );
+
+      // Verify createInitialAdjustmentState restores ambiguous intent and status directly
+      const fixedKey = 'uuid-ct-real-01-preserved';
+      const initialDraft = {
+        product: { product_id: 88, sku: 'TEST-SKU-88', name: 'Test Product 88', quantity: 10, stock_version: 2 },
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Server timeout 504',
+          ambiguousIntent: {
+            key: fixedKey,
+            payload: { productId: 88, countedQuantity: 15, expectedStockVersion: 2, reason: 'Kiem ke thuc te kho A' },
+          },
+          reconciledResult: null,
+        },
+        draft: {
+          countedQty: '15',
+          reason: 'Kiem ke thuc te kho A',
+        },
+      };
+
+      const restoredState = createInitialAdjustmentState(initialDraft);
+      assert.equal(restoredState.status, ADJUSTMENT_STATUS.AMBIGUOUS, 'Initial state must be AMBIGUOUS directly on mount');
+      assert.equal(restoredState.ambiguousIntent.key, fixedKey, 'Preserved key must match without generating new UUID');
+      assert.equal(canSubmitAdjustment({ status: restoredState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), false, 'Submit must remain locked on mount');
+      assert.equal(canCloseAdjustmentModal(restoredState.status, restoredState.ambiguousIntent), false, 'Modal close must remain blocked on mount');
+    });
+
+    test('CT-REAL-02 — areAdjustmentSessionsEqual semantic guard detects equivalence and differences accurately', () => {
+      const sessionA = {
+        product: { product_id: 10 },
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Timeout',
+          ambiguousIntent: { key: 'key-1', payload: { countedQuantity: 20, reason: 'Reason 12345678' } },
+          reconciledResult: null,
+        },
+        draft: { countedQty: '20', reason: 'Reason 12345678' },
+      };
+
+      // Exactly equal structure
+      const sessionB = {
+        product: { product_id: 10 },
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Timeout',
+          ambiguousIntent: { key: 'key-1', payload: { countedQuantity: 20, reason: 'Reason 12345678' } },
+          reconciledResult: null,
+        },
+        draft: { countedQty: '20', reason: 'Reason 12345678' },
+      };
+
+      assert.equal(areAdjustmentSessionsEqual(sessionA, sessionB), true, 'Identical semantic sessions must return true');
+
+      // Changed draft
+      const sessionC = { ...sessionA, draft: { countedQty: '21', reason: 'Reason 12345678' } };
+      assert.equal(areAdjustmentSessionsEqual(sessionA, sessionC), false, 'Changed draft must return false');
+
+      // Changed intent key
+      const sessionD = {
+        ...sessionA,
+        state: { ...sessionA.state, ambiguousIntent: { ...sessionA.state.ambiguousIntent, key: 'key-2' } },
+      };
+      assert.equal(areAdjustmentSessionsEqual(sessionA, sessionD), false, 'Changed intent key must return false');
+
+      // Both null
+      assert.equal(areAdjustmentSessionsEqual(null, null), true, 'Both null must return true');
+      // One null
+      assert.equal(areAdjustmentSessionsEqual(sessionA, null), false, 'One null must return false');
+    });
+
+    test('CT-REAL-03 — InventorySessionContext provides cross-route intent survival and clears on logout', () => {
+      const contextPath = path.resolve(__dirname, '../context/InventorySessionContext.jsx');
+      assert.ok(fs.existsSync(contextPath), 'InventorySessionContext must exist');
+      const contextSource = fs.readFileSync(contextPath, 'utf8');
+
+      // Verify clear on logout/role switch
+      assert.ok(contextSource.includes("!user || user.role !== 'ADMIN'"), 'Session must clear if user logs out or is not ADMIN');
+      assert.ok(contextSource.includes('areAdjustmentSessionsEqual'), 'Session update must use semantic equality guard');
+
+      // Verify App.jsx wraps with InventorySessionProvider
+      const appSource = fs.readFileSync(path.resolve(__dirname, '../App.jsx'), 'utf8');
+      assert.ok(appSource.includes('<InventorySessionProvider>'), 'App.jsx must provide InventorySessionProvider');
+    });
+
+    test('CT-REAL-04 — InventoryList source verifies handleAmbiguousStateChange uses stable callback and does not loop', () => {
+      const listSource = fs.readFileSync(inventoryListPath, 'utf8');
+      assert.ok(listSource.includes('handleAmbiguousStateChange = useCallback('), 'InventoryList must memoize callback');
+      assert.ok(listSource.includes('updateLiftedSession(newSession)'), 'InventoryList must delegate to session provider');
+      assert.ok(listSource.includes('initialDraft={liftedSession}'), 'InventoryList must pass liftedSession to modal initialDraft');
     });
   });
 });

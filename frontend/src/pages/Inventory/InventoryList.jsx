@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useInventorySession } from '../../context/InventorySessionContext';
 import { Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { categoriesApi } from '../../api/categoriesApi';
@@ -16,6 +17,7 @@ import styles from './InventoryList.module.css';
 export default function InventoryList() {
   const { user } = useAuth();
   const toast = useToast();
+  const { liftedSession, updateLiftedSession, clearLiftedSession } = useInventorySession();
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -43,11 +45,15 @@ export default function InventoryList() {
   });
 
   // 5. State Modal Điều chỉnh tồn kho (Admin only)
-  const [adjustingProduct, setAdjustingProduct] = useState(null);
-  const [liftedAmbiguousSession, setLiftedAmbiguousSession] = useState(null);
+  // Local active product or restored from lifted session (persists across route navigation)
+  const [localAdjustingProduct, setLocalAdjustingProduct] = useState(null);
+  const adjustingProduct = localAdjustingProduct || liftedSession?.product || null;
+  const pendingAmbiguousProduct = liftedSession?.product || null;
 
-  // Derived pending ambiguous product
-  const pendingAmbiguousProduct = liftedAmbiguousSession?.product || null;
+  // Stable callback with semantic equality guard to completely eliminate update loops
+  const handleAmbiguousStateChange = useCallback((newSession) => {
+    updateLiftedSession(newSession);
+  }, [updateLiftedSession]);
 
   // Ref chống race condition
   const requestIdRef = useRef(0);
@@ -243,7 +249,7 @@ export default function InventoryList() {
                       toast.warning('Đang có phiên kiểm kê chưa rõ kết quả đối soát. Vui lòng hoàn tất đối soát trước khi mở sản phẩm khác.');
                       return;
                     }
-                    setAdjustingProduct(row);
+                    setLocalAdjustingProduct(row);
                   }}
                   title="Điều chỉnh tồn kho"
                 >
@@ -464,14 +470,12 @@ export default function InventoryList() {
           isOpen={Boolean(adjustingProduct || pendingAmbiguousProduct)}
           product={adjustingProduct || pendingAmbiguousProduct}
           categoryName={categoryMap.get((adjustingProduct || pendingAmbiguousProduct).category_id) || ''}
-          initialDraft={liftedAmbiguousSession}
-          onAmbiguousStateChange={(session) => {
-            setLiftedAmbiguousSession(session);
-          }}
+          initialDraft={liftedSession}
+          onAmbiguousStateChange={handleAmbiguousStateChange}
           onClose={() => {
             modalReloadRequestIdRef.current++;
-            setAdjustingProduct(null);
-            setLiftedAmbiguousSession(null);
+            setLocalAdjustingProduct(null);
+            clearLiftedSession();
           }}
           onReloadLatest={async (productId) => {
             const currentAttemptId = ++modalReloadRequestIdRef.current;
@@ -497,7 +501,7 @@ export default function InventoryList() {
               }
 
               // 3. Side effects CHỈ ĐƯỢC CHẠY sau khi toàn bộ validation đã thành công
-              setAdjustingProduct(latestData);
+              setLocalAdjustingProduct(latestData);
               toast.info(`Đã cập nhật phiên bản tồn kho mới nhất (v${latestData.stock_version}).`);
               loadInventory();
               return latestData;
@@ -519,8 +523,8 @@ export default function InventoryList() {
                 : `Đã kiểm kê ${currentActiveProduct?.sku}: Số lượng tồn kho không đổi.`
             );
             modalReloadRequestIdRef.current++;
-            setAdjustingProduct(null);
-            setLiftedAmbiguousSession(null);
+            setLocalAdjustingProduct(null);
+            clearLiftedSession();
             // Refresh lại danh sách tồn kho và KPI
             loadInventory();
             loadKpiStats();

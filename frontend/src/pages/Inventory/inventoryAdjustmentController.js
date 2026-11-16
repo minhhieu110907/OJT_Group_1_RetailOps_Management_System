@@ -52,6 +52,58 @@ export function hasUnresolvedAdjustmentIntent(status, pendingIntent) {
 }
 
 /**
+ * Determines whether two adjustment sessions are semantically identical.
+ * Prevents redundant React state updates and effect update loops.
+ *
+ * @param {any} a First session snapshot
+ * @param {any} b Second session snapshot
+ * @returns {boolean}
+ */
+export function areAdjustmentSessionsEqual(a, b) {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+
+  // Compare product identity
+  if (a.product?.product_id !== b.product?.product_id) return false;
+
+  // Compare state
+  if (a.state?.status !== b.state?.status) return false;
+  if (a.state?.errorMessage !== b.state?.errorMessage) return false;
+  if (a.state?.ambiguousIntent?.key !== b.state?.ambiguousIntent?.key) return false;
+  if (
+    a.state?.ambiguousIntent?.payload?.countedQuantity !==
+    b.state?.ambiguousIntent?.payload?.countedQuantity
+  ) {
+    return false;
+  }
+  if (
+    a.state?.ambiguousIntent?.payload?.reason !==
+    b.state?.ambiguousIntent?.payload?.reason
+  ) {
+    return false;
+  }
+  if (
+    a.state?.reconciledResult?.latestVersion !==
+    b.state?.reconciledResult?.latestVersion
+  ) {
+    return false;
+  }
+  if (
+    a.state?.reconciledResult?.latestQuantity !==
+    b.state?.reconciledResult?.latestQuantity
+  ) {
+    return false;
+  }
+
+  // Compare draft
+  if (a.draft?.countedQty !== b.draft?.countedQty) return false;
+  if (a.draft?.reason !== b.draft?.reason) return false;
+
+  return true;
+}
+
+/**
  * Validates authoritative product inventory response from GET /inventory/{id}.
  * Strictly fail-closed.
  *
@@ -152,7 +204,16 @@ export function canSubmitAdjustment({
 /**
  * Initial state factory for adjustment modal state.
  */
-export function createInitialAdjustmentState() {
+export function createInitialAdjustmentState(initialDraft) {
+  if (initialDraft && initialDraft.state) {
+    return {
+      status: initialDraft.state.status || ADJUSTMENT_STATUS.IDLE,
+      errorMessage: initialDraft.state.errorMessage || '',
+      conflictData: null,
+      ambiguousIntent: initialDraft.state.ambiguousIntent || null,
+      reconciledResult: initialDraft.state.reconciledResult || null,
+    };
+  }
   return {
     status: ADJUSTMENT_STATUS.IDLE,
     errorMessage: '',

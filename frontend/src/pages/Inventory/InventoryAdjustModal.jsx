@@ -40,36 +40,63 @@ export default function InventoryAdjustModal({
   const { user } = useAuth();
   const toast = useToast();
 
-  const [countedQty, setCountedQty] = useState('');
-  const [reason, setReason] = useState('');
+  const [countedQty, setCountedQty] = useState(() => {
+    if (initialDraft?.draft?.countedQty !== undefined) {
+      return initialDraft.draft.countedQty;
+    }
+    return product?.quantity !== undefined && product?.quantity !== null
+      ? String(product.quantity)
+      : '0';
+  });
+  const [reason, setReason] = useState(() => initialDraft?.draft?.reason ?? '');
 
-  // Production state managed by pure production reducer
-  const [state, dispatch] = useReducer(reduceAdjustmentState, null, createInitialAdjustmentState);
+  // Production state managed by pure production reducer, initialized directly with initialDraft if present
+  const [state, dispatch] = useReducer(
+    reduceAdjustmentState,
+    initialDraft,
+    createInitialAdjustmentState
+  );
   const { status: modalStatus, errorMessage, conflictData, ambiguousIntent, reconciledResult } = state;
 
   // Sync ambiguous state and full intent snapshot to parent for safe unmount/tab/product/navigation protection
   useEffect(() => {
-    if (onAmbiguousStateChange) {
-      const isUnresolved = hasUnresolvedAdjustmentIntent(modalStatus, ambiguousIntent);
-      onAmbiguousStateChange(
-        isUnresolved
-          ? {
-              product,
-              state: {
-                status: modalStatus,
-                ambiguousIntent,
-                reconciledResult,
-                errorMessage,
-              },
-              draft: {
-                countedQty,
-                reason,
-              },
-            }
-          : null
-      );
+    if (!isOpen || !product) return;
+
+    const isUnresolved = hasUnresolvedAdjustmentIntent(modalStatus, ambiguousIntent);
+    if (isUnresolved) {
+      if (onAmbiguousStateChange) {
+        onAmbiguousStateChange({
+          product,
+          state: {
+            status: modalStatus,
+            ambiguousIntent,
+            reconciledResult,
+            errorMessage,
+          },
+          draft: {
+            countedQty,
+            reason,
+          },
+        });
+      }
+    } else {
+      // Chỉ khi modal đã resolved và đang ở IDLE (hoặc sau explicit acknowledgement)
+      // thì mới thông báo null để parent clear session đã giải quyết
+      if (modalStatus === ADJUSTMENT_STATUS.IDLE && onAmbiguousStateChange) {
+        onAmbiguousStateChange(null);
+      }
     }
-  }, [modalStatus, ambiguousIntent, reconciledResult, errorMessage, product, countedQty, reason, onAmbiguousStateChange]);
+  }, [
+    isOpen,
+    modalStatus,
+    ambiguousIntent,
+    reconciledResult,
+    errorMessage,
+    product,
+    countedQty,
+    reason,
+    onAmbiguousStateChange,
+  ]);
 
   // Track product identity to only reset when switching to a completely different product or first open
   const lastOpenedProductIdRef = useRef(null);
@@ -86,35 +113,10 @@ export default function InventoryAdjustModal({
         lastOpenedProductIdRef.current = product.product_id;
 
         // If restoring a lifted ambiguous session for the same product
-        if (initialDraft && initialDraft.state) {
+        if (initialDraft && initialDraft.state && initialDraft.product?.product_id === product.product_id) {
           setCountedQty(initialDraft.draft?.countedQty ?? String(product.quantity ?? '0'));
           setReason(initialDraft.draft?.reason ?? '');
-          // Restore exact state from lifted owner
-          if (initialDraft.state.status === ADJUSTMENT_STATUS.AMBIGUOUS) {
-            dispatch({
-              type: 'SUBMIT_AMBIGUOUS',
-              payload: {
-                message: initialDraft.state.errorMessage,
-                intent: initialDraft.state.ambiguousIntent,
-              },
-            });
-          } else if (initialDraft.state.status === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT) {
-            // Restore awaiting acknowledgement
-            dispatch({
-              type: 'SUBMIT_AMBIGUOUS',
-              payload: {
-                message: initialDraft.state.errorMessage,
-                intent: initialDraft.state.ambiguousIntent,
-              },
-            });
-            dispatch({
-              type: 'RELOAD_SUCCESS',
-              payload: {
-                previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
-                reconciledResult: initialDraft.state.reconciledResult,
-              },
-            });
-          }
+          // State was already initialized by createInitialAdjustmentState(initialDraft) in useReducer
         } else {
           setCountedQty(
             product.quantity !== undefined && product.quantity !== null
