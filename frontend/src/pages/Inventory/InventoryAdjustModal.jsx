@@ -13,6 +13,7 @@ import {
   canSubmitAdjustment,
   classifyAdjustmentError,
   createInitialAdjustmentState,
+  hasUnresolvedAdjustmentIntent,
   isValidAuthoritativeInventory,
   reduceAdjustmentState,
 } from './inventoryAdjustmentController';
@@ -30,6 +31,7 @@ export default function InventoryAdjustModal({
   isOpen,
   product,
   categoryName,
+  initialDraft,
   onClose,
   onSuccess,
   onReloadLatest,
@@ -45,16 +47,29 @@ export default function InventoryAdjustModal({
   const [state, dispatch] = useReducer(reduceAdjustmentState, null, createInitialAdjustmentState);
   const { status: modalStatus, errorMessage, conflictData, ambiguousIntent, reconciledResult } = state;
 
-  // Sync ambiguous state to parent for safe unmount/tab/product protection
+  // Sync ambiguous state and full intent snapshot to parent for safe unmount/tab/product/navigation protection
   useEffect(() => {
     if (onAmbiguousStateChange) {
-      const isAmbiguousOrReconciling =
-        modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS ||
-        modalStatus === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT ||
-        Boolean(ambiguousIntent);
-      onAmbiguousStateChange(isAmbiguousOrReconciling ? product : null);
+      const isUnresolved = hasUnresolvedAdjustmentIntent(modalStatus, ambiguousIntent);
+      onAmbiguousStateChange(
+        isUnresolved
+          ? {
+              product,
+              state: {
+                status: modalStatus,
+                ambiguousIntent,
+                reconciledResult,
+                errorMessage,
+              },
+              draft: {
+                countedQty,
+                reason,
+              },
+            }
+          : null
+      );
     }
-  }, [modalStatus, ambiguousIntent, product, onAmbiguousStateChange]);
+  }, [modalStatus, ambiguousIntent, reconciledResult, errorMessage, product, countedQty, reason, onAmbiguousStateChange]);
 
   // Track product identity to only reset when switching to a completely different product or first open
   const lastOpenedProductIdRef = useRef(null);
@@ -64,24 +79,57 @@ export default function InventoryAdjustModal({
   const isSubmitting = modalStatus === ADJUSTMENT_STATUS.SUBMITTING;
   const isReloading = modalStatus === ADJUSTMENT_STATUS.RECONCILING;
 
-  // Synchronize draft when opening modal for a new product
+  // Synchronize draft when opening modal for a product, restoring lifted ambiguous session if present
   useEffect(() => {
     if (isOpen && product) {
       if (lastOpenedProductIdRef.current !== product.product_id) {
         lastOpenedProductIdRef.current = product.product_id;
-        setCountedQty(
-          product.quantity !== undefined && product.quantity !== null
-            ? String(product.quantity)
-            : '0'
-        );
-        setReason('');
-        dispatch({ type: 'RESET_PRODUCT' });
+
+        // If restoring a lifted ambiguous session for the same product
+        if (initialDraft && initialDraft.state) {
+          setCountedQty(initialDraft.draft?.countedQty ?? String(product.quantity ?? '0'));
+          setReason(initialDraft.draft?.reason ?? '');
+          // Restore exact state from lifted owner
+          if (initialDraft.state.status === ADJUSTMENT_STATUS.AMBIGUOUS) {
+            dispatch({
+              type: 'SUBMIT_AMBIGUOUS',
+              payload: {
+                message: initialDraft.state.errorMessage,
+                intent: initialDraft.state.ambiguousIntent,
+              },
+            });
+          } else if (initialDraft.state.status === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT) {
+            // Restore awaiting acknowledgement
+            dispatch({
+              type: 'SUBMIT_AMBIGUOUS',
+              payload: {
+                message: initialDraft.state.errorMessage,
+                intent: initialDraft.state.ambiguousIntent,
+              },
+            });
+            dispatch({
+              type: 'RELOAD_SUCCESS',
+              payload: {
+                previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
+                reconciledResult: initialDraft.state.reconciledResult,
+              },
+            });
+          }
+        } else {
+          setCountedQty(
+            product.quantity !== undefined && product.quantity !== null
+              ? String(product.quantity)
+              : '0'
+          );
+          setReason('');
+          dispatch({ type: 'RESET_PRODUCT' });
+        }
       }
     } else if (!isOpen) {
       lastOpenedProductIdRef.current = null;
       dispatch({ type: 'RESET_PRODUCT' });
     }
-  }, [isOpen, product]);
+  }, [isOpen, product, initialDraft]);
 
   // Centralized close request handler
   const handleRequestClose = useCallback(() => {

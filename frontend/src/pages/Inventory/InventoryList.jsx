@@ -8,6 +8,7 @@ import {
   classifyStockLevel,
   inventoryApi,
 } from '../../api/inventoryApi';
+import { isValidAuthoritativeInventory } from './inventoryAdjustmentController';
 import StockMovementList from './StockMovementList';
 import InventoryAdjustModal from './InventoryAdjustModal';
 import styles from './InventoryList.module.css';
@@ -43,7 +44,10 @@ export default function InventoryList() {
 
   // 5. State Modal Điều chỉnh tồn kho (Admin only)
   const [adjustingProduct, setAdjustingProduct] = useState(null);
-  const [pendingAmbiguousProduct, setPendingAmbiguousProduct] = useState(null);
+  const [liftedAmbiguousSession, setLiftedAmbiguousSession] = useState(null);
+
+  // Derived pending ambiguous product
+  const pendingAmbiguousProduct = liftedAmbiguousSession?.product || null;
 
   // Ref chống race condition
   const requestIdRef = useRef(0);
@@ -460,13 +464,14 @@ export default function InventoryList() {
           isOpen={Boolean(adjustingProduct || pendingAmbiguousProduct)}
           product={adjustingProduct || pendingAmbiguousProduct}
           categoryName={categoryMap.get((adjustingProduct || pendingAmbiguousProduct).category_id) || ''}
-          onAmbiguousStateChange={(ambiguousProd) => {
-            setPendingAmbiguousProduct(ambiguousProd);
+          initialDraft={liftedAmbiguousSession}
+          onAmbiguousStateChange={(session) => {
+            setLiftedAmbiguousSession(session);
           }}
           onClose={() => {
             modalReloadRequestIdRef.current++;
             setAdjustingProduct(null);
-            setPendingAmbiguousProduct(null);
+            setLiftedAmbiguousSession(null);
           }}
           onReloadLatest={async (productId) => {
             const currentAttemptId = ++modalReloadRequestIdRef.current;
@@ -474,20 +479,28 @@ export default function InventoryList() {
               // Tách biệt loading: không set isLoading của bảng ngoài để tránh kẹt loading bảng khi reload modal
               const latestData = await inventoryApi.getProductInventory(productId);
 
-              // Stale check: modal must still be open for this exact product and attempt
+              // 1. Race & Identity checks: attempt phải còn active, modal còn mở, actor còn là ADMIN
               const currentActiveProduct = adjustingProduct || pendingAmbiguousProduct;
               if (
-                currentAttemptId === modalReloadRequestIdRef.current &&
-                currentActiveProduct &&
-                currentActiveProduct.product_id === productId &&
-                isAdmin
+                currentAttemptId !== modalReloadRequestIdRef.current ||
+                !currentActiveProduct ||
+                currentActiveProduct.product_id !== productId ||
+                !isAdmin
               ) {
-                setAdjustingProduct(latestData);
-                toast.info(`Đã cập nhật phiên bản tồn kho mới nhất (v${latestData.stock_version}).`);
-                loadInventory();
-                return latestData;
+                return null;
               }
-              return null;
+
+              // 2. Authoritative Payload Validation: FAIL-CLOSED trước mọi side effect tại parent!
+              if (!isValidAuthoritativeInventory(latestData, productId)) {
+                // Tuyệt đối KHÔNG gọi setAdjustingProduct, KHÔNG toast success, KHÔNG refresh bảng
+                throw new Error('Dữ liệu tồn kho nhận từ máy chủ không hợp lệ hoặc sai mã sản phẩm.');
+              }
+
+              // 3. Side effects CHỈ ĐƯỢC CHẠY sau khi toàn bộ validation đã thành công
+              setAdjustingProduct(latestData);
+              toast.info(`Đã cập nhật phiên bản tồn kho mới nhất (v${latestData.stock_version}).`);
+              loadInventory();
+              return latestData;
             } catch (err) {
               const msg = getApiErrorMessage(err, 'Không thể làm mới dữ liệu sản phẩm.');
               // Chỉ toast lỗi nếu reload attempt này vẫn đang active
@@ -507,7 +520,7 @@ export default function InventoryList() {
             );
             modalReloadRequestIdRef.current++;
             setAdjustingProduct(null);
-            setPendingAmbiguousProduct(null);
+            setLiftedAmbiguousSession(null);
             // Refresh lại danh sách tồn kho và KPI
             loadInventory();
             loadKpiStats();

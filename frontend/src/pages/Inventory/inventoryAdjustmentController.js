@@ -12,7 +12,7 @@ export const ADJUSTMENT_STATUS = Object.freeze({
 
 /**
  * Centralized close guard for the adjustment modal.
- * Pure logic determining if the modal can safely be closed/unmounted.
+ * Pure logic determining if the modal can safely be closed/dismissed.
  * Blocks during SUBMITTING, RECONCILING, AMBIGUOUS, and AWAITING_ACKNOWLEDGEMENT.
  *
  * @param {string} status Current ADJUSTMENT_STATUS
@@ -33,6 +33,22 @@ export function canCloseAdjustmentModal(status, pendingIntent) {
     return false;
   }
   return true;
+}
+
+/**
+ * Checks whether an adjustment session currently has an active ambiguous or unacknowledged intent
+ * that requires lifecycle protection (e.g. blocking navigation or preserving across unmount).
+ *
+ * @param {string} status Current ADJUSTMENT_STATUS
+ * @param {any} pendingIntent Active ambiguous intent object
+ * @returns {boolean}
+ */
+export function hasUnresolvedAdjustmentIntent(status, pendingIntent) {
+  if (status === ADJUSTMENT_STATUS.SUBMITTING) return true;
+  if (status === ADJUSTMENT_STATUS.AMBIGUOUS || Boolean(pendingIntent)) return true;
+  if (status === ADJUSTMENT_STATUS.RECONCILING && Boolean(pendingIntent)) return true;
+  if (status === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT) return true;
+  return false;
 }
 
 /**
