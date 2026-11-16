@@ -7,9 +7,10 @@ Real-service execution on MySQL 8.4 covering:
     OrderReadService -> SalesAnalyticsService -> DashboardService -> ProductService)
 3. Real Order Cancellation Reconciliation, Stock Restoration & RBAC Ownership
 4. Snapshot Intactness Across Real Catalog Updates and Subsequent Checkouts
+5. Cross-Run Isolation & No Cross-Cleanup Regression
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -164,93 +165,11 @@ class TestRunContext:
             # 8. Delete test users
             if self.user_ids:
                 session.execute(delete(User).where(User.id.in_(self.user_ids)))
-
-
-def _cleanup_leftover_prefix_rows(engine: Engine) -> None:
-    """Safeguard cleanup for any orphan rows starting with TEST_PREFIX."""
-    with (
-        Session(engine, expire_on_commit=False) as session,
-        session.begin(),
-    ):
-        user_ids = list(
-            session.scalars(
-                select(User.id).where(
-                    User.email_normalized.like(f"{TEST_PREFIX.lower()}%")
+            session.execute(
+                delete(User).where(
+                    User.email_normalized.like(f"{self.prefix.lower()}%")
                 )
             )
-        )
-        product_ids = list(
-            session.scalars(
-                select(Product.id).where(Product.sku.like(f"{TEST_PREFIX}%"))
-            )
-        )
-        order_ids_from_users = (
-            list(
-                session.scalars(select(Order.id).where(Order.created_by.in_(user_ids)))
-            )
-            if user_ids
-            else []
-        )
-        order_ids_from_products = (
-            list(
-                session.scalars(
-                    select(OrderItem.order_id).where(
-                        OrderItem.product_id.in_(product_ids)
-                    )
-                )
-            )
-            if product_ids
-            else []
-        )
-        all_order_ids = list(set(order_ids_from_users + order_ids_from_products))
-
-        if all_order_ids:
-            session.execute(
-                delete(StockMovement).where(StockMovement.order_id.in_(all_order_ids))
-            )
-        if product_ids:
-            session.execute(
-                delete(StockMovement).where(StockMovement.product_id.in_(product_ids))
-            )
-
-        if all_order_ids:
-            session.execute(
-                delete(OrderItem).where(OrderItem.order_id.in_(all_order_ids))
-            )
-        if product_ids:
-            session.execute(
-                delete(OrderItem).where(OrderItem.product_id.in_(product_ids))
-            )
-
-        if all_order_ids:
-            session.execute(delete(Order).where(Order.id.in_(all_order_ids)))
-
-        if user_ids:
-            session.execute(
-                delete(IdempotencyRecord).where(IdempotencyRecord.user_id.in_(user_ids))
-            )
-
-        if product_ids:
-            session.execute(
-                delete(Inventory).where(Inventory.product_id.in_(product_ids))
-            )
-
-        if product_ids:
-            session.execute(delete(Product).where(Product.id.in_(product_ids)))
-
-        # Clean only categories with TEST_PREFIX (preserving seeded baseline categories)
-        session.execute(delete(Category).where(Category.name.like(f"{TEST_PREFIX}%")))
-
-        if user_ids:
-            session.execute(delete(User).where(User.id.in_(user_ids)))
-
-
-@pytest.fixture(autouse=True)
-def clean_t04aad7_test_rows(migrated_integration_engine: Engine):
-    """Safeguard fixture cleaning leftover test rows before and after each test."""
-    _cleanup_leftover_prefix_rows(migrated_integration_engine)
-    yield
-    _cleanup_leftover_prefix_rows(migrated_integration_engine)
 
 
 def _create_user(
@@ -288,24 +207,68 @@ def test_seed_data_and_deterministic_pagination(
 ) -> None:
     """Validate seed idempotency and deterministic product query/pagination."""
     ctx = TestRunContext(migrated_integration_engine, "seed")
-    now_unaware = datetime.now(UTC).replace(tzinfo=None)
+    frozen_time_utc = datetime(2026, 11, 19, 10, 0, tzinfo=UTC)
+    now_unaware = frozen_time_utc.astimezone(UTC).replace(tzinfo=None)
 
     try:
         with (
             Session(migrated_integration_engine, expire_on_commit=False) as session,
             session.begin(),
         ):
-            # 1. Verify seed functions run idempotently
-            seed_categories(session)
-            seed_suppliers(session)
+            # 1. First execution of seed functions
+            first_cats_added = seed_categories(session)
+            first_supps_added = seed_suppliers(session)
+            assert first_cats_added >= 0
+            assert first_supps_added >= 0
             session.flush()
 
-            cat_names = list(session.scalars(select(Category.name)))
-            assert "Đồ uống" in cat_names
-            assert "Bánh kẹo & Đồ ăn vặt" in cat_names
+            initial_categories = list(
+                session.scalars(select(Category).order_by(Category.id))
+            )
+            initial_suppliers = list(
+                session.scalars(select(Supplier).order_by(Supplier.id))
+            )
+            initial_cat_ids = {c.id for c in initial_categories}
+            initial_supp_ids = {s.id for s in initial_suppliers}
+            initial_cat_names = [c.name for c in initial_categories]
+            initial_supp_names = [s.name for s in initial_suppliers]
 
-            supp_names = list(session.scalars(select(Supplier.name)))
-            assert "Công ty TNHH Phân phối Nước giải khát Việt" in supp_names
+            assert "Đồ uống" in initial_cat_names
+            assert "Bánh kẹo & Đồ ăn vặt" in initial_cat_names
+            assert "Công ty TNHH Phân phối Nước giải khát Việt" in initial_supp_names
+
+            # Re-run seed to prove idempotency: must be a strict no-op
+            second_cats_added = seed_categories(session)
+            second_supps_added = seed_suppliers(session)
+            session.flush()
+
+            assert second_cats_added == 0, (
+                "seed_categories must add 0 rows on duplicate execution"
+            )
+            assert second_supps_added == 0, (
+                "seed_suppliers must add 0 rows on duplicate execution"
+            )
+
+            after_categories = list(
+                session.scalars(select(Category).order_by(Category.id))
+            )
+            after_suppliers = list(
+                session.scalars(select(Supplier).order_by(Supplier.id))
+            )
+            assert len(after_categories) == len(initial_categories)
+            assert len(after_suppliers) == len(initial_suppliers)
+            assert {c.id for c in after_categories} == initial_cat_ids
+            assert {s.id for s in after_suppliers} == initial_supp_ids
+
+            do_uong_count = sum(1 for c in after_categories if c.name == "Đồ uống")
+            assert do_uong_count == 1, "'Đồ uống' category must not duplicate"
+
+            drink_supplier_count = sum(
+                1
+                for s in after_suppliers
+                if s.name == "Công ty TNHH Phân phối Nước giải khát Việt"
+            )
+            assert drink_supplier_count == 1, "Supplier must not duplicate"
 
             cat_drink = session.scalars(
                 select(Category).where(Category.name == "Đồ uống")
@@ -443,11 +406,9 @@ def test_cross_module_reconciliation_checkout_orders_sales_dashboard(
 ) -> None:
     """Validate real-service checkout reconciliation across all modules."""
     ctx = TestRunContext(migrated_integration_engine, "check")
-    now_unaware = datetime.now(UTC).replace(tzinfo=None)
-    target_date = date(2026, 11, 20)
-    # Frozen clock within target_date VN time:
-    # 2026-11-20 10:30:00+07:00 == 2026-11-20 03:30:00 UTC
     frozen_time_utc = datetime(2026, 11, 20, 3, 30, tzinfo=UTC)
+    target_date = frozen_time_utc.astimezone(VN_TZ).date()
+    now_unaware = frozen_time_utc.astimezone(UTC).replace(tzinfo=None)
 
     try:
         with (
@@ -510,6 +471,11 @@ def test_cross_module_reconciliation_checkout_orders_sales_dashboard(
             admin_id = admin.id
             prod_a_id = prod_a.id
             prod_b_id = prod_b.id
+
+        period = resolve_sales_period(from_date=target_date, to_date=target_date)
+        sales_service = SalesAnalyticsService()
+        with Session(migrated_integration_engine) as session:
+            baseline_summary = sales_service.summary(session, period=period)
 
         # Real Checkout Service executing genuine database transactions
         checkout_service = CheckoutService(
@@ -607,9 +573,15 @@ def test_cross_module_reconciliation_checkout_orders_sales_dashboard(
             assert sum_order_revenue == 450_000
             assert len(test_orders) == 3
 
-            # 3. Verify Sales Analytics Service
+            # 3. Verify Sales Analytics Service (baseline controlled + delta)
             sales_service = SalesAnalyticsService()
             sales_summary = sales_service.summary(session, period=period)
+            assert sales_summary.revenue_vnd == baseline_summary.revenue_vnd + 450_000
+            assert (
+                sales_summary.completed_orders == baseline_summary.completed_orders + 3
+            )
+            assert sales_summary.cancelled_orders == baseline_summary.cancelled_orders
+            assert baseline_summary.completed_orders == 0
             assert sales_summary.revenue_vnd == 450_000
             assert sales_summary.completed_orders == 3
             assert sales_summary.cancelled_orders == 0
@@ -618,10 +590,14 @@ def test_cross_module_reconciliation_checkout_orders_sales_dashboard(
             # 4. Verify Dashboard Service
             dash_service = DashboardService()
             dashboard_data = dash_service.read(session, period=period)
-            assert dashboard_data.sales.revenue_vnd == 450_000
-            assert dashboard_data.sales.completed_orders == 3
-            assert dashboard_data.sales.cancelled_orders == 0
-            assert dashboard_data.sales.aov_vnd == 150_000
+            assert dashboard_data.sales.revenue_vnd == sales_summary.revenue_vnd
+            assert (
+                dashboard_data.sales.completed_orders == sales_summary.completed_orders
+            )
+            assert (
+                dashboard_data.sales.cancelled_orders == sales_summary.cancelled_orders
+            )
+            assert dashboard_data.sales.aov_vnd == sales_summary.aov_vnd
 
             # Top products ranking:
             # Prod B: 3 units, 300,000 VND
@@ -657,10 +633,9 @@ def test_cancellation_reconciliation_and_rbac_ownership(
 ) -> None:
     """Validate cancellation exclusion, stock restoration, and RBAC ownership."""
     ctx = TestRunContext(migrated_integration_engine, "cancel")
-    now_unaware = datetime.now(UTC).replace(tzinfo=None)
-    target_date = datetime.now(VN_TZ).date()
-    # Fixed frozen clock within current Vietnam date
-    frozen_time_utc = datetime.now(UTC)
+    frozen_time_utc = datetime(2026, 11, 21, 3, 30, tzinfo=UTC)
+    target_date = frozen_time_utc.astimezone(VN_TZ).date()
+    now_unaware = frozen_time_utc.astimezone(UTC).replace(tzinfo=None)
 
     try:
         with (
@@ -710,6 +685,10 @@ def test_cancellation_reconciliation_and_rbac_ownership(
             staff_a_id = staff_a.id
             staff_b_id = staff_b.id
             prod_c_id = prod_c.id
+
+        period = resolve_sales_period(from_date=target_date, to_date=target_date)
+        with Session(migrated_integration_engine) as session:
+            baseline_summary = SalesAnalyticsService().summary(session, period=period)
 
         # Place order via real CheckoutService (deducting inventory from 15 to 13)
         checkout_service = CheckoutService(
@@ -769,6 +748,16 @@ def test_cancellation_reconciliation_and_rbac_ownership(
         with Session(migrated_integration_engine) as session:
             # Sales Analytics: cancelled order excluded, counted in cancelled_orders
             sales_summary = SalesAnalyticsService().summary(session, period=period)
+            assert sales_summary.revenue_vnd == baseline_summary.revenue_vnd
+            assert sales_summary.completed_orders == baseline_summary.completed_orders
+            assert (
+                sales_summary.cancelled_orders == baseline_summary.cancelled_orders + 1
+            )
+            assert sales_summary.aov_vnd == baseline_summary.aov_vnd
+
+            assert baseline_summary.cancelled_orders == 0
+            assert baseline_summary.completed_orders == 0
+            assert baseline_summary.revenue_vnd == 0
             assert sales_summary.revenue_vnd == 0
             assert sales_summary.completed_orders == 0
             assert sales_summary.cancelled_orders == 1
@@ -776,8 +765,14 @@ def test_cancellation_reconciliation_and_rbac_ownership(
 
             # Dashboard: verified identical to sales analytics
             dashboard_data = DashboardService().read(session, period=period)
-            assert dashboard_data.sales.revenue_vnd == 0
-            assert dashboard_data.sales.cancelled_orders == 1
+            assert dashboard_data.sales.revenue_vnd == sales_summary.revenue_vnd
+            assert (
+                dashboard_data.sales.completed_orders == sales_summary.completed_orders
+            )
+            assert (
+                dashboard_data.sales.cancelled_orders == sales_summary.cancelled_orders
+            )
+            assert dashboard_data.sales.aov_vnd == sales_summary.aov_vnd
             # Cancelled product is excluded from top products
             top_ids = [p.product_id for p in dashboard_data.top_products]
             assert prod_c_id not in top_ids
@@ -812,9 +807,9 @@ def test_snapshot_intactness_across_catalog_updates(
 ) -> None:
     """Validate snapshot preservation in orders when catalog item is modified."""
     ctx = TestRunContext(migrated_integration_engine, "snap")
-    now_unaware = datetime.now(UTC).replace(tzinfo=None)
-    target_date = date(2026, 11, 22)
     frozen_time_utc = datetime(2026, 11, 22, 5, 0, tzinfo=UTC)
+    target_date = frozen_time_utc.astimezone(VN_TZ).date()
+    now_unaware = frozen_time_utc.astimezone(UTC).replace(tzinfo=None)
 
     try:
         with (
@@ -861,6 +856,10 @@ def test_snapshot_intactness_across_catalog_updates(
 
             admin_id = admin.id
             prod_id = prod.id
+
+        period = resolve_sales_period(from_date=target_date, to_date=target_date)
+        with Session(migrated_integration_engine) as session:
+            baseline_summary = SalesAnalyticsService().summary(session, period=period)
 
         checkout_service = CheckoutService(
             InventoryService(), clock=lambda: frozen_time_utc
@@ -935,13 +934,21 @@ def test_snapshot_intactness_across_catalog_updates(
 
             # Invariant 3: Sales Analytics sums historical line totals accurately
             sales_summary = SalesAnalyticsService().summary(session, period=period)
+            assert sales_summary.revenue_vnd == baseline_summary.revenue_vnd + 175_000
+            assert (
+                sales_summary.completed_orders == baseline_summary.completed_orders + 2
+            )
+            assert baseline_summary.completed_orders == 0
             assert sales_summary.revenue_vnd == 175_000  # 100,000 + 75,000
             assert sales_summary.completed_orders == 2
 
             # Invariant 4: Dashboard aggregates under single product_id
             # with current name
             dashboard_data = DashboardService().read(session, period=period)
-            assert dashboard_data.sales.revenue_vnd == 175_000
+            assert dashboard_data.sales.revenue_vnd == sales_summary.revenue_vnd
+            assert (
+                dashboard_data.sales.completed_orders == sales_summary.completed_orders
+            )
             prod_entries = [
                 p for p in dashboard_data.top_products if p.product_id == prod_id
             ]
@@ -952,3 +959,137 @@ def test_snapshot_intactness_across_catalog_updates(
             assert entry.name == "Trà sữa Ô long Đặc biệt"
     finally:
         ctx.cleanup()
+
+
+# ==============================================================================
+# Test 5: Cross-Run Isolation & No Cross-Cleanup Regression
+# ==============================================================================
+
+
+def test_cross_run_isolation_and_no_cross_cleanup(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Validate that TestRunContext cleanup never deletes another run's or seed data."""
+    ctx_a = TestRunContext(migrated_integration_engine, "run_a")
+    ctx_b = TestRunContext(migrated_integration_engine, "run_b")
+    frozen_time_utc = datetime(2026, 11, 23, 10, 0, tzinfo=UTC)
+    now_unaware = frozen_time_utc.astimezone(UTC).replace(tzinfo=None)
+
+    try:
+        with (
+            Session(migrated_integration_engine, expire_on_commit=False) as session,
+            session.begin(),
+        ):
+            # 1. Ensure baseline seed data is present
+            seed_categories(session)
+            seed_suppliers(session)
+
+            cat_drink = session.scalars(
+                select(Category).where(Category.name == "Đồ uống")
+            ).first()
+            assert cat_drink is not None
+            drink_id = cat_drink.id
+
+            # 2. Run A creates User A, Product A, Inventory A
+            user_a = _create_user(
+                session,
+                role="STAFF",
+                now_unaware=now_unaware,
+                prefix=ctx_a.prefix,
+            )
+            ctx_a.user_ids.append(user_a.id)
+            user_a_id = user_a.id
+
+            prod_a = Product(
+                sku=f"{ctx_a.prefix}PROD_A",
+                name="Sản phẩm Run A",
+                category_id=drink_id,
+                sale_price_vnd=20_000,
+                status=CatalogStatus.ACTIVE.value,
+                created_at=now_unaware,
+                updated_at=now_unaware,
+            )
+            session.add(prod_a)
+            session.flush()
+            ctx_a.product_ids.append(prod_a.id)
+            prod_a_id = prod_a.id
+
+            inv_a = Inventory(
+                product_id=prod_a_id,
+                quantity=10,
+                stock_version=1,
+                first_stocked_at=now_unaware,
+                updated_at=now_unaware,
+            )
+            session.add(inv_a)
+
+            # 3. Run B creates User B, Product B, Inventory B
+            user_b = _create_user(
+                session,
+                role="STAFF",
+                now_unaware=now_unaware,
+                prefix=ctx_b.prefix,
+            )
+            ctx_b.user_ids.append(user_b.id)
+            user_b_id = user_b.id
+
+            prod_b = Product(
+                sku=f"{ctx_b.prefix}PROD_B",
+                name="Sản phẩm Run B",
+                category_id=drink_id,
+                sale_price_vnd=30_000,
+                status=CatalogStatus.ACTIVE.value,
+                created_at=now_unaware,
+                updated_at=now_unaware,
+            )
+            session.add(prod_b)
+            session.flush()
+            ctx_b.product_ids.append(prod_b.id)
+            prod_b_id = prod_b.id
+
+            inv_b = Inventory(
+                product_id=prod_b_id,
+                quantity=20,
+                stock_version=1,
+                first_stocked_at=now_unaware,
+                updated_at=now_unaware,
+            )
+            session.add(inv_b)
+
+        # 4. Execute cleanup for Run A ONLY
+        ctx_a.cleanup()
+
+        with Session(migrated_integration_engine) as session:
+            # Run A data must be deleted
+            assert session.get(User, user_a_id) is None
+            assert session.get(Product, prod_a_id) is None
+            assert session.get(Inventory, prod_a_id) is None
+
+            # Run B data MUST STILL EXIST (Proof of no cross-run cleanup!)
+            assert session.get(User, user_b_id) is not None
+            assert session.get(Product, prod_b_id) is not None
+            assert session.get(Inventory, prod_b_id) is not None
+
+            # Seed data must still exist
+            cat_still_there = session.scalars(
+                select(Category).where(Category.name == "Đồ uống")
+            ).first()
+            assert cat_still_there is not None
+
+        # 5. Execute cleanup for Run B
+        ctx_b.cleanup()
+
+        with Session(migrated_integration_engine) as session:
+            # Run B data now deleted
+            assert session.get(User, user_b_id) is None
+            assert session.get(Product, prod_b_id) is None
+            assert session.get(Inventory, prod_b_id) is None
+
+            # Seed data must still exist
+            cat_still_there = session.scalars(
+                select(Category).where(Category.name == "Đồ uống")
+            ).first()
+            assert cat_still_there is not None
+    finally:
+        ctx_a.cleanup()
+        ctx_b.cleanup()
