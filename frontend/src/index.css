@@ -1515,6 +1515,192 @@
   border-color: #475569 !important;
 }
 
+/* =========================================================
+   AUTH LAYOUT & PAGES IN DARK THEME (Đăng nhập, Đăng ký, Quên mật khẩu)
+   ========================================================= */
+[data-theme='dark'] [class*="AuthLayout_header"],
+[data-theme='dark'] [class*="authLayout"] header,
+[data-theme='dark'] [class*="authLayout"] [class*="header"] {
+  background-color: #131E30 !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="AuthLayout_footer"],
+[data-theme='dark'] [class*="authLayout"] footer,
+[data-theme='dark'] [class*="authLayout"] [class*="footer"] {
+  background-color: #0E1726 !important;
+  border-top: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="brandName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="brandSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="versionBadge"] {
+  background-color: #1E293B !important;
+  color: #34D399 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="onlineStatus"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="onlineStatus"]:hover {
+  background-color: #24344D !important;
+  border-color: #475569 !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="pingBtn"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="pingBtn"]:hover:not(:disabled) {
+  background-color: #064E3B !important;
+  color: #34D399 !important;
+  border-color: #10B981 !important;
+}
+
+/* Khung Card Form Auth (Đăng nhập / Đăng ký) */
+[data-theme='dark'] [class*="authCard"],
+[data-theme='dark'] [class*="AuthLayout_authCard"] {
+  background-color: #131E30 !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 4px 10px -6px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme='dark'] [class*="headerSection"] [class*="title"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="headerSection"] [class*="subtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="fieldGroup"] [class*="label"] {
+  color: #E2E8F0 !important;
+}
+
+[data-theme='dark'] [class*="leftIcon"],
+[data-theme='dark'] [class*="eyeBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="eyeBtn"]:hover {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="helperText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="cardFooter"] {
+  border-top-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+/* Trang Đăng ký tài khoản (Register) */
+[data-theme='dark'] [class*="infoBanner"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+
+[data-theme='dark'] [class*="infoTitle"] {
+  color: #FDE68A !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="infoDesc"] {
+  color: #FEF3C7 !important;
+}
+
+[data-theme='dark'] [class*="infoDesc"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cardTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cardSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="criteriaBox"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="criteriaTitle"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="criteriaItem"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="criteriaItem"][class*="criteriaPassed"],
+[data-theme='dark'] [class*="criteriaPassed"] {
+  color: #34D399 !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="privacyNotice"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="privacyIcon"] {
+  stroke: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="loginLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="loginLink"]:hover {
+  color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="forgotLink"],
+[data-theme='dark'] [class*="registerLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="forgotLink"]:hover,
+[data-theme='dark'] [class*="registerLink"]:hover {
+  color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="emailSimBox"] {
+  background-color: #0E1726 !important;
+  border: 1px dashed #10B981 !important;
+}
+
+[data-theme='dark'] [class*="emailSimBadge"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="emailSimTo"],
+[data-theme='dark'] [class*="emailSimTip"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="emailSimDesc"] {
+  color: #CBD5E1 !important;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
