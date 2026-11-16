@@ -7,6 +7,11 @@ import {
   inventoryApi,
 } from '../../api/inventoryApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import {
+  ADJUSTMENT_STATUS,
+  canSubmitAdjustment,
+  classifyAdjustmentError,
+} from './inventoryAdjustmentController';
 import styles from './InventoryAdjustModal.module.css';
 
 /**
@@ -30,14 +35,19 @@ export default function InventoryAdjustModal({
 
   const [countedQty, setCountedQty] = useState('');
   const [reason, setReason] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isReloading, setIsReloading] = useState(false);
+  const [modalStatus, setModalStatus] = useState(ADJUSTMENT_STATUS.IDLE);
   const [errorMessage, setErrorMessage] = useState('');
   const [conflictData, setConflictData] = useState(null);
+  const [ambiguousData, setAmbiguousData] = useState(null);
+  const [reconciledResult, setReconciledResult] = useState(null);
 
   // Track product identity to only reset when switching to a completely different product or first open
   const lastOpenedProductIdRef = useRef(null);
   const isSubmittingSyncRef = useRef(false);
+
+  // Derived loading state flags
+  const isSubmitting = modalStatus === ADJUSTMENT_STATUS.SUBMITTING;
+  const isReloading = modalStatus === ADJUSTMENT_STATUS.RECONCILING;
 
   // Synchronize draft when opening modal for a new product
   useEffect(() => {
@@ -52,11 +62,17 @@ export default function InventoryAdjustModal({
         setReason('');
         setErrorMessage('');
         setConflictData(null);
+        setAmbiguousData(null);
+        setReconciledResult(null);
+        setModalStatus(ADJUSTMENT_STATUS.IDLE);
       }
     } else if (!isOpen) {
       lastOpenedProductIdRef.current = null;
       setConflictData(null);
+      setAmbiguousData(null);
+      setReconciledResult(null);
       setErrorMessage('');
+      setModalStatus(ADJUSTMENT_STATUS.IDLE);
     }
   }, [isOpen, product]);
 
@@ -99,14 +115,14 @@ export default function InventoryAdjustModal({
         const pct = ((delta / currentQty) * 100).toFixed(1).replace(/\.0$/, '');
         deltaPercentText = `Tăng tồn kho (+${pct}%)`;
       } else {
-        deltaPercentText = 'Tăng tồn kho';
+        deltaPercentText = `Tăng tồn kho (+${delta})`;
       }
     } else {
       if (currentQty > 0) {
-        const pct = ((Math.abs(delta) / currentQty) * 100).toFixed(1).replace(/\.0$/, '');
+        const pct = Math.abs((delta / currentQty) * 100).toFixed(1).replace(/\.0$/, '');
         deltaPercentText = `Giảm tồn kho (-${pct}%)`;
       } else {
-        deltaPercentText = 'Giảm tồn kho';
+        deltaPercentText = `Giảm tồn kho (${delta})`;
       }
     }
   }
@@ -132,10 +148,12 @@ export default function InventoryAdjustModal({
   // Validation
   const trimmedReason = reason.trim();
   const isReasonValid = trimmedReason.length >= 10 && trimmedReason.length <= 250;
-  // Cho phép submit nếu delta === 0 (để kích hoạt No-op toast & close mà không bắt nhập lý do 10 ký tự)
-  // hoặc nếu delta !== 0 thì bắt buộc isValidCounted & isReasonValid
-  const isNoOp = isValidCounted && delta === 0;
-  const canSubmit = (isNoOp || (isValidCounted && isReasonValid)) && !isSubmitting && !isReloading;
+  const canSubmit = canSubmitAdjustment({
+    status: modalStatus,
+    isValidCounted,
+    isReasonValid,
+    delta,
+  });
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
@@ -152,8 +170,9 @@ export default function InventoryAdjustModal({
     if (!canSubmit) return;
 
     isSubmittingSyncRef.current = true;
-    setIsSubmitting(true);
+    setModalStatus(ADJUSTMENT_STATUS.SUBMITTING);
     setErrorMessage('');
+    setReconciledResult(null);
 
     // F06: Generate a cryptographically secure idempotency key per adjustment intent
     let intentKey;
@@ -161,58 +180,64 @@ export default function InventoryAdjustModal({
       intentKey = generateSecureIdempotencyKey();
     } catch (keyErr) {
       setErrorMessage(keyErr.message || 'Không thể tạo khóa bảo mật giao dịch.');
-      setIsSubmitting(false);
+      setModalStatus(ADJUSTMENT_STATUS.IDLE);
       isSubmittingSyncRef.current = false;
       return;
     }
 
+    const payloadSnapshot = {
+      productId: product.product_id,
+      countedQuantity: parsedCounted,
+      expectedStockVersion: currentVersion,
+      reason: trimmedReason,
+      idempotencyKey: intentKey,
+    };
+
     try {
-      const response = await inventoryApi.adjustInventory({
-        productId: product.product_id,
-        countedQuantity: parsedCounted,
-        expectedStockVersion: currentVersion,
-        reason: trimmedReason,
-        idempotencyKey: intentKey,
-      });
+      const response = await inventoryApi.adjustInventory(payloadSnapshot);
 
       if (onSuccess) {
         onSuccess(response);
       }
       onClose();
     } catch (err) {
-      const msg = getApiErrorMessage(err, 'Không thể điều chỉnh tồn kho.');
-      const errStatus = err?.response?.status;
-      const errCode = err?.response?.data?.code;
+      const classified = classifyAdjustmentError(err);
 
-      // F03: Chỉ hiện khối stale-version conflict khi đúng mã STALE_STOCK_VERSION
-      if (errStatus === 409 && errCode === 'STALE_STOCK_VERSION') {
-        const errorDetails = err?.response?.data?.details || {};
+      if (classified.type === ADJUSTMENT_STATUS.STALE_VERSION) {
+        const errorDetails = classified.details;
         const serverVersion = errorDetails.current_stock_version;
+        setModalStatus(ADJUSTMENT_STATUS.STALE_VERSION);
         setConflictData({
           expectedVersion: errorDetails.expected_stock_version ?? currentVersion,
           actualVersion: serverVersion !== undefined ? serverVersion : 'Chưa xác định',
-          detailsMsg: err?.response?.data?.message || 'Phiên bản tồn kho đã thay đổi trên máy chủ.',
+          detailsMsg: classified.message,
         });
-      } else if (!err?.response || err?.code === 'ECONNABORTED') {
-        // Ambiguous network failure: Timeout hoặc mất kết nối mạng sau khi đã gửi request
+        setAmbiguousData(null);
+      } else if (classified.type === ADJUSTMENT_STATUS.AMBIGUOUS) {
+        setModalStatus(ADJUSTMENT_STATUS.AMBIGUOUS);
         setConflictData(null);
-        setErrorMessage(
-          'Kết nối máy chủ bị gián đoạn hoặc quá thời gian phản hồi. Kết quả điều chỉnh chưa thể xác minh. Vui lòng bấm "Tải lại dữ liệu mới nhất" để kiểm tra số tồn trên máy chủ trước khi gửi lại giao dịch.'
-        );
+        setAmbiguousData({
+          message: classified.message,
+          intentKey,
+          payload: payloadSnapshot,
+        });
+        setErrorMessage(classified.message);
       } else {
+        setModalStatus(ADJUSTMENT_STATUS.IDLE);
         setConflictData(null);
-        setErrorMessage(msg);
+        setAmbiguousData(null);
+        setErrorMessage(classified.message || getApiErrorMessage(err, 'Không thể điều chỉnh tồn kho.'));
       }
     } finally {
-      setIsSubmitting(false);
       isSubmittingSyncRef.current = false;
     }
   };
 
-  // F04: Handler tải lại dữ liệu mới nhất mà vẫn giữ draft (countedQty & reason)
+  // Handler tải lại dữ liệu mới nhất mà vẫn giữ draft (countedQty & reason)
   const handleReloadLatest = async () => {
     if (isReloading || isSubmitting) return;
-    setIsReloading(true);
+    const previousStatus = modalStatus;
+    setModalStatus(ADJUSTMENT_STATUS.RECONCILING);
     setErrorMessage('');
     try {
       if (onReloadLatest) {
@@ -220,14 +245,34 @@ export default function InventoryAdjustModal({
         // Chỉ xóa conflict banner khi dữ liệu mới thực sự đã được tải về thành công
         if (latest) {
           setConflictData(null);
+          if (previousStatus === ADJUSTMENT_STATUS.AMBIGUOUS) {
+            setReconciledResult({
+              previousVersion: currentVersion,
+              latestVersion: latest.stock_version,
+              latestQuantity: latest.quantity,
+            });
+            setAmbiguousData(null);
+          }
+          setModalStatus(ADJUSTMENT_STATUS.IDLE);
+        } else {
+          // Trả về previousStatus nếu reload không thành công
+          setModalStatus(previousStatus);
         }
+      } else {
+        setModalStatus(previousStatus);
       }
     } catch (reloadErr) {
-      // Giữ nguyên conflictData, không xóa banner khi reload thất bại
+      // Giữ nguyên conflictData hoặc ambiguous state, không xóa banner khi reload thất bại
+      setModalStatus(previousStatus);
       setErrorMessage(getApiErrorMessage(reloadErr, 'Không thể tải lại dữ liệu mới nhất từ máy chủ.'));
-    } finally {
-      setIsReloading(false);
     }
+  };
+
+  // Khi người dùng bấm xác nhận sau khi đã đối chiếu xong từ trạng thái AMBIGUOUS
+  const handleAcknowledgeReconciliation = () => {
+    setReconciledResult(null);
+    setAmbiguousData(null);
+    setModalStatus(ADJUSTMENT_STATUS.IDLE);
   };
 
   return (
@@ -292,16 +337,97 @@ export default function InventoryAdjustModal({
           </div>
         )}
 
-        {errorMessage && !conflictData && (
+        {/* Khối Cảnh báo Giao dịch chưa thể xác minh (P1 - AMBIGUOUS OUTCOME) */}
+        {modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS && ambiguousData && (
+          <div className={styles.conflictCard} style={{ backgroundColor: '#fff7ed', borderColor: '#fed7aa' }}>
+            <div className={styles.conflictHeaderRow}>
+              <div className={styles.conflictTitleBlock}>
+                <span className={styles.conflictTitle} style={{ color: '#c2410c' }}>
+                  Kết quả điều chỉnh chưa thể xác minh
+                </span>
+                <span className={styles.conflictSubtitle} style={{ color: '#ea580c' }}>
+                  Mất kết nối mạng / Quá thời gian phản hồi • Bảo vệ tính toàn vẹn
+                </span>
+              </div>
+              <span className={styles.httpBadge} style={{ backgroundColor: '#ffedd5', borderColor: '#fdba74', color: '#c2410c' }}>
+                CHƯA RÕ KẾT QUẢ
+              </span>
+            </div>
+
+            <p className={styles.conflictDesc} style={{ color: '#9a3412' }}>
+              Yêu cầu điều chỉnh đã được gửi đi nhưng kết nối mạng bị gián đoạn hoặc máy chủ chưa phản hồi kịp thời. Hệ thống tạm khóa việc gửi giao dịch mới để tránh tạo bản ghi trùng lặp. Vui lòng bấm <strong>&quot;Tải lại tồn kho từ máy chủ&quot;</strong> để đối soát số liệu thực tế trước khi tiếp tục.
+            </p>
+
+            <div className={styles.conflictDetailsBox} style={{ borderColor: '#fed7aa' }}>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel} style={{ color: '#c2410c' }}>Mã giao dịch (Idempotency Key):</span>
+                <span className={styles.conflictDetailValue} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
+                  {ambiguousData.intentKey}
+                </span>
+              </div>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel} style={{ color: '#c2410c' }}>Số lượng đã yêu cầu:</span>
+                <span className={styles.conflictDetailValue}>
+                  {ambiguousData.payload?.countedQuantity} cái
+                </span>
+              </div>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel} style={{ color: '#c2410c' }}>Hành vi bảo vệ:</span>
+                <span className={styles.conflictActionProtect}>Khóa gửi giao dịch mới cho đến khi hoàn tất đối soát</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className={styles.conflictReloadBtn}
+              style={{ borderColor: '#ea580c', color: '#c2410c' }}
+              onClick={handleReloadLatest}
+              disabled={isReloading}
+            >
+              {isReloading ? 'Đang đối soát dữ liệu từ máy chủ...' : 'Tải lại tồn kho từ máy chủ để đối soát'}
+            </button>
+          </div>
+        )}
+
+        {/* Khối Thông báo Đối soát thành công (P1 - RECONCILIATION RESULT) */}
+        {reconciledResult && (
+          <div className={styles.conflictCard} style={{ backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }}>
+            <div className={styles.conflictHeaderRow}>
+              <div className={styles.conflictTitleBlock}>
+                <span className={styles.conflictTitle} style={{ color: '#15803d' }}>
+                  Đã tải dữ liệu tồn kho authoritative mới nhất
+                </span>
+                <span className={styles.conflictSubtitle} style={{ color: '#16a34a' }}>
+                  Đối chiếu dữ liệu máy chủ thành công
+                </span>
+              </div>
+            </div>
+
+            <p className={styles.conflictDesc} style={{ color: '#166534' }}>
+              Dữ liệu tồn kho hiện tại trên máy chủ là <strong>{reconciledResult.latestQuantity} cái</strong> (stock_version: <strong>v{reconciledResult.latestVersion}</strong>). Số đếm và lý do bạn nhập vẫn được bảo lưu bên dưới. Vui lòng kiểm tra lại chênh lệch trước khi bắt đầu một ý định kiểm kê mới.
+            </p>
+
+            <button
+              type="button"
+              className={styles.conflictReloadBtn}
+              style={{ borderColor: '#16a34a', color: '#15803d' }}
+              onClick={handleAcknowledgeReconciliation}
+            >
+              Đã kiểm tra đối soát • Tiếp tục thao tác
+            </button>
+          </div>
+        )}
+
+        {errorMessage && !conflictData && modalStatus !== ADJUSTMENT_STATUS.AMBIGUOUS && (
           <div className={styles.errorAlert}>
             {errorMessage}
           </div>
         )}
 
-        {/* 3 Thẻ thống kê: Tồn kho hiện ghi nhận | Số kiểm kê thực tế | Chênh lệch (Delta) */}
+        {/* 3 Thẻ thống kê: HIỆN TẠI, THỰC TẾ, CHÊNH LỆCH */}
         <div className={styles.statsCardsRow}>
           <div className={styles.statCard}>
-            <span className={styles.statCardTitle}>TỒN KHO HIỆN GHI NHẬN</span>
+            <span className={styles.statCardTitle}>HIỆN TẠI</span>
             <div className={styles.statCardMain}>
               <span className={styles.statCardNumber}>{formatNumber(currentQty)}</span>
               <span className={styles.statCardUnit}>cái</span>
@@ -310,7 +436,7 @@ export default function InventoryAdjustModal({
           </div>
 
           <div className={styles.statCard}>
-            <span className={styles.statCardTitle}>SỐ KIỂM KÊ THỰC TẾ</span>
+            <span className={styles.statCardTitle}>THỰC TẾ</span>
             <div className={styles.statCardMain}>
               <span className={styles.statCardNumberHighlight}>
                 {isValidCounted ? formatNumber(parsedCounted) : '-'}
@@ -355,33 +481,29 @@ export default function InventoryAdjustModal({
                 value={countedQty}
                 onChange={(e) => setCountedQty(e.target.value)}
                 placeholder="Nhập số lượng đếm được..."
-                disabled={isSubmitting || isReloading}
+                disabled={isSubmitting || isReloading || modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS}
                 autoFocus
               />
               <span className={styles.inputUnit}>cái</span>
             </div>
-            <span className={styles.inputHint}>
-              Lưu ý: Không điều chỉnh theo mức tăng giảm tương đối. Hãy nhập chính xác số lượng hàng đếm được thực tế trên kệ.
-            </span>
           </div>
 
-          {/* Ô nhập Lý do điều chỉnh */}
+          {/* Ô nhập Lý do điều chỉnh kiểm kê */}
           <div className={styles.formGroup}>
             <div className={styles.labelRow}>
               <label htmlFor="adjust-reason" className={styles.fieldLabel}>
-                Lý do điều chỉnh <span className={styles.requiredStar}>*</span>
+                Lý do điều chỉnh kiểm kê <span className={styles.requiredStar}>*</span>
               </label>
-              <span className={styles.helperLabel}>Từ 10 đến 250 ký tự</span>
+              <span className={styles.helperLabel}>Tối thiểu 10 ký tự, tối đa 250 ký tự</span>
             </div>
             <textarea
               id="adjust-reason"
               rows={3}
-              maxLength={250}
               className={styles.textareaInput}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Nhập lý do kiểm kê thực tế..."
-              disabled={isSubmitting || isReloading}
+              disabled={isSubmitting || isReloading || modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS}
             />
             <div className={styles.textareaFooter}>
               <span className={isReasonValid ? styles.validationPassed : styles.validationWarning}>
@@ -421,14 +543,11 @@ export default function InventoryAdjustModal({
               className={styles.submitBtn}
               disabled={!canSubmit}
             >
-              {isSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
+              {isSubmitting ? 'Đang lưu...' : isReloading ? 'Đang đối soát...' : 'Lưu thay đổi'}
             </button>
           </div>
-
-          
         </form>
       </div>
     </div>
   );
 }
-

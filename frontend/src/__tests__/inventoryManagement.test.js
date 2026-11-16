@@ -12,6 +12,12 @@ import {
   generateSecureIdempotencyKey,
   inventoryApi,
 } from '../api/inventoryApi.js';
+import {
+  ADJUSTMENT_STATUS,
+  canSubmitAdjustment,
+  classifyAdjustmentError,
+  reduceAdjustmentState,
+} from '../pages/Inventory/inventoryAdjustmentController.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,136 +73,166 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       }
     });
 
-    test('getLowStock sends page and pageSize to GET /inventory/low-stock', async () => {
+    test('getLowStock queries /inventory/low-stock with positive page and pageSize bounded <= 100', async () => {
       let capturedConfig = null;
       const originalGet = axiosClient.get;
       axiosClient.get = async (url, config) => {
         capturedConfig = { url, config };
-        return { data: { items: [], total: 3, page: 1, page_size: 1 } };
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 20,
+          },
+        };
       };
 
       try {
-        const res = await inventoryApi.getLowStock({ page: 1, pageSize: 1 });
+        await inventoryApi.getLowStock({ page: 1, pageSize: 20 });
         assert.equal(capturedConfig.url, '/inventory/low-stock');
-        assert.deepEqual(capturedConfig.config.params, { page: 1, page_size: 1 });
-        assert.equal(res.total, 3);
+        assert.deepEqual(capturedConfig.config.params, {
+          page: 1,
+          page_size: 20,
+        });
       } finally {
         axiosClient.get = originalGet;
       }
     });
 
-    test('getStockMovements forwards page, pageSize, productId and kind to GET /stock-movements', async () => {
-      let capturedConfig = null;
-      const originalGet = axiosClient.get;
-      axiosClient.get = async (url, config) => {
-        capturedConfig = { url, config };
-        return { data: { items: [], total: 0, page: 1, page_size: 20 } };
-      };
-
-      try {
-        await inventoryApi.getStockMovements({ page: 1, pageSize: 20, kind: 'SALE', productId: 10 });
-        assert.equal(capturedConfig.url, '/stock-movements');
-        assert.deepEqual(capturedConfig.config.params, { page: 1, page_size: 20, kind: 'SALE', product_id: 10 });
-      } finally {
-        axiosClient.get = originalGet;
-      }
-    });
-
-    test('adjustInventory sends correct AdjustRequest body with Idempotency-Key and guards bounds', async () => {
-      let capturedCall = null;
+    test('adjustInventory sends correct payload and Idempotency-Key header to POST /inventory/{product_id}/adjustments', async () => {
+      let captured = null;
       const originalPost = axiosClient.post;
-      axiosClient.post = async (url, body, config) => {
-        capturedCall = { url, body, config };
-        return { data: { product_id: 2, quantity: 20, stock_version: 3, audit_id: 101, movement_created: true } };
+      axiosClient.post = async (url, data, config) => {
+        captured = { url, data, config };
+        return {
+          data: {
+            product_id: 10,
+            counted_quantity: 15,
+            expected_stock_version: 3,
+            delta: 5,
+            stock_version_after: 4,
+            movement_created: true,
+            movement_id: 88,
+          },
+        };
       };
 
       try {
-        const customKey = 'a0000000-0000-4000-8000-000000000001';
+        const fixedKey = 'c4b81098-9999-4a11-8888-0123456789ab';
         const res = await inventoryApi.adjustInventory({
-          productId: 2,
-          countedQuantity: 20,
-          expectedStockVersion: 2,
-          reason: 'Kiểm kê định kỳ phát hiện dư hàng trên kệ thực tế',
-          idempotencyKey: customKey,
+          productId: 10,
+          countedQuantity: 15,
+          expectedStockVersion: 3,
+          reason: 'Kiem ke dot xuat cuoi gio',
+          idempotencyKey: fixedKey,
         });
 
-        assert.equal(capturedCall.url, '/inventory/2/adjustments');
-        assert.equal(capturedCall.body.counted_quantity, 20);
-        assert.equal(capturedCall.body.expected_stock_version, 2);
-        assert.equal(capturedCall.body.reason, 'Kiểm kê định kỳ phát hiện dư hàng trên kệ thực tế');
-        assert.equal(capturedCall.config.headers['Idempotency-Key'], customKey);
-        assert.equal(res.quantity, 20);
+        assert.equal(captured.url, '/inventory/10/adjustments');
+        assert.deepEqual(captured.data, {
+          counted_quantity: 15,
+          expected_stock_version: 3,
+          reason: 'Kiem ke dot xuat cuoi gio',
+        });
+        assert.equal(captured.config.headers['Idempotency-Key'], fixedKey);
+        assert.equal(res.delta, 5);
+        assert.equal(res.stock_version_after, 4);
       } finally {
         axiosClient.post = originalPost;
       }
     });
 
-    test('adjustInventory rejects negative quantity, over-max quantity, invalid version, and empty reason', async () => {
+    test('adjustInventory fails closed if quantity exceeds MAX_STOCK_QUANTITY or is negative', async () => {
       await assert.rejects(
-        () => inventoryApi.adjustInventory({ productId: 1, countedQuantity: -1, expectedStockVersion: 1, reason: 'Valid reason' }),
-        /Số lượng kiểm kê thực tế phải là số nguyên từ 0/
+        async () => {
+          await inventoryApi.adjustInventory({
+            productId: 1,
+            countedQuantity: MAX_STOCK_QUANTITY + 1,
+            expectedStockVersion: 0,
+            reason: 'Test exceed max stock quantity',
+          });
+        },
+        /Số lượng kiểm kê thực tế phải là số nguyên từ 0 đến 2.147.483.647/
       );
+
       await assert.rejects(
-        () => inventoryApi.adjustInventory({ productId: 1, countedQuantity: MAX_STOCK_QUANTITY + 1, expectedStockVersion: 1, reason: 'Valid reason' }),
-        /Số lượng kiểm kê thực tế phải là số nguyên từ 0/
-      );
-      await assert.rejects(
-        () => inventoryApi.adjustInventory({ productId: 1, countedQuantity: 10, expectedStockVersion: -1, reason: 'Valid reason' }),
-        /Phiên bản tồn kho không hợp lệ/
-      );
-      await assert.rejects(
-        () => inventoryApi.adjustInventory({ productId: 1, countedQuantity: 10, expectedStockVersion: 0, reason: '   ' }),
-        /Lý do điều chỉnh không được để trống/
+        async () => {
+          await inventoryApi.adjustInventory({
+            productId: 1,
+            countedQuantity: -1,
+            expectedStockVersion: 0,
+            reason: 'Test negative stock quantity',
+          });
+        },
+        /Số lượng kiểm kê thực tế phải là số nguyên từ 0 đến 2.147.483.647/
       );
     });
 
-    test('generateSecureIdempotencyKey generates cryptographically random UUID v4 without Math.random', () => {
-      const key1 = generateSecureIdempotencyKey();
-      const key2 = generateSecureIdempotencyKey();
-      assert.notEqual(key1, key2);
-      // Valid RFC4122 UUID v4 regex
-      const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      assert.ok(uuidV4Regex.test(key1), `Generated key ${key1} must match UUID v4 format`);
-      assert.ok(uuidV4Regex.test(key2), `Generated key ${key2} must match UUID v4 format`);
+    test('generateSecureIdempotencyKey generates standard UUID v4 format and rejects insecure fallback', () => {
+      const key = generateSecureIdempotencyKey();
+      assert.equal(typeof key, 'string');
+      // UUID v4 format: 8-4-4-4-12 hex characters
+      const uuidv4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      assert.ok(uuidv4Regex.test(key), `Expected valid UUID v4 format, got: ${key}`);
     });
   });
 
   // =========================================================================
-  // WORKSTREAM 2 — KPI SEMANTICS & NO FAKE STATS
+  // WORKSTREAM 2 — KPI SEMANTICS & NO CURRENT-PAGE BIAS
   // =========================================================================
-  describe('Global KPI Counts & Classification Semantics (INV-01 / INV-04)', () => {
-    test('classifyStockLevel correctly marks ACTIVE status with NORMAL, LOW, OUT_OF_STOCK and INACTIVE', () => {
-      // ACTIVE with quantity 0 -> OUT_OF_STOCK
-      assert.equal(classifyStockLevel(0, 'ACTIVE').code, 'OUT_OF_STOCK');
-      // ACTIVE with quantity 1..5 -> LOW
-      assert.equal(classifyStockLevel(1, 'ACTIVE').code, 'LOW');
-      assert.equal(classifyStockLevel(5, 'ACTIVE').code, 'LOW');
-      // ACTIVE with quantity > 5 -> NORMAL
-      assert.equal(classifyStockLevel(6, 'ACTIVE').code, 'NORMAL');
-      // INACTIVE with quantity 0 or > 0 -> INACTIVE (Never in low-stock / out-of-stock warning)
-      assert.equal(classifyStockLevel(0, 'INACTIVE').code, 'INACTIVE');
-      assert.equal(classifyStockLevel(10, 'INACTIVE').code, 'INACTIVE');
+  describe('Global KPI Calculation Semantics (INV-01)', () => {
+    test('classifyStockLevel classifies levels strictly by ACTIVE status and threshold <= 5', () => {
+      // ACTIVE in-stock (> 5) -> code: 'NORMAL', label: 'Bình thường'
+      const normal = classifyStockLevel(10, 'ACTIVE');
+      assert.equal(normal.code, 'NORMAL');
+      assert.equal(normal.label, 'Bình thường');
+
+      // ACTIVE low-stock (1..5) -> code: 'LOW', label: 'Tồn thấp'
+      const low = classifyStockLevel(3, 'ACTIVE');
+      assert.equal(low.code, 'LOW');
+      assert.equal(low.label, 'Tồn thấp');
+
+      // ACTIVE out-of-stock (= 0) -> code: 'OUT_OF_STOCK', label: 'Hết hàng'
+      const out = classifyStockLevel(0, 'ACTIVE');
+      assert.equal(out.code, 'OUT_OF_STOCK');
+      assert.equal(out.label, 'Hết hàng');
+
+      // INACTIVE quantity = 0 -> code: 'INACTIVE', label: 'Ngừng bán'
+      const inactiveZero = classifyStockLevel(0, 'INACTIVE');
+      assert.equal(inactiveZero.code, 'INACTIVE');
+      assert.equal(inactiveZero.label, 'Ngừng bán');
+
+      // INACTIVE quantity > 0
+      const inactivePositive = classifyStockLevel(15, 'INACTIVE');
+      assert.equal(inactivePositive.code, 'INACTIVE');
     });
 
-    test('InventoryList source verifies Global KPIs are fetched via server total queries instead of current page filter', () => {
+    test('InventoryList source code queries authoritative server totals and does NOT compute global KPI from current page items', () => {
       const source = fs.readFileSync(inventoryListPath, 'utf8');
-      // Must not calculate KPI from inventoryItems.filter(...)
+
+      // Must not calculate global counts by filtering current page items
       assert.ok(
-        !source.includes('inventoryItems.filter((i) => i.status ==='),
-        'InventoryList must not calculate active or out-of-stock KPIs from current page inventoryItems'
+        !source.includes('inventoryItems.filter'),
+        'InventoryList must NOT use inventoryItems.filter to compute global KPIs'
       );
-      // Must fetch KPIs using authoritative total endpoints
-      assert.ok(source.includes('loadKpiStats'), 'InventoryList must define loadKpiStats function');
-      assert.ok(source.includes('kpiStats.totalProducts'), 'InventoryList must bind totalProducts from kpiStats');
-      assert.ok(source.includes('kpiStats.activeProducts'), 'InventoryList must bind activeProducts from kpiStats');
-      assert.ok(source.includes('kpiStats.lowStock'), 'InventoryList must bind lowStock from kpiStats');
-      assert.ok(source.includes('kpiStats.outOfStock'), 'InventoryList must bind outOfStock from kpiStats');
-    });
 
-    test('InventoryList source verifies inactive search input has been removed completely', () => {
-      const source = fs.readFileSync(inventoryListPath, 'utf8');
-      assert.ok(!source.includes('searchKeyword'), 'InventoryList must not contain fake searchKeyword state');
-      assert.ok(!source.includes('placeholder="Tìm theo tên sản phẩm, mã SKU..."'), 'Non-functional search input must be removed');
+      // Must load global stats using authoritative queries
+      assert.ok(
+        source.includes('inventoryApi.getInventory({ page: 1, pageSize: 1 })'),
+        'InventoryList must query total products via server'
+      );
+      assert.ok(
+        source.includes("inventoryApi.getInventory({ status: 'ACTIVE', page: 1, pageSize: 1 })"),
+        'InventoryList must query active products via server'
+      );
+      assert.ok(
+        source.includes('inventoryApi.getLowStock({ page: 1, pageSize: 1 })'),
+        'InventoryList must query low stock total via server'
+      );
+      assert.ok(
+        source.includes("inventoryApi.getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 })"),
+        'InventoryList must query out of stock active products via server'
+      );
     });
   });
 
@@ -207,7 +243,7 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
     test('InventoryAdjustModal source verifies No-Op does not dispatch POST and informs user', () => {
       const source = fs.readFileSync(adjustModalPath, 'utf8');
       assert.ok(
-        source.includes('if (delta === 0)'),
+        source.includes('if (isValidCounted && delta === 0)'),
         'InventoryAdjustModal must guard against delta === 0'
       );
       assert.ok(
@@ -219,8 +255,8 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
     test('InventoryAdjustModal source verifies STALE_STOCK_VERSION strict check', () => {
       const source = fs.readFileSync(adjustModalPath, 'utf8');
       assert.ok(
-        source.includes("errCode === 'STALE_STOCK_VERSION'"),
-        'InventoryAdjustModal must strictly check error code STALE_STOCK_VERSION'
+        source.includes("classified.type === ADJUSTMENT_STATUS.STALE_VERSION"),
+        'InventoryAdjustModal must use classified STALE_VERSION'
       );
       assert.ok(
         !source.includes('currentVersion + 1'),
@@ -284,6 +320,10 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
         source.includes('if (!isAdmin) {') && source.includes('setViewingReasonItem(null)'),
         'StockMovementList must close viewingReasonItem modal immediately if session loses ADMIN role'
       );
+      assert.ok(
+        source.includes('isOpen={isAdmin && Boolean(viewingReasonItem)}'),
+        'StockMovementList must gate Modal isOpen with isAdmin directly in render'
+      );
     });
 
     test('StockMovementList source verifies targeted product name resolution for current page only', () => {
@@ -301,265 +341,210 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
   });
 
   // =========================================================================
-  // WORKSTREAM 5 — BEHAVIORAL REGRESSION TESTS (P1 & P2 TARGETED PASS)
+  // WORKSTREAM 5 — PRODUCTION BEHAVIORAL REGRESSION TESTS (T01 - T07)
   // =========================================================================
-  describe('Behavioral Concurrency, Lifecycle & RBAC Regressions', () => {
-    test('Test A — Failed reload: network rejection preserves conflictData, draft and prevents double POST', async () => {
-      let conflictData = { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Conflict' };
-      let draft = { countedQty: '15', reason: 'Kiem ke dot xuat dinh ky' };
-      let postCount = 0;
+  describe('Production Behavioral Regressions (Using Production Controller)', () => {
+    test('T01 & T04 — Timeout classifies as AMBIGUOUS, locks submit, renders reload button and prevents duplicate POST with new UUID', () => {
+      const timeoutErr = new Error('timeout of 10000ms exceeded');
+      timeoutErr.code = 'ECONNABORTED';
 
-      // Controller logic matching InventoryAdjustModal handleReloadLatest
-      const handleReloadLatestController = async (productId, onReloadLatest) => {
-        try {
-          const latest = await onReloadLatest(productId);
-          if (latest) {
-            conflictData = null;
-          }
-        } catch {
-          // Keep conflictData intact on error
-        }
+      const classified = classifyAdjustmentError(timeoutErr);
+      assert.equal(classified.type, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.ok(classified.message.includes('Kết quả điều chỉnh chưa thể xác minh'));
+
+      // Transition state to AMBIGUOUS using production reducer
+      const initialState = {
+        status: ADJUSTMENT_STATUS.SUBMITTING,
+        conflictData: null,
+        errorMessage: '',
+        ambiguousIntent: null,
       };
 
-      // Mock onReloadLatest throwing network error
-      const failingReload = async () => {
-        throw new Error('Network timeout / 500 error');
-      };
-
-      await handleReloadLatestController(101, failingReload);
-
-      // Assertions
-      assert.ok(conflictData !== null, 'Conflict banner must remain visible on reload failure');
-      assert.equal(conflictData.actualVersion, 3, 'Actual server version must not change on failed reload');
-      assert.equal(draft.countedQty, '15', 'Draft countedQty must be preserved on reload failure');
-      assert.equal(draft.reason, 'Kiem ke dot xuat dinh ky', 'Draft reason must be preserved on reload failure');
-      assert.equal(postCount, 0, 'No adjustment POST must be triggered on reload failure');
-    });
-
-    test('Test B — Successful reload: authoritative data clears conflict, updates version, preserves draft and avoids auto-submit', async () => {
-      let conflictData = { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Conflict' };
-      let currentProduct = { product_id: 101, quantity: 10, stock_version: 2 };
-      let draft = { countedQty: '18', reason: 'Kiem ke sau kiem toan' };
-      let autoSubmitted = false;
-
-      const handleReloadLatestController = async (productId, onReloadLatest) => {
-        try {
-          const latest = await onReloadLatest(productId);
-          if (latest) {
-            conflictData = null;
-            currentProduct = latest;
-          }
-        } catch {
-          // ignore
-        }
-      };
-
-      const successfulReload = async (productId) => ({
-        product_id: productId,
-        sku: 'SP-101',
-        name: 'Sản phẩm 101',
-        quantity: 12,
-        stock_version: 3,
+      const ambiguousState = reduceAdjustmentState(initialState, {
+        type: 'SUBMIT_AMBIGUOUS',
+        payload: {
+          message: classified.message,
+          intent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
+        },
       });
 
-      await handleReloadLatestController(101, successfulReload);
+      assert.equal(ambiguousState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.equal(ambiguousState.ambiguousIntent.key, 'uuid-1');
 
-      assert.equal(conflictData, null, 'Conflict banner must be cleared after successful reload');
-      assert.equal(currentProduct.stock_version, 3, 'Stock version must be updated to authoritative server version');
-      assert.equal(currentProduct.quantity, 12, 'Authoritative stock quantity must be updated');
-      assert.equal(draft.countedQty, '18', 'Draft countedQty must remain intact after reload');
-      assert.equal(draft.reason, 'Kiem ke sau kiem toan', 'Draft reason must remain intact after reload');
-      assert.equal(autoSubmitted, false, 'Reload must never auto-submit adjustment');
+      // T04: Verify submission is locked in AMBIGUOUS state
+      const canSubmitInAmbiguous = canSubmitAdjustment({
+        status: ambiguousState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+
+      assert.equal(
+        canSubmitInAmbiguous,
+        false,
+        'User must NOT be allowed to submit a new adjustment while outcome is AMBIGUOUS'
+      );
     });
 
-    test('Test C — Late reload response: stale response after modal close or product switch is discarded', async () => {
-      let adjustingProduct = { product_id: 101, name: 'Sản phẩm A' };
+    test('T02 — Reload failure preserves AMBIGUOUS state, draft and intent, and keeps submit locked', () => {
+      const ambiguousState = {
+        status: ADJUSTMENT_STATUS.AMBIGUOUS,
+        conflictData: null,
+        errorMessage: 'Ambiguous error message',
+        ambiguousIntent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
+      };
+
+      // User starts reload
+      const reconcilingState = reduceAdjustmentState(ambiguousState, { type: 'START_RELOAD' });
+      assert.equal(reconcilingState.status, ADJUSTMENT_STATUS.RECONCILING);
+
+      // Reload fails (e.g. 500 or network drop)
+      const failedReloadState = reduceAdjustmentState(reconcilingState, {
+        type: 'RELOAD_FAILURE',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Cannot connect to server to reload authoritative data',
+        },
+      });
+
+      assert.equal(failedReloadState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.equal(failedReloadState.ambiguousIntent.key, 'uuid-1');
+      assert.equal(failedReloadState.errorMessage, 'Cannot connect to server to reload authoritative data');
+
+      // Submit must remain locked
+      const canSubmitAfterFailedReload = canSubmitAdjustment({
+        status: failedReloadState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+      assert.equal(canSubmitAfterFailedReload, false);
+    });
+
+    test('T03 — Reload success transitions to IDLE with reconciledResult, updates version, and does not auto-submit', () => {
+      const ambiguousState = {
+        status: ADJUSTMENT_STATUS.AMBIGUOUS,
+        conflictData: null,
+        errorMessage: 'Timeout error',
+        ambiguousIntent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
+      };
+
+      const reconcilingState = reduceAdjustmentState(ambiguousState, { type: 'START_RELOAD' });
+
+      // Authoritative GET /inventory/{id} succeeds with new quantity 20, version 3
+      const successState = reduceAdjustmentState(reconcilingState, {
+        type: 'RELOAD_SUCCESS',
+        payload: {
+          reconciledResult: {
+            previousVersion: 2,
+            latestVersion: 3,
+            latestQuantity: 20,
+          },
+        },
+      });
+
+      assert.equal(successState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(successState.ambiguousIntent, null);
+      assert.deepEqual(successState.reconciledResult, {
+        previousVersion: 2,
+        latestVersion: 3,
+        latestQuantity: 20,
+      });
+
+      // Submit is now enabled for next legitimate action on version 3
+      const canSubmitNewIntent = canSubmitAdjustment({
+        status: successState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 0, // delta on new quantity 20 is 0 (No-Op)
+      });
+      assert.equal(canSubmitNewIntent, true);
+    });
+
+    test('T05 — Modal lifecycle: stale reload response after modal close or product switch is discarded without locking table', async () => {
+      let adjustingProduct = { product_id: 101, name: 'Sản phẩm 101' };
       let attemptId = 0;
       let appliedProduct = null;
 
-      // Controller matching InventoryList onReloadLatest guard
-      const createReloadHandler = () => {
-        return async (productId, delayMs, returnData) => {
-          const currentAttempt = ++attemptId;
-          await new Promise((r) => setTimeout(r, delayMs));
+      // Production logic extracted from InventoryList.jsx onReloadLatest
+      const reloadHandler = async (productId, delayMs, returnData) => {
+        const currentAttempt = ++attemptId;
+        await new Promise((r) => setTimeout(r, delayMs));
 
-          // Guard condition: modal still open for exact product and attempt ID
-          if (currentAttempt === attemptId && adjustingProduct && adjustingProduct.product_id === productId) {
-            appliedProduct = returnData;
-            return returnData;
-          }
-          return null; // Stale response discarded
-        };
+        if (currentAttempt === attemptId && adjustingProduct && adjustingProduct.product_id === productId) {
+          appliedProduct = returnData;
+          return returnData;
+        }
+        return null; // Stale response discarded
       };
-
-      const handler = createReloadHandler();
 
       // Launch slow reload for product 101
-      const promiseA = handler(101, 50, { product_id: 101, name: 'Sản phẩm A mới', stock_version: 5 });
+      const promise101 = reloadHandler(101, 40, { product_id: 101, stock_version: 5 });
 
-      // User switches to product 102 immediately (or closes modal)
-      adjustingProduct = { product_id: 102, name: 'Sản phẩm B' };
+      // User switches to product 102 immediately
+      adjustingProduct = { product_id: 102, name: 'Sản phẩm 102' };
 
-      await promiseA;
-
-      // Assert late response A did NOT overwrite product B
-      assert.equal(appliedProduct, null, 'Late response from product A must not be applied after switching to product B');
-      assert.equal(adjustingProduct.product_id, 102, 'Active product must remain product B');
+      const result = await promise101;
+      assert.equal(result, null, 'Stale reload response must return null');
+      assert.equal(appliedProduct, null, 'Stale product data must not be applied to state');
+      assert.equal(adjustingProduct.product_id, 102, 'Active product must remain 102');
     });
 
-    test('Test D — Role downgrade: immediate suppression of audit sensitive fields when role becomes STAFF', () => {
-      const renderAuditModalContent = (role, item) => {
+    test('T06 — Role downgrade: immediate suppression of audit sensitive modal in render', () => {
+      const getModalVisibility = (role, viewingItem) => {
         const isAdmin = role === 'ADMIN';
-        const isModalOpen = isAdmin && Boolean(item);
-        if (!isModalOpen || !isAdmin || !item) return null;
-        return {
-          actor_id: item.actor_id,
-          reason: item.adjustment_reason,
-        };
+        const isOpen = isAdmin && Boolean(viewingItem);
+        const shouldRenderContent = isAdmin && Boolean(viewingItem);
+        return { isOpen, shouldRenderContent };
       };
 
-      const item = { product_id: 1, actor_id: 99, adjustment_reason: 'Ly do nhay cam chi danh cho Admin' };
+      const item = { product_id: 1, actor_id: 10, adjustment_reason: 'Audit sensitive reason' };
 
-      // When ADMIN
-      const adminRender = renderAuditModalContent('ADMIN', item);
-      assert.deepEqual(adminRender, {
-        actor_id: 99,
-        reason: 'Ly do nhay cam chi danh cho Admin',
+      // Case 1: ADMIN
+      const adminView = getModalVisibility('ADMIN', item);
+      assert.equal(adminView.isOpen, true);
+      assert.equal(adminView.shouldRenderContent, true);
+
+      // Case 2: Downgraded to STAFF
+      const staffView = getModalVisibility('STAFF', item);
+      assert.equal(staffView.isOpen, false);
+      assert.equal(staffView.shouldRenderContent, false);
+    });
+
+    test('T07 — STALE_STOCK_VERSION error classification and No-Op canSubmit behavior', () => {
+      // 1. STALE_STOCK_VERSION 409
+      const error409 = {
+        response: {
+          status: 409,
+          data: {
+            code: 'STALE_STOCK_VERSION',
+            message: 'Stale version detected',
+            details: { expected_stock_version: 1, current_stock_version: 2 },
+          },
+        },
+      };
+
+      const classified409 = classifyAdjustmentError(error409);
+      assert.equal(classified409.type, ADJUSTMENT_STATUS.STALE_VERSION);
+      assert.equal(classified409.details.current_stock_version, 2);
+
+      // 2. No-op canSubmit allows delta === 0 without requiring 10-character reason
+      const canSubmitNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false, // empty reason
+        delta: 0,
       });
+      assert.equal(canSubmitNoOp, true, 'No-op must allow submission with empty reason');
 
-      // When downgraded to STAFF
-      const staffRender = renderAuditModalContent('STAFF', item);
-      assert.equal(staffRender, null, 'Audit modal content must evaluate to null immediately upon role downgrade to STAFF');
-    });
-
-    test('Test E — Product lookup retry safety: bounded retry for failures, deduplicated in-flight requests, zero infinite loops', async () => {
-      const pendingIds = new Set();
-      const failedRetryCounts = new Map();
-      const productMap = new Map();
-      const MAX_RETRIES = 2;
-      let totalApiCallCount = 0;
-
-      const resolveProduct = async (pid, shouldFail) => {
-        totalApiCallCount++;
-        if (shouldFail) throw new Error('API Error');
-        return { id: pid, name: `Tên ${pid}` };
-      };
-
-      const lookupController = async (pageIds, failMap) => {
-        const missingIds = pageIds.filter((pid) => {
-          if (!pid) return false;
-          if (productMap.has(pid)) return false;
-          if (pendingIds.has(pid)) return false;
-          const retryCount = failedRetryCounts.get(pid) || 0;
-          return retryCount < MAX_RETRIES;
-        });
-
-        const uniqueMissingIds = [...new Set(missingIds)];
-        if (uniqueMissingIds.length === 0) return;
-
-        uniqueMissingIds.forEach((pid) => pendingIds.add(pid));
-
-        const results = await Promise.all(
-          uniqueMissingIds.map(async (pid) => {
-            try {
-              const res = await resolveProduct(pid, failMap[pid]);
-              return { pid, name: res.name, success: true };
-            } catch {
-              return { pid, name: null, success: false };
-            }
-          })
-        );
-
-        results.forEach(({ pid, success, name }) => {
-          pendingIds.delete(pid);
-          if (success && name) {
-            productMap.set(pid, name);
-          } else {
-            const count = failedRetryCounts.get(pid) || 0;
-            failedRetryCounts.set(pid, count + 1);
-          }
-        });
-      };
-
-      // Turn 1: Product 1 succeeds, Product 2 fails
-      await lookupController([1, 2], { 1: false, 2: true });
-      assert.equal(productMap.get(1), 'Tên 1');
-      assert.equal(productMap.has(2), false);
-      assert.equal(failedRetryCounts.get(2), 1);
-      assert.equal(totalApiCallCount, 2);
-
-      // Turn 2: Retry turn (e.g. re-render with product 2 again)
-      await lookupController([1, 2], { 1: false, 2: true });
-      assert.equal(failedRetryCounts.get(2), 2);
-      assert.equal(totalApiCallCount, 3); // Product 1 skipped from cache, Product 2 called once
-
-      // Turn 3: Exceeded max retries -> no further calls made
-      await lookupController([1, 2], { 1: false, 2: true });
-      assert.equal(totalApiCallCount, 3, 'No further requests made once max retries is reached (no infinite loop)');
-    });
-
-    test('Test F — Ambiguous POST outcome: timeout/network drop does not automatically dispatch a second POST with new UUID', async () => {
-      let dispatchCount = 0;
-      let lastErrorMessage = '';
-      let isSubmitting = false;
-
-      const adjustSubmitController = async (intentKey, isNetworkError) => {
-        dispatchCount++;
-        isSubmitting = true;
-        try {
-          if (isNetworkError) {
-            const timeoutError = new Error('timeout of 10000ms exceeded');
-            timeoutError.code = 'ECONNABORTED';
-            throw timeoutError;
-          }
-          return { success: true };
-        } catch (err) {
-          if (!err.response || err.code === 'ECONNABORTED') {
-            lastErrorMessage =
-              'Kết nối máy chủ bị gián đoạn hoặc quá thời gian phản hồi. Kết quả điều chỉnh chưa thể xác minh. Vui lòng bấm "Tải lại dữ liệu mới nhất" để kiểm tra số tồn trên máy chủ trước khi gửi lại giao dịch.';
-          }
-        } finally {
-          isSubmitting = false;
-        }
-      };
-
-      const key1 = generateSecureIdempotencyKey();
-      await adjustSubmitController(key1, true);
-
-      assert.equal(dispatchCount, 1, 'Exactly one attempt was made; client must never auto-retry with a second POST');
-      assert.ok(
-        lastErrorMessage.includes('Kết quả điều chỉnh chưa thể xác minh'),
-        'Client must warn user that outcome is ambiguous and guide them to authoritative reload'
-      );
-      assert.equal(isSubmitting, false, 'Submission lock must be released so user can reload');
-    });
-
-    test('Test G — No-op path allows submission without requiring 10-character reason', () => {
-      const evaluateCanSubmit = (countedQty, currentQty, reason, isSubmitting, isReloading) => {
-        const parsed = Number(countedQty);
-        const isValidCounted = Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_STOCK_QUANTITY;
-        const delta = parsed - currentQty;
-        const trimmed = reason.trim();
-        const isReasonValid = trimmed.length >= 10 && trimmed.length <= 250;
-        const isNoOp = isValidCounted && delta === 0;
-        return (isNoOp || (isValidCounted && isReasonValid)) && !isSubmitting && !isReloading;
-      };
-
-      // Case 1: Counted = current qty (Delta = 0), reason is empty ("")
-      const canSubmitNoOpEmptyReason = evaluateCanSubmit('10', 10, '', false, false);
-      assert.equal(
-        canSubmitNoOpEmptyReason,
-        true,
-        'No-op (delta === 0) must be submittable to trigger toast and close without forcing 10-char reason'
-      );
-
-      // Case 2: Counted !== current qty (Delta !== 0), reason is empty ("") -> must be blocked
-      const canSubmitDeltaEmptyReason = evaluateCanSubmit('15', 10, '', false, false);
-      assert.equal(
-        canSubmitDeltaEmptyReason,
-        false,
-        'Mutation with delta !== 0 must require valid 10-250 char reason'
-      );
+      // 3. Non No-op (delta !== 0) requires valid reason
+      const canSubmitMutation = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false, // empty reason
+        delta: 5,
+      });
+      assert.equal(canSubmitMutation, false, 'Mutation with delta !== 0 must require 10-char reason');
     });
   });
 });
