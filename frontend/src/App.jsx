@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { InventorySessionProvider } from './context/InventorySessionContext';
 import { ToastProvider } from './components/common';
 import AuthLayout from './layouts/AuthLayout/AuthLayout';
 import MainLayout from './layouts/MainLayout/MainLayout';
@@ -10,6 +11,7 @@ import ForgotPassword from './pages/Auth/ForgotPassword';
 import ResetPassword from './pages/Auth/ResetPassword';
 import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
+import InventoryList from './pages/Inventory/InventoryList';
 import StaffApprovalList from './pages/Staff/StaffApprovalList';
 import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
@@ -62,8 +64,9 @@ export default function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <BrowserRouter>
-          <Routes>
+        <InventorySessionProvider>
+          <BrowserRouter>
+            <Routes>
             {/* 0. Route kiểm tra kết nối hệ thống (Bảo toàn minh chứng Sprint 0) */}
             <Route path="/health" element={<HealthCheckPage />} />
 
@@ -84,10 +87,7 @@ export default function App() {
                 {/* 2.1. Nhánh dùng chung (cả ADMIN và STAFF đều truy cập được) */}
                 <Route path="/pos" element={<PosPage />} />
                 <Route path="/products" element={<ProductList />} />
-                <Route
-                  path="/inventory"
-                  element={<PlaceholderPage title="Màn hình Quản lý Tồn kho" />}
-                />
+                <Route path="/inventory" element={<InventoryList />} />
                 <Route path="/orders" element={<OrderList />} />
 
                 {/* 2.2. Nhánh Quản trị (CHỈ DÀNH RIÊNG CHO ADMIN) */}
@@ -130,7 +130,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
-  );
+      </InventorySessionProvider>
+    </AuthProvider>
+  </ToastProvider>
+);
 }

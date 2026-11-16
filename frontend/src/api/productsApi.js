@@ -759,6 +759,30 @@ export const productsApi = {
   },
 
   /**
+   * Retrieve a single product by ID (GET /products/{id}).
+   */
+  async getProduct(idOrWrapper) {
+    const id =
+      typeof idOrWrapper === 'object' && idOrWrapper !== null
+        ? idOrWrapper.id
+        : idOrWrapper;
+    const isMockMode =
+      typeof idOrWrapper === 'object' && idOrWrapper !== null
+        ? idOrWrapper.isMockMode
+        : undefined;
+
+    assertRealApiMode(isMockMode);
+
+    const numericId = Number(id);
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      throw new Error(`Mã sản phẩm không hợp lệ: ${id}`);
+    }
+
+    const response = await axiosClient.get(`/products/${numericId}`);
+    return validateProductRead(response.data);
+  },
+
+  /**
    * Create a new product (Admin only).
    * Initial quantity is always 0 on backend (PROD-01).
    */
