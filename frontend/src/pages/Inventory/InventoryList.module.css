@@ -1,35 +1,36 @@
 .container {
-  padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
 }
 
 /* Header */
 .header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.25rem;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 14px;
 }
 
 .titleArea {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 4px;
 }
 
 .mainTitle {
-  font-size: 1.5rem;
+  font-size: 22px;
   font-weight: 700;
-  color: #111827;
+  color: #0f172a;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .subTitle {
-  font-size: 0.875rem;
-  color: #6b7280;
+  font-size: 13.5px;
+  color: #64748b;
   margin: 0;
 }
 

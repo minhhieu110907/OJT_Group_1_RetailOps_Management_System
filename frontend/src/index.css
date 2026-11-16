@@ -1701,6 +1701,126 @@
   color: #CBD5E1 !important;
 }
 
+/* Trang Trạng thái tài khoản (AccountStatus: Yêu cầu đăng ký đã được ghi nhận / Chờ duyệt / Từ chối) */
+[data-theme='dark'] [class*="statusCard"] {
+  background-color: #131E30 !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="cardPending"] {
+  border-color: #F59E0B !important;
+  box-shadow: 0 4px 16px -4px rgba(245, 158, 11, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="cardApproved"] {
+  border-color: #10B981 !important;
+  box-shadow: 0 4px 16px -4px rgba(16, 185, 129, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="cardRejected"] {
+  border-color: #EF4444 !important;
+  box-shadow: 0 4px 16px -4px rgba(239, 68, 68, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="headerBlock"] [class*="stateTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="headerBlock"] [class*="stateDesc"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="infoTable"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="infoRow"] {
+  border-bottom-color: #1E293B !important;
+}
+
+[data-theme='dark'] [class*="infoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="mailNoteBox"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="greenNoteBox"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #A7F3D0 !important;
+}
+
+[data-theme='dark'] [class*="rejectReasonBox"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1.5px dashed rgba(239, 68, 68, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="rejectReasonLabel"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="rejectReasonText"] {
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="resubmitSection"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="resubmitTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="resubmitDesc"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="lastUpdatedTag"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+/* Hộp cảnh báo sai mật khẩu / lỗi đăng nhập (errorAlert, errorBox) */
+[data-theme='dark'] [class*="errorAlert"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="errorAlert"] [class*="errorIcon"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="errorAlert"] [class*="errorTitle"] {
+  color: #F87171 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="errorAlert"] [class*="errorDesc"] {
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="errorBox"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="fieldError"] {
+  color: #F87171 !important;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
