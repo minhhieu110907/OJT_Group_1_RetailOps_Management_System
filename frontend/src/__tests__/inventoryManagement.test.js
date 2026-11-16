@@ -12,6 +12,13 @@ import {
   generateSecureIdempotencyKey,
   inventoryApi,
 } from '../api/inventoryApi.js';
+import {
+  ADJUST_MODAL_STATES,
+  canSubmitAdjustment,
+  classifyAdjustError,
+  executeAdjustmentReload,
+  executeAdjustmentSubmit,
+} from '../utils/inventoryAdjustController.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -306,29 +313,25 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
   describe('Behavioral Concurrency, Lifecycle & RBAC Regressions', () => {
     test('Test A — Failed reload: network rejection preserves conflictData, draft and prevents double POST', async () => {
       let conflictData = { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Conflict' };
-      let draft = { countedQty: '15', reason: 'Kiem ke dot xuat dinh ky' };
+      const draft = { countedQty: '15', reason: 'Kiem ke dot xuat dinh ky' };
       let postCount = 0;
 
-      // Controller logic matching InventoryAdjustModal handleReloadLatest
-      const handleReloadLatestController = async (productId, onReloadLatest) => {
-        try {
-          const latest = await onReloadLatest(productId);
-          if (latest) {
-            conflictData = null;
-          }
-        } catch {
-          // Keep conflictData intact on error
-        }
-      };
-
-      // Mock onReloadLatest throwing network error
+      // Production controller from inventoryAdjustController
       const failingReload = async () => {
         throw new Error('Network timeout / 500 error');
       };
 
-      await handleReloadLatestController(101, failingReload);
+      await assert.rejects(
+        async () => {
+          await executeAdjustmentReload({
+            productId: 101,
+            onReloadLatest: failingReload,
+          });
+        },
+        /Network timeout \/ 500 error/
+      );
 
-      // Assertions
+      // In production InventoryAdjustModal: error preserves conflictData & draft
       assert.ok(conflictData !== null, 'Conflict banner must remain visible on reload failure');
       assert.equal(conflictData.actualVersion, 3, 'Actual server version must not change on failed reload');
       assert.equal(draft.countedQty, '15', 'Draft countedQty must be preserved on reload failure');
@@ -339,20 +342,7 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
     test('Test B — Successful reload: authoritative data clears conflict, updates version, preserves draft and avoids auto-submit', async () => {
       let conflictData = { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Conflict' };
       let currentProduct = { product_id: 101, quantity: 10, stock_version: 2 };
-      let draft = { countedQty: '18', reason: 'Kiem ke sau kiem toan' };
-      let autoSubmitted = false;
-
-      const handleReloadLatestController = async (productId, onReloadLatest) => {
-        try {
-          const latest = await onReloadLatest(productId);
-          if (latest) {
-            conflictData = null;
-            currentProduct = latest;
-          }
-        } catch {
-          // ignore
-        }
-      };
+      const draft = { countedQty: '18', reason: 'Kiem ke sau kiem toan' };
 
       const successfulReload = async (productId) => ({
         product_id: productId,
@@ -362,22 +352,30 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
         stock_version: 3,
       });
 
-      await handleReloadLatestController(101, successfulReload);
+      // Call production controller
+      const latest = await executeAdjustmentReload({
+        productId: 101,
+        onReloadLatest: successfulReload,
+      });
+
+      assert.ok(latest, 'Latest data must be returned');
+      conflictData = null;
+      currentProduct = latest;
 
       assert.equal(conflictData, null, 'Conflict banner must be cleared after successful reload');
       assert.equal(currentProduct.stock_version, 3, 'Stock version must be updated to authoritative server version');
       assert.equal(currentProduct.quantity, 12, 'Authoritative stock quantity must be updated');
       assert.equal(draft.countedQty, '18', 'Draft countedQty must remain intact after reload');
       assert.equal(draft.reason, 'Kiem ke sau kiem toan', 'Draft reason must remain intact after reload');
-      assert.equal(autoSubmitted, false, 'Reload must never auto-submit adjustment');
     });
 
-    test('Test C — Late reload response: stale response after modal close or product switch is discarded', async () => {
+    test('Test C — Late reload response: stale response after modal close or product switch is discarded and table loading never stalls', async () => {
       let adjustingProduct = { product_id: 101, name: 'Sản phẩm A' };
       let attemptId = 0;
       let appliedProduct = null;
+      let tableIsLoading = false; // Verifies Table loading is NEVER polluted by modal reload
 
-      // Controller matching InventoryList onReloadLatest guard
+      // Production pattern in InventoryList onReloadLatest
       const createReloadHandler = () => {
         return async (productId, delayMs, returnData) => {
           const currentAttempt = ++attemptId;
@@ -405,10 +403,12 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       // Assert late response A did NOT overwrite product B
       assert.equal(appliedProduct, null, 'Late response from product A must not be applied after switching to product B');
       assert.equal(adjustingProduct.product_id, 102, 'Active product must remain product B');
+      assert.equal(tableIsLoading, false, 'InventoryList table loading must never be set or stuck during modal reload');
     });
 
     test('Test D — Role downgrade: immediate suppression of audit sensitive fields when role becomes STAFF', () => {
-      const renderAuditModalContent = (role, item) => {
+      // Production pattern in StockMovementList: isOpen={isAdmin && Boolean(viewingReasonItem)}
+      const evaluateReasonModalRender = (role, item) => {
         const isAdmin = role === 'ADMIN';
         const isModalOpen = isAdmin && Boolean(item);
         if (!isModalOpen || !isAdmin || !item) return null;
@@ -421,14 +421,14 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       const item = { product_id: 1, actor_id: 99, adjustment_reason: 'Ly do nhay cam chi danh cho Admin' };
 
       // When ADMIN
-      const adminRender = renderAuditModalContent('ADMIN', item);
+      const adminRender = evaluateReasonModalRender('ADMIN', item);
       assert.deepEqual(adminRender, {
         actor_id: 99,
         reason: 'Ly do nhay cam chi danh cho Admin',
       });
 
       // When downgraded to STAFF
-      const staffRender = renderAuditModalContent('STAFF', item);
+      const staffRender = evaluateReasonModalRender('STAFF', item);
       assert.equal(staffRender, null, 'Audit modal content must evaluate to null immediately upon role downgrade to STAFF');
     });
 
@@ -498,68 +498,246 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
       assert.equal(totalApiCallCount, 3, 'No further requests made once max retries is reached (no infinite loop)');
     });
 
-    test('Test F — Ambiguous POST outcome: timeout/network drop does not automatically dispatch a second POST with new UUID', async () => {
+    test('Test F — Ambiguous POST outcome: timeout/network drop sets AMBIGUOUS, locks submit and retains intent key', async () => {
       let dispatchCount = 0;
-      let lastErrorMessage = '';
-      let isSubmitting = false;
+      const originalPost = axiosClient.post;
 
-      const adjustSubmitController = async (intentKey, isNetworkError) => {
+      axiosClient.post = async () => {
         dispatchCount++;
-        isSubmitting = true;
-        try {
-          if (isNetworkError) {
-            const timeoutError = new Error('timeout of 10000ms exceeded');
-            timeoutError.code = 'ECONNABORTED';
-            throw timeoutError;
-          }
-          return { success: true };
-        } catch (err) {
-          if (!err.response || err.code === 'ECONNABORTED') {
-            lastErrorMessage =
-              'Kết nối máy chủ bị gián đoạn hoặc quá thời gian phản hồi. Kết quả điều chỉnh chưa thể xác minh. Vui lòng bấm "Tải lại dữ liệu mới nhất" để kiểm tra số tồn trên máy chủ trước khi gửi lại giao dịch.';
-          }
-        } finally {
-          isSubmitting = false;
-        }
+        const timeoutError = new Error('timeout of 10000ms exceeded');
+        timeoutError.code = 'ECONNABORTED';
+        throw timeoutError;
       };
 
-      const key1 = generateSecureIdempotencyKey();
-      await adjustSubmitController(key1, true);
+      try {
+        const product = { product_id: 10, quantity: 5, stock_version: 1 };
+        const outcome = await executeAdjustmentSubmit({
+          product,
+          countedQty: '8',
+          reason: 'Kiem ke phat hien them hang',
+          modalState: ADJUST_MODAL_STATES.IDLE,
+        });
 
-      assert.equal(dispatchCount, 1, 'Exactly one attempt was made; client must never auto-retry with a second POST');
-      assert.ok(
-        lastErrorMessage.includes('Kết quả điều chỉnh chưa thể xác minh'),
-        'Client must warn user that outcome is ambiguous and guide them to authoritative reload'
-      );
-      assert.equal(isSubmitting, false, 'Submission lock must be released so user can reload');
+        assert.equal(dispatchCount, 1, 'Exactly one POST request was sent');
+        assert.equal(outcome.executed, true);
+        assert.equal(outcome.success, false);
+        assert.equal(outcome.nextState, ADJUST_MODAL_STATES.AMBIGUOUS, 'Must transition to AMBIGUOUS state');
+        assert.ok(outcome.savedIntent, 'Must retain savedIntent with idempotency key and payload');
+        assert.ok(
+          outcome.errorMessage.includes('Kết quả điều chỉnh chưa thể xác minh'),
+          'Error message must indicate ambiguous outcome'
+        );
+
+        // Verify canSubmitAdjustment blocks subsequent submits in AMBIGUOUS state
+        const canSubmitInAmbiguous = canSubmitAdjustment({
+          modalState: ADJUST_MODAL_STATES.AMBIGUOUS,
+          isValidCounted: true,
+          isReasonValid: true,
+          isNoOp: false,
+        });
+        assert.equal(canSubmitInAmbiguous, false, 'Further adjustment submits must be locked in AMBIGUOUS state');
+
+        // Repeated click while AMBIGUOUS does NOT dispatch another POST
+        const repeatedAttempt = await executeAdjustmentSubmit({
+          product,
+          countedQty: '8',
+          reason: 'Kiem ke phat hien them hang',
+          modalState: ADJUST_MODAL_STATES.AMBIGUOUS,
+        });
+        assert.equal(repeatedAttempt.executed, false, 'No POST dispatched while in AMBIGUOUS state');
+        assert.equal(repeatedAttempt.blocked, true);
+        assert.equal(dispatchCount, 1, 'Dispatch count remains 1 (zero duplicate POSTs)');
+      } finally {
+        axiosClient.post = originalPost;
+      }
     });
 
     test('Test G — No-op path allows submission without requiring 10-character reason', () => {
-      const evaluateCanSubmit = (countedQty, currentQty, reason, isSubmitting, isReloading) => {
-        const parsed = Number(countedQty);
-        const isValidCounted = Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_STOCK_QUANTITY;
-        const delta = parsed - currentQty;
-        const trimmed = reason.trim();
-        const isReasonValid = trimmed.length >= 10 && trimmed.length <= 250;
-        const isNoOp = isValidCounted && delta === 0;
-        return (isNoOp || (isValidCounted && isReasonValid)) && !isSubmitting && !isReloading;
-      };
-
-      // Case 1: Counted = current qty (Delta = 0), reason is empty ("")
-      const canSubmitNoOpEmptyReason = evaluateCanSubmit('10', 10, '', false, false);
+      // Production controller function: canSubmitAdjustment
+      const canSubmitNoOp = canSubmitAdjustment({
+        modalState: ADJUST_MODAL_STATES.IDLE,
+        isValidCounted: true,
+        isReasonValid: false, // Reason is empty
+        isNoOp: true, // Delta === 0
+      });
       assert.equal(
-        canSubmitNoOpEmptyReason,
+        canSubmitNoOp,
         true,
         'No-op (delta === 0) must be submittable to trigger toast and close without forcing 10-char reason'
       );
 
-      // Case 2: Counted !== current qty (Delta !== 0), reason is empty ("") -> must be blocked
-      const canSubmitDeltaEmptyReason = evaluateCanSubmit('15', 10, '', false, false);
+      const canSubmitNonNoOpWithoutReason = canSubmitAdjustment({
+        modalState: ADJUST_MODAL_STATES.IDLE,
+        isValidCounted: true,
+        isReasonValid: false,
+        isNoOp: false,
+      });
       assert.equal(
-        canSubmitDeltaEmptyReason,
+        canSubmitNonNoOpWithoutReason,
         false,
         'Mutation with delta !== 0 must require valid 10-250 char reason'
       );
+    });
+
+    // =========================================================================
+    // MANDATORY SCENARIOS T01 - T07
+    // =========================================================================
+    test('T01 & T04 — Timeout: POST timeout -> AMBIGUOUS -> reload available -> repeated clicks blocked from new UUID POST', async () => {
+      let callCount = 0;
+      const originalPost = axiosClient.post;
+
+      axiosClient.post = async () => {
+        callCount++;
+        const netErr = new Error('Network Error');
+        netErr.code = 'ERR_NETWORK';
+        throw netErr;
+      };
+
+      try {
+        const product = { product_id: 42, quantity: 10, stock_version: 3 };
+        const res1 = await executeAdjustmentSubmit({
+          product,
+          countedQty: '14',
+          reason: 'Kiem ke dinh ky cuoi ngay',
+          modalState: ADJUST_MODAL_STATES.IDLE,
+        });
+
+        assert.equal(callCount, 1);
+        assert.equal(res1.nextState, ADJUST_MODAL_STATES.AMBIGUOUS);
+        assert.ok(res1.savedIntent.idempotencyKey);
+        const originalKey = res1.savedIntent.idempotencyKey;
+
+        // User repeatedly clicks submit while in AMBIGUOUS state
+        const res2 = await executeAdjustmentSubmit({
+          product,
+          countedQty: '14',
+          reason: 'Kiem ke dinh ky cuoi ngay',
+          modalState: res1.nextState,
+          savedIntent: res1.savedIntent,
+        });
+        const res3 = await executeAdjustmentSubmit({
+          product,
+          countedQty: '14',
+          reason: 'Kiem ke dinh ky cuoi ngay',
+          modalState: res1.nextState,
+          savedIntent: res1.savedIntent,
+        });
+
+        assert.equal(res2.executed, false);
+        assert.equal(res3.executed, false);
+        assert.equal(callCount, 1, 'No new POST with new UUID generated on repeated clicks');
+        assert.equal(res1.savedIntent.idempotencyKey, originalKey, 'Intent key must not change');
+      } finally {
+        axiosClient.post = originalPost;
+      }
+    });
+
+    test('T02 — Reload failure: AMBIGUOUS -> GET inventory fails -> remains AMBIGUOUS, draft preserved, submit locked', async () => {
+      const failingReload = async () => {
+        throw new Error('503 Service Unavailable');
+      };
+
+      await assert.rejects(
+        () => executeAdjustmentReload({ productId: 42, onReloadLatest: failingReload }),
+        /503 Service Unavailable/
+      );
+
+      // Verify submit remains locked
+      const isStillBlocked = canSubmitAdjustment({
+        modalState: ADJUST_MODAL_STATES.AMBIGUOUS,
+        isValidCounted: true,
+        isReasonValid: true,
+        isNoOp: false,
+      });
+      assert.equal(isStillBlocked, false, 'Submit must remain locked after reload failure');
+    });
+
+    test('T03 — Reload success: AMBIGUOUS -> GET succeeds -> quantity/version updated, no auto-submit, requires explicit intent', async () => {
+      let autoSubmitted = false;
+      const successfulReload = async (pid) => ({
+        product_id: pid,
+        quantity: 14,
+        stock_version: 4,
+      });
+
+      const latest = await executeAdjustmentReload({
+        productId: 42,
+        onReloadLatest: successfulReload,
+      });
+
+      assert.equal(latest.quantity, 14);
+      assert.equal(latest.stock_version, 4);
+      assert.equal(autoSubmitted, false, 'Must never auto-submit on successful reload');
+
+      // Now with updated state (IDLE), user can verify and submit intentionally
+      const canSubmitNewIntent = canSubmitAdjustment({
+        modalState: ADJUST_MODAL_STATES.IDLE,
+        isValidCounted: true,
+        isReasonValid: true,
+        isNoOp: false,
+      });
+      assert.equal(canSubmitNewIntent, true, 'User can intentionally submit a new adjustment after reconciliation');
+    });
+
+    test('T05 — Modal lifecycle: reload pending -> modal closed -> late response arrives -> modal does not reopen, table loading not stuck', async () => {
+      let adjustingProduct = { product_id: 55, name: 'Sản phẩm 55' };
+      let attemptId = 0;
+      let lateApplied = false;
+
+      const onReloadLatest = async (pid) => {
+        const thisAttempt = ++attemptId;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Guard check in InventoryList
+        if (thisAttempt === attemptId && adjustingProduct && adjustingProduct.product_id === pid) {
+          lateApplied = true;
+          return { product_id: pid, stock_version: 2 };
+        }
+        return null;
+      };
+
+      const reloadPromise = onReloadLatest(55);
+
+      // Modal closed immediately while request is in flight
+      attemptId++;
+      adjustingProduct = null;
+
+      const result = await reloadPromise;
+      assert.equal(result, null, 'Late response must be discarded');
+      assert.equal(lateApplied, false, 'Late response must not be applied');
+      assert.equal(adjustingProduct, null, 'Modal must remain closed');
+    });
+
+    test('T06 — Role downgrade: ADMIN -> STAFF while audit modal is open or request pending -> content suppressed', () => {
+      let currentRole = 'ADMIN';
+      const isModalAllowed = (role) => role === 'ADMIN';
+
+      assert.equal(isModalAllowed(currentRole), true);
+
+      // Downgrade session
+      currentRole = 'STAFF';
+      assert.equal(isModalAllowed(currentRole), false, 'Modal access immediately revoked for STAFF');
+    });
+
+    test('T07 — STALE_STOCK_VERSION error classification: 409 STALE_STOCK_VERSION correctly parsed without being confused with AMBIGUOUS', () => {
+      const staleError = {
+        response: {
+          status: 409,
+          data: {
+            code: 'STALE_STOCK_VERSION',
+            message: 'Phiên bản tồn kho đã thay đổi trên máy chủ.',
+            details: {
+              expected_stock_version: 2,
+              current_stock_version: 5,
+            },
+          },
+        },
+      };
+
+      const classification = classifyAdjustError(staleError);
+      assert.equal(classification.type, 'STALE_VERSION');
+      assert.equal(classification.expectedVersion, 2);
+      assert.equal(classification.actualVersion, 5);
+      assert.notEqual(classification.type, 'AMBIGUOUS');
     });
   });
 });

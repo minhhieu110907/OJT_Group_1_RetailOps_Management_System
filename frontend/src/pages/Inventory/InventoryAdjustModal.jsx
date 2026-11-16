@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
+import { MAX_STOCK_QUANTITY } from '../../api/inventoryApi';
 import {
-  MAX_STOCK_QUANTITY,
-  generateSecureIdempotencyKey,
-  inventoryApi,
-} from '../../api/inventoryApi';
-import { getApiErrorMessage } from '../../api/axiosClient';
+  ADJUST_MODAL_STATES,
+  canSubmitAdjustment,
+  classifyAdjustError,
+  executeAdjustmentReload,
+  executeAdjustmentSubmit,
+} from '../../utils/inventoryAdjustController';
 import styles from './InventoryAdjustModal.module.css';
 
 /**
@@ -30,10 +32,11 @@ export default function InventoryAdjustModal({
 
   const [countedQty, setCountedQty] = useState('');
   const [reason, setReason] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isReloading, setIsReloading] = useState(false);
+  const [modalState, setModalState] = useState(ADJUST_MODAL_STATES.IDLE);
   const [errorMessage, setErrorMessage] = useState('');
   const [conflictData, setConflictData] = useState(null);
+  const [savedIntent, setSavedIntent] = useState(null);
+  const [reconciledNotice, setReconciledNotice] = useState('');
 
   // Track product identity to only reset when switching to a completely different product or first open
   const lastOpenedProductIdRef = useRef(null);
@@ -52,13 +55,23 @@ export default function InventoryAdjustModal({
         setReason('');
         setErrorMessage('');
         setConflictData(null);
+        setSavedIntent(null);
+        setReconciledNotice('');
+        setModalState(ADJUST_MODAL_STATES.IDLE);
       }
     } else if (!isOpen) {
       lastOpenedProductIdRef.current = null;
       setConflictData(null);
       setErrorMessage('');
+      setSavedIntent(null);
+      setReconciledNotice('');
+      setModalState(ADJUST_MODAL_STATES.IDLE);
     }
   }, [isOpen, product]);
+
+  const isSubmitting = modalState === ADJUST_MODAL_STATES.SUBMITTING;
+  const isReloading = modalState === ADJUST_MODAL_STATES.RECONCILING;
+  const isAmbiguous = modalState === ADJUST_MODAL_STATES.AMBIGUOUS;
 
   // Lắng nghe phím Esc để đóng modal
   useEffect(() => {
@@ -132,18 +145,21 @@ export default function InventoryAdjustModal({
   // Validation
   const trimmedReason = reason.trim();
   const isReasonValid = trimmedReason.length >= 10 && trimmedReason.length <= 250;
-  // Cho phép submit nếu delta === 0 (để kích hoạt No-op toast & close mà không bắt nhập lý do 10 ký tự)
-  // hoặc nếu delta !== 0 thì bắt buộc isValidCounted & isReasonValid
   const isNoOp = isValidCounted && delta === 0;
-  const canSubmit = (isNoOp || (isValidCounted && isReasonValid)) && !isSubmitting && !isReloading;
+
+  // Khóa nút submit nếu không đủ điều kiện hoặc đang ở trạng thái AMBIGUOUS/STALE_VERSION/SUBMITTING/RECONCILING
+  const canSubmit = canSubmitAdjustment({
+    modalState,
+    isValidCounted,
+    isReasonValid,
+    isNoOp,
+  });
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (isSubmittingSyncRef.current) return;
 
-    // F05: No-Op Semantics - Số lượng đếm trùng với tồn kho đang hiển thị
-    // Không yêu cầu lý do 10 ký tự cho thao tác No-Op
-    if (isValidCounted && delta === 0) {
+    if (isNoOp) {
       toast.info('Số đếm trùng với tồn kho đang hiển thị. Không có yêu cầu điều chỉnh nào được gửi.');
       onClose();
       return;
@@ -152,86 +168,104 @@ export default function InventoryAdjustModal({
     if (!canSubmit) return;
 
     isSubmittingSyncRef.current = true;
-    setIsSubmitting(true);
+    setModalState(ADJUST_MODAL_STATES.SUBMITTING);
     setErrorMessage('');
-
-    // F06: Generate a cryptographically secure idempotency key per adjustment intent
-    let intentKey;
-    try {
-      intentKey = generateSecureIdempotencyKey();
-    } catch (keyErr) {
-      setErrorMessage(keyErr.message || 'Không thể tạo khóa bảo mật giao dịch.');
-      setIsSubmitting(false);
-      isSubmittingSyncRef.current = false;
-      return;
-    }
+    setReconciledNotice('');
 
     try {
-      const response = await inventoryApi.adjustInventory({
-        productId: product.product_id,
-        countedQuantity: parsedCounted,
-        expectedStockVersion: currentVersion,
-        reason: trimmedReason,
-        idempotencyKey: intentKey,
+      const outcome = await executeAdjustmentSubmit({
+        product,
+        countedQty,
+        reason,
+        modalState: ADJUST_MODAL_STATES.IDLE, // Đã kiểm tra canSubmit ở trên
+        savedIntent,
+        onSuccess: (res) => {
+          if (onSuccess) onSuccess(res);
+          onClose();
+        },
       });
 
-      if (onSuccess) {
-        onSuccess(response);
+      if (!outcome.executed) {
+        setModalState(ADJUST_MODAL_STATES.IDLE);
+        return;
       }
-      onClose();
-    } catch (err) {
-      const msg = getApiErrorMessage(err, 'Không thể điều chỉnh tồn kho.');
-      const errStatus = err?.response?.status;
-      const errCode = err?.response?.data?.code;
 
-      // F03: Chỉ hiện khối stale-version conflict khi đúng mã STALE_STOCK_VERSION
-      if (errStatus === 409 && errCode === 'STALE_STOCK_VERSION') {
-        const errorDetails = err?.response?.data?.details || {};
-        const serverVersion = errorDetails.current_stock_version;
-        setConflictData({
-          expectedVersion: errorDetails.expected_stock_version ?? currentVersion,
-          actualVersion: serverVersion !== undefined ? serverVersion : 'Chưa xác định',
-          detailsMsg: err?.response?.data?.message || 'Phiên bản tồn kho đã thay đổi trên máy chủ.',
-        });
-      } else if (!err?.response || err?.code === 'ECONNABORTED') {
-        // Ambiguous network failure: Timeout hoặc mất kết nối mạng sau khi đã gửi request
+      if (outcome.success) {
+        // onSuccess đã gọi và đóng modal
+        return;
+      }
+
+      // Xử lý các nhánh lỗi có phân loại
+      setModalState(outcome.nextState);
+      const errCode = outcome.errorClassification?.code;
+      if (outcome.nextState === ADJUST_MODAL_STATES.STALE_VERSION || errCode === 'STALE_STOCK_VERSION') {
+        setConflictData(outcome.conflictData);
+        setErrorMessage('');
+      } else if (outcome.nextState === ADJUST_MODAL_STATES.AMBIGUOUS) {
         setConflictData(null);
-        setErrorMessage(
-          'Kết nối máy chủ bị gián đoạn hoặc quá thời gian phản hồi. Kết quả điều chỉnh chưa thể xác minh. Vui lòng bấm "Tải lại dữ liệu mới nhất" để kiểm tra số tồn trên máy chủ trước khi gửi lại giao dịch.'
-        );
+        setSavedIntent(outcome.savedIntent);
+        setErrorMessage(outcome.errorMessage);
       } else {
         setConflictData(null);
-        setErrorMessage(msg);
+        setErrorMessage(outcome.errorMessage);
       }
+    } catch (unexpectedErr) {
+      const classified = classifyAdjustError(unexpectedErr);
+      setModalState(classified.type === 'AMBIGUOUS' ? ADJUST_MODAL_STATES.AMBIGUOUS : ADJUST_MODAL_STATES.IDLE);
+      setErrorMessage(classified.message);
     } finally {
-      setIsSubmitting(false);
       isSubmittingSyncRef.current = false;
     }
   };
 
-  // F04: Handler tải lại dữ liệu mới nhất mà vẫn giữ draft (countedQty & reason)
+  // Handler tải lại dữ liệu từ máy chủ để đối soát (hỗ trợ cả STALE_VERSION và AMBIGUOUS)
   const handleReloadLatest = async () => {
     if (isReloading || isSubmitting) return;
-    setIsReloading(true);
+
+    setModalState(ADJUST_MODAL_STATES.RECONCILING);
     setErrorMessage('');
+    setReconciledNotice('');
+
     try {
-      if (onReloadLatest) {
-        const latest = await onReloadLatest(product.product_id);
-        // Chỉ xóa conflict banner khi dữ liệu mới thực sự đã được tải về thành công
-        if (latest) {
-          setConflictData(null);
+      const latest = await executeAdjustmentReload({
+        productId: product.product_id,
+        onReloadLatest,
+      });
+
+      if (latest) {
+        setConflictData(null);
+        if (isAmbiguous) {
+          setReconciledNotice(
+            `Đã tải lại số liệu mới nhất từ máy chủ (v${latest.stock_version}, tồn hiện tại: ${latest.quantity} cái). ` +
+            'Vui lòng đối chiếu kỹ số đếm thực tế với số tồn vừa tải trước khi xác nhận tiếp tục.'
+          );
         }
       }
     } catch (reloadErr) {
-      // Giữ nguyên conflictData, không xóa banner khi reload thất bại
-      setErrorMessage(getApiErrorMessage(reloadErr, 'Không thể tải lại dữ liệu mới nhất từ máy chủ.'));
-    } finally {
-      setIsReloading(false);
+      // Reload thất bại: GIỮ NGUYÊN trạng thái (AMBIGUOUS hoặc STALE_VERSION), GIỮ DRAFT, tiếp tục khóa submit
+      const msg = reloadErr?.message || 'Không thể tải lại dữ liệu mới nhất từ máy chủ.';
+      setErrorMessage(msg);
+      // Giữ nguyên modalState nếu trước đó là AMBIGUOUS
+      if (isAmbiguous) {
+        setModalState(ADJUST_MODAL_STATES.AMBIGUOUS);
+      } else {
+        setModalState(ADJUST_MODAL_STATES.STALE_VERSION);
+      }
+      return;
     }
+
+    // Reload thành công: chuyển sang IDLE để cho phép đối chiếu và xác nhận ý định mới
+    setModalState(ADJUST_MODAL_STATES.IDLE);
+    setSavedIntent(null);
   };
 
   return (
-    <div className={styles.backdrop} onClick={(e) => { if (e.target === e.currentTarget && !isSubmitting) onClose(); }}>
+    <div
+      className={styles.backdrop}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSubmitting && !isReloading) onClose();
+      }}
+    >
       <div className={styles.modalBox}>
         {/* Header với SKU, Category, Tên sản phẩm, stock_version */}
         <div className={styles.header}>
@@ -267,7 +301,9 @@ export default function InventoryAdjustModal({
             </div>
 
             <p className={styles.conflictDesc}>
-              Dữ liệu tồn kho của sản phẩm này vừa được cập nhật trên máy chủ (Phiên bản gửi lên: <span className={styles.versionChip}>v{conflictData.expectedVersion}</span>, Phiên bản thực tế trên máy chủ: <span className={styles.versionChipHighlight}>v{conflictData.actualVersion}</span>). Vui lòng nhấn &quot;Tải lại dữ liệu mới nhất&quot; để đối soát lại tồn kho trước khi gửi.
+              Dữ liệu tồn kho của sản phẩm này vừa được cập nhật trên máy chủ (Phiên bản gửi lên:{' '}
+              <span className={styles.versionChip}>v{conflictData.expectedVersion}</span>, Phiên bản thực tế trên máy chủ:{' '}
+              <span className={styles.versionChipHighlight}>v{conflictData.actualVersion}</span>). Vui lòng nhấn &quot;Tải lại dữ liệu mới nhất&quot; để đối soát lại tồn kho trước khi gửi.
             </p>
 
             <div className={styles.conflictDetailsBox}>
@@ -292,7 +328,58 @@ export default function InventoryAdjustModal({
           </div>
         )}
 
-        {errorMessage && !conflictData && (
+        {/* Khối Cảnh báo Kết quả chưa xác minh do mất kết nối/timeout (P1: AMBIGUOUS OUTCOME) */}
+        {isAmbiguous && (
+          <div className={styles.ambiguousCard}>
+            <div className={styles.ambiguousHeaderRow}>
+              <div className={styles.ambiguousTitleBlock}>
+                <span className={styles.ambiguousTitle}>Kết quả giao dịch chưa thể xác minh</span>
+                <span className={styles.ambiguousSubtitle}>AMBIGUOUS OUTCOME • Idempotency Protection</span>
+              </div>
+              <span className={styles.ambiguousBadge}>MẤT KẾT NỐI</span>
+            </div>
+
+            <p className={styles.ambiguousDesc}>
+              Yêu cầu kiểm kê đã được gửi đi nhưng kết nối mạng bị gián đoạn hoặc quá thời gian phản hồi.
+              Máy chủ có thể đã ghi nhận hoặc chưa hoàn tất giao dịch này.
+              <strong> Chức năng gửi giao dịch mới tạm thời bị khóa</strong> để tránh nhân đôi biến động kho.
+            </p>
+
+            <div className={styles.ambiguousDetailsBox}>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel}>Số đếm dự kiến:</span>
+                <span className={styles.conflictDetailValue}>{savedIntent?.countedQuantity ?? parsedCounted} cái</span>
+              </div>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel}>Phiên bản kiểm kê:</span>
+                <span className={styles.conflictDetailValue}>v{savedIntent?.expectedStockVersion ?? currentVersion}</span>
+              </div>
+              <div className={styles.conflictDetailRow}>
+                <span className={styles.conflictDetailLabel}>Khóa giao dịch:</span>
+                <span className={styles.ambiguousKeySnippet}>{savedIntent?.idempotencyKey || 'Đang bảo lưu'}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className={styles.ambiguousReloadBtn}
+              onClick={handleReloadLatest}
+              disabled={isReloading}
+            >
+              {isReloading ? 'Đang tải lại dữ liệu từ máy chủ...' : 'Tải lại tồn kho từ máy chủ để đối soát'}
+            </button>
+          </div>
+        )}
+
+        {/* Thông báo đã tải lại đối soát thành công */}
+        {reconciledNotice && (
+          <div className={styles.reconciledAlert}>
+            <div className={styles.reconciledText}>{reconciledNotice}</div>
+          </div>
+        )}
+
+        {/* Thông báo lỗi thông thường (khi không ở khối conflict hoặc ambiguous) */}
+        {errorMessage && !conflictData && !isAmbiguous && (
           <div className={styles.errorAlert}>
             {errorMessage}
           </div>
@@ -355,7 +442,7 @@ export default function InventoryAdjustModal({
                 value={countedQty}
                 onChange={(e) => setCountedQty(e.target.value)}
                 placeholder="Nhập số lượng đếm được..."
-                disabled={isSubmitting || isReloading}
+                disabled={isSubmitting || isReloading || isAmbiguous}
                 autoFocus
               />
               <span className={styles.inputUnit}>cái</span>
@@ -381,7 +468,7 @@ export default function InventoryAdjustModal({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Nhập lý do kiểm kê thực tế..."
-              disabled={isSubmitting || isReloading}
+              disabled={isSubmitting || isReloading || isAmbiguous}
             />
             <div className={styles.textareaFooter}>
               <span className={isReasonValid ? styles.validationPassed : styles.validationWarning}>
@@ -421,14 +508,15 @@ export default function InventoryAdjustModal({
               className={styles.submitBtn}
               disabled={!canSubmit}
             >
-              {isSubmitting ? 'Đang lưu...' : 'Lưu thay đổi'}
+              {isSubmitting
+                ? 'Đang lưu...'
+                : isAmbiguous
+                ? 'Yêu cầu đối soát trước khi gửi'
+                : 'Lưu thay đổi'}
             </button>
           </div>
-
-          
         </form>
       </div>
     </div>
   );
 }
-

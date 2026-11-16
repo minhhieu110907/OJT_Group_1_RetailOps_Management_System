@@ -450,7 +450,6 @@ export default function InventoryList() {
           onReloadLatest={async (productId) => {
             const currentAttemptId = ++modalReloadRequestIdRef.current;
             try {
-              setIsLoading(true);
               const latestData = await inventoryApi.getProductInventory(productId);
 
               // Stale check: modal must still be open for this exact product and attempt
@@ -472,12 +471,8 @@ export default function InventoryList() {
               if (currentAttemptId === modalReloadRequestIdRef.current) {
                 toast.error(msg);
               }
-              // Rethrow để modal con bắt được thất bại và giữ nguyên conflictData
+              // Rethrow để modal con bắt được thất bại và giữ nguyên conflictData / ambiguous state
               throw err;
-            } finally {
-              if (currentAttemptId === modalReloadRequestIdRef.current) {
-                setIsLoading(false);
-              }
             }
           }}
           onSuccess={(res) => {
