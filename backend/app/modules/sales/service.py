@@ -424,9 +424,7 @@ class OrderReadService:
             created_by_name=(creator.full_name if creator is not None else None),
             sold_at=sold_at,
             cancelled_by=order.cancelled_by,
-            cancelled_by_name=(
-                canceller.full_name if canceller is not None else None
-            ),
+            cancelled_by_name=(canceller.full_name if canceller is not None else None),
             cancelled_at=cancelled_at,
             cancel_reason=order.cancel_reason,
             items=items,

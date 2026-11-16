@@ -166,13 +166,20 @@ def test_profile_product_enrichment_upgrade_preserves_rows_and_downgrades(
 
         command.upgrade(alembic_config, "20261116_01")
         with migrated_integration_engine.connect() as connection:
-            assert connection.execute(
-                text("SELECT image_url FROM products WHERE sku = :sku"), {"sku": sku}
-            ).scalar_one() is None
-            assert connection.execute(
-                text("SELECT full_name FROM users WHERE email_normalized = :email"),
-                {"email": marker},
-            ).scalar_one() is None
+            assert (
+                connection.execute(
+                    text("SELECT image_url FROM products WHERE sku = :sku"),
+                    {"sku": sku},
+                ).scalar_one()
+                is None
+            )
+            assert (
+                connection.execute(
+                    text("SELECT full_name FROM users WHERE email_normalized = :email"),
+                    {"email": marker},
+                ).scalar_one()
+                is None
+            )
         command.downgrade(alembic_config, "20261113_01")
         inspector = inspect(migrated_integration_engine)
         assert "image_url" not in {

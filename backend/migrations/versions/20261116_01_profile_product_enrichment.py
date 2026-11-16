@@ -24,9 +24,7 @@ def upgrade() -> None:
     op.add_column(
         "products", sa.Column("image_url", sa.String(length=500), nullable=True)
     )
-    op.add_column(
-        "users", sa.Column("full_name", sa.String(length=120), nullable=True)
-    )
+    op.add_column("users", sa.Column("full_name", sa.String(length=120), nullable=True))
 
 
 def downgrade() -> None:

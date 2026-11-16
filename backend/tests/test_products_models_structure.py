@@ -87,7 +87,7 @@ def test_product_columns_fks_indexes_and_checks_match_erd(
         "category_id",
         "sku",
         "name",
-            "image_url",
+        "image_url",
         "status",
         "sale_price_vnd",
         "created_at",

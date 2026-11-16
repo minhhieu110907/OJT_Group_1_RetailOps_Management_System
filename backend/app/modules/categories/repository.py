@@ -64,8 +64,7 @@ class CategoryRepository:
             .limit(page_size)
         )
         items = [
-            (category, int(count))
-            for category, count in session.execute(base_query)
+            (category, int(count)) for category, count in session.execute(base_query)
         ]
         return items, total
 

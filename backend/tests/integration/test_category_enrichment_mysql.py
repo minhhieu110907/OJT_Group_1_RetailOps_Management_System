@@ -24,7 +24,9 @@ def clean_rows(migrated_integration_engine: Engine) -> None:
             session.scalars(select(Category.id).where(Category.name.like(f"{PREFIX}%")))
         )
         if category_ids:
-            session.execute(delete(Product).where(Product.category_id.in_(category_ids)))
+            session.execute(
+                delete(Product).where(Product.category_id.in_(category_ids))
+            )
             session.execute(delete(Category).where(Category.id.in_(category_ids)))
 
 

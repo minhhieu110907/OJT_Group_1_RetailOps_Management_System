@@ -43,17 +43,26 @@ def test_register_full_name_is_optional_trimmed_and_bounded() -> None:
     )
     assert without_name.full_name is None
     assert with_name.full_name == "Nguyen Van A"
-    assert RegisterRequest(
-        email="one@example.com", password="password", full_name="x"
-    ).full_name == "x"
-    assert RegisterRequest(
-        email="max@example.com", password="password", full_name="x" * 120
-    ).full_name == "x" * 120
-    assert RegisterRequest(
-        email="padded@example.com",
-        password="password",
-        full_name=f"  {'x' * 120}  ",
-    ).full_name == "x" * 120
+    assert (
+        RegisterRequest(
+            email="one@example.com", password="password", full_name="x"
+        ).full_name
+        == "x"
+    )
+    assert (
+        RegisterRequest(
+            email="max@example.com", password="password", full_name="x" * 120
+        ).full_name
+        == "x" * 120
+    )
+    assert (
+        RegisterRequest(
+            email="padded@example.com",
+            password="password",
+            full_name=f"  {'x' * 120}  ",
+        ).full_name
+        == "x" * 120
+    )
     for invalid in ("   ", "x" * 121):
         with pytest.raises(ValidationError):
             RegisterRequest(

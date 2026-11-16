@@ -209,9 +209,7 @@ def test_direct_register_normalizes_full_name_and_duplicate_stays_generic(
     email = f"{EMAIL_PREFIX}direct-normalization@example.com"
     service = auth_service()
     with Session(migrated_integration_engine) as session:
-        first = service.register(
-            session, email, "valid-password", f"  {'N' * 120}  "
-        )
+        first = service.register(session, email, "valid-password", f"  {'N' * 120}  ")
         duplicate = service.register(
             session, email, "different-password", "Different Display Name"
         )
@@ -233,9 +231,7 @@ def test_direct_register_rejects_invalid_full_name(
     email = f"{EMAIL_PREFIX}direct-invalid-{len(invalid_name)}@example.com"
     with Session(migrated_integration_engine) as session:
         with pytest.raises(AppException) as exc_info:
-            auth_service().register(
-                session, email, "valid-password", invalid_name
-            )
+            auth_service().register(session, email, "valid-password", invalid_name)
 
         assert exc_info.value.status_code == 422
         assert registration_counts(session, email) == (0, 0, 0, 0, 0)

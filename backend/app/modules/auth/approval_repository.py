@@ -21,9 +21,7 @@ class StaffApprovalRepository:
         count_query = select(func.count()).select_from(StaffApprovalRequest)
         item_query = select(
             StaffApprovalRequest, User.email_normalized, User.full_name
-        ).join(
-            User, User.id == StaffApprovalRequest.user_id
-        )
+        ).join(User, User.id == StaffApprovalRequest.user_id)
         if predicate is not None:
             count_query = count_query.where(predicate)
             item_query = item_query.where(predicate)
