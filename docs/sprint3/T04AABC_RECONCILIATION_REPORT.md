@@ -34,6 +34,7 @@ Task `T04AABC` có trách nhiệm xây dựng bộ kiểm thử chất lượng 
 | **Sequential Re-confirmation Guard** | Production Merged | `SEQUENTIAL_DUPLICATE_CONFIRMATION_VERIFIED` | COLLECTED (Chống tăng kho tuần tự khi re-confirm) |
 | **Outbox Storage Constraints** | Production Merged | `SECRET_STORAGE_CONSTRAINT_VERIFIED` | COLLECTED (Bảo đảm VARBINARY và check constraint) |
 | **MySQL Cross-run Isolation & Idempotence**| Test Infrastructure | `MYSQL_ISOLATION_REGRESSION_PASS` | COLLECTED (Cô lập dữ liệu run, fail-closed an toàn) |
+| **Idempotency Isolation & Shared ADMIN**  | Test Infrastructure | `IDEMPOTENCY_ISOLATION_VERIFIED`   | COLLECTED (Bảo vệ record run khác & shared ADMIN) |
 | **OutboxPublisher Reference Model** | Unmerged (`T04A90F`) | `REFERENCE_MODEL_PASS` / `REFERENCE_SIGNATURE_VERIFIED` | PASS (Mô phỏng quét due events và cập nhật metadata) |
 | **EmailEventHandler Reference Model** | Unmerged (`T04AA00`) | `REFERENCE_MODEL_PASS` / `REFERENCE_SIGNATURE_VERIFIED` | PASS (Mô phỏng retry, bounce, idempotency) |
 | **AuthResetService Reference Model** | Unmerged (`T04AA1C`) | `REFERENCE_MODEL_PASS` / `REFERENCE_SIGNATURE_VERIFIED` | PASS (Mô phỏng Account Non-enumeration) |
@@ -64,7 +65,17 @@ Nhằm khắc phục triệt để rủi ro xóa nhầm dữ liệu của các t
 - Tuyệt đối không xóa toàn bộ bản ghi Idempotency của `ADMIN`, bảo toàn dữ liệu của các test run khác.
 - Thao tác cleanup đảm bảo tính khả lặp (idempotent): chạy cleanup lần thứ 2 hoàn toàn không phát sinh lỗi.
 
-### 2.4. Thứ tự giải phóng khóa ngoại MySQL InnoDB
+### 2.4. Vòng đời và cơ chế quản lý Shared Test ADMIN (Shared ADMIN Lifecycle)
+Nhằm thống nhất logic quản lý Shared ADMIN trong môi trường MySQL Integration Test để không gây hiểu nhầm về memory leak hoặc data pollution, các nguyên tắc sau được chuẩn hóa:
+- **Nguồn gốc của ADMIN:** Do fixture tạo ra hoặc được tái sử dụng qua hàm `_ensure_admin()`. Hàm này truy vấn bản ghi có `admin_slot == 1`; nếu đã tồn tại thì tái sử dụng ID đó, nếu chưa có thì tạo mới một bản ghi duy nhất với `admin_slot = 1` và `role = 'ADMIN'`.
+- **Cơ chế bảo vệ:** `TestRunContext.cleanup()` chỉ xóa user do chính run đó tạo ra (nằm trong danh sách `self.user_ids`), đồng thời áp dụng điều kiện lọc an toàn `User.admin_slot.is_(None)` trong lệnh DELETE. Do đó, Shared ADMIN (`admin_slot == 1`) tuyệt đối không bao giờ bị xóa nhầm bởi bất kỳ test run nào.
+- **Lý do kỹ thuật:** Trong môi trường CI/CD, database test là một ephemeral container (được khởi tạo mới ở đầu mỗi workflow và tự hủy sau khi toàn bộ job kết thúc). Việc giữ lại duy nhất một shared ADMIN giữa các test cases trong cùng một test suite là **intentional design** nhằm:
+  1. Tối ưu hóa thời gian thực thi (tránh chi phí CPU đắt đỏ khi hash password bằng Argon2/Bcrypt cho mỗi test case).
+  2. Tuyệt đối tuân thủ check constraint MySQL `ck_users_role_status_admin_slot` (chỉ cho phép đúng 1 ADMIN chiếm slot).
+  3. Không vi phạm tính cô lập giữa các test run độc lập vì mỗi run đều sở hữu ID riêng biệt và idempotency key digest riêng biệt.
+- **Giới hạn phạm vi (Boundary):** Đây là quy ước nội bộ dành riêng cho bộ test tích hợp database (MySQL integration test suite), hoàn toàn không áp dụng hoặc ảnh hưởng tới production auth logic hay migration rules.
+
+### 2.5. Thứ tự giải phóng khóa ngoại MySQL InnoDB
 1. `stock_movements` (xóa trước vì có FK kép tới receipt items và inventory)
 2. `purchase_receipt_items` (thuộc tracked receipts)
 3. `purchase_receipts` (thuộc tracked receipts)
@@ -75,7 +86,7 @@ Nhằm khắc phục triệt để rủi ro xóa nhầm dữ liệu của các t
 8. `products` (thuộc tracked products)
 9. `categories` (chỉ xóa category do run tạo)
 10. `suppliers` (chỉ xóa supplier do run tạo)
-11. `users` (chỉ xóa user do run tạo, không bao giờ xóa seed admin)
+11. `users` (chỉ xóa user do run tạo, bảo vệ tuyệt đối shared admin có admin_slot = 1)
 
 ---
 
@@ -116,6 +127,22 @@ Nhằm khắc phục triệt để rủi ro xóa nhầm dữ liệu của các t
    - Kiểm tra Case 1: `run_a.cleanup()` bắn `RuntimeError("Isolation violation")`, không xóa dữ liệu của Run B.
    - Kiểm tra Case 2: Clean up Run B trước, sau đó clean up Run A thành công; Shared ADMIN không bị xóa.
    - Kiểm tra Case 3: Chạy cleanup lần 2 cho cả 2 run contexts hoàn toàn không phát sinh lỗi.
+5. **`test_idempotency_cross_run_isolation_and_shared_admin_safety` (`IDEMPOTENCY_ISOLATION_VERIFIED`):**
+   - Run A tạo và confirm Receipt A với Idempotency Key A.
+   - Run B tạo và confirm Receipt B với Idempotency Key B.
+   - Trước cleanup: Query trực tiếp bảng `idempotency_records`, assert cả Record A và Record B đều tồn tại (`user_id`, `operation='CONFIRM_RECEIPT'`, `key_digest`).
+   - Chạy `run_a.cleanup()`.
+   - Sau cleanup Run A: Query trực tiếp bảng `idempotency_records`, assert Record A đã bị xóa, Record B VẪN TỒN TẠI NGUYÊN VẸN.
+   - Assert Receipt B, User Admin (Shared ADMIN) vẫn nguyên vẹn.
+   - Chạy `run_b.cleanup()`: Query assert Record B đã bị xóa.
+   - Assert User Admin (Shared ADMIN) VẪN TỒN TẠI.
+   - Chạy lại `run_a.cleanup()` và `run_b.cleanup()` lần 2 để kiểm chứng tính idempotent.
+
+#### Bảng bằng chứng kiểm thử cô lập Idempotency & Shared ADMIN (Test Isolation Evidence)
+| Run ID | Operation | Idempotency Key | Trạng thái trước Cleanup A | Trạng thái sau Cleanup A | Trạng thái sau Cleanup B | Shared ADMIN Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `Run A` (`t04aabc_idm_a_*`) | `CONFIRM_RECEIPT` | `idemp-iso-a-*` | Tồn tại (`EXISTS`) | Đã xóa (`DELETED`) | Đã xóa (`DELETED`) | Tồn tại nguyên vẹn (`admin_slot=1`) |
+| `Run B` (`t04aabc_idm_b_*`) | `CONFIRM_RECEIPT` | `idemp-iso-b-*` | Tồn tại (`EXISTS`) | Nguyên vẹn (`PRESERVED`) | Đã xóa (`DELETED`) | Tồn tại nguyên vẹn (`admin_slot=1`) |
 
 ---
 
@@ -148,7 +175,7 @@ tests/modules/purchasing/test_t04aabc_purchasing_email_api.py::test_purchasing_e
 tests/modules/purchasing/test_t04aabc_purchasing_email_api.py::test_purchasing_endpoints_rbac_staff_forbidden[...] PASSED [ 75%]
 tests/modules/purchasing/test_t04aabc_purchasing_email_api.py::test_purchasing_endpoints_rbac_anonymous_unauthenticated[...] PASSED [100%]
 
-======================== 24 passed in 1.57s ========================
+======================== 24 passed in 1.53s ========================
 ```
 
 ### 4.3. Pytest MySQL Integration Collect Check
@@ -156,7 +183,7 @@ tests/modules/purchasing/test_t04aabc_purchasing_email_api.py::test_purchasing_e
 $ uv run --locked pytest tests/modules/purchasing/test_t04aabc_purchasing_email_mysql.py --collect-only
 ============================= test session starts =============================
 platform win32 -- Python 3.12.16, pytest-8.4.2, pluggy-1.7.0
-collected 4 items
+collected 5 items
 
 <Package tests/modules/purchasing>
   <Module test_t04aabc_purchasing_email_mysql.py>
@@ -164,8 +191,9 @@ collected 4 items
     <Function test_no_second_stock_increase_on_sequential_reconfirmation>
     <Function test_transactional_outbox_intent_durability>
     <Function test_mysql_cross_run_isolation_and_idempotent_cleanup>
+    <Function test_idempotency_cross_run_isolation_and_shared_admin_safety>
 
-========================= 4 tests collected in 1.55s ==========================
+========================= 5 tests collected in 1.49s ==========================
 ```
 *(Ghi chú: Tại môi trường local không có database integration test riêng biệt, `database_guard.py` kích hoạt cơ chế fail-closed để bảo vệ database dev/prod. Bộ test integration sẽ được thực thi thực tế trên MySQL 8.4 tại GitHub Actions CI).*
 

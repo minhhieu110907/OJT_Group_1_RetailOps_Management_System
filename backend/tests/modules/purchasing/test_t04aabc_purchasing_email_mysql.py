@@ -248,7 +248,22 @@ def run_ctx(
 
 
 def _ensure_admin(engine: Engine, _ctx: TestRunContext | None = None) -> int:
-    """Find existing seed admin or create an isolated shared test admin."""
+    """Find existing seed admin or create an isolated shared test admin.
+
+    Shared Test ADMIN Lifecycle (Task T04AABC Integration Architecture):
+    1. Origin: Reuses existing seed ADMIN (admin_slot == 1) if available, or creates
+       a dedicated shared test ADMIN with admin_slot = 1.
+    2. Protection: TestRunContext.cleanup() only removes users explicitly tracked
+       in self.user_ids that do not hold admin_slot == 1. The shared ADMIN is
+       strictly preserved across test cases.
+    3. Technical Rationale: In ephemeral CI integration environments (where each CI
+       job provisions a fresh temporary MySQL container destroyed upon job completion),
+       reusing a single shared ADMIN across the integration test suite avoids
+       redundant password hashing and table locking while strictly respecting
+       the unique admin_slot = 1 constraint.
+    4. Scope Boundary: This lifecycle management is strictly an internal test suite
+       convention and has no impact on production auth or user lifecycle rules.
+    """
     with Session(engine) as session, session.begin():
         admin = session.scalar(select(User).where(User.admin_slot == 1))
         if admin is not None:
@@ -886,6 +901,282 @@ def test_mysql_cross_run_isolation_and_idempotent_cleanup(
 
     finally:
         # Guarantee teardown in reverse dependency order
+        with contextlib.suppress(Exception):
+            run_b.cleanup()
+        with contextlib.suppress(Exception):
+            run_a.cleanup()
+
+
+def test_idempotency_cross_run_isolation_and_shared_admin_safety(
+    migrated_integration_engine: Engine,
+) -> None:
+    """IDEMPOTENCY ISOLATION VERIFIED: Run A cleanup deletes only its idempotency row.
+
+    Verifies:
+    1. Run A and Run B independently confirm receipts with distinct idempotency keys.
+    2. Before cleanup: Both Record A and Record B exist in idempotency_records.
+    3. Run A cleanup: Record A is deleted, Record B remains intact.
+    4. Receipt B, Receipt B items, stock movements, and Shared ADMIN remain intact.
+    5. Run B cleanup: Record B is deleted, Shared ADMIN remains intact.
+    6. Double cleanup is idempotent and causes no errors.
+    """
+    admin_id = _ensure_admin(migrated_integration_engine)
+    now = datetime.now(UTC).replace(tzinfo=None)
+
+    run_a = TestRunContext(
+        migrated_integration_engine, f"t04aabc_idm_a_{uuid4().hex[:6]}"
+    )
+    run_b = TestRunContext(
+        migrated_integration_engine, f"t04aabc_idm_b_{uuid4().hex[:6]}"
+    )
+
+    try:
+        draft_service = ReceiptDraftService()
+        confirm_service = ReceiptConfirmService()
+
+        # --- RUN A SETUP ---
+        with Session(migrated_integration_engine) as session, session.begin():
+            cat_a = Category(
+                name=f"{run_a.run_id}_Cat",
+                status="ACTIVE",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(cat_a)
+            session.flush()
+            run_a.category_ids.append(cat_a.id)
+
+            sup_a = Supplier(
+                name=f"{run_a.run_id}_Sup",
+                contact_email=f"{run_a.run_id}@example.com",
+                contact_phone="0123456789",
+                status=SupplierStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(sup_a)
+            session.flush()
+            run_a.supplier_ids.append(sup_a.id)
+
+            prod_a = Product(
+                category_id=cat_a.id,
+                sku=f"SKU-{run_a.run_id.upper()}",
+                name=f"Prod A {run_a.run_id}",
+                sale_price_vnd=100000,
+                status=ProductStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(prod_a)
+            session.flush()
+            run_a.product_ids.append(prod_a.id)
+
+            inv_a = Inventory(
+                product_id=prod_a.id,
+                quantity=10,
+                stock_version=1,
+                first_stocked_at=now,
+                updated_at=now,
+            )
+            session.add(inv_a)
+            sup_a_id = sup_a.id
+            prod_a_id = prod_a.id
+
+        with Session(migrated_integration_engine) as session:
+            draft_a = draft_service.create_draft(
+                session,
+                actor_id=admin_id,
+                supplier_id=sup_a_id,
+                items=[
+                    ReceiptLineInput(
+                        product_id=prod_a_id,
+                        quantity=5,
+                        unit_cost_vnd=50000,
+                    )
+                ],
+            )
+            session.commit()
+            rcpt_a_id = draft_a.id
+            run_a.receipt_ids.append(rcpt_a_id)
+
+        idemp_a = f"idemp-iso-a-{run_a.run_id}"
+        run_a.track_idempotency_key(admin_id, idemp_a)
+        digest_a = run_a.key_digest_for(idemp_a)
+
+        with Session(migrated_integration_engine) as session:
+            confirm_service.confirm(
+                session,
+                actor_id=admin_id,
+                receipt_id=rcpt_a_id,
+                expected_draft_version=1,
+                idempotency_key=idemp_a,
+            )
+            session.commit()
+
+        # --- RUN B SETUP ---
+        with Session(migrated_integration_engine) as session, session.begin():
+            cat_b = Category(
+                name=f"{run_b.run_id}_Cat",
+                status="ACTIVE",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(cat_b)
+            session.flush()
+            run_b.category_ids.append(cat_b.id)
+
+            sup_b = Supplier(
+                name=f"{run_b.run_id}_Sup",
+                contact_email=f"{run_b.run_id}@example.com",
+                contact_phone="0987654321",
+                status=SupplierStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(sup_b)
+            session.flush()
+            run_b.supplier_ids.append(sup_b.id)
+
+            prod_b = Product(
+                category_id=cat_b.id,
+                sku=f"SKU-{run_b.run_id.upper()}",
+                name=f"Prod B {run_b.run_id}",
+                sale_price_vnd=200000,
+                status=ProductStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(prod_b)
+            session.flush()
+            run_b.product_ids.append(prod_b.id)
+
+            inv_b = Inventory(
+                product_id=prod_b.id,
+                quantity=20,
+                stock_version=1,
+                first_stocked_at=now,
+                updated_at=now,
+            )
+            session.add(inv_b)
+            sup_b_id = sup_b.id
+            prod_b_id = prod_b.id
+
+        with Session(migrated_integration_engine) as session:
+            draft_b = draft_service.create_draft(
+                session,
+                actor_id=admin_id,
+                supplier_id=sup_b_id,
+                items=[
+                    ReceiptLineInput(
+                        product_id=prod_b_id,
+                        quantity=3,
+                        unit_cost_vnd=55000,
+                    )
+                ],
+            )
+            session.commit()
+            rcpt_b_id = draft_b.id
+            run_b.receipt_ids.append(rcpt_b_id)
+
+        idemp_b = f"idemp-iso-b-{run_b.run_id}"
+        run_b.track_idempotency_key(admin_id, idemp_b)
+        digest_b = run_b.key_digest_for(idemp_b)
+
+        with Session(migrated_integration_engine) as session:
+            confirm_service.confirm(
+                session,
+                actor_id=admin_id,
+                receipt_id=rcpt_b_id,
+                expected_draft_version=1,
+                idempotency_key=idemp_b,
+            )
+            session.commit()
+
+        # --- STEP 1: BEFORE CLEANUP ---
+        # Query idempotency_records directly: both Record A and Record B exist
+        with Session(migrated_integration_engine) as session:
+            rec_a = session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == digest_a,
+                )
+            )
+            rec_b = session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == digest_b,
+                )
+            )
+            assert rec_a is not None, "Idempotency Record A must exist before cleanup"
+            assert rec_b is not None, "Idempotency Record B must exist before cleanup"
+            assert session.get(PurchaseReceipt, rcpt_a_id) is not None
+            assert session.get(PurchaseReceipt, rcpt_b_id) is not None
+            assert session.get(User, admin_id) is not None
+
+        # --- STEP 2: RUN A CLEANUP ---
+        run_a.cleanup()
+
+        # Query idempotency_records: Record A deleted, Record B intact
+        with Session(migrated_integration_engine) as session:
+            rec_a_after = session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == digest_a,
+                )
+            )
+            rec_b_after = session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == digest_b,
+                )
+            )
+            assert rec_a_after is None, "Record A must be deleted by run_a.cleanup()"
+            assert rec_b_after is not None, (
+                "Record B must remain intact after run_a.cleanup()"
+            )
+            assert session.get(PurchaseReceipt, rcpt_a_id) is None
+            assert session.get(PurchaseReceipt, rcpt_b_id) is not None, (
+                "Receipt B must remain intact after run_a.cleanup()"
+            )
+            assert session.get(User, admin_id) is not None, (
+                "Shared ADMIN must NOT be deleted by run_a.cleanup()"
+            )
+
+        # --- STEP 3: RUN B CLEANUP ---
+        run_b.cleanup()
+
+        # Query idempotency_records: Record B deleted, Shared ADMIN still exists
+        with Session(migrated_integration_engine) as session:
+            rec_b_final = session.scalar(
+                select(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == admin_id,
+                    IdempotencyRecord.operation
+                    == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                    IdempotencyRecord.key_digest == digest_b,
+                )
+            )
+            assert rec_b_final is None, "Record B must be deleted by run_b.cleanup()"
+            assert session.get(PurchaseReceipt, rcpt_b_id) is None
+            assert session.get(User, admin_id) is not None, (
+                "Shared ADMIN must NOT be deleted by run_b.cleanup()"
+            )
+
+        # --- STEP 4: IDEMPOTENT TEARDOWN ---
+        # Calling cleanup twice raises no errors and preserves database invariants
+        run_a.cleanup()
+        run_b.cleanup()
+
+        with Session(migrated_integration_engine) as session:
+            assert session.get(User, admin_id) is not None
+    finally:
         with contextlib.suppress(Exception):
             run_b.cleanup()
         with contextlib.suppress(Exception):
