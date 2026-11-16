@@ -22,9 +22,19 @@ Tuân thủ nghiêm ngặt 4 nhóm yêu cầu bắt buộc của đề bài ki�
 
 **Quy ước Trạng thái Phủ Test (Coverage Status):**
 - **`DIRECTLY COVERED`:** Đã có test function tự động gọi trực tiếp qua HTTP API client (`httpx.AsyncClient`) hoặc kiểm chứng tích hợp hoàn chỉnh với cơ sở dữ liệu MySQL asserting đúng mã trạng thái và hành vi.
-- **`PARTIALLY COVERED`:** Đã được kiểm thử tại tầng logic Service/ORM hoặc tầng Schema Validation của Pydantic, nhưng chưa có test case gọi trực tiếp qua HTTP client endpoint.
+- **`PARTIALLY COVERED`:** Đã được kiểm thử tại tầng logic Service/ORM, tầng Schema Validation của Pydantic, hoặc test API chưa có assertions đầy đủ toàn bộ fields của expected response.
 - **`NOT COVERED`:** Trường hợp kiểm thử chưa có test case tự động tương ứng trong bộ test hiện tại của backend.
 - **`CONTRACT MISMATCH`:** Có sự không nhất quán giữa tài liệu mô tả và hợp đồng mã nguồn backend.
+
+**Bảng Tổng Hợp Mức Độ Phủ Kiểm Thử (Coverage Summary):**
+
+| Phân loại Mức độ Phủ | Số lượng | Tỷ lệ | Danh sách Test Cases & Ghi chú kỹ thuật |
+|:---|:---:|:---:|:---|
+| **`DIRECTLY COVERED`** | **32** | 88.9% | 32 test cases có kiểm chứng API client hoặc MySQL integration assertion hoàn chỉnh. |
+| **`PARTIALLY COVERED`** | **4** | 11.1% | `TC-PROD-04` (Schema-only), `TC-PROD-11` (Chưa assert đủ 10 fields & ẩn giá vốn), `TC-PROD-15` (Service-only), `TC-PUR-08` (Service-only). |
+| **`NOT COVERED`** | **0** | 0.0% | Toàn bộ 36 test cases đều có bằng chứng kiểm thử ở tầng API, Service, Schema hoặc MySQL integration. |
+| **`CONTRACT MISMATCH`** | **0** | 0.0% | 100% test cases khớp hợp đồng API backend. |
+| **TỔNG CỘNG** | **36** | **100%** | **18 test Products Catalog + 18 test Purchasing & Receipts** |
 
 ---
 
@@ -35,8 +45,8 @@ Tuân thủ nghiêm ngặt 4 nhóm yêu cầu bắt buộc của đề bài ki�
 | Mã Test Case | Tên Test Case | Nhóm Phân loại | Tiền điều kiện | Các bước thực hiện & Dữ liệu đầu vào | Kết quả mong đợi & Bất biến | File Test Tương ứng | Trạng thái Độ phủ |
 |:---|:---|:---:|:---|:---|:---|:---|:---:|
 | **`TC-PROD-01`** | Tạo sản phẩm thành công kèm tồn kho 0 nguyên tử | (a) Đúng dữ liệu | Đăng nhập tài khoản `ADMIN`. Danh mục `category_id=1` đang `ACTIVE`. | Gửi request `POST /api/v1/products` với body:<br>`{"sku": "CF-ROBUSTA-01", "name": "Cà phê Robusta Đắk Lắk", "category_id": 1, "sale_price_vnd": 120000}`. | HTTP `201 Created`. Nhận `ProductRead` gồm đúng 10 trường an toàn (không chứa trường giá vốn). Bảng `inventories` tự động sinh bản ghi `quantity=0`, `stock_version=0` trong cùng 1 transaction. | `test_products_api.py` (`test_api_admin_crud_and_error_envelopes`), `test_service_create_flushes_product_and_commits_inventory_atomically`, `test_products_integration.py` (`test_mysql_product_create_atomically_creates_zero_inventory`) | **DIRECTLY COVERED** |
-| **`TC-PROD-02`** | Từ chối tạo sản phẩm khi trùng mã SKU | (b) Sai dữ liệu | SKU `CF-ROBUSTA-01` đã tồn tại trong cơ sở dữ liệu. | Admin gửi `POST /api/v1/products` với cùng SKU `CF-ROBUSTA-01`. | HTTP `409 Conflict`. Mã lỗi `DUPLICATE_SKU`. Không tạo thêm dòng nào trong bảng `products` hay `inventories`. | `test_products_api.py` (`test_service_rejects_duplicate_sku_on_create_and_update`), `test_products_integration.py` (`test_mysql_concurrent_duplicate_sku_allows_only_one_product`) | **DIRECTLY COVERED** |
-| **`TC-PROD-03`** | Từ chối tạo sản phẩm khi danh mục không tồn tại hoặc INACTIVE | (b) Sai dữ liệu | Danh mục `category_id=9999` không tồn tại hoặc ở trạng thái `INACTIVE`. | Admin gửi `POST /api/v1/products` với `category_id=9999`. | HTTP `404 Not Found` (mã lỗi `CATEGORY_NOT_FOUND`) hoặc HTTP `400 Bad Request` nếu inactive. Báo lỗi danh mục không hợp lệ, không tạo sản phẩm. | `test_products_api.py` (`test_api_admin_crud_and_error_envelopes`, `test_service_create_and_update_reject_inactive_or_missing_category`) | **DIRECTLY COVERED** |
+| **`TC-PROD-02`** | Từ chối tạo sản phẩm khi trùng mã SKU | (b) Sai dữ liệu | SKU `CF-ROBUSTA-01` đã tồn tại trong cơ sở dữ liệu. | Admin gửi `POST /api/v1/products` với cùng SKU `CF-ROBUSTA-01`. | HTTP `409 Conflict`. Mã lỗi `DUPLICATE_SKU`. Không tạo thêm dòng nào trong bảng `products` hay `inventories`. | `test_products_api.py` (`test_api_admin_crud_and_error_envelopes`, `test_service_rejects_duplicate_sku_on_create_and_update`), `test_products_integration.py` (`test_mysql_concurrent_duplicate_sku_allows_only_one_product`) | **DIRECTLY COVERED** |
+| **`TC-PROD-03`** | Từ chối tạo sản phẩm khi danh mục không tồn tại hoặc INACTIVE | (b) Sai dữ liệu | Danh mục `category_id=9999` không tồn tại, hoặc danh mục ở trạng thái `INACTIVE`. | Admin gửi `POST /api/v1/products` với `category_id` không tồn tại (ví dụ: `9999`) hoặc `category_id` đang `INACTIVE`. | Danh mục không tồn tại: HTTP `404 Not Found` (mã lỗi `RESOURCE_NOT_FOUND`).<br>Danh mục INACTIVE: HTTP `422 Unprocessable Entity` (mã lỗi `VALIDATION_ERROR`).<br>Không tạo sản phẩm trong cơ sở dữ liệu. | `test_products_api.py` (`test_api_admin_crud_and_error_envelopes`, `test_service_create_and_update_reject_inactive_or_missing_category`) | **DIRECTLY COVERED** |
 | **`TC-PROD-04`** | Từ chối tạo sản phẩm khi giá bán âm hoặc bằng 0 | (b) Sai dữ liệu | Admin đã xác thực. | Admin gửi `POST /api/v1/products` với `sale_price_vnd: -5000` hoặc `sale_price_vnd: 0`. | HTTP `422 Unprocessable Entity`. Pydantic schema validation chặn giá trị `<= 0` (`gt=0`). | `test_products_schemas.py` (`test_product_create_request_rejects_invalid_or_extra_fields`) | **PARTIALLY COVERED** |
 | **`TC-PROD-05`** | Chặn Staff tạo sản phẩm (RBAC Forbidden) | (d) Sai quyền | Đăng nhập với tài khoản role `STAFF`. | Staff gửi `POST /api/v1/products` với payload hợp lệ. | HTTP `403 Forbidden`. Mã lỗi `PERMISSION_DENIED`. Staff không có quyền tạo sản phẩm. | `test_products_api.py` (`test_api_staff_can_read_but_gets_403_on_mutations`) | **DIRECTLY COVERED** |
 
@@ -54,7 +64,7 @@ Tuân thủ nghiêm ngặt 4 nhóm yêu cầu bắt buộc của đề bài ki�
 
 | Mã Test Case | Tên Test Case | Nhóm Phân loại | Tiền điều kiện | Các bước thực hiện & Dữ liệu đầu vào | Kết quả mong đợi & Bất biến | File Test Tương ứng | Trạng thái Độ phủ |
 |:---|:---|:---:|:---|:---|:---|:---|:---:|
-| **`TC-PROD-11`** | Xem chi tiết sản phẩm thành công theo ID | (a) Đúng dữ liệu | Sản phẩm `product_id=1` tồn tại. Đã xác thực người dùng. | Gửi `GET /api/v1/products/1`. | HTTP `200 OK`. Nhận DTO `ProductRead` với 10 trường an toàn (không có trường chi phí/giá vốn cho bất kỳ role nào). | *(Hiện tại backend test suite chưa có test case gọi trực tiếp GET /api/v1/products/{id} với kết quả 200 OK)* | **NOT COVERED** |
+| **`TC-PROD-11`** | Xem chi tiết sản phẩm thành công theo ID | (a) Đúng dữ liệu | Sản phẩm `product_id=1` tồn tại. Đã xác thực người dùng. | Gửi `GET /api/v1/products/1`. | HTTP `200 OK`. Nhận DTO `ProductRead` với 10 trường an toàn (không có trường chi phí/giá vốn cho bất kỳ role nào).<br>*(Giới hạn kiểm thử: Đã xác nhận GET detail trả HTTP 200 và đúng ID; chưa có assertion trực tiếp kiểm tra toàn bộ 10 trường ProductRead cùng sự vắng mặt của trường giá vốn trong detail response)*. | `test_products_api.py` (`test_api_staff_can_read_but_gets_403_on_mutations`) | **PARTIALLY COVERED** |
 | **`TC-PROD-12`** | Báo lỗi 404 khi xem sản phẩm không tồn tại | (b) Sai dữ liệu | Sản phẩm `product_id=99999` không có trong hệ thống. | Gửi `GET /api/v1/products/99999`. | HTTP `404 Not Found`. Mã lỗi `PRODUCT_NOT_FOUND`. | `test_products_api.py` (`test_api_admin_crud_and_error_envelopes`) | **DIRECTLY COVERED** |
 | **`TC-PROD-13`** | Từ chối xem chi tiết khi chưa đăng nhập | (c) Chưa đăng nhập | Không có phiên đăng nhập hợp lệ. | Gửi `GET /api/v1/products/1`. | HTTP `401 Unauthorized`. Mã lỗi `UNAUTHENTICATED`. | `test_products_api.py` (`test_api_unauthenticated_requests_return_401`) | **DIRECTLY COVERED** |
 
