@@ -221,7 +221,7 @@ def _ensure_admin(engine: Engine, ctx: TestRunContext) -> int:
             password_hash=PasswordHasher().hash("AdminSecurePass!123"),
             role=UserRole.ADMIN.value,
             status=UserStatus.ACTIVE.value,
-            admin_slot=None,
+            admin_slot=1,
             created_at=now,
             updated_at=now,
         )
