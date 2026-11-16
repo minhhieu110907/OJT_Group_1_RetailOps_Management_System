@@ -171,6 +171,56 @@ export function resolveDashboardDateRange(preset, customRange = {}, now = new Da
 }
 
 /**
+ * Returns { from, to } YYYY-MM-DD bounds for the full previous calendar month in Asia/Ho_Chi_Minh.
+ */
+export function getPreviousMonthDateRange(now = new Date()) {
+  const today = getVietnamTodayIsoDate(now);
+  const [y, m] = today.split('-').map(Number);
+  const firstOfCurrentMonthUtc = Date.UTC(y, m - 1, 1);
+  const lastOfPrevMonth = new Date(firstOfCurrentMonthUtc - 86400000);
+  const prevYear = lastOfPrevMonth.getUTCFullYear();
+  const prevMonth = String(lastOfPrevMonth.getUTCMonth() + 1).padStart(2, '0');
+  const prevLastDay = String(lastOfPrevMonth.getUTCDate()).padStart(2, '0');
+  return {
+    from: `${prevYear}-${prevMonth}-01`,
+    to: `${prevYear}-${prevMonth}-${prevLastDay}`,
+  };
+}
+
+/**
+ * Computes month-over-month percentage change between current and previous month values.
+ */
+export function computeMonthOverMonthDelta(currentVal = 0, prevVal = 0) {
+  const curr = typeof currentVal === 'number' && Number.isFinite(currentVal) ? currentVal : 0;
+  const prev = typeof prevVal === 'number' && Number.isFinite(prevVal) ? prevVal : 0;
+
+  if (prev === 0 && curr === 0) {
+    return {
+      diffPct: 0,
+      direction: 'neutral',
+      text: '0% so với tháng trước',
+    };
+  }
+  if (prev === 0 && curr > 0) {
+    return {
+      diffPct: 100,
+      direction: 'up',
+      text: '+100% so với tháng trước',
+    };
+  }
+  const rawPct = ((curr - prev) / prev) * 100;
+  const rounded = Math.round(rawPct * 10) / 10;
+  const sign = rounded > 0 ? '+' : '';
+  const direction = rounded > 0 ? 'up' : rounded < 0 ? 'down' : 'neutral';
+  const formatted = String(rounded).replace('.', ',');
+  return {
+    diffPct: rounded,
+    direction,
+    text: `${sign}${formatted}% so với tháng trước`,
+  };
+}
+
+/**
  * Builds chronological buckets for the trend chart and breakdown table:
  * - TODAY / LAST_7_DAYS: 7 daily buckets (today - 6 .. today)
  * - LAST_30_DAYS: 5 non-overlapping weekly/segment buckets covering (today - 29 .. today)

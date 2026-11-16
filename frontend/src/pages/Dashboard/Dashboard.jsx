@@ -6,12 +6,14 @@ import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
 import {
   buildDashboardSeriesBuckets,
+  computeMonthOverMonthDelta,
   computeOrderStructureMetrics,
   DASHBOARD_PRESETS,
   executeGuardedDashboardFetch,
   formatIsoDateShortVN,
   formatVietnamDateTime,
   formatVietnamPeriodRange,
+  getPreviousMonthDateRange,
   resolveDashboardDateRange,
 } from '../../utils/analyticsUtils';
 import {
@@ -29,18 +31,6 @@ const PRESET_OPTIONS = [
   { key: DASHBOARD_PRESETS.THIS_MONTH, label: 'Tháng này' },
 ];
 
-function formatCompactVnd(amount) {
-  if (typeof amount !== 'number' || amount <= 0) return '0 đ';
-  if (amount >= 1_000_000) {
-    const millions = Math.round((amount / 1_000_000) * 100) / 100;
-    return `${String(millions).replace('.', ',')}M đ`;
-  }
-  if (amount >= 1_000) {
-    return `${Math.round(amount / 1_000)}K đ`;
-  }
-  return formatVnd(amount);
-}
-
 export default function Dashboard() {
   const { user, isMockMode } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -50,9 +40,11 @@ export default function Dashboard() {
   const seriesBuckets = useMemo(() => buildDashboardSeriesBuckets(preset), [preset]);
 
   const [dashboardData, setDashboardData] = useState(null);
+  const [prevMonthSales, setPrevMonthSales] = useState(null);
   const [seriesRows, setSeriesRows] = useState([]);
   const [todayOrders, setTodayOrders] = useState([]);
   const [todayOrdersTotal, setTodayOrdersTotal] = useState(0);
+  const [hoveredPointKey, setHoveredPointKey] = useState(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -115,16 +107,30 @@ export default function Dashboard() {
                   .catch(() => ({ items: [], total: 0 }))
               : Promise.resolve({ items: [], total: 0 });
 
-          const [mainData, resolvedBuckets, ordersPage] = await Promise.all([
+          const prevMonthRange = getPreviousMonthDateRange();
+          const prevMonthPromise =
+            targetPreset === DASHBOARD_PRESETS.THIS_MONTH
+              ? analyticsApi
+                  .getSalesAnalytics({
+                    isMockMode,
+                    from: prevMonthRange.from,
+                    to: prevMonthRange.to,
+                  })
+                  .catch(() => null)
+              : Promise.resolve(null);
+
+          const [mainData, resolvedBuckets, ordersPage, prevSales] = await Promise.all([
             mainPromise,
             Promise.all(bucketPromises),
             ordersPromise,
+            prevMonthPromise,
           ]);
 
-          return { mainData, resolvedBuckets, ordersPage };
+          return { mainData, resolvedBuckets, ordersPage, prevSales };
         },
-        onSuccess: ({ mainData, resolvedBuckets, ordersPage }) => {
+        onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales }) => {
           setDashboardData(mainData);
+          setPrevMonthSales(prevSales);
           setSeriesRows(resolvedBuckets);
           setTodayOrders(ordersPage.items || []);
           setTodayOrdersTotal(ordersPage.total || 0);
@@ -151,28 +157,34 @@ export default function Dashboard() {
   const handleOpenOrderDetail = useCallback(
     async (rowOrder) => {
       if (!rowOrder?.id) return;
-      setSelectedOrder(rowOrder);
-      setIsDetailLoading(true);
-      setIsDetailVerified(false);
-      setDetailError('');
 
       await executeVerifiedOrderDetailFetch({
         seqRef: detailSeqRef,
         isMountedRef,
-        orderId: rowOrder.id,
-        fetcher: (id) => ordersApi.getOrderById(id, { isMockMode }),
+        orderSnapshot: rowOrder,
+        fetchByIdFn: (orderId) =>
+          ordersApi.getOrderById({
+            isMockMode,
+            orderId,
+          }),
+        onLoading: (snapshot) => {
+          setSelectedOrder(snapshot);
+          setIsDetailLoading(true);
+          setIsDetailVerified(false);
+          setDetailError('');
+        },
         onVerified: (freshOrder) => {
           setSelectedOrder(freshOrder);
+          setIsDetailLoading(false);
           setIsDetailVerified(true);
+          setDetailError('');
         },
         onError: (err) => {
+          setIsDetailLoading(false);
           setIsDetailVerified(false);
           setDetailError(
             getApiErrorMessage(err, 'Không thể tải chi tiết đơn hàng từ máy chủ.')
           );
-        },
-        onFinally: () => {
-          setIsDetailLoading(false);
         },
       });
     },
@@ -189,6 +201,24 @@ export default function Dashboard() {
 
   const sales = dashboardData?.sales;
   const lowStockCount = dashboardData?.low_stock_count ?? 0;
+
+  const monthDeltas = useMemo(() => {
+    if (preset !== DASHBOARD_PRESETS.THIS_MONTH) return null;
+    return {
+      revenue: computeMonthOverMonthDelta(
+        sales?.revenue_vnd ?? 0,
+        prevMonthSales?.revenue_vnd ?? 0
+      ),
+      completed: computeMonthOverMonthDelta(
+        sales?.completed_orders ?? 0,
+        prevMonthSales?.completed_orders ?? 0
+      ),
+      cancelled: computeMonthOverMonthDelta(
+        sales?.cancelled_orders ?? 0,
+        prevMonthSales?.cancelled_orders ?? 0
+      ),
+    };
+  }, [preset, sales, prevMonthSales]);
 
   const orderStructure = useMemo(
     () =>
@@ -207,6 +237,9 @@ export default function Dashboard() {
         points: [],
         linePath: '',
         areaPath: '',
+        colWidth: 64,
+        bottomY: 162,
+        topY: 34,
         avgRevenue: 0,
         peakLabel: '—',
         peakRevenue: 0,
@@ -232,6 +265,7 @@ export default function Dashboard() {
     const bottomY = 162;
     const usableW = rightX - leftX;
     const usableH = bottomY - topY;
+    const colWidth = items.length > 1 ? Math.min(72, usableW / (items.length - 1)) : 80;
 
     const points = items.map((item, idx) => {
       const rev = item.summary?.revenue_vnd || 0;
@@ -245,6 +279,13 @@ export default function Dashboard() {
         x: Math.round(x * 10) / 10,
         y: Math.round(y * 10) / 10,
         label: item.chartLabel,
+        tooltipTitle:
+          item.from === item.to
+            ? formatIsoDateShortVN(item.from, true)
+            : `${formatIsoDateShortVN(item.from, false)} - ${formatIsoDateShortVN(
+                item.to,
+                true
+              )}`,
         revenue: rev,
         isPeak: idx === peakIdx,
         isLatest: idx === items.length - 1,
@@ -260,6 +301,9 @@ export default function Dashboard() {
       points,
       linePath,
       areaPath,
+      colWidth,
+      bottomY,
+      topY,
       avgRevenue,
       peakLabel: items[peakIdx]?.chartLabel || '—',
       peakRevenue: revenues[peakIdx] || 0,
@@ -320,8 +364,6 @@ export default function Dashboard() {
           <h1 className={styles.pageTitle}>Tổng quan cửa hàng</h1>
           <p className={styles.pageSubtitle}>
             <span>{activeRange.periodLabel}</span>
-            <span>•</span>
-            <span>Múi giờ Asia/Ho_Chi_Minh</span>
           </p>
         </div>
 
@@ -394,10 +436,33 @@ export default function Dashboard() {
           <div className={styles.kpiValue}>
             {sales ? formatVnd(sales.revenue_vnd) : '0 ₫'}
           </div>
-          <span className={styles.kpiSub}>Từ các đơn COMPLETED</span>
+          {monthDeltas ? (
+            <span
+              className={
+                monthDeltas.revenue.direction === 'up'
+                  ? styles.kpiDeltaUp
+                  : monthDeltas.revenue.direction === 'down'
+                  ? styles.kpiDeltaDown
+                  : styles.kpiDeltaNeutral
+              }
+            >
+              {monthDeltas.revenue.direction === 'up'
+                ? '↑ '
+                : monthDeltas.revenue.direction === 'down'
+                ? '↓ '
+                : ''}
+              {monthDeltas.revenue.text}
+            </span>
+          ) : (
+            <span className={styles.kpiSub}>Từ các đơn đã hoàn thành</span>
+          )}
         </div>
 
-        <div className={styles.kpiCard}>
+        <Link
+          to="/orders"
+          className={`${styles.kpiCard} ${styles.kpiCardLink}`}
+          title="Xem danh sách đơn hàng đã hoàn thành"
+        >
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>Số đơn hoàn tất</span>
             <span className={`${styles.kpiIconBox} ${styles.kpiIconSlate}`}>✓</span>
@@ -406,13 +471,36 @@ export default function Dashboard() {
             {sales ? sales.completed_orders.toLocaleString('vi-VN') : '0'}{' '}
             <span className={styles.kpiUnit}>đơn</span>
           </div>
-          <span className={styles.kpiSub}>
-            <span className={styles.greenDot} />
-            Giao dịch COMPLETED
-          </span>
-        </div>
+          {monthDeltas ? (
+            <span
+              className={
+                monthDeltas.completed.direction === 'up'
+                  ? styles.kpiDeltaUp
+                  : monthDeltas.completed.direction === 'down'
+                  ? styles.kpiDeltaDown
+                  : styles.kpiDeltaNeutral
+              }
+            >
+              {monthDeltas.completed.direction === 'up'
+                ? '↑ '
+                : monthDeltas.completed.direction === 'down'
+                ? '↓ '
+                : ''}
+              {monthDeltas.completed.text}
+            </span>
+          ) : (
+            <span className={styles.kpiSub}>
+              <span className={styles.greenDot} />
+              Giao dịch đã hoàn thành
+            </span>
+          )}
+        </Link>
 
-        <div className={styles.kpiCard}>
+        <Link
+          to="/orders"
+          className={`${styles.kpiCard} ${styles.kpiCardLink}`}
+          title="Xem danh sách đơn hàng đã hủy"
+        >
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>Số đơn đã hủy</span>
             <span className={`${styles.kpiIconBox} ${styles.kpiIconRed}`}>✕</span>
@@ -421,18 +509,37 @@ export default function Dashboard() {
             {sales ? sales.cancelled_orders.toLocaleString('vi-VN') : '0'}{' '}
             <span className={styles.kpiUnitRed}>đơn</span>
           </div>
-          <span className={styles.kpiSub}>CANCELLED theo kỳ bán ban đầu</span>
-        </div>
+          {monthDeltas ? (
+            <span
+              className={
+                monthDeltas.cancelled.direction === 'up'
+                  ? styles.kpiDeltaDown
+                  : monthDeltas.cancelled.direction === 'down'
+                  ? styles.kpiDeltaUp
+                  : styles.kpiDeltaNeutral
+              }
+            >
+              {monthDeltas.cancelled.direction === 'up'
+                ? '↑ '
+                : monthDeltas.cancelled.direction === 'down'
+                ? '↓ '
+                : ''}
+              {monthDeltas.cancelled.text}
+            </span>
+          ) : (
+            <span className={styles.kpiSub}>Đơn bị hủy</span>
+          )}
+        </Link>
 
         <div className={styles.kpiCard}>
           <div className={styles.kpiTopRow}>
-            <span className={styles.kpiLabel}>Giá trị trung bình đơn (AOV)</span>
+            <span className={styles.kpiLabel}>Giá trị trung bình đơn</span>
             <span className={`${styles.kpiIconBox} ${styles.kpiIconEmerald}`}>≡</span>
           </div>
           <div className={styles.kpiValue}>
             {sales ? formatVnd(sales.aov_vnd) : '0 ₫'}
           </div>
-          <span className={styles.kpiSub}>Tính trên đơn COMPLETED</span>
+          <span className={styles.kpiSub}>Tính trên các đơn đã hoàn thành</span>
         </div>
       </div>
 
@@ -460,7 +567,10 @@ export default function Dashboard() {
             </span>
           </div>
 
-          <div className={styles.chartWrap}>
+          <div
+            className={styles.chartWrap}
+            onMouseLeave={() => setHoveredPointKey(null)}
+          >
             <svg
               viewBox="0 0 650 195"
               className={styles.chartSvg}
@@ -471,6 +581,10 @@ export default function Dashboard() {
                 <linearGradient id="dashboardAreaGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#0d9488" stopOpacity="0.28" />
                   <stop offset="100%" stopColor="#0d9488" stopOpacity="0.02" />
+                </linearGradient>
+                <linearGradient id="dashboardColHoverGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#64748b" stopOpacity="0.14" />
+                  <stop offset="100%" stopColor="#94a3b8" stopOpacity="0.03" />
                 </linearGradient>
               </defs>
 
@@ -501,50 +615,106 @@ export default function Dashboard() {
                 />
               )}
 
-              {chartModel.points.map((pt) => (
-                <g key={pt.key}>
-                  <circle
-                    cx={pt.x}
-                    cy={pt.y}
-                    r={pt.isLatest ? 5 : 4}
-                    fill={pt.isLatest ? '#0d9488' : '#ffffff'}
-                    stroke="#0d9488"
-                    strokeWidth="2.2"
-                  />
-                  {pt.isLatest && (
-                    <g>
-                      <rect
-                        x={Math.min(Math.max(pt.x - 42, 12), 555)}
-                        y={Math.max(pt.y - 32, 4)}
-                        width="84"
-                        height="22"
-                        rx="6"
-                        fill="#0f172a"
-                      />
-                      <text
-                        x={Math.min(Math.max(pt.x, 54), 597)}
-                        y={Math.max(pt.y - 17, 19)}
-                        textAnchor="middle"
-                        fill="#ffffff"
-                        fontSize="11"
-                        fontWeight="700"
-                      >
-                        {formatCompactVnd(pt.revenue)}
-                      </text>
-                    </g>
-                  )}
-                  <text
-                    x={pt.x}
-                    y="184"
-                    textAnchor="middle"
-                    fill={pt.isLatest ? '#0f172a' : '#64748b'}
-                    fontSize="11.5"
-                    fontWeight={pt.isLatest ? '700' : '500'}
+              {chartModel.points.map((pt) => {
+                const isHovered = hoveredPointKey === pt.key;
+                const halfHitCol = chartModel.colWidth / 2;
+                const boxWidth = 22;
+                const colBoxHeight = Math.max(chartModel.bottomY - pt.y, 4);
+                const tooltipW = 166;
+                const tooltipH = 32;
+                const tooltipX = Math.min(
+                  Math.max(pt.x - tooltipW / 2, 14),
+                  650 - tooltipW - 14
+                );
+                const tooltipY = Math.max(pt.y - tooltipH - 10, 4);
+
+                return (
+                  <g
+                    key={pt.key}
+                    className={`${styles.chartColGroup} ${
+                      isHovered ? styles.chartColGroupActive : ''
+                    }`}
+                    onMouseEnter={() => setHoveredPointKey(pt.key)}
                   >
-                    {pt.label}
-                  </text>
-                </g>
-              ))}
+                    {/* Transparent full-height hit area for hovering anywhere in the column */}
+                    <rect
+                      x={pt.x - halfHitCol}
+                      y={10}
+                      width={chartModel.colWidth}
+                      height={180}
+                      fill="transparent"
+                    />
+
+                    {/* Shaded vertical column box from data point down to X-axis baseline */}
+                    <rect
+                      x={pt.x - boxWidth}
+                      y={pt.y}
+                      width={boxWidth * 2}
+                      height={colBoxHeight}
+                      fill="rgba(148, 163, 184, 0.22)"
+                      stroke="#7c909a"
+                      strokeWidth="1"
+                      className={styles.chartHoverColumn}
+                    />
+                    <line
+                      x1={pt.x}
+                      y1={pt.y}
+                      x2={pt.x}
+                      y2={chartModel.bottomY}
+                      stroke="#64748b"
+                      strokeWidth="1.2"
+                      strokeDasharray="3 3"
+                      className={styles.chartHoverColumn}
+                    />
+
+                    <circle
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={isHovered ? 5 : 4}
+                      fill={isHovered ? '#0d9488' : '#ffffff'}
+                      stroke="#0d9488"
+                      strokeWidth="2.2"
+                      className={styles.chartPointCircle}
+                    />
+
+                    {isHovered && (
+                      <g className={styles.chartTooltipGroup}>
+                        <rect
+                          x={tooltipX}
+                          y={tooltipY}
+                          width={tooltipW}
+                          height={tooltipH}
+                          rx="8"
+                          fill="#ffffff"
+                          stroke="#e2e8f0"
+                          strokeWidth="1"
+                        />
+                        <text
+                          x={tooltipX + tooltipW / 2}
+                          y={tooltipY + 20}
+                          textAnchor="middle"
+                          fill="#1e293b"
+                          fontSize="12"
+                          fontWeight="600"
+                        >
+                          Doanh số: {formatVnd(pt.revenue)}
+                        </text>
+                      </g>
+                    )}
+
+                    <text
+                      x={pt.x}
+                      y="184"
+                      textAnchor="middle"
+                      fill={isHovered ? '#0f172a' : '#64748b'}
+                      fontSize="11.5"
+                      fontWeight={isHovered ? '700' : '500'}
+                    >
+                      {pt.label}
+                    </text>
+                  </g>
+                );
+              })}
             </svg>
           </div>
 
@@ -669,7 +839,7 @@ export default function Dashboard() {
               <div>
                 <h2 className={styles.panelTitle}>Doanh thu trong ngày</h2>
                 <p className={styles.panelSubtitle}>
-                  Các giao dịch POS phát sinh trong ngày hôm nay
+                  Các giao dịch phát sinh trong ngày hôm nay
                 </p>
               </div>
               <div className={styles.tableHeaderRight}>
@@ -731,7 +901,7 @@ export default function Dashboard() {
                                   : styles.statusBadgeCancelled
                               }
                             >
-                              {isCompleted ? 'Hoàn tất' : 'Đã hủy'}
+                              {isCompleted ? 'Hoàn thành' : 'Đã hủy'}
                             </span>
                           </td>
                           <td className={styles.centerCell}>
@@ -761,8 +931,8 @@ export default function Dashboard() {
                 </h2>
                 <p className={styles.panelSubtitle}>
                   {isWeeklyMode
-                    ? 'Tổng hợp đối soát đơn COMPLETED và CANCELLED theo từng tuần trong kỳ'
-                    : 'Dữ liệu đối soát đơn hàng COMPLETED và CANCELLED từng ngày làm việc'}
+                    ? 'Tổng hợp đối soát đơn hoàn thành và đơn đã hủy theo từng tuần trong kỳ'
+                    : 'Dữ liệu đối soát đơn hàng hoàn thành và đơn đã hủy từng ngày làm việc'}
                 </p>
               </div>
               <span className={styles.badgeGray}>
@@ -778,12 +948,12 @@ export default function Dashboard() {
                     <th>
                       {isWeeklyMode
                         ? 'KHOẢNG THỜI GIAN (TUẦN)'
-                        : 'NGÀY KINH DOANH (ASIA/HO_CHI_MINH)'}
+                        : 'NGÀY KINH DOANH'}
                     </th>
                     <th className={styles.numCell}>ĐƠN HOÀN TẤT</th>
                     <th className={styles.numCell}>ĐƠN HỦY</th>
                     <th className={styles.numCell}>DOANH THU HOÀN TẤT (VND)</th>
-                    <th className={styles.numCell}>AOV TRUNG BÌNH</th>
+                    <th className={styles.numCell}>GIÁ TRỊ TB ĐƠN</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -850,9 +1020,8 @@ export default function Dashboard() {
         <div className={styles.tableFooterNote}>
           <span className={styles.greenDot} />
           <span>
-            Báo cáo chỉ thống kê doanh thu từ các giao dịch đã hoàn tất (COMPLETED). Mọi
-            đơn hủy (CANCELLED) được gán về đúng ngày bán ban đầu theo múi giờ
-            Asia/Ho_Chi_Minh.
+            Báo cáo chỉ thống kê doanh thu từ các giao dịch đã hoàn thành. Mọi đơn đã hủy
+            được ghi nhận về đúng ngày bán ban đầu.
           </span>
         </div>
       </section>
@@ -860,11 +1029,19 @@ export default function Dashboard() {
       {selectedOrder && (
         <OrderDetailModal
           order={selectedOrder}
-          currentUser={user}
-          isLoading={isDetailLoading}
-          isVerified={isDetailVerified}
-          errorMessage={detailError}
-          onRetry={() => handleOpenOrderDetail(selectedOrder)}
+          detailStatus={
+            isDetailLoading
+              ? 'loading'
+              : detailError
+              ? 'error'
+              : isDetailVerified
+              ? 'verified'
+              : 'loading'
+          }
+          detailError={detailError}
+          onRetryDetail={() => handleOpenOrderDetail(selectedOrder)}
+          user={user}
+          nowMs={Date.now()}
           onClose={handleCloseOrderDetail}
         />
       )}
