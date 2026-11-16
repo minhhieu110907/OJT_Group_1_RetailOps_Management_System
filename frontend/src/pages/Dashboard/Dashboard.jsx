@@ -886,7 +886,13 @@ export default function Dashboard() {
                             #{ord.order_code || `HD-${ord.id}`}
                           </td>
                           <td>{formatVietnamDateTime(ord.sold_at || ord.created_at)}</td>
-                          <td>{formatOrderActorLabel(ord, user)}</td>
+                          <td>
+                            {ord.created_by_name ||
+                              formatOrderActorLabel(ord.created_by, user).replace(
+                                /^Admin #\d+$/,
+                                'Admin'
+                              )}
+                          </td>
                           <td className={styles.centerCell}>
                             {typeof itemCount === 'number' ? `${itemCount} món` : itemCount}
                           </td>
@@ -1043,6 +1049,8 @@ export default function Dashboard() {
           user={user}
           nowMs={Date.now()}
           onClose={handleCloseOrderDetail}
+          hideTimezone
+          compactAdminLabel
         />
       )}
     </div>
