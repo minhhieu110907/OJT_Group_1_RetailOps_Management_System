@@ -26,7 +26,7 @@ import axiosClient, {
 import { useToast } from '../components/common';
 
 // 1. Tạo Context lưu trữ thông tin xác thực
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 // 5 Tài khoản mẫu không nhạy cảm (Synthetic Demo Accounts) chỉ dùng trong môi trường DEV khi bật Mock
 const INITIAL_USERS = [

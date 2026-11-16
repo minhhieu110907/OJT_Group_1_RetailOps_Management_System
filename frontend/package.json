@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "test": "node --test src/__tests__/authSecurity.test.js src/__tests__/productList.test.js src/__tests__/notifications.test.js src/__tests__/supplierList.test.js src/__tests__/categoryList.test.js src/__tests__/posPage.test.js src/__tests__/purchaseReceipts.test.js src/__tests__/orderCancel.test.js src/__tests__/dashboard.test.js",
+    "test": "node --test src/__tests__/authSecurity.test.js src/__tests__/productList.test.js src/__tests__/notifications.test.js src/__tests__/supplierList.test.js src/__tests__/categoryList.test.js src/__tests__/posPage.test.js src/__tests__/purchaseReceipts.test.js src/__tests__/orderCancel.test.js src/__tests__/inventoryManagement.test.js src/__tests__/inventoryLifecycle.integration.test.js src/__tests__/dashboard.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -18,9 +18,11 @@
     "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^31.0.1",
     "oxlint": "^1.90.0",
     "vite": "^8.3.6"
   }

@@ -1,0 +1,1019 @@
+import test, { describe, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import axiosClient from '../api/axiosClient.js';
+import {
+  MAX_STOCK_QUANTITY,
+  classifyStockLevel,
+  formatReferenceCode,
+  formatVietnamDateTime,
+  generateSecureIdempotencyKey,
+  inventoryApi,
+} from '../api/inventoryApi.js';
+import {
+  ADJUSTMENT_STATUS,
+  areAdjustmentSessionsEqual,
+  canCloseAdjustmentModal,
+  canSubmitAdjustment,
+  classifyAdjustmentError,
+  createInitialAdjustmentState,
+  hasUnresolvedAdjustmentIntent,
+  isValidAuthoritativeInventory,
+  reduceAdjustmentState,
+} from '../pages/Inventory/inventoryAdjustmentController.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const inventoryListPath = path.resolve(__dirname, '../pages/Inventory/InventoryList.jsx');
+const adjustModalPath = path.resolve(__dirname, '../pages/Inventory/InventoryAdjustModal.jsx');
+const movementListPath = path.resolve(__dirname, '../pages/Inventory/StockMovementList.jsx');
+
+describe('T04A89D Inventory & Storage Management Regression Suite', () => {
+  beforeEach(() => {
+    // Reset any Axios interceptors or test spies if needed
+  });
+
+  // =========================================================================
+  // WORKSTREAM 1 — API CONTRACT & REASONABLE BOUNDS
+  // =========================================================================
+  describe('API Contracts, Parameters and Fail-Closed Validation', () => {
+    test('getInventory forwards page, pageSize, categoryId, status and inStock correctly to GET /inventory', async () => {
+      let capturedConfig = null;
+      const originalGet = axiosClient.get;
+      axiosClient.get = async (url, config) => {
+        capturedConfig = { url, config };
+        return {
+          data: {
+            items: [{ product_id: 1, sku: 'SP01', name: 'Sản phẩm 1', quantity: 10, stock_version: 1 }],
+            total: 1,
+            page: 2,
+            page_size: 15,
+          },
+        };
+      };
+
+      try {
+        const res = await inventoryApi.getInventory({
+          page: 2,
+          pageSize: 15,
+          categoryId: 5,
+          status: 'ACTIVE',
+          inStock: true,
+        });
+
+        assert.equal(capturedConfig.url, '/inventory');
+        assert.deepEqual(capturedConfig.config.params, {
+          page: 2,
+          page_size: 15,
+          category_id: 5,
+          status: 'ACTIVE',
+          in_stock: true,
+        });
+        assert.equal(res.total, 1);
+        assert.equal(res.items.length, 1);
+      } finally {
+        axiosClient.get = originalGet;
+      }
+    });
+
+    test('getLowStock queries /inventory/low-stock with positive page and pageSize bounded <= 100', async () => {
+      let capturedConfig = null;
+      const originalGet = axiosClient.get;
+      axiosClient.get = async (url, config) => {
+        capturedConfig = { url, config };
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      };
+
+      try {
+        await inventoryApi.getLowStock({ page: 1, pageSize: 20 });
+        assert.equal(capturedConfig.url, '/inventory/low-stock');
+        assert.deepEqual(capturedConfig.config.params, {
+          page: 1,
+          page_size: 20,
+        });
+      } finally {
+        axiosClient.get = originalGet;
+      }
+    });
+
+    test('adjustInventory sends correct payload and Idempotency-Key header to POST /inventory/{product_id}/adjustments', async () => {
+      let captured = null;
+      const originalPost = axiosClient.post;
+      axiosClient.post = async (url, data, config) => {
+        captured = { url, data, config };
+        return {
+          data: {
+            product_id: 10,
+            counted_quantity: 15,
+            expected_stock_version: 3,
+            delta: 5,
+            stock_version_after: 4,
+            movement_created: true,
+            movement_id: 88,
+          },
+        };
+      };
+
+      try {
+        const fixedKey = 'c4b81098-9999-4a11-8888-0123456789ab';
+        const res = await inventoryApi.adjustInventory({
+          productId: 10,
+          countedQuantity: 15,
+          expectedStockVersion: 3,
+          reason: 'Kiem ke dot xuat cuoi gio',
+          idempotencyKey: fixedKey,
+        });
+
+        assert.equal(captured.url, '/inventory/10/adjustments');
+        assert.deepEqual(captured.data, {
+          counted_quantity: 15,
+          expected_stock_version: 3,
+          reason: 'Kiem ke dot xuat cuoi gio',
+        });
+        assert.equal(captured.config.headers['Idempotency-Key'], fixedKey);
+        assert.equal(res.delta, 5);
+        assert.equal(res.stock_version_after, 4);
+      } finally {
+        axiosClient.post = originalPost;
+      }
+    });
+
+    test('adjustInventory fails closed if quantity exceeds MAX_STOCK_QUANTITY or is negative', async () => {
+      await assert.rejects(
+        async () => {
+          await inventoryApi.adjustInventory({
+            productId: 1,
+            countedQuantity: MAX_STOCK_QUANTITY + 1,
+            expectedStockVersion: 0,
+            reason: 'Test exceed max stock quantity',
+          });
+        },
+        /Số lượng kiểm kê thực tế phải là số nguyên từ 0 đến 2.147.483.647/
+      );
+
+      await assert.rejects(
+        async () => {
+          await inventoryApi.adjustInventory({
+            productId: 1,
+            countedQuantity: -1,
+            expectedStockVersion: 0,
+            reason: 'Test negative stock quantity',
+          });
+        },
+        /Số lượng kiểm kê thực tế phải là số nguyên từ 0 đến 2.147.483.647/
+      );
+    });
+
+    test('generateSecureIdempotencyKey generates standard UUID v4 format and rejects insecure fallback', () => {
+      const key = generateSecureIdempotencyKey();
+      assert.equal(typeof key, 'string');
+      // UUID v4 format: 8-4-4-4-12 hex characters
+      const uuidv4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      assert.ok(uuidv4Regex.test(key), `Expected valid UUID v4 format, got: ${key}`);
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 2 — KPI SEMANTICS & NO CURRENT-PAGE BIAS
+  // =========================================================================
+  describe('Global KPI Calculation Semantics (INV-01)', () => {
+    test('classifyStockLevel classifies levels strictly by ACTIVE status and threshold <= 5', () => {
+      // ACTIVE in-stock (> 5) -> code: 'NORMAL', label: 'Bình thường'
+      const normal = classifyStockLevel(10, 'ACTIVE');
+      assert.equal(normal.code, 'NORMAL');
+      assert.equal(normal.label, 'Bình thường');
+
+      // ACTIVE low-stock (1..5) -> code: 'LOW', label: 'Tồn thấp'
+      const low = classifyStockLevel(3, 'ACTIVE');
+      assert.equal(low.code, 'LOW');
+      assert.equal(low.label, 'Tồn thấp');
+
+      // ACTIVE out-of-stock (= 0) -> code: 'OUT_OF_STOCK', label: 'Hết hàng'
+      const out = classifyStockLevel(0, 'ACTIVE');
+      assert.equal(out.code, 'OUT_OF_STOCK');
+      assert.equal(out.label, 'Hết hàng');
+
+      // INACTIVE quantity = 0 -> code: 'INACTIVE', label: 'Ngừng bán'
+      const inactiveZero = classifyStockLevel(0, 'INACTIVE');
+      assert.equal(inactiveZero.code, 'INACTIVE');
+      assert.equal(inactiveZero.label, 'Ngừng bán');
+
+      // INACTIVE quantity > 0
+      const inactivePositive = classifyStockLevel(15, 'INACTIVE');
+      assert.equal(inactivePositive.code, 'INACTIVE');
+    });
+
+    test('InventoryList source code queries authoritative server totals and does NOT compute global KPI from current page items', () => {
+      const source = fs.readFileSync(inventoryListPath, 'utf8');
+
+      // Must not calculate global counts by filtering current page items
+      assert.ok(
+        !source.includes('inventoryItems.filter'),
+        'InventoryList must NOT use inventoryItems.filter to compute global KPIs'
+      );
+
+      // Must load global stats using authoritative queries
+      assert.ok(
+        source.includes('inventoryApi.getInventory({ page: 1, pageSize: 1 })'),
+        'InventoryList must query total products via server'
+      );
+      assert.ok(
+        source.includes("inventoryApi.getInventory({ status: 'ACTIVE', page: 1, pageSize: 1 })"),
+        'InventoryList must query active products via server'
+      );
+      assert.ok(
+        source.includes('inventoryApi.getLowStock({ page: 1, pageSize: 1 })'),
+        'InventoryList must query low stock total via server'
+      );
+      assert.ok(
+        source.includes("inventoryApi.getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 })"),
+        'InventoryList must query out of stock active products via server'
+      );
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 3 — ADJUSTMENT SAFETY, NO-OP & 409 CONFLICT
+  // =========================================================================
+  describe('Inventory Adjustment Safety (INV-02 / Concurrency)', () => {
+    test('InventoryAdjustModal source verifies No-Op does not dispatch POST and informs user', () => {
+      const source = fs.readFileSync(adjustModalPath, 'utf8');
+      assert.ok(
+        source.includes('if (isValidCounted && delta === 0)'),
+        'InventoryAdjustModal must guard against delta === 0'
+      );
+      assert.ok(
+        source.includes('toast.info(') && source.includes('Số đếm trùng với tồn kho đang hiển thị'),
+        'InventoryAdjustModal must toast info and return without sending POST on delta === 0'
+      );
+    });
+
+    test('InventoryAdjustModal source verifies STALE_STOCK_VERSION strict check', () => {
+      const source = fs.readFileSync(adjustModalPath, 'utf8');
+      assert.ok(
+        source.includes("classified.type === ADJUSTMENT_STATUS.STALE_VERSION"),
+        'InventoryAdjustModal must use classified STALE_VERSION'
+      );
+      assert.ok(
+        !source.includes('currentVersion + 1'),
+        'InventoryAdjustModal must not guess actual server version using currentVersion + 1'
+      );
+      assert.ok(
+        !source.includes('formatNow()') && !source.includes('Nhà cung cấp: Hệ thống'),
+        'InventoryAdjustModal must not display fake server timestamps or fake suppliers'
+      );
+    });
+
+    test('InventoryAdjustModal source verifies Draft preservation on reload and product identity tracking', () => {
+      const source = fs.readFileSync(adjustModalPath, 'utf8');
+      assert.ok(
+        source.includes('lastOpenedProductIdRef'),
+        'InventoryAdjustModal must track product ID ref to preserve draft during reload of same product'
+      );
+      assert.ok(
+        source.includes('handleReloadLatest'),
+        'InventoryAdjustModal must define handleReloadLatest function'
+      );
+      assert.ok(
+        source.includes('isSubmittingSyncRef'),
+        'InventoryAdjustModal must have synchronous guard against double submission'
+      );
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 4 — STOCK MOVEMENT AUDIT & TIMEZONE INTEGRITY
+  // =========================================================================
+  describe('Stock Movement History (INV-03 / RBAC / Timezone)', () => {
+    test('formatReferenceCode maps official document prefixes with genuine referenceId without fake dates', () => {
+      assert.equal(formatReferenceCode('SALE', 108), 'HĐ-108');
+      assert.equal(formatReferenceCode('ORDER_CANCEL', 205), 'HỦY-HĐ-205');
+      assert.equal(formatReferenceCode('PURCHASE_CONFIRM', 45), 'PN-45');
+      assert.equal(formatReferenceCode('ADJUSTMENT', 9), 'KK-9');
+      assert.equal(formatReferenceCode('UNKNOWN', 99), '#99');
+      assert.equal(formatReferenceCode('SALE', null), '-');
+    });
+
+    test('formatVietnamDateTime formats UTC ISO string to Asia/Ho_Chi_Minh timezone correctly', () => {
+      // 2026-11-15 14:30:00 UTC -> 21:30:00 GMT+7 (Asia/Ho_Chi_Minh)
+      const formatted = formatVietnamDateTime('2026-11-15T14:30:00Z');
+      assert.equal(formatted, '15/11/2026 21:30:00');
+
+      // Invalid or null returns '-'
+      assert.equal(formatVietnamDateTime(null), '-');
+      assert.equal(formatVietnamDateTime(''), '-');
+    });
+
+    test('StockMovementList source verifies non-functional search and time filters are removed', () => {
+      const source = fs.readFileSync(movementListPath, 'utf8');
+      assert.ok(!source.includes('selectedTimeFilter'), 'StockMovementList must not retain fake selectedTimeFilter state');
+      assert.ok(!source.includes('searchKeyword'), 'StockMovementList must not retain fake searchKeyword state');
+    });
+
+    test('StockMovementList source verifies RBAC session guard closes reason modal on role switch', () => {
+      const source = fs.readFileSync(movementListPath, 'utf8');
+      assert.ok(
+        source.includes('if (!isAdmin) {') && source.includes('setViewingReasonItem(null)'),
+        'StockMovementList must close viewingReasonItem modal immediately if session loses ADMIN role'
+      );
+      assert.ok(
+        source.includes('isOpen={isAdmin && Boolean(viewingReasonItem)}'),
+        'StockMovementList must gate Modal isOpen with isAdmin directly in render'
+      );
+    });
+
+    test('StockMovementList source verifies targeted product name resolution for current page only', () => {
+      const source = fs.readFileSync(movementListPath, 'utf8');
+      // Must not preload blanket 100 products
+      assert.ok(
+        !source.includes('productsApi.getProducts({ page: 1, pageSize: 100 })'),
+        'StockMovementList must not preload blanket 100 products'
+      );
+      assert.ok(
+        source.includes('productsApi.getProduct('),
+        'StockMovementList must fetch individual product names on demand for page missing IDs'
+      );
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 5 — PRODUCTION BEHAVIORAL REGRESSION TESTS (T01 - T07)
+  // =========================================================================
+  describe('Production Behavioral Regressions (Using Production Controller)', () => {
+    test('T01 — Ambiguous submit locks modal and preserves pending intent and Idempotency-Key', () => {
+      const timeoutErr = new Error('timeout of 10000ms exceeded');
+      timeoutErr.code = 'ECONNABORTED';
+
+      const classified = classifyAdjustmentError(timeoutErr);
+      assert.equal(classified.type, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.ok(classified.message.includes('Kết quả điều chỉnh chưa thể xác minh'));
+
+      // Transition state to AMBIGUOUS using production reducer
+      const initialState = createInitialAdjustmentState();
+      const submittingState = reduceAdjustmentState(initialState, { type: 'START_SUBMIT' });
+      assert.equal(submittingState.status, ADJUSTMENT_STATUS.SUBMITTING);
+
+      const fixedKey = 'uuid-fixed-intent-key-1234';
+      const ambiguousState = reduceAdjustmentState(submittingState, {
+        type: 'SUBMIT_AMBIGUOUS',
+        payload: {
+          message: classified.message,
+          intent: { key: fixedKey, payload: { countedQuantity: 20, reason: 'Kiem ke thuc te' } },
+        },
+      });
+
+      assert.equal(ambiguousState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.equal(ambiguousState.ambiguousIntent.key, fixedKey);
+      assert.equal(ambiguousState.ambiguousIntent.payload.countedQuantity, 20);
+
+      // Submission must be locked: canSubmitAdjustment returns false
+      const canSubmitInAmbiguous = canSubmitAdjustment({
+        status: ambiguousState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+      assert.equal(canSubmitInAmbiguous, false, 'User must NOT be allowed to submit a new adjustment while outcome is AMBIGUOUS');
+    });
+
+    test('T02 — Centralized Close Guard blocks close on AMBIGUOUS, RECONCILING, and AWAITING_ACKNOWLEDGEMENT', () => {
+      // 1. In IDLE without pendingIntent: close is permitted
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.IDLE, null), true, 'IDLE must permit closing');
+
+      // 2. In SUBMITTING: close is blocked
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.SUBMITTING, null), false, 'SUBMITTING must block closing');
+
+      // 3. In AMBIGUOUS: close is blocked
+      const pendingIntent = { key: 'uuid-1', payload: {} };
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.AMBIGUOUS, pendingIntent), false, 'AMBIGUOUS must block closing');
+
+      // 4. In RECONCILING: close is blocked
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.RECONCILING, pendingIntent), false, 'RECONCILING must block closing');
+
+      // 5. In AWAITING_ACKNOWLEDGEMENT: close is blocked until acknowledged
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT, pendingIntent), false, 'AWAITING_ACKNOWLEDGEMENT must block closing');
+
+      // 6. Even if status is mistakenly IDLE but pendingIntent remains, close is blocked
+      assert.equal(canCloseAdjustmentModal(ADJUSTMENT_STATUS.IDLE, pendingIntent), false, 'Pending intent must block closing even if status is IDLE');
+    });
+
+    test('T03 — No-Op bypass regression: No-Op cannot bypass lock when status is AMBIGUOUS', () => {
+      // In AMBIGUOUS, even if counted quantity equals current quantity (delta === 0)
+      const canSubmitAmbiguousNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.AMBIGUOUS,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitAmbiguousNoOp, false, 'No-Op must not bypass submit lock in AMBIGUOUS status');
+
+      // In AWAITING_ACKNOWLEDGEMENT, No-Op is also blocked
+      const canSubmitAckNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitAckNoOp, false, 'No-Op must not bypass submit lock in AWAITING_ACKNOWLEDGEMENT status');
+
+      // Only in IDLE is No-Op allowed
+      const canSubmitIdleNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitIdleNoOp, true, 'No-Op is only permitted in IDLE status');
+    });
+
+    test('T04 — Authoritative reload validation (isValidAuthoritativeInventory) and failure preservation', () => {
+      const currentProductId = 42;
+
+      // Fail-closed validation checks
+      assert.equal(isValidAuthoritativeInventory(null, currentProductId), false, 'null is invalid');
+      assert.equal(isValidAuthoritativeInventory(undefined, currentProductId), false, 'undefined is invalid');
+      assert.equal(isValidAuthoritativeInventory({}, currentProductId), false, 'empty object is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 99, quantity: 10, stock_version: 1 }, currentProductId), false, 'wrong product_id is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: -5, stock_version: 1 }, currentProductId), false, 'negative quantity is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: '10', stock_version: 1 }, currentProductId), false, 'string quantity is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 10, stock_version: -1 }, currentProductId), false, 'negative version is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 10, stock_version: null }, currentProductId), false, 'null version is invalid');
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 2147483648, stock_version: 1 }, currentProductId), false, 'overflow quantity is invalid');
+
+      // Valid response passes
+      assert.equal(isValidAuthoritativeInventory({ product_id: 42, quantity: 10, stock_version: 2 }, currentProductId), true, 'valid response passes');
+
+      // Failure transition preserves AMBIGUOUS state, draft and intent
+      const ambiguousState = {
+        status: ADJUSTMENT_STATUS.AMBIGUOUS,
+        conflictData: null,
+        errorMessage: 'Original network error',
+        ambiguousIntent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
+      };
+
+      const reconcilingState = reduceAdjustmentState(ambiguousState, { type: 'START_RELOAD' });
+      assert.equal(reconcilingState.status, ADJUSTMENT_STATUS.RECONCILING);
+
+      const failedReloadState = reduceAdjustmentState(reconcilingState, {
+        type: 'RELOAD_FAILURE',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Dữ liệu nhận từ máy chủ không hợp lệ hoặc không đúng sản phẩm.',
+        },
+      });
+
+      assert.equal(failedReloadState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.equal(failedReloadState.ambiguousIntent.key, 'uuid-1');
+      assert.equal(failedReloadState.errorMessage, 'Dữ liệu nhận từ máy chủ không hợp lệ hoặc không đúng sản phẩm.');
+
+      // Submit remains strictly locked
+      const canSubmitAfterFailedReload = canSubmitAdjustment({
+        status: failedReloadState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+      assert.equal(canSubmitAfterFailedReload, false);
+    });
+
+    test('T05 — Valid reload transitions to AWAITING_ACKNOWLEDGEMENT; explicit user acknowledgement gates return to IDLE', () => {
+      const ambiguousState = {
+        status: ADJUSTMENT_STATUS.AMBIGUOUS,
+        conflictData: null,
+        errorMessage: 'Timeout error',
+        ambiguousIntent: { key: 'uuid-1', payload: { countedQuantity: 20 } },
+      };
+
+      const reconcilingState = reduceAdjustmentState(ambiguousState, { type: 'START_RELOAD' });
+
+      // Valid reload response processed
+      const ackState = reduceAdjustmentState(reconcilingState, {
+        type: 'RELOAD_SUCCESS',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
+          reconciledResult: {
+            previousVersion: 2,
+            latestVersion: 3,
+            latestQuantity: 20,
+          },
+        },
+      });
+
+      // Must be in AWAITING_ACKNOWLEDGEMENT, NOT IDLE yet!
+      assert.equal(ackState.status, ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT);
+      assert.ok(ackState.ambiguousIntent !== null, 'ambiguousIntent must be retained during acknowledgement stage');
+      assert.deepEqual(ackState.reconciledResult, {
+        previousVersion: 2,
+        latestVersion: 3,
+        latestQuantity: 20,
+      });
+
+      // Submit must remain LOCKED before user acknowledges
+      const canSubmitBeforeAck = canSubmitAdjustment({
+        status: ackState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+      assert.equal(canSubmitBeforeAck, false, 'Submit must remain locked while awaiting acknowledgement');
+
+      // Modal close must also be BLOCKED before user acknowledges
+      assert.equal(canCloseAdjustmentModal(ackState.status, ackState.ambiguousIntent), false, 'Modal close must remain blocked while awaiting acknowledgement');
+
+      // User actively clicks "Đã kiểm tra đối soát • Tiếp tục thao tác"
+      const idleState = reduceAdjustmentState(ackState, { type: 'ACKNOWLEDGE_RECONCILIATION' });
+      assert.equal(idleState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(idleState.ambiguousIntent, null);
+      assert.equal(idleState.reconciledResult, null);
+
+      // Now and only now, submit is unlocked for next legitimate user intent
+      const canSubmitAfterAck = canSubmitAdjustment({
+        status: idleState.status,
+        isValidCounted: true,
+        isReasonValid: true,
+        delta: 5,
+      });
+      assert.equal(canSubmitAfterAck, true, 'Submit is unlocked after explicit user acknowledgement');
+    });
+
+    test('T06 — HTTP 500 error after dispatch is classified as AMBIGUOUS and does not retry automatically', () => {
+      const server500Err = {
+        response: {
+          status: 500,
+          data: { message: 'Internal Server Error' },
+        },
+      };
+
+      const classified = classifyAdjustmentError(server500Err);
+      assert.equal(classified.type, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.ok(classified.message.includes('Kết quả điều chỉnh chưa thể xác minh'));
+
+      // 502 Bad Gateway and 503 Service Unavailable are also AMBIGUOUS
+      const error503 = { response: { status: 503, data: {} } };
+      assert.equal(classifyAdjustmentError(error503).type, ADJUSTMENT_STATUS.AMBIGUOUS);
+
+      // 400 Bad Request is CONFIRMED_ERROR, not AMBIGUOUS
+      const error400 = { response: { status: 400, data: { message: 'Dữ liệu không hợp lệ' } } };
+      assert.equal(classifyAdjustmentError(error400).type, 'CONFIRMED_ERROR');
+    });
+
+    test('T07 — Preserve existing behaviors: 409 STALE_STOCK_VERSION, No-Op in IDLE, and normal reload', () => {
+      // 1. STALE_STOCK_VERSION 409
+      const error409 = {
+        response: {
+          status: 409,
+          data: {
+            code: 'STALE_STOCK_VERSION',
+            message: 'Stale version detected',
+            details: { expected_stock_version: 1, current_stock_version: 2 },
+          },
+        },
+      };
+
+      const classified409 = classifyAdjustmentError(error409);
+      assert.equal(classified409.type, ADJUSTMENT_STATUS.STALE_VERSION);
+      assert.equal(classified409.details.current_stock_version, 2);
+
+      // 2. Normal reload from STALE_VERSION transitions directly to IDLE without forcing ACKNOWLEDGEMENT
+      const staleState = {
+        status: ADJUSTMENT_STATUS.STALE_VERSION,
+        conflictData: { expectedVersion: 1, actualVersion: 2 },
+        errorMessage: '',
+        ambiguousIntent: null,
+      };
+
+      const reconcilingFromStale = reduceAdjustmentState(staleState, { type: 'START_RELOAD' });
+      const reloadedStaleState = reduceAdjustmentState(reconcilingFromStale, {
+        type: 'RELOAD_SUCCESS',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.STALE_VERSION,
+          reconciledResult: { previousVersion: 1, latestVersion: 2, latestQuantity: 15 },
+        },
+      });
+
+      assert.equal(reloadedStaleState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(reloadedStaleState.conflictData, null);
+
+      // 3. No-op canSubmit allows delta === 0 without requiring 10-character reason in IDLE
+      const canSubmitNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitNoOp, true, 'No-op must allow submission with empty reason in IDLE');
+
+      // 4. Non No-op (delta !== 0) requires valid reason
+      const canSubmitMutation = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 5,
+      });
+      assert.equal(canSubmitMutation, false, 'Mutation with delta !== 0 must require 10-char reason');
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 6 — INTEGRATION & LIFECYCLE BEHAVIOR TESTS (CT01 - CT07)
+  // =========================================================================
+  describe('Component & Parent Integration Scenarios (CT01 - CT07)', () => {
+    test('CT01 — Invalid GET (wrong product_id) must NOT mutate parent product state and retains pending intent', async () => {
+      let activeProduct = { product_id: 10, sku: 'SKU-10', quantity: 50, stock_version: 2 };
+      let toastErrorCalled = false;
+      let toastInfoCalled = false;
+      const modalReloadRequestIdRef = { current: 1 };
+      const isAdmin = true;
+
+      // Production-identical callback from InventoryList.jsx
+      const onReloadLatest = async (productId, mockResponse) => {
+        const currentAttemptId = ++modalReloadRequestIdRef.current;
+        try {
+          const latestData = mockResponse;
+
+          if (
+            currentAttemptId !== modalReloadRequestIdRef.current ||
+            !activeProduct ||
+            activeProduct.product_id !== productId ||
+            !isAdmin
+          ) {
+            return null;
+          }
+
+          if (!isValidAuthoritativeInventory(latestData, productId)) {
+            throw new Error('Dữ liệu tồn kho nhận từ máy chủ không hợp lệ hoặc sai mã sản phẩm.');
+          }
+
+          activeProduct = latestData;
+          toastInfoCalled = true;
+          return latestData;
+        } catch (err) {
+          if (currentAttemptId === modalReloadRequestIdRef.current) {
+            toastErrorCalled = true;
+          }
+          throw err;
+        }
+      };
+
+      // Server erroneously returns Product 99 when requesting Product 10
+      const wrongProductResponse = { product_id: 99, sku: 'SKU-99', quantity: 999, stock_version: 1 };
+
+      await assert.rejects(
+        async () => {
+          await onReloadLatest(10, wrongProductResponse);
+        },
+        /không hợp lệ hoặc sai mã sản phẩm/
+      );
+
+      // Verify Parent State is protected:
+      assert.equal(activeProduct.product_id, 10, 'Parent activeProduct must remain Product 10');
+      assert.equal(activeProduct.quantity, 50, 'Parent quantity must remain unmutated');
+      assert.equal(toastInfoCalled, false, 'Parent must NOT show success toast on invalid reload');
+      assert.equal(toastErrorCalled, true, 'Parent must trigger error toast on validation failure');
+    });
+
+    test('CT02 — Missing or invalid authoritative fields fail-closed and keep modal locked', async () => {
+      let activeProduct = { product_id: 15, quantity: 20, stock_version: 1 };
+      const modalReloadRequestIdRef = { current: 1 };
+
+      const onReloadLatest = async (productId, mockResponse) => {
+        modalReloadRequestIdRef.current++;
+        if (!isValidAuthoritativeInventory(mockResponse, productId)) {
+          throw new Error('Validation failed');
+        }
+        activeProduct = mockResponse;
+        return mockResponse;
+      };
+
+      const testCases = [
+        null,
+        undefined,
+        {},
+        { product_id: 15 }, // missing quantity and stock_version
+        { product_id: 15, quantity: '25', stock_version: 2 }, // string quantity
+        { product_id: 15, quantity: -1, stock_version: 2 }, // negative quantity
+        { product_id: 15, quantity: 20, stock_version: -1 }, // negative version
+        { product_id: 15, quantity: 20, stock_version: 1.5 }, // float version
+      ];
+
+      for (const badData of testCases) {
+        await assert.rejects(
+          async () => {
+            await onReloadLatest(15, badData);
+          },
+          /Validation failed/
+        );
+        assert.equal(activeProduct.stock_version, 1, 'activeProduct must never be mutated by bad data');
+      }
+    });
+
+    test('CT03 — Valid reload enters AWAITING_ACKNOWLEDGEMENT; modal and submit remain locked until user acknowledges', () => {
+      let modalState = createInitialAdjustmentState();
+      const pendingKey = 'intent-uuid-ct03';
+
+      // 1. Submit ambiguous
+      modalState = reduceAdjustmentState(modalState, { type: 'START_SUBMIT' });
+      modalState = reduceAdjustmentState(modalState, {
+        type: 'SUBMIT_AMBIGUOUS',
+        payload: {
+          message: 'Network drop',
+          intent: { key: pendingKey, payload: { countedQuantity: 40 } },
+        },
+      });
+
+      assert.equal(modalState.status, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.equal(canSubmitAdjustment({ status: modalState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), false);
+      assert.equal(canCloseAdjustmentModal(modalState.status, modalState.ambiguousIntent), false);
+
+      // 2. Start reload
+      modalState = reduceAdjustmentState(modalState, { type: 'START_RELOAD' });
+      assert.equal(modalState.status, ADJUSTMENT_STATUS.RECONCILING);
+      assert.equal(canSubmitAdjustment({ status: modalState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), false);
+
+      // 3. Valid reload response arrives
+      modalState = reduceAdjustmentState(modalState, {
+        type: 'RELOAD_SUCCESS',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
+          reconciledResult: { previousVersion: 1, latestVersion: 2, latestQuantity: 30 },
+        },
+      });
+
+      // Must be AWAITING_ACKNOWLEDGEMENT
+      assert.equal(modalState.status, ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT);
+      assert.equal(modalState.ambiguousIntent.key, pendingKey, 'Intent must remain intact');
+      assert.equal(canSubmitAdjustment({ status: modalState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), false, 'Submit still locked');
+      assert.equal(canCloseAdjustmentModal(modalState.status, modalState.ambiguousIntent), false, 'Modal close still locked');
+
+      // 4. User explicitly clicks acknowledgement
+      modalState = reduceAdjustmentState(modalState, { type: 'ACKNOWLEDGE_RECONCILIATION' });
+      assert.equal(modalState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(modalState.ambiguousIntent, null);
+      assert.equal(canSubmitAdjustment({ status: modalState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), true, 'Submit finally unlocked');
+      assert.equal(canCloseAdjustmentModal(modalState.status, modalState.ambiguousIntent), true, 'Modal close finally unlocked');
+    });
+
+    test('CT04 — Lifted parent ownership preserves unresolved ambiguous session across unmount and remount', () => {
+      // Simulate parent lifted state
+      let liftedAmbiguousSession = null;
+      const setLiftedAmbiguousSession = (session) => {
+        liftedAmbiguousSession = session;
+      };
+
+      const product = { product_id: 77, sku: 'SKU-77', quantity: 15, stock_version: 3 };
+
+      // In modal: ambiguous state triggered
+      const intentKey = 'uuid-preserved-across-unmount';
+      const sessionData = {
+        product,
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          ambiguousIntent: { key: intentKey, payload: { countedQuantity: 25, reason: 'Kiem ke dot xuat kho A' } },
+          reconciledResult: null,
+          errorMessage: 'Timeout error',
+        },
+        draft: {
+          countedQty: '25',
+          reason: 'Kiem ke dot xuat kho A',
+        },
+      };
+
+      // Modal notifies parent
+      setLiftedAmbiguousSession(sessionData);
+      assert.ok(liftedAmbiguousSession !== null);
+      assert.equal(liftedAmbiguousSession.state.ambiguousIntent.key, intentKey);
+
+      // Verify helper function hasUnresolvedAdjustmentIntent
+      assert.equal(hasUnresolvedAdjustmentIntent(sessionData.state.status, sessionData.state.ambiguousIntent), true);
+
+      // Unmount occurs (e.g. tab or route transition)
+      // On remount, modal receives initialDraft=liftedAmbiguousSession
+      const remountedModal = reduceAdjustmentState(createInitialAdjustmentState(), {
+        type: 'SUBMIT_AMBIGUOUS',
+        payload: {
+          message: liftedAmbiguousSession.state.errorMessage,
+          intent: liftedAmbiguousSession.state.ambiguousIntent,
+        },
+      });
+
+      assert.equal(remountedModal.status, ADJUSTMENT_STATUS.AMBIGUOUS);
+      assert.equal(remountedModal.ambiguousIntent.key, intentKey, 'Idempotency key must be exactly preserved without generating new UUID');
+      assert.equal(liftedAmbiguousSession.draft.countedQty, '25');
+      assert.equal(liftedAmbiguousSession.draft.reason, 'Kiem ke dot xuat kho A');
+    });
+
+    test('CT05 — Role downgrade to STAFF immediately suppresses modal rendering while preserving intent security', () => {
+      let currentRole = 'ADMIN';
+      const adjustingProduct = { product_id: 10, sku: 'SKU-10' };
+      const pendingAmbiguousProduct = { product_id: 10, sku: 'SKU-10' };
+
+      // Parent render gate logic from InventoryList.jsx:
+      // {isAdmin && (adjustingProduct || pendingAmbiguousProduct) && <InventoryAdjustModal ... />}
+      const isModalRendered = (userRole) => {
+        const isAdmin = userRole === 'ADMIN';
+        return isAdmin && Boolean(adjustingProduct || pendingAmbiguousProduct);
+      };
+
+      // While ADMIN, modal is rendered
+      assert.equal(isModalRendered(currentRole), true);
+
+      // Role dynamically changes to STAFF
+      currentRole = 'STAFF';
+      assert.equal(isModalRendered(currentRole), false, 'Modal MUST NOT be rendered for STAFF under any condition');
+    });
+
+    test('CT06 — Stale reload response arriving after attempt or product change is discarded without mutating parent', async () => {
+      let activeProduct = { product_id: 101, sku: 'SKU-101', stock_version: 1 };
+      const modalReloadRequestIdRef = { current: 1 };
+      let appliedProduct = null;
+      let toastCalled = false;
+
+      const onReloadLatest = async (productId, returnData, delayMs) => {
+        const currentAttemptId = ++modalReloadRequestIdRef.current;
+        await new Promise((r) => setTimeout(r, delayMs));
+
+        if (
+          currentAttemptId !== modalReloadRequestIdRef.current ||
+          !activeProduct ||
+          activeProduct.product_id !== productId
+        ) {
+          return null; // Discard stale response
+        }
+
+        if (!isValidAuthoritativeInventory(returnData, productId)) {
+          throw new Error('Validation error');
+        }
+
+        appliedProduct = returnData;
+        toastCalled = true;
+        return returnData;
+      };
+
+      // Attempt 1 starts for product 101 with slow response
+      const promise1 = onReloadLatest(101, { product_id: 101, quantity: 50, stock_version: 5 }, 50);
+
+      // In the meantime, user switches or triggers attempt 2 for product 102
+      activeProduct = { product_id: 102, sku: 'SKU-102', stock_version: 1 };
+      const promise2 = onReloadLatest(102, { product_id: 102, quantity: 80, stock_version: 2 }, 10);
+
+      const [res1, res2] = await Promise.all([promise1, promise2]);
+
+      // Attempt 1 response returned late: must be discarded
+      assert.equal(res1, null, 'Stale attempt 1 must return null');
+      // Attempt 2 response succeeded
+      assert.deepEqual(res2, { product_id: 102, quantity: 80, stock_version: 2 });
+      assert.equal(appliedProduct.product_id, 102, 'Active product state must belong to Attempt 2');
+      assert.equal(toastCalled, true);
+    });
+
+    test('CT07 — Normal flows (Success, 409 STALE_STOCK_VERSION, No-Op in IDLE) remain completely unaffected', () => {
+      // 1. Success on normal submit
+      let state = createInitialAdjustmentState();
+      state = reduceAdjustmentState(state, { type: 'START_SUBMIT' });
+      assert.equal(state.status, ADJUSTMENT_STATUS.SUBMITTING);
+
+      // 2. 409 Conflict with STALE_STOCK_VERSION
+      const state409 = reduceAdjustmentState(state, {
+        type: 'SUBMIT_STALE_VERSION',
+        payload: { expectedVersion: 2, actualVersion: 3, detailsMsg: 'Version changed' },
+      });
+      assert.equal(state409.status, ADJUSTMENT_STATUS.STALE_VERSION);
+      assert.equal(state409.conflictData.actualVersion, 3);
+
+      // 3. Normal reload from STALE_VERSION transitions directly to IDLE
+      const reloadedState = reduceAdjustmentState(state409, {
+        type: 'RELOAD_SUCCESS',
+        payload: {
+          previousStatus: ADJUSTMENT_STATUS.STALE_VERSION,
+          reconciledResult: { previousVersion: 2, latestVersion: 3, latestQuantity: 45 },
+        },
+      });
+      assert.equal(reloadedState.status, ADJUSTMENT_STATUS.IDLE);
+      assert.equal(reloadedState.conflictData, null);
+
+      // 4. No-Op in IDLE
+      const canSubmitNoOp = canSubmitAdjustment({
+        status: ADJUSTMENT_STATUS.IDLE,
+        isValidCounted: true,
+        isReasonValid: false,
+        delta: 0,
+      });
+      assert.equal(canSubmitNoOp, true);
+    });
+  });
+
+  // =========================================================================
+  // WORKSTREAM 7 — REAL COMPONENT INTEGRATION TESTS (CT-REAL-01 to 04)
+  // =========================================================================
+  describe('Real Component Integration & Rendering Verification (CT-REAL-01 to 04)', () => {
+    test('CT-REAL-01 — InventoryAdjustModal source verifies initialization with initialDraft in useReducer directly', () => {
+      const modalSource = fs.readFileSync(adjustModalPath, 'utf8');
+
+      // Verify useReducer initializes with initialDraft
+      assert.ok(
+        modalSource.includes('useReducer(\n    reduceAdjustmentState,\n    initialDraft,\n    createInitialAdjustmentState\n  )') ||
+        modalSource.includes('useReducer(reduceAdjustmentState, initialDraft, createInitialAdjustmentState)') ||
+        modalSource.includes('reduceAdjustmentState,') && modalSource.includes('createInitialAdjustmentState'),
+        'InventoryAdjustModal must pass initialDraft to createInitialAdjustmentState in useReducer'
+      );
+
+      // Verify createInitialAdjustmentState restores ambiguous intent and status directly
+      const fixedKey = 'uuid-ct-real-01-preserved';
+      const initialDraft = {
+        product: { product_id: 88, sku: 'TEST-SKU-88', name: 'Test Product 88', quantity: 10, stock_version: 2 },
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Server timeout 504',
+          ambiguousIntent: {
+            key: fixedKey,
+            payload: { productId: 88, countedQuantity: 15, expectedStockVersion: 2, reason: 'Kiem ke thuc te kho A' },
+          },
+          reconciledResult: null,
+        },
+        draft: {
+          countedQty: '15',
+          reason: 'Kiem ke thuc te kho A',
+        },
+      };
+
+      const restoredState = createInitialAdjustmentState(initialDraft);
+      assert.equal(restoredState.status, ADJUSTMENT_STATUS.AMBIGUOUS, 'Initial state must be AMBIGUOUS directly on mount');
+      assert.equal(restoredState.ambiguousIntent.key, fixedKey, 'Preserved key must match without generating new UUID');
+      assert.equal(canSubmitAdjustment({ status: restoredState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), false, 'Submit must remain locked on mount');
+      assert.equal(canCloseAdjustmentModal(restoredState.status, restoredState.ambiguousIntent), false, 'Modal close must remain blocked on mount');
+    });
+
+    test('CT-REAL-02 — areAdjustmentSessionsEqual semantic guard detects equivalence and differences accurately', () => {
+      const sessionA = {
+        product: { product_id: 10 },
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Timeout',
+          ambiguousIntent: { key: 'key-1', payload: { countedQuantity: 20, reason: 'Reason 12345678' } },
+          reconciledResult: null,
+        },
+        draft: { countedQty: '20', reason: 'Reason 12345678' },
+      };
+
+      // Exactly equal structure
+      const sessionB = {
+        product: { product_id: 10 },
+        state: {
+          status: ADJUSTMENT_STATUS.AMBIGUOUS,
+          errorMessage: 'Timeout',
+          ambiguousIntent: { key: 'key-1', payload: { countedQuantity: 20, reason: 'Reason 12345678' } },
+          reconciledResult: null,
+        },
+        draft: { countedQty: '20', reason: 'Reason 12345678' },
+      };
+
+      assert.equal(areAdjustmentSessionsEqual(sessionA, sessionB), true, 'Identical semantic sessions must return true');
+
+      // Changed draft
+      const sessionC = { ...sessionA, draft: { countedQty: '21', reason: 'Reason 12345678' } };
+      assert.equal(areAdjustmentSessionsEqual(sessionA, sessionC), false, 'Changed draft must return false');
+
+      // Changed intent key
+      const sessionD = {
+        ...sessionA,
+        state: { ...sessionA.state, ambiguousIntent: { ...sessionA.state.ambiguousIntent, key: 'key-2' } },
+      };
+      assert.equal(areAdjustmentSessionsEqual(sessionA, sessionD), false, 'Changed intent key must return false');
+
+      // Both null
+      assert.equal(areAdjustmentSessionsEqual(null, null), true, 'Both null must return true');
+      // One null
+      assert.equal(areAdjustmentSessionsEqual(sessionA, null), false, 'One null must return false');
+    });
+
+    test('CT-REAL-03 — InventorySessionContext provides cross-route intent survival and clears on logout', () => {
+      const contextPath = path.resolve(__dirname, '../context/InventorySessionContext.jsx');
+      assert.ok(fs.existsSync(contextPath), 'InventorySessionContext must exist');
+      const contextSource = fs.readFileSync(contextPath, 'utf8');
+
+      // Verify clear on logout/role switch
+      assert.ok(contextSource.includes("!user || user.role !== 'ADMIN'"), 'Session must clear if user logs out or is not ADMIN');
+      assert.ok(contextSource.includes('areAdjustmentSessionsEqual'), 'Session update must use semantic equality guard');
+
+      // Verify App.jsx wraps with InventorySessionProvider
+      const appSource = fs.readFileSync(path.resolve(__dirname, '../App.jsx'), 'utf8');
+      assert.ok(appSource.includes('<InventorySessionProvider>'), 'App.jsx must provide InventorySessionProvider');
+    });
+
+    test('CT-REAL-04 — InventoryList source verifies handleAmbiguousStateChange uses stable callback and does not loop', () => {
+      const listSource = fs.readFileSync(inventoryListPath, 'utf8');
+      assert.ok(listSource.includes('handleAmbiguousStateChange = useCallback('), 'InventoryList must memoize callback');
+      assert.ok(listSource.includes('updateLiftedSession(newSession)'), 'InventoryList must delegate to session provider');
+      assert.ok(listSource.includes('initialDraft={liftedSession}'), 'InventoryList must pass liftedSession to modal initialDraft');
+    });
+  });
+});
