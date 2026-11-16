@@ -56,14 +56,15 @@
 /* 1. Bảng dữ liệu (Tables) */
 [data-theme='dark'] table {
   background-color: transparent !important;
-  color: var(--color-neutral) !important;
+  color: #FFFFFF !important;
 }
 
 [data-theme='dark'] thead,
 [data-theme='dark'] th {
   background-color: #172338 !important;
-  color: var(--color-secondary) !important;
+  color: #94A3B8 !important;
   border-color: var(--color-border) !important;
+  font-weight: 700 !important;
 }
 
 [data-theme='dark'] tbody tr {
@@ -76,8 +77,30 @@
 }
 
 [data-theme='dark'] td {
-  color: var(--color-neutral) !important;
+  color: #FFFFFF !important;
+  font-weight: 500;
   border-color: var(--color-border) !important;
+}
+
+/* Biến mọi thẻ chữ con bên trong ô bảng thành màu trắng */
+[data-theme='dark'] td span:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]),
+[data-theme='dark'] td p,
+[data-theme='dark'] td div:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]),
+[data-theme='dark'] td strong,
+[data-theme='dark'] [class*="skuText"],
+[data-theme='dark'] [class*="productNameText"],
+[data-theme='dark'] [class*="categoryText"],
+[data-theme='dark'] [class*="priceText"],
+[data-theme='dark'] [class*="stockNumber"],
+[data-theme='dark'] [class*="quantityCell"],
+[data-theme='dark'] [class*="skuCell"],
+[data-theme='dark'] [class*="productNameCell"],
+[data-theme='dark'] [class*="orderCode"],
+[data-theme='dark'] [class*="customerName"],
+[data-theme='dark'] [class*="supplierName"],
+[data-theme='dark'] [class*="receiptCode"],
+[data-theme='dark'] [class*="staffName"] {
+  color: #FFFFFF !important;
 }
 
 /* 2. Modals & Dialogs */
@@ -97,7 +120,7 @@
   border-color: var(--color-border) !important;
 }
 
-/* 3. Cards, Containers, Boxes */
+/* 3. Cards, Containers, Boxes & Table Footers */
 [data-theme='dark'] [class*="card"],
 [data-theme='dark'] [class*="Card"],
 [data-theme='dark'] [class*="statCard"],
@@ -105,10 +128,24 @@
 [data-theme='dark'] [class*="tableWrap"],
 [data-theme='dark'] [class*="tableContainer"],
 [data-theme='dark'] [class*="auditBox"],
-[data-theme='dark'] [class*="paginationWrap"] {
+[data-theme='dark'] [class*="paginationWrap"],
+[data-theme='dark'] [class*="paginationBar"],
+[data-theme='dark'] [class*="tableFooter"],
+[data-theme='dark'] [class*="tableFooterBar"],
+[data-theme='dark'] [class*="paginationRow"],
+[data-theme='dark'] [class*="detailFooter"],
+[data-theme='dark'] [class*="rightPanel"],
+[data-theme='dark'] [class*="immutableRuleBanner"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
   color: var(--color-neutral) !important;
+}
+
+[data-theme='dark'] [class*="paginationSummary"],
+[data-theme='dark'] [class*="tableSummaryText"],
+[data-theme='dark'] [class*="pageInfo"],
+[data-theme='dark'] [class*="shortcutFooter"] {
+  color: #94A3B8 !important;
 }
 
 /* 4. Inputs, Textareas & Selects */
@@ -170,7 +207,7 @@
   color: #FFFFFF !important;
 }
 
-/* 7. Header User trigger & Admin/Staff role badges */
+/* 7. Header User trigger, Notification Popover & Admin/Staff role badges */
 [data-theme='dark'] [class*="userDropdownTrigger"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
@@ -183,6 +220,50 @@
 [data-theme='dark'] [class*="userDropdownTriggerActive"] {
   background-color: #064E3B !important;
   border-color: var(--color-primary) !important;
+}
+
+[data-theme='dark'] [class*="notificationPopover"],
+[data-theme='dark'] [class*="notificationHeader"],
+[data-theme='dark'] [class*="notificationList"],
+[data-theme='dark'] [class*="notificationCard"],
+[data-theme='dark'] [class*="notificationFooter"],
+[data-theme='dark'] [class*="notificationSafeguardBanner"],
+[data-theme='dark'] [class*="notificationStateBox"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="notificationCard"]:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="notificationHeaderTitle"],
+[data-theme='dark'] [class*="notificationItemTitle"],
+[data-theme='dark'] [class*="notificationItemTitleRead"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="notificationSubtext"],
+[data-theme='dark'] [class*="notificationTimestamp"],
+[data-theme='dark'] [class*="readLabel"],
+[data-theme='dark'] [class*="safeguardText"],
+[data-theme='dark'] [class*="notificationStateText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="openQueueBtnSecondary"],
+[data-theme='dark'] [class*="markSingleReadBtn"],
+[data-theme='dark'] [class*="notificationRetryBtn"] {
+  background-color: var(--color-bg-hover) !important;
+  border-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="unreadPillBadgeZero"],
+[data-theme='dark'] [class*="processedApprovalTag"],
+[data-theme='dark'] [class*="notificationAvatarRead"] {
+  background-color: var(--color-bg-hover) !important;
+  color: #94A3B8 !important;
 }
 
 [data-theme='dark'] [class*="headerUserName"],
@@ -265,8 +346,23 @@
 [data-theme='dark'] [class*="title"],
 [data-theme='dark'] [class*="Title"],
 [data-theme='dark'] [class*="statValue"],
-[data-theme='dark'] [class*="productName"] {
+[data-theme='dark'] [class*="productName"],
+[data-theme='dark'] [class*="subtitle"],
+[data-theme='dark'] [class*="headerSubtitle"],
+[data-theme='dark'] [class*="filterLabel"],
+[data-theme='dark'] [class*="formLabel"],
+[data-theme='dark'] [class*="timeInfo"],
+[data-theme='dark'] [class*="timeInfo"] strong,
+[data-theme='dark'] [class*="stateTitle"] {
   color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="subtitle"],
+[data-theme='dark'] [class*="stateDesc"],
+[data-theme='dark'] [class*="complianceNotice"],
+[data-theme='dark'] [class*="bottomDisclaimer"],
+[data-theme='dark'] [class*="storeScopeLabel"] {
+  color: #94A3B8 !important;
 }
 
 * {
