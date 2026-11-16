@@ -76,6 +76,69 @@
   background-color: var(--color-bg-hover) !important;
 }
 
+/* Hàng sản phẩm hết hàng trong bảng sản phẩm: Nền đỏ thẫm tinh tế, dịu mắt, tương phản chuẩn Dark theme */
+[data-theme='dark'] tbody tr[class*="outOfStockRow"],
+[data-theme='dark'] tr[class*="outOfStockRow"] {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+
+[data-theme='dark'] tbody tr[class*="outOfStockRow"]:hover,
+[data-theme='dark'] tr[class*="outOfStockRow"]:hover {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+/* Nút pill lọc tồn kho trong Quản lý sản phẩm (stockFilterPill) */
+[data-theme='dark'] [class*="stockPillAll"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #CBD5E1 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="stockPillAll"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="stockPillAll"][class*="stockPillActive"] {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+  border-color: #475569 !important;
+}
+
+[data-theme='dark'] [class*="stockPillOut"] {
+  background-color: rgba(220, 38, 38, 0.15) !important;
+  color: #F87171 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="stockPillOut"]:hover {
+  background-color: rgba(220, 38, 38, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="stockPillOut"][class*="stockPillActive"] {
+  background-color: rgba(220, 38, 38, 0.35) !important;
+  color: #FECACA !important;
+  border-color: #EF4444 !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="stockPillLow"] {
+  background-color: rgba(217, 119, 6, 0.15) !important;
+  color: #FBBF24 !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="stockPillLow"]:hover {
+  background-color: rgba(217, 119, 6, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="stockPillLow"][class*="stockPillActive"] {
+  background-color: rgba(217, 119, 6, 0.35) !important;
+  color: #FEF3C7 !important;
+  border-color: #F59E0B !important;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4) !important;
+}
+
 [data-theme='dark'] td {
   color: #FFFFFF !important;
   font-weight: 500;
@@ -126,6 +189,8 @@
 [data-theme='dark'] [class*="statCard"],
 [data-theme='dark'] [class*="filterCard"],
 [data-theme='dark'] [class*="filterBar"],
+[data-theme='dark'] [class*="toolbarCard"],
+[data-theme='dark'] [class*="tableCard"],
 [data-theme='dark'] [class*="movementFilterCard"],
 [data-theme='dark'] [class*="tableWrap"],
 [data-theme='dark'] [class*="tableContainer"],
@@ -139,7 +204,10 @@
 [data-theme='dark'] [class*="paginationRow"],
 [data-theme='dark'] [class*="detailFooter"],
 [data-theme='dark'] [class*="rightPanel"],
-[data-theme='dark'] [class*="immutableRuleBanner"] {
+[data-theme='dark'] [class*="immutableRuleBanner"],
+[data-theme='dark'] [class*="detailModalCard"],
+[data-theme='dark'] [class*="detailTableWrap"],
+[data-theme='dark'] [class*="detailMetaBox"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
   color: var(--color-neutral) !important;
@@ -163,7 +231,13 @@
 [data-theme='dark'] select,
 [data-theme='dark'] [class*="searchInput"],
 [data-theme='dark'] [class*="statusSelect"],
-[data-theme='dark'] [class*="filterSelect"] {
+[data-theme='dark'] [class*="filterSelect"],
+[data-theme='dark'] [class*="dateInputInline"],
+[data-theme='dark'] [class*="dateFilterWrap"],
+[data-theme='dark'] [class*="searchBoxWrap"],
+[data-theme='dark'] [class*="statusSelectSingle"],
+[data-theme='dark'] [class*="formInput"],
+[data-theme='dark'] [class*="formSelect"] {
   background-color: var(--color-bg-input, #0B1320) !important;
   color: #FFFFFF !important;
   border: 1px solid var(--color-border) !important;
@@ -174,22 +248,37 @@
 [data-theme='dark'] select:focus,
 [data-theme='dark'] [class*="searchInput"]:focus,
 [data-theme='dark'] [class*="statusSelect"]:focus,
-[data-theme='dark'] [class*="filterSelect"]:focus {
+[data-theme='dark'] [class*="filterSelect"]:focus,
+[data-theme='dark'] [class*="dateFilterWrap"]:focus-within,
+[data-theme='dark'] [class*="statusSelectSingle"]:focus,
+[data-theme='dark'] [class*="formInput"]:focus,
+[data-theme='dark'] [class*="formSelect"]:focus {
   border-color: var(--color-primary) !important;
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
 }
 
-[data-theme='dark'] [class*="searchIcon"] {
+[data-theme='dark'] [class*="searchIcon"],
+[data-theme='dark'] [class*="dateCalendarIcon"] {
   color: #64748B !important;
 }
 
-[data-theme='dark'] [class*="filterResetBtn"] {
-  background-color: var(--color-bg-surface) !important;
-  border-color: var(--color-border) !important;
+[data-theme='dark'] [class*="datePrefixLabel"] {
   color: #94A3B8 !important;
 }
 
-[data-theme='dark'] [class*="filterResetBtn"]:hover {
+[data-theme='dark'] [class*="todayBadgeInline"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="filterResetBtn"],
+[data-theme='dark'] [class*="resetFilterBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="filterResetBtn"]:hover,
+[data-theme='dark'] [class*="resetFilterBtn"]:hover {
   background-color: var(--color-bg-hover) !important;
   color: #FFFFFF !important;
 }
@@ -229,7 +318,7 @@
   border-color: var(--color-border) !important;
 }
 
-/* 6. Sidebar & Navigation */
+/* 6. Sidebar, Navigation & Top Tabs */
 [data-theme='dark'] [class*="navItem"]:hover:not([class*="navItemActive"]) {
   background-color: #1E293B !important;
   color: #FFFFFF !important;
@@ -241,6 +330,74 @@
 }
 
 [data-theme='dark'] [class*="navItem"]:hover [class*="navIcon"] {
+  color: #FFFFFF !important;
+}
+
+/* Tab 'Phiếu nhập' & 'Lịch sử nhập hàng' trong Quản lý nhập hàng và Tồn kho */
+[data-theme='dark'] [class*="navTabBtn"],
+[data-theme='dark'] [class*="tabBtn"] {
+  color: #CBD5E1 !important;
+  font-weight: 600;
+  border-bottom: 2px solid transparent !important;
+}
+
+[data-theme='dark'] [class*="navTabBtn"]:hover,
+[data-theme='dark'] [class*="tabBtn"]:hover:not([class*="tabBtnActive"]) {
+  color: #FFFFFF !important;
+  background-color: rgba(30, 41, 59, 0.7) !important;
+  border-radius: 6px 6px 0 0;
+}
+
+[data-theme='dark'] [class*="navTabBtnActive"],
+[data-theme='dark'] [class*="tabBtnActive"] {
+  color: #10B981 !important;
+  border-bottom: 2px solid #10B981 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="tabsContainer"] {
+  border-bottom: 2px solid var(--color-border) !important;
+}
+
+/* Bộ lọc danh mục & chip lọc dạng nút (chipBtn) */
+[data-theme='dark'] [class*="chipBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #CBD5E1 !important;
+  border: 1px solid var(--color-border) !important;
+  font-weight: 500;
+}
+
+[data-theme='dark'] [class*="chipBtn"]:hover:not([class*="chipBtnActive"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+  border-color: #475569 !important;
+}
+
+[data-theme='dark'] button[class*="chipBtnActive"],
+[data-theme='dark'] [class*="chipBtn"][class*="chipBtnActive"],
+[data-theme='dark'] [class*="chipBtnActive"] {
+  background-color: #059669 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #34D399 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="tabCountBadgeGray"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="tabCountBadge"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="warehouseHint"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="warehouseHint"] strong {
   color: #FFFFFF !important;
 }
 
@@ -430,6 +587,34 @@
   color: #10B981 !important;
 }
 
+/* Nút thao tác trong bảng Quản lý nhập hàng ('Sửa nháp' / 'Chi tiết') */
+[data-theme='dark'] [class*="viewDetailBtn"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="viewDetailBtn"]:hover {
+  background-color: rgba(16, 185, 129, 0.28) !important;
+  color: #10B981 !important;
+  border-color: #10B981 !important;
+}
+
+/* Nút 'Xem chi tiết' trong danh sách Đơn hàng */
+[data-theme='dark'] [class*="viewBtn"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="viewBtn"]:hover {
+  background-color: rgba(16, 185, 129, 0.28) !important;
+  color: #10B981 !important;
+  border-color: #10B981 !important;
+}
+
 /* Nút hành động trong bảng (ví dụ: nút 'Điều chỉnh') */
 [data-theme='dark'] [class*="actionBtn"] {
   background-color: var(--color-bg-surface) !important;
@@ -441,6 +626,402 @@
   background-color: var(--color-bg-hover) !important;
   border-color: var(--color-primary) !important;
   color: #10B981 !important;
+}
+
+/* Chi tiết Modal Phiếu nhập, Modal Điều chỉnh tồn kho, Modal Lý do biến động và Modal Đơn hàng */
+[data-theme='dark'] [class*="reasonModalBox"],
+[data-theme='dark'] [class*="modalBox"],
+[data-theme='dark'] [class*="detailModalCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="modalHeader"],
+[data-theme='dark'] [class*="modalTitle"],
+[data-theme='dark'] [class*="detailModalTitle"] {
+  color: #FFFFFF !important;
+  border-bottom-color: var(--color-border) !important;
+}
+
+/* Modal lý do biến động & hiển thị mã SKU, tên sản phẩm */
+[data-theme='dark'] [class*="metaRow"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="metaLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="metaValue"],
+[data-theme='dark'] [class*="skuHighlight"],
+[data-theme='dark'] [class*="productName"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="reasonBox"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="reasonBoxLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="reasonContent"] {
+  color: #FFFFFF !important;
+}
+
+/* Số lượng thay đổi trong lịch sử biến động (+ xanh, - đỏ rõ nét) */
+[data-theme='dark'] [class*="qtyIncrease"] {
+  color: #34D399 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="qtyDecrease"] {
+  color: #F87171 !important;
+  font-weight: 700 !important;
+}
+
+/* Modal Điều chỉnh tồn kho (InventoryAdjustModal) */
+[data-theme='dark'] [class*="categoryBadge"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="versionBadge"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="versionLabel"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="versionValue"] {
+  color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="subInfo"],
+[data-theme='dark'] [class*="skuText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="skuText"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="textInput"],
+[data-theme='dark'] [class*="textareaInput"] {
+  background-color: var(--color-bg-input, #0B1320) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="auditBox"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="auditLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="auditValue"] {
+  color: #FFFFFF !important;
+}
+
+/* Chi tiết Modal Phiếu nhập và Modal Đơn hàng */
+[data-theme='dark'] [class*="metaInfoRow"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="metaInfoRow"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="infoBlock"] [class*="infoLabel"],
+[data-theme='dark'] [class*="itemsHeader"] [class*="itemsTitle"],
+[data-theme='dark'] [class*="detailSectionTitle"],
+[data-theme='dark'] [class*="detailModalTitle"],
+[data-theme='dark'] [class*="infoValue"],
+[data-theme='dark'] [class*="detailMetaLeft"] strong,
+[data-theme='dark'] [class*="detailTotalRow"] span,
+[data-theme='dark'] [class*="summaryTotalRow"] span,
+[data-theme='dark'] [class*="totalHighlight"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="infoSub"],
+[data-theme='dark'] [class*="itemSubSku"],
+[data-theme='dark'] [class*="detailMetaLine"],
+[data-theme='dark'] [class*="unitPrice"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="itemsTable"],
+[data-theme='dark'] [class*="detailTable"] {
+  background-color: transparent !important;
+}
+
+[data-theme='dark'] [class*="itemsTable"] th,
+[data-theme='dark'] [class*="detailTable"] th {
+  background-color: #172338 !important;
+  color: #94A3B8 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="itemsTable"] td,
+[data-theme='dark'] [class*="detailTable"] td {
+  border-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="itemMainName"],
+[data-theme='dark'] [class*="lineTotal"],
+[data-theme='dark'] [class*="qtyBadge"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="infoGrid"],
+[data-theme='dark'] [class*="summaryBlock"] {
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="readOnlyNotice"] {
+  background-color: #172338 !important;
+  border: 1px solid var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="readOnlyNotice"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="confirmWarningBox"] {
+  background-color: rgba(217, 119, 6, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="confirmWarningBox"] strong {
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="modalFooterRight"],
+[data-theme='dark'] [class*="modalFooter"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="windowBadgeMuted"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="lineHeaderRow"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="removeLineBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="addLineBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px dashed var(--color-border) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="addItemLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="modalCloseBtn"] {
+  background-color: transparent !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="modalCloseBtn"]:hover {
+  color: #FFFFFF !important;
+}
+
+/* =========================================================
+   10. Module Xét duyệt nhân viên (Staff Approval)
+   ========================================================= */
+[data-theme='dark'] [class*="staffCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1.5px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="staffCard"]:hover {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="staffCardSelected"] {
+  border-color: var(--color-primary) !important;
+  background-color: #064E3B !important;
+}
+
+[data-theme='dark'] [class*="applicantTexts"] strong,
+[data-theme='dark'] [class*="applicantTexts"] h4,
+[data-theme='dark'] [class*="staffName"] {
+  color: #FFFFFF !important;
+  font-weight: 700;
+}
+
+[data-theme='dark'] [class*="applicantEmail"],
+[data-theme='dark'] [class*="applicantPhone"],
+[data-theme='dark'] [class*="summaryLeft"],
+[data-theme='dark'] [class*="summaryRight"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="avatarCircleNeutral"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="authCodeBadge"],
+[data-theme='dark'] [class*="modalRecordIdBadge"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="sectionBox"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="sectionTitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="sectionTag"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="infoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoValue"] {
+  color: #FFFFFF !important;
+  font-weight: 600;
+}
+
+[data-theme='dark'] [class*="scopeValueRow"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="modalSubheader"] {
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="statusTabs"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="statusTabBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="statusTabBtn"]:hover {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="statusTabBtnActive"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="policyBadge"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="policyBadge"] strong {
+  color: #FFFFFF !important;
+}
+
+/* Thẻ thống kê KPI Tồn kho (Tổng mã hàng, Đang kinh doanh, Tồn thấp, Hết hàng) */
+[data-theme='dark'] [class*="statHeader"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="statHeader"] span {
+  color: #FFFFFF !important;
+}
+
+/* Modal Điều chỉnh tồn kho: Nhãn trường nhập liệu (fieldLabel, helperLabel) */
+[data-theme='dark'] [class*="fieldLabel"],
+[data-theme='dark'] label[class*="fieldLabel"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="helperLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="inputUnit"] {
+  color: #94A3B8 !important;
+}
+
+/* Trang Danh mục (CategoryList): Số lượng sản phẩm & Bộ lọc trạng thái */
+[data-theme='dark'] [class*="productCountBadge"] {
+  background-color: #172338 !important;
+  color: #38BDF8 !important;
+  border: 1px solid var(--color-border) !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] [class*="tabBtn"] {
+  color: #94A3B8 !important;
+  border-bottom: none !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] [class*="tabBtn"]:hover:not([class*="tabBtnActive"]) {
+  color: #FFFFFF !important;
+  background-color: var(--color-bg-hover) !important;
+  border-radius: 4px !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] [class*="tabBtnActive"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #34D399 !important;
+  border: 1px solid var(--color-primary) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
 }
 
 /* 9. Typography & Text (Toàn bộ chữ chuyển sang trắng / sáng) */
@@ -464,10 +1045,474 @@
 
 [data-theme='dark'] [class*="subtitle"],
 [data-theme='dark'] [class*="stateDesc"],
-[data-theme='dark'] [class*="complianceNotice"],
 [data-theme='dark'] [class*="bottomDisclaimer"],
 [data-theme='dark'] [class*="storeScopeLabel"] {
   color: #94A3B8 !important;
+}
+
+/* Quy chuẩn & Danh sách / Modal xét duyệt nhân viên (Staff Approval) */
+[data-theme='dark'] [class*="applicantName"] {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="applicantEmail"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="requestCodePill"],
+[data-theme='dark'] [class*="sectionTag"],
+[data-theme='dark'] [class*="modalRecordIdBadge"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="complianceNotice"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="complianceIcon"] {
+  color: #38BDF8 !important;
+}
+
+[data-theme='dark'] [class*="sectionBox"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="sectionTitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoValue"],
+[data-theme='dark'] [class*="scopeValueRow"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="roleBox"] {
+  background-color: #0B1320 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="roleBoxTitle"] {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="roleCodePill"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #34D399 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="roleDescParagraph"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="roleDescParagraph"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="roleNoteText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="reasonLabel"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="reasonHint"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="reasonTextarea"] {
+  background-color: var(--color-bg-input, #0B1320) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="reasonTextarea"]:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="modalSubheader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+/* =========================================================
+   TOAST NOTIFICATIONS IN DARK THEME (Đậm màu, tương phản cao, rõ chữ)
+   ========================================================= */
+[data-theme='dark'] [class*="toastCard"] {
+  background-color: #131E30 !important;
+  border-color: #1E293B !important;
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="message"] {
+  color: #FFFFFF !important;
+  font-weight: 500 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="closeBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="closeBtn"]:hover {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+/* Toast Success (Xanh lá) */
+[data-theme='dark'] [class*="toastCard_success"] {
+  border-left: 4px solid #10B981 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_success"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+/* Toast Error (Đỏ) */
+[data-theme='dark'] [class*="toastCard_error"] {
+  border-left: 4px solid #EF4444 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_error"] {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #F87171 !important;
+}
+
+/* Toast Warning (Vàng hổ phách) */
+[data-theme='dark'] [class*="toastCard_warning"] {
+  border-left: 4px solid #F59E0B !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_warning"] {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+  color: #FBBF24 !important;
+}
+
+/* Toast Info (Xanh dương) */
+[data-theme='dark'] [class*="toastCard_info"] {
+  border-left: 4px solid #0EA5E9 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_info"] {
+  background-color: rgba(14, 165, 233, 0.2) !important;
+  color: #38BDF8 !important;
+}
+
+/* =========================================================
+   POS MODULE IN DARK THEME (Giao diện Bán hàng tại quầy)
+   ========================================================= */
+[data-theme='dark'] [class*="pageTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="storeBadge"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="categoryPill"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="categoryPill"]:hover:not([class*="categoryPillActive"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+  border-color: #475569 !important;
+}
+
+[data-theme='dark'] [class*="categoryPillActive"] {
+  background-color: #059669 !important;
+  border-color: #10B981 !important;
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4) !important;
+}
+
+/* Card Sản phẩm POS */
+[data-theme='dark'] [class*="productCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="productCard"]:hover {
+  border-color: #475569 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="imageFrame"] {
+  background: linear-gradient(145deg, #0E1726 0%, #172338 100%) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="placeholderMonogram"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="skuBadge"] {
+  background-color: rgba(19, 30, 48, 0.9) !important;
+  border-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="productCard"] [class*="productName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="stockValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cardFooter"] {
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="priceLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="priceValue"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="addBtn"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="addBtn"]:hover:not(:disabled) {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="addBtn"]:disabled {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #64748B !important;
+}
+
+[data-theme='dark'] [class*="catalogFootnote"],
+[data-theme='dark'] [class*="footnoteNote"] {
+  color: #94A3B8 !important;
+}
+
+/* Khung Giỏ hàng POS (Cart Panel) */
+[data-theme='dark'] [class*="cartPanel"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="cartHeader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="cartTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cartTitleIcon"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="clearCartBtn"] {
+  background-color: rgba(220, 38, 38, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="clearCartBtn"]:hover:not(:disabled) {
+  background-color: rgba(220, 38, 38, 0.3) !important;
+}
+
+[data-theme='dark'] [class*="cartItem"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="cartItemName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cartItemMeta"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="qtyStepper"] {
+  background-color: #0B1320 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="qtyBtn"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="qtyBtn"]:hover:not(:disabled) {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="qtyBtn"]:disabled {
+  color: #475569 !important;
+}
+
+[data-theme='dark'] [class*="qtyValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="lineTotal"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="removeItemBtn"] {
+  color: #64748B !important;
+}
+
+[data-theme='dark'] [class*="removeItemBtn"]:hover:not(:disabled) {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="cartFooter"] {
+  background-color: #0E1726 !important;
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="disclaimerBanner"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #A7F3D0 !important;
+}
+
+[data-theme='dark'] [class*="summaryRow"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="totalRow"] {
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="totalLabel"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="totalValue"] {
+  color: #34D399 !important;
+}
+
+/* Modals của POS (Kết quả thanh toán, xung đột tồn kho / giá) */
+[data-theme='dark'] [class*="posModalCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="posModalHeader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="posModalTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="posModalSubtitle"],
+[data-theme='dark'] [class*="conflictHelperNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="posModalCloseBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="posModalCloseBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="alertBoxAmber"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="alertBoxRose"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="conflictTableWrap"],
+[data-theme='dark'] [class*="priceDiffCard"],
+[data-theme='dark'] [class*="priceMetricBox"],
+[data-theme='dark'] [class*="updatedTotalBar"],
+[data-theme='dark'] [class*="orderRuleChecklist"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="conflictProductName"],
+[data-theme='dark'] [class*="receiptItemName"],
+[data-theme='dark'] [class*="updatedTotalValues"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="priceDiffCardHeader"] {
+  color: #E2E8F0 !important;
+}
+
+[data-theme='dark'] [class*="priceMetricOld"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="priceMetricNew"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="receiptLineTotal"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="posModalFooterRight"],
+[data-theme='dark'] [class*="posModalFooterBetween"] {
+  background-color: #0E1726 !important;
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="completedOrderTotalBox"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="completedOrderTotalBox"] strong {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  border-color: #475569 !important;
 }
 
 * {
