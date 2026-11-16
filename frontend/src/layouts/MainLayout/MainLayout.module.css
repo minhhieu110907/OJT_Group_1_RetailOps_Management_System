@@ -108,7 +108,7 @@
 }
 
 .navItem:hover {
-  background-color: #F1F5F9;
+  background-color: var(--color-bg-hover, #F1F5F9);
   color: var(--color-neutral);
 }
 
@@ -137,7 +137,7 @@
 .accountFooter {
   padding: 12px;
   border-top: 1px solid var(--color-border);
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   flex-shrink: 0;
 }
 
@@ -149,7 +149,7 @@
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
 }
 
 .avatarCircle {
@@ -313,19 +313,19 @@
   padding: 5px 12px 5px 8px;
   border-radius: 10px;
   border: 1.5px solid var(--color-border);
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .userDropdownTrigger:hover {
-  background-color: #F8FAFC;
+  background-color: var(--color-bg-hover, #F8FAFC);
 }
 
 /* Khi Dropdown đang mở (Active): Viền màu xanh lá chủ đạo */
 .userDropdownTriggerActive {
   border-color: var(--color-primary);
-  background-color: #F5FBF8;
+  background-color: var(--color-tertiary, #F5FBF8);
   box-shadow: 0 0 0 2px rgba(8, 127, 91, 0.12);
 }
 
@@ -485,7 +485,7 @@
 }
 
 .dropdownItem:hover {
-  background-color: #F8FAFC;
+  background-color: var(--color-bg-hover, #F8FAFC);
 }
 
 .dropdownItemIcon {

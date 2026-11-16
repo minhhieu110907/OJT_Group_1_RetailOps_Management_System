@@ -131,14 +131,21 @@
 [data-theme='dark'] button[class*="secondary"],
 [data-theme='dark'] [class*="pageBtn"]:not([class*="active"]) {
   background-color: var(--color-bg-surface) !important;
-  color: var(--color-neutral) !important;
+  color: #FFFFFF !important;
   border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="pageBtn"][class*="active"] {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: #FFFFFF !important;
 }
 
 [data-theme='dark'] [class*="cancelBtn"]:hover,
 [data-theme='dark'] [class*="btnCancel"]:hover,
 [data-theme='dark'] [class*="pageBtn"]:hover:not(:disabled):not([class*="active"]) {
   background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
   border-color: var(--color-secondary) !important;
 }
 
@@ -148,7 +155,109 @@
   border-color: var(--color-border) !important;
 }
 
-/* 6. Typography & Text */
+/* 6. Sidebar & Navigation */
+[data-theme='dark'] [class*="navItem"]:hover:not([class*="navItemActive"]) {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="navItemActive"] {
+  background-color: var(--color-tertiary) !important;
+  color: var(--color-primary) !important;
+}
+
+[data-theme='dark'] [class*="navItem"]:hover [class*="navIcon"] {
+  color: #FFFFFF !important;
+}
+
+/* 7. Header User trigger & Admin/Staff role badges */
+[data-theme='dark'] [class*="userDropdownTrigger"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="userDropdownTrigger"]:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="userDropdownTriggerActive"] {
+  background-color: #064E3B !important;
+  border-color: var(--color-primary) !important;
+}
+
+[data-theme='dark'] [class*="headerUserName"],
+[data-theme='dark'] [class*="accountName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="headerUserRoleBadge"],
+[data-theme='dark'] [class*="dropdownRoleBadge"] {
+  color: #34D399 !important;
+  background-color: rgba(6, 78, 59, 0.7) !important;
+}
+
+[data-theme='dark'] [class*="accountFooter"],
+[data-theme='dark'] [class*="accountCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 8. Table cells, badges, and red status contrast */
+[data-theme='dark'] [class*="quantityCell"],
+[data-theme='dark'] [class*="skuCell"],
+[data-theme='dark'] [class*="productNameCell"] {
+  color: #FFFFFF !important;
+}
+
+/* Badges đỏ trong bảng & thẻ thống kê: nền đỏ thẫm/tối dễ chịu, chữ đỏ tươi sáng/trắng rõ ràng */
+[data-theme='dark'] [class*="badgeOutOfStock"],
+[data-theme='dark'] [class*="badgeRejected"],
+[data-theme='dark'] [class*="statusBadgeCancelled"],
+[data-theme='dark'] [class*="statSubBadgeRed"],
+[data-theme='dark'] [class*="badgeMovementSale"] {
+  background-color: rgba(185, 28, 28, 0.25) !important;
+  color: #F87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="badgeLowStock"],
+[data-theme='dark'] [class*="statSubBadgeYellow"],
+[data-theme='dark'] [class*="badgePending"] {
+  background-color: rgba(180, 83, 9, 0.25) !important;
+  color: #FBBF24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="badgeInStock"],
+[data-theme='dark'] [class*="badgeNormal"],
+[data-theme='dark'] [class*="badgeApproved"],
+[data-theme='dark'] [class*="badgeMovementPurchase"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="badgeInactive"],
+[data-theme='dark'] [class*="badgeMovementAdjustment"] {
+  background-color: rgba(100, 116, 139, 0.25) !important;
+  color: #CBD5E1 !important;
+  border: 1px solid rgba(100, 116, 139, 0.35) !important;
+}
+
+/* Nút hành động trong bảng (ví dụ: nút 'Điều chỉnh') */
+[data-theme='dark'] [class*="actionBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="actionBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  border-color: var(--color-primary) !important;
+  color: #10B981 !important;
+}
+
+/* 9. Typography & Text (Toàn bộ chữ chuyển sang trắng / sáng) */
 [data-theme='dark'] h1,
 [data-theme='dark'] h2,
 [data-theme='dark'] h3,
@@ -157,7 +266,7 @@
 [data-theme='dark'] [class*="Title"],
 [data-theme='dark'] [class*="statValue"],
 [data-theme='dark'] [class*="productName"] {
-  color: var(--color-neutral) !important;
+  color: #FFFFFF !important;
 }
 
 * {
