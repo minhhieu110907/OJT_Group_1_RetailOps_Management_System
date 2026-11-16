@@ -1,0 +1,10 @@
+POST http://127.0.0.1:8001/api/v1/inventory/4/adjustments HTTP/1.1
+Authorization: Bearer <REDACTED_TOKEN>
+Content-Type: application/json
+Idempotency-Key: t3c9970-adj-inc-764651
+
+{
+  "counted_quantity": 20,
+  "expected_stock_version": 0,
+  "reason": "Kiem ke dau ky tang len 20"
+}

@@ -1,0 +1,18 @@
+HTTP/1.1 422
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 146
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Dữ liệu không hợp lệ.",
+  "details": [
+    {
+      "field": "body.counted_quantity",
+      "reason": "greater_than_equal"
+    }
+  ]
+}

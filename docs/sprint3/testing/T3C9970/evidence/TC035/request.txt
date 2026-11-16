@@ -1,0 +1,8 @@
+POST http://127.0.0.1:8001/api/v1/purchase-receipts/8/confirm HTTP/1.1
+Authorization: Bearer <REDACTED_TOKEN>
+Content-Type: application/json
+Idempotency-Key: t3c9970-rc-cancelled-764651
+
+{
+  "expected_draft_version": 1
+}

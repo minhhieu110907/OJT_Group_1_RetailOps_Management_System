@@ -1,0 +1,55 @@
+HTTP/1.1 200
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 676
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "items": [
+    {
+      "product_id": 1,
+      "sku": "SK01",
+      "name": "dd",
+      "category_id": 1,
+      "status": "ACTIVE",
+      "quantity": 0,
+      "stock_version": 0,
+      "first_stocked_at": null
+    },
+    {
+      "product_id": 3,
+      "sku": "QA-SKU-764561-2",
+      "name": "QA Product Inactive 764561",
+      "category_id": 2,
+      "status": "INACTIVE",
+      "quantity": 0,
+      "stock_version": 0,
+      "first_stocked_at": null
+    },
+    {
+      "product_id": 4,
+      "sku": "QA-SKU-764651-1",
+      "name": "QA Product Active 764651",
+      "category_id": 3,
+      "status": "ACTIVE",
+      "quantity": 0,
+      "stock_version": 0,
+      "first_stocked_at": null
+    },
+    {
+      "product_id": 5,
+      "sku": "QA-SKU-764651-2",
+      "name": "QA Product Inactive 764651",
+      "category_id": 3,
+      "status": "INACTIVE",
+      "quantity": 0,
+      "stock_version": 0,
+      "first_stocked_at": null
+    }
+  ],
+  "total": 4,
+  "page": 1,
+  "page_size": 20
+}
