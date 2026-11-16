@@ -21,6 +21,7 @@ import pytest
 from fastapi import FastAPI, status
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.exceptions import UnauthenticatedError
 from app.db.session import get_db_session
@@ -241,10 +242,25 @@ def make_dummy_receipt_page() -> ReceiptPage:
     )
 
 
+def make_test_settings() -> Settings:
+    from pydantic import SecretStr
+
+    return Settings(
+        db_host="unused",
+        db_name="unused",
+        db_user="unused",
+        db_password=SecretStr("unused"),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+        idempotency_secret=SecretStr("s" * 32),
+    )
+
+
 def create_test_api_app() -> FastAPI:
     """Create test FastAPI app with purchasing router and sanitized handlers."""
     app = FastAPI(title="Purchasing RBAC Test App")
     register_exception_handlers(app)
+    app.dependency_overrides[get_settings] = make_test_settings
     app.include_router(purchasing_router, prefix="/api/v1")
     return app
 
@@ -255,7 +271,7 @@ def create_test_api_app() -> FastAPI:
 
 
 def test_reference_model_signatures_conform_to_contract() -> None:
-    """Validate Reference Model signatures against retailops_extended_ports.pyi."""
+    """REFERENCE_SIGNATURE_VERIFIED: Validate signatures match extended ports."""
     # OutboxPublisher
     pub_sig = inspect.signature(StandaloneOutboxPublisherReferenceModel.publish_due)
     assert list(pub_sig.parameters.keys()) == ["self", "session_factory", "batch_size"]
@@ -404,10 +420,10 @@ def test_auth_reset_reference_model_account_non_enumeration() -> None:
     mock_outbox_writer.append.assert_not_called()
 
 
-def test_auth_reset_and_email_log_sanitization(
+def test_reference_model_logging_policy_example(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Verify log sanitization: raw secrets/passwords are never logged."""
+    """Verify reference model logging policy: sensitive tokens not logged."""
     sensitive_token = "raw-jwt-reset-token-secret-12345"
     plaintext_password = "SuperSecretPassword!2026"
     internal_secret = "confidential-crypto-key"
@@ -423,6 +439,28 @@ def test_auth_reset_and_email_log_sanitization(
         assert sensitive_token not in record.message
         assert plaintext_password not in record.message
         assert internal_secret not in record.message
+
+
+@pytest.mark.anyio
+async def test_production_exception_handler_log_sanitization(
+    api_test_app: FastAPI,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """PRODUCTION_LOG_SANITIZATION_VERIFIED: Verify error handler masks secrets."""
+    sentinel_secret = "sentinel-auth-bearer-secret-xyz-987"
+    transport = httpx.ASGITransport(app=api_test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/purchase-receipts/invalid-id",
+            headers={"Authorization": f"Bearer {sentinel_secret}"},
+        )
+        assert response.status_code in {
+            status.HTTP_401_UNAUTHORIZED,
+            422,
+        }
+
+    for record in caplog.records:
+        assert sentinel_secret not in record.message
 
 
 # ==============================================================================

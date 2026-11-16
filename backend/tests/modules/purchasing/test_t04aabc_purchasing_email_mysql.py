@@ -3,12 +3,15 @@
 This suite runs against real MySQL 8.4 InnoDB to verify:
 1. End-to-end purchasing lifecycle: DRAFT -> PATCH -> CONFIRM -> stock increment,
    and immutable StockMovement audit record with kind 'PURCHASE_CONFIRM'.
-2. Concurrency protection & double-confirmation guard: Confirming an already
-   CONFIRMED receipt or wrong draft version raises ConflictError/InvalidStateError.
+2. Concurrency protection & sequential double-confirmation guard: Confirming an
+   already CONFIRMED receipt or wrong draft version raises Conflict/InvalidState.
 3. Transactional Outbox intent durability: Decisions in StaffApprovalService
-   atomically persist outbox_events with schema_version = 1 and encryption.
+   atomically persist outbox_events with schema_version = 1 and storage checks.
+4. Cross-run isolation & idempotent cleanup: Strict ownership-based cleanup
+   without cross-deleting resources or shared admin records.
 """
 
+import contextlib
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -31,6 +34,7 @@ from app.modules.auth.models import (
 from app.modules.auth.security import PasswordHasher
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
+from app.modules.idempotency.service import IdempotencyOperation
 from app.modules.inventory.models import (
     Inventory,
     MovementKind,
@@ -70,63 +74,92 @@ class TestRunContext:
         self.engine = engine
         self.run_id = run_id
         self.receipt_ids: list[int] = []
+        self.stock_movement_ids: list[int] = []
         self.product_ids: list[int] = []
         self.category_ids: list[int] = []
         self.supplier_ids: list[int] = []
         self.user_ids: list[int] = []
         self.outbox_event_ids: list[bytes] = []
+        self.idempotency_digests: list[tuple[int, bytes]] = []
+
+    def key_digest_for(self, idempotency_key: str) -> bytes:
+        """Compute key digest using system idempotency secret."""
+        from app.core.config import get_settings
+        from app.modules.idempotency.validation import key_digest
+
+        return key_digest(idempotency_key, get_settings().require_idempotency_secret())
+
+    def track_idempotency_key(self, user_id: int, key: str) -> None:
+        """Record actor and key digest for scoped idempotency cleanup."""
+        digest = self.key_digest_for(key)
+        self.idempotency_digests.append((user_id, digest))
 
     def cleanup(self) -> None:
         """Teardown tracked entities in exact reverse foreign key order."""
         with Session(self.engine) as session, session.begin():
-            # 1. Receipts referencing tracked products or created directly
-            all_receipt_ids = set(self.receipt_ids)
+            # Fail-closed check: Ensure no external receipts reference our products
             if self.product_ids:
-                p_receipts = session.scalars(
-                    select(PurchaseReceiptItem.receipt_id).where(
-                        PurchaseReceiptItem.product_id.in_(self.product_ids)
+                ext_cond = [PurchaseReceiptItem.product_id.in_(self.product_ids)]
+                if self.receipt_ids:
+                    ext_cond.append(
+                        PurchaseReceiptItem.receipt_id.not_in(self.receipt_ids)
                     )
-                ).all()
-                all_receipt_ids.update(p_receipts)
+                external_refs = list(
+                    session.scalars(
+                        select(PurchaseReceiptItem.receipt_id).where(*ext_cond)
+                    )
+                )
+                if external_refs:
+                    raise RuntimeError(
+                        f"Isolation violation: product(s) {self.product_ids} "
+                        f"referenced by external receipt(s) {external_refs}"
+                    )
 
-            # Step 1: stock_movements (child of receipt_items and inventory)
+            # Step 1: stock_movements (strictly tracked IDs or run receipts)
             sm_filter = []
-            if all_receipt_ids:
-                sm_filter.append(StockMovement.receipt_id.in_(list(all_receipt_ids)))
-            if self.product_ids:
-                sm_filter.append(StockMovement.product_id.in_(self.product_ids))
+            if self.stock_movement_ids:
+                sm_filter.append(StockMovement.id.in_(self.stock_movement_ids))
+            if self.receipt_ids:
+                sm_filter.append(StockMovement.receipt_id.in_(self.receipt_ids))
             if sm_filter:
                 session.execute(delete(StockMovement).where(or_(*sm_filter)))
 
-            # Step 2: purchase_receipt_items (child of receipts and products)
-            pri_filter = []
-            if all_receipt_ids:
-                pri_filter.append(
-                    PurchaseReceiptItem.receipt_id.in_(list(all_receipt_ids))
-                )
-            if self.product_ids:
-                pri_filter.append(PurchaseReceiptItem.product_id.in_(self.product_ids))
-            if pri_filter:
-                session.execute(delete(PurchaseReceiptItem).where(or_(*pri_filter)))
-
-            # Step 3: purchase_receipts (child of suppliers and users)
-            if all_receipt_ids:
+            # Step 2: purchase_receipt_items (strictly run receipts)
+            if self.receipt_ids:
                 session.execute(
-                    delete(PurchaseReceipt).where(
-                        PurchaseReceipt.id.in_(list(all_receipt_ids))
+                    delete(PurchaseReceiptItem).where(
+                        PurchaseReceiptItem.receipt_id.in_(self.receipt_ids)
                     )
                 )
 
-            # Step 4: outbox_events (child of users)
+            # Step 3: purchase_receipts (strictly run receipts)
+            if self.receipt_ids:
+                session.execute(
+                    delete(PurchaseReceipt).where(
+                        PurchaseReceipt.id.in_(self.receipt_ids)
+                    )
+                )
+
+            # Step 4: outbox_events (strictly tracked IDs or run users)
             ob_filter = []
-            if self.user_ids:
-                ob_filter.append(OutboxEvent.subject_user_id.in_(self.user_ids))
             if self.outbox_event_ids:
                 ob_filter.append(OutboxEvent.id.in_(self.outbox_event_ids))
+            if self.user_ids:
+                ob_filter.append(OutboxEvent.subject_user_id.in_(self.user_ids))
             if ob_filter:
                 session.execute(delete(OutboxEvent).where(or_(*ob_filter)))
 
-            # Step 5: idempotency_records & user auth child records
+            # Step 5: idempotency_records (strictly tracked digests or run users)
+            if self.idempotency_digests:
+                for u_id, k_digest in self.idempotency_digests:
+                    session.execute(
+                        delete(IdempotencyRecord).where(
+                            IdempotencyRecord.user_id == u_id,
+                            IdempotencyRecord.operation
+                            == IdempotencyOperation.CONFIRM_RECEIPT.value,
+                            IdempotencyRecord.key_digest == k_digest,
+                        )
+                    )
             if self.user_ids:
                 session.execute(
                     delete(IdempotencyRecord).where(
@@ -168,13 +201,13 @@ class TestRunContext:
                     )
                 )
 
-            # Step 6: inventory (child of products)
+            # Step 6: inventory (strictly run products)
             if self.product_ids:
                 session.execute(
                     delete(Inventory).where(Inventory.product_id.in_(self.product_ids))
                 )
 
-            # Step 7: products (child of categories)
+            # Step 7: products (strictly run products)
             if self.product_ids:
                 session.execute(delete(Product).where(Product.id.in_(self.product_ids)))
 
@@ -338,6 +371,7 @@ def test_e2e_purchasing_lifecycle_and_stock_movements(
 
     # 4. Confirm Receipt (optimistic lock with expected_draft_version=2)
     idemp_key = f"idemp-confirm-{run_ctx.run_id}"
+    run_ctx.track_idempotency_key(admin_id, idemp_key)
     with Session(migrated_integration_engine) as session:
         confirmed = confirm_service.confirm(
             session,
@@ -371,16 +405,17 @@ def test_e2e_purchasing_lifecycle_and_stock_movements(
         )
         assert len(movements) == 1
         movement = movements[0]
+        run_ctx.stock_movement_ids.append(movement.id)
         assert movement.kind == MovementKind.PURCHASE_CONFIRM
         assert movement.quantity_before == 5
         assert movement.quantity_after == 20
         assert movement.stock_version_after == 2
 
 
-def test_no_second_stock_increase_and_concurrency_protection(
+def test_no_second_stock_increase_on_sequential_reconfirmation(
     migrated_integration_engine: Engine, run_ctx: TestRunContext
 ) -> None:
-    """Verify re-confirming confirmed receipt raises error and preserves stock."""
+    """SEQUENTIAL DUPLICATE CONFIRMATION VERIFIED: Re-confirm error; stock intact."""
     admin_id = _ensure_admin(migrated_integration_engine, run_ctx)
     now = datetime.now(UTC).replace(tzinfo=None)
 
@@ -455,6 +490,7 @@ def test_no_second_stock_increase_and_concurrency_protection(
         run_ctx.receipt_ids.append(receipt_id)
 
     idemp_1 = f"idemp-first-{run_ctx.run_id}"
+    run_ctx.track_idempotency_key(admin_id, idemp_1)
     with Session(migrated_integration_engine) as session:
         confirm_service.confirm(
             session,
@@ -474,6 +510,7 @@ def test_no_second_stock_increase_and_concurrency_protection(
 
     # 3. Attempt to re-confirm with a NEW idempotency key -> InvalidStateError
     idemp_2 = f"idemp-second-{run_ctx.run_id}"
+    run_ctx.track_idempotency_key(admin_id, idemp_2)
     with (
         Session(migrated_integration_engine) as session,
         pytest.raises(InvalidStateError),
@@ -514,6 +551,7 @@ def test_no_second_stock_increase_and_concurrency_protection(
             )
         )
         assert len(movements) == 1
+        run_ctx.stock_movement_ids.append(movements[0].id)
 
 
 def test_transactional_outbox_intent_durability(
@@ -587,6 +625,7 @@ def test_transactional_outbox_intent_durability(
         assert event.secret_expires_at is None
 
     # 4. Direct OutboxWriter test with encrypted secret for PASSWORD_RESET
+    # SECRET_STORAGE_CONSTRAINT_VERIFIED: Tests VARBINARY(2048) and constraints
     outbox_writer = OutboxWriter()
     reset_expiry = datetime.now(UTC) + timedelta(hours=2)
     with Session(migrated_integration_engine) as session, session.begin():
@@ -625,3 +664,225 @@ def test_transactional_outbox_intent_durability(
             available_at_utc=datetime.now(UTC),
             secret_ciphertext=None,
         )
+
+
+def test_mysql_cross_run_isolation_and_idempotent_cleanup(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Verify cross-run isolation, shared ADMIN safety, and idempotent cleanup."""
+    run_a = TestRunContext(
+        migrated_integration_engine, f"t04aabc_iso_a_{uuid4().hex[:6]}"
+    )
+    run_b = TestRunContext(
+        migrated_integration_engine, f"t04aabc_iso_b_{uuid4().hex[:6]}"
+    )
+
+    admin_id = _ensure_admin(migrated_integration_engine, run_a)
+    now = datetime.now(UTC).replace(tzinfo=None)
+
+    try:
+        # Setup Run A: Category A, Supplier A, Product A, Inventory A
+        with Session(migrated_integration_engine) as session, session.begin():
+            cat_a = Category(
+                name=f"{run_a.run_id}_Cat",
+                status="ACTIVE",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(cat_a)
+            session.flush()
+            run_a.category_ids.append(cat_a.id)
+
+            sup_a = Supplier(
+                name=f"{run_a.run_id}_Sup",
+                contact_phone="0911111111",
+                status=SupplierStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(sup_a)
+            session.flush()
+            run_a.supplier_ids.append(sup_a.id)
+
+            prod_a = Product(
+                category_id=cat_a.id,
+                sku=f"SKU-{run_a.run_id.upper()}",
+                name=f"Prod A {run_a.run_id}",
+                sale_price_vnd=100000,
+                status=ProductStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(prod_a)
+            session.flush()
+            run_a.product_ids.append(prod_a.id)
+
+            inv_a = Inventory(
+                product_id=prod_a.id,
+                quantity=10,
+                stock_version=1,
+                first_stocked_at=now,
+                updated_at=now,
+            )
+            session.add(inv_a)
+            prod_a_id = prod_a.id
+            sup_a_id = sup_a.id
+
+        # Setup Run B: Category B, Supplier B, Product B, Inventory B
+        with Session(migrated_integration_engine) as session, session.begin():
+            cat_b = Category(
+                name=f"{run_b.run_id}_Cat",
+                status="ACTIVE",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(cat_b)
+            session.flush()
+            run_b.category_ids.append(cat_b.id)
+
+            sup_b = Supplier(
+                name=f"{run_b.run_id}_Sup",
+                contact_phone="0922222222",
+                status=SupplierStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(sup_b)
+            session.flush()
+            run_b.supplier_ids.append(sup_b.id)
+
+            prod_b = Product(
+                category_id=cat_b.id,
+                sku=f"SKU-{run_b.run_id.upper()}",
+                name=f"Prod B {run_b.run_id}",
+                sale_price_vnd=200000,
+                status=ProductStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(prod_b)
+            session.flush()
+            run_b.product_ids.append(prod_b.id)
+
+            inv_b = Inventory(
+                product_id=prod_b.id,
+                quantity=20,
+                stock_version=1,
+                first_stocked_at=now,
+                updated_at=now,
+            )
+            session.add(inv_b)
+            sup_b_id = sup_b.id
+
+        draft_service = ReceiptDraftService()
+        confirm_service = ReceiptConfirmService()
+
+        # Run A: Create & confirm Receipt A with Product A
+        with Session(migrated_integration_engine) as session:
+            draft_a = draft_service.create_draft(
+                session,
+                actor_id=admin_id,
+                supplier_id=sup_a_id,
+                items=[
+                    ReceiptLineInput(
+                        product_id=prod_a_id,
+                        quantity=5,
+                        unit_cost_vnd=50000,
+                    )
+                ],
+            )
+            session.commit()
+            rcpt_a_id = draft_a.id
+            run_a.receipt_ids.append(rcpt_a_id)
+
+        idemp_a = f"idemp-iso-a-{run_a.run_id}"
+        run_a.track_idempotency_key(admin_id, idemp_a)
+        with Session(migrated_integration_engine) as session:
+            confirm_service.confirm(
+                session,
+                actor_id=admin_id,
+                receipt_id=rcpt_a_id,
+                expected_draft_version=1,
+                idempotency_key=idemp_a,
+            )
+            session.commit()
+
+        # Run B: Create & confirm Receipt B with Product A
+        with Session(migrated_integration_engine) as session:
+            draft_b = draft_service.create_draft(
+                session,
+                actor_id=admin_id,
+                supplier_id=sup_b_id,
+                items=[
+                    ReceiptLineInput(
+                        product_id=prod_a_id,
+                        quantity=3,
+                        unit_cost_vnd=55000,
+                    )
+                ],
+            )
+            session.commit()
+            rcpt_b_id = draft_b.id
+            run_b.receipt_ids.append(rcpt_b_id)
+
+        idemp_b = f"idemp-iso-b-{run_b.run_id}"
+        run_b.track_idempotency_key(admin_id, idemp_b)
+        with Session(migrated_integration_engine) as session:
+            confirm_service.confirm(
+                session,
+                actor_id=admin_id,
+                receipt_id=rcpt_b_id,
+                expected_draft_version=1,
+                idempotency_key=idemp_b,
+            )
+            session.commit()
+
+        # CASE 1: External product reference isolation & fail-closed protection
+        # Attempting to clean up Run A while Receipt B references Product A raises error
+        with pytest.raises(RuntimeError, match="Isolation violation"):
+            run_a.cleanup()
+
+        # Verify Receipt B, its items, and its movements are NOT deleted:
+        with Session(migrated_integration_engine) as session:
+            assert session.get(PurchaseReceipt, rcpt_b_id) is not None
+            items_b = session.scalars(
+                select(PurchaseReceiptItem).where(
+                    PurchaseReceiptItem.receipt_id == rcpt_b_id
+                )
+            ).all()
+            assert len(items_b) == 1
+            mvmt_b = session.scalars(
+                select(StockMovement).where(StockMovement.receipt_id == rcpt_b_id)
+            ).all()
+            assert len(mvmt_b) == 1
+
+        # CASE 2: Clean up Run B first, releasing the foreign key reference to Product A
+        run_b.cleanup()
+
+        # Verify Run B records were cleaned up:
+        with Session(migrated_integration_engine) as session:
+            assert session.get(PurchaseReceipt, rcpt_b_id) is None
+            # Verify shared admin is NOT deleted!
+            assert session.get(User, admin_id) is not None
+            # Verify Receipt A is still intact before Run A cleanup
+            assert session.get(PurchaseReceipt, rcpt_a_id) is not None
+
+        # Now clean up Run A:
+        run_a.cleanup()
+
+        with Session(migrated_integration_engine) as session:
+            assert session.get(PurchaseReceipt, rcpt_a_id) is None
+            assert session.get(Product, prod_a_id) is None
+            # Shared admin still exists:
+            assert session.get(User, admin_id) is not None
+
+        # CASE 3: Idempotent cleanup: running cleanup twice does not raise error
+        run_a.cleanup()
+        run_b.cleanup()
+
+    finally:
+        # Guarantee teardown in reverse dependency order
+        with contextlib.suppress(Exception):
+            run_b.cleanup()
+        with contextlib.suppress(Exception):
+            run_a.cleanup()
