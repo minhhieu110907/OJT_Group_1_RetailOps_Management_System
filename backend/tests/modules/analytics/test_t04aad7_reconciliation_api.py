@@ -1,9 +1,22 @@
 """Unit and API contract tests for T04AAD7 cross-module reconciliation.
 
 Scope:
-1. Unified RBAC Matrix across Product, Order, Analytics, and Dashboard endpoints.
-2. Parameter validation & boundary conditions (pagination & date boundaries).
-3. Contract & fake adapter verification for T04A947 (ProductAnalyticsService port).
+1. Unified API route authorization (RBAC) across Product, Order,
+   Analytics, and Dashboard.
+   (Note: Uses injected principal fixtures via FastAPI dependency
+   overrides to verify route permissions. Does not replace full
+   authentication E2E suites verifying real JWT cryptographic signatures,
+   token expiry, refresh rotation, or session revocation in
+   tests/test_auth_api.py, tests/integration/test_auth_flows.py, and
+   tests/test_auth_tokens_csrf.py).
+2. Parameter validation & boundary conditions (pagination bounds,
+   date intervals, and canonical from/to vs legacy from_date/to_date
+   parity under Asia/Ho_Chi_Minh interpretation).
+3. Contract reference model verification for T04A947 (ProductAnalyticsService
+   port signatures).
+   (Note: Verifies port DTO contracts and reference business logic; does NOT
+   assert runtime behavior of T04A947 which remains NOT_RUNTIME_VERIFIED
+   pending runtime merge).
 
 Note: Does NOT require MySQL database (runs in memory via FastAPI test client).
 """
@@ -372,25 +385,83 @@ async def test_analytics_and_dashboard_date_validation_boundaries() -> None:
         )
         assert r_sales_exceed.status_code == 422
 
-        # 4. Supports legacy from_date / to_date aliases
+        # 4. Supports legacy from_date / to_date aliases and yields identical
+        # period boundaries
+        r_sales_canonical = await client.get(
+            "/api/v1/analytics/sales?from=2026-11-10&to=2026-11-12"
+        )
+        assert r_sales_canonical.status_code == 200
+        sales_canonical_data = r_sales_canonical.json()
+
         r_sales_legacy = await client.get(
             "/api/v1/analytics/sales?from_date=2026-11-10&to_date=2026-11-12"
         )
         assert r_sales_legacy.status_code == 200
+        sales_legacy_data = r_sales_legacy.json()
+
+        # Both canonical and legacy must match exactly and interpret dates
+        # in Asia/Ho_Chi_Minh
+        # 2026-11-10 00:00:00+07:00 == 2026-11-09T17:00:00Z
+        # 2026-11-13 00:00:00+07:00 == 2026-11-12T17:00:00Z
+        assert sales_canonical_data["period_start"] == "2026-11-09T17:00:00Z"
+        assert sales_canonical_data["period_end_exclusive"] == "2026-11-12T17:00:00Z"
+        assert sales_canonical_data["period_start"] == sales_legacy_data["period_start"]
+        assert (
+            sales_canonical_data["period_end_exclusive"]
+            == sales_legacy_data["period_end_exclusive"]
+        )
+
+        # Same period parity verification on /dashboard
+        r_dash_canonical = await client.get(
+            "/api/v1/dashboard?from=2026-11-10&to=2026-11-12"
+        )
+        assert r_dash_canonical.status_code == 200
+        dash_canonical_data = r_dash_canonical.json()
 
         r_dash_legacy = await client.get(
             "/api/v1/dashboard?from_date=2026-11-10&to_date=2026-11-12"
         )
         assert r_dash_legacy.status_code == 200
+        dash_legacy_data = r_dash_legacy.json()
+
+        assert (
+            dash_canonical_data["sales"]["period_start"]
+            == dash_legacy_data["sales"]["period_start"]
+            == "2026-11-09T17:00:00Z"
+        )
+        assert (
+            dash_canonical_data["sales"]["period_end_exclusive"]
+            == dash_legacy_data["sales"]["period_end_exclusive"]
+            == "2026-11-12T17:00:00Z"
+        )
 
 
 # ==============================================================================
-# 3. T04A947 Contract / Fake Adapter Verification (ProductAnalyticsService)
+# 3. T04A947 Contract Reference Model Verification (Port Signatures & DTO Types)
+#
+# IMPORTANT NOTICE:
+# Task T04A947 (Product Analytics: /analytics/products/top, /slow) does NOT have
+# runtime implementation merged on develop yet
+# (endpoints marked CF2_DESIGN_REVIEW_REQUIRED).
+#
+# The tests below verify ONLY:
+# 1. Port signatures & DTO contracts matching retailops_extended_ports.pyi.
+# 2. Reference algorithmic logic for top, slow, and low-stock queries.
+#
+# Status for T04A947:
+# - Contract Reference Model: REFERENCE_MODEL_PASS
+# - Production Runtime Integration: NOT_RUNTIME_VERIFIED (Deferred Gate)
+#
+# Deferred Integration Gates to run once T04A947 merges:
+# - Top products aggregation and tie-breaking on MySQL 8.4
+# - Slow products 30-day window and first_stocked_at > 7d filtering on MySQL 8.4
+# - Exclusion of CANCELLED orders from product metrics
+# - Deterministic pagination across top/slow results
 # ==============================================================================
 
 
-class StandaloneProductAnalyticsAdapter:
-    """Reference implementation of ProductAnalyticsService for CF-2.2 / CF-2.3.
+class StandaloneProductAnalyticsReferenceModel:
+    """Standalone reference model for ProductAnalyticsService port contract (CF-2).
 
     Port signature specified in contracts/python/retailops_extended_ports.pyi:
     - top(session, *, period, page, page_size) -> Page[ProductAnalyticsItem]
@@ -561,8 +632,8 @@ class StandaloneProductAnalyticsAdapter:
         )
 
 
-def test_t04a947_contract_adapter_logic() -> None:
-    """Verify that StandaloneProductAnalyticsAdapter implements business rules."""
+def test_t04a947_contract_reference_model_signatures_and_logic() -> None:
+    """Verify that StandaloneProductAnalyticsReferenceModel satisfies port contracts."""
     now_utc = datetime(2026, 11, 20, 10, 0, 0, tzinfo=UTC)
     period = Period(
         start_utc=datetime(2026, 11, 19, 17, 0, 0, tzinfo=UTC),
@@ -649,7 +720,7 @@ def test_t04a947_contract_adapter_logic() -> None:
         },
     ]
 
-    adapter = StandaloneProductAnalyticsAdapter(
+    adapter = StandaloneProductAnalyticsReferenceModel(
         orders_data=orders, products_data=products
     )
 
