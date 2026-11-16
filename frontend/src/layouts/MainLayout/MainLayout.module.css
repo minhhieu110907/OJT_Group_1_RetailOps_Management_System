@@ -975,3 +975,141 @@
   text-decoration: underline;
 }
 
+/* ============================================================================
+   MODAL THÔNG TIN CÁ NHÂN
+   ============================================================================ */
+.profileModalContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profileSummaryHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.profileAvatarLarge {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background-color: #087F5B;
+  color: #FFFFFF;
+  font-size: 22px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profileSummaryMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.profileSummaryName {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0F172A;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.profileRoleBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background-color: #E6F4EF;
+  color: #087F5B;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.profileInfoList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profileInfoCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+}
+
+.profileInfoText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profileInfoLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748B;
+}
+
+.profileInfoValue {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0F172A;
+  word-break: break-word;
+}
+
+.profileStatusPillActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background-color: #E6F4EF;
+  color: #087F5B;
+  font-size: 12.5px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.profileStatusPillMuted {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background-color: #F1F5F9;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.profileInfoIcon {
+  color: #94A3B8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profileStatusIconActive {
+  color: #087F5B;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
