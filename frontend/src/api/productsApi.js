@@ -517,6 +517,16 @@ export function validateProductRead(item) {
   }
 
   // F01: Strict timestamp validation - Must be valid ISO string, no fallback
+  if (
+    item.product_count !== undefined &&
+    (typeof item.product_count !== 'number' ||
+      !Number.isInteger(item.product_count) ||
+      item.product_count < 0)
+  ) {
+    throw new Error(
+      `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid product_count: ${item.product_count}.`
+    );
+  }
   if (!isValidIsoTimestamp(item.created_at)) {
     throw new Error(
       `Schema violation: Product "${item.name}" (SKU: ${item.sku}) has invalid or missing created_at timestamp: ${item.created_at}.`
@@ -580,6 +590,16 @@ export function validateCategoryRead(item) {
   ) {
     throw new Error(`Category ${item.id} has invalid description.`);
   }
+  if (
+    item.product_count !== undefined &&
+    (typeof item.product_count !== 'number' ||
+      !Number.isInteger(item.product_count) ||
+      item.product_count < 0)
+  ) {
+    throw new Error(
+      `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid product_count: ${item.product_count}.`
+    );
+  }
   if (!isValidIsoTimestamp(item.created_at)) {
     throw new Error(
       `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid or missing created_at timestamp: ${item.created_at}.`
@@ -595,6 +615,7 @@ export function validateCategoryRead(item) {
     id: item.id,
     name: item.name.trim(),
     ...(item.description !== undefined ? { description: item.description } : {}),
+    ...(item.product_count !== undefined ? { product_count: item.product_count } : {}),
     status: item.status,
     created_at: item.created_at,
     updated_at: item.updated_at,
