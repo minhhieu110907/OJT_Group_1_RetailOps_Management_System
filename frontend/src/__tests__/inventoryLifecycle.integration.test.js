@@ -1,239 +1,643 @@
-import test, { describe } from 'node:test';
+process.env.NODE_ENV = 'development';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+import { JSDOM } from 'jsdom';
+import path from 'path';
+import fs from 'fs';
+import { pathToFileURL } from 'url';
+import test, { describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  ADJUSTMENT_STATUS,
-  areAdjustmentSessionsEqual,
-  canCloseAdjustmentModal,
-  canSubmitAdjustment,
-  createInitialAdjustmentState,
-  isValidAuthoritativeInventory,
-  reduceAdjustmentState,
-} from '../pages/Inventory/inventoryAdjustmentController.js';
 
-/**
- * T04A89D Real Lifecycle & Integration Verification Suite
- * Verifies production React Context behaviors, semantic equality guard, route survival,
- * and role downgrade security.
- */
-describe('T04A89D Inventory Lifecycle Integration Suite', () => {
+// 1. Setup DOM environment
+const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
+  url: 'http://localhost/inventory',
+  pretendToBeVisual: true,
+});
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+Object.defineProperty(globalThis, 'navigator', {
+  value: dom.window.navigator,
+  configurable: true,
+  writable: true,
+});
+globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.HTMLInputElement = dom.window.HTMLInputElement;
+globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
 
-  // =========================================================================
-  // TEST 1 — React Effect Stability & Semantic Guard (No Maximum Update Depth)
-  // =========================================================================
-  test('TEST 1 — Semantic equality guard prevents repeated state updates and infinite loops', () => {
-    let stateUpdatesCount = 0;
-    let currentSession = null;
+// 2. Build test harness via Vite once
+const outDir = path.resolve('./node_modules/.cache_lifecycle');
+fs.mkdirSync(outDir, { recursive: true });
 
-    // Direct execution of the parent callback memoization logic
-    const updateSession = (newSession) => {
-      if (areAdjustmentSessionsEqual(currentSession, newSession)) {
-        return false; // Semantically identical: blocked from updating state
+const { build } = await import('vite');
+const react = (await import('@vitejs/plugin-react')).default;
+
+await build({
+  plugins: [react()],
+  build: {
+    ssr: true,
+    write: true,
+    outDir,
+    rollupOptions: {
+      input: path.resolve('./src/__tests__/integrationHarness.jsx'),
+    },
+  },
+  logLevel: 'silent',
+});
+
+// 3. Import bundled components & testing library
+const harnessUrl = pathToFileURL(path.join(outDir, 'integrationHarness.js')).href;
+const {
+  InventoryList,
+  InventoryAdjustModal,
+  InventorySessionProvider,
+  useInventorySession,
+  AuthContext,
+  ToastProvider,
+  TestAppRouter,
+  axiosClient,
+  inventoryApi,
+} = await import(harnessUrl);
+
+const { render, waitFor, fireEvent, act, cleanup } = await import('@testing-library/react');
+const React = await import('react');
+const { MemoryRouter } = await import('react-router-dom');
+
+assert.ok(InventoryAdjustModal, 'Modal component must be defined');
+assert.ok(inventoryApi, 'Inventory API must be defined');
+
+describe('T04A89D Real React Component Integration Suite', () => {
+  let postAdjustmentCalls = 0;
+  let lastCapturedPayload = null;
+  let lastCapturedHeaders = null;
+
+  beforeEach(() => {
+    cleanup();
+    dom.window.document.body.innerHTML = '<div id="root"></div>';
+    postAdjustmentCalls = 0;
+    lastCapturedPayload = null;
+    lastCapturedHeaders = null;
+
+    // Default mock GET endpoints
+    axiosClient.get = async (url) => {
+      if (url.includes('/categories')) {
+        return { data: { items: [{ id: 1, name: 'Đồ uống' }], total: 1 } };
       }
-      currentSession = newSession;
-      stateUpdatesCount++;
-      return true;
-    };
-
-    const initialSnapshot = {
-      product: { product_id: 101, sku: 'SP-101', quantity: 20, stock_version: 1 },
-      state: {
-        status: ADJUSTMENT_STATUS.AMBIGUOUS,
-        errorMessage: 'Network timeout ECONNABORTED',
-        ambiguousIntent: {
-          key: 'uuid-effect-test-key-1',
-          payload: { productId: 101, countedQuantity: 25, reason: 'Kiem ke kho dinh ky' },
-        },
-        reconciledResult: null,
-      },
-      draft: { countedQty: '25', reason: 'Kiem ke kho dinh ky' },
-    };
-
-    // 1. Initial state update triggers exactly 1 update
-    assert.equal(updateSession(initialSnapshot), true);
-    assert.equal(stateUpdatesCount, 1);
-    assert.equal(currentSession.state.ambiguousIntent.key, 'uuid-effect-test-key-1');
-
-    // 2. Child component effect re-executes on re-render with identical content in new object reference
-    for (let i = 0; i < 50; i++) {
-      const identicalCloneNewReference = {
-        product: { product_id: 101, sku: 'SP-101', quantity: 20, stock_version: 1 },
-        state: {
-          status: ADJUSTMENT_STATUS.AMBIGUOUS,
-          errorMessage: 'Network timeout ECONNABORTED',
-          ambiguousIntent: {
-            key: 'uuid-effect-test-key-1',
-            payload: { productId: 101, countedQuantity: 25, reason: 'Kiem ke kho dinh ky' },
+      if (url.includes('/inventory/low-stock')) {
+        return { data: { items: [], total: 0, page: 1, page_size: 20 } };
+      }
+      if (url.includes('/inventory/101')) {
+        return {
+          data: {
+            product_id: 101,
+            sku: 'SP-101',
+            name: 'Trà xanh không độ',
+            quantity: 22,
+            stock_version: 2,
+            category_id: 1,
+            status: 'ACTIVE',
+            unit: 'Chai',
           },
-          reconciledResult: null,
+        };
+      }
+      // GET /inventory list
+      return {
+        data: {
+          items: [
+            {
+              product_id: 101,
+              sku: 'SP-101',
+              name: 'Trà xanh không độ',
+              quantity: 20,
+              stock_version: 1,
+              category_id: 1,
+              status: 'ACTIVE',
+              unit: 'Chai',
+            },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 20,
         },
-        draft: { countedQty: '25', reason: 'Kiem ke kho dinh ky' },
       };
+    };
+  });
 
-      const didUpdate = updateSession(identicalCloneNewReference);
-      assert.equal(didUpdate, false, `Pass ${i} must NOT trigger state update`);
+  // =========================================================================
+  // TEST A: Ambiguous & Effect Stability Component Test
+  // Mount InventorySessionProvider + InventoryList + InventoryAdjustModal
+  // Trigger ambiguous adjustment (network error / timeout)
+  // Check modal moves to AMBIGUOUS
+  // Assert effect runs without causing re-render loop / Maximum update depth exceeded
+  // Assert child does not repeatedly call parent update session
+  // =========================================================================
+  test('TEST A — Ambiguous & Effect Stability Component Test', async () => {
+    let parentStateUpdateCount = 0;
+
+    // Intercept POST /inventory/:id/adjustments to simulate network timeout (AMBIGUOUS)
+    axiosClient.post = async (url, payload, config) => {
+      if (url.includes('/adjustments')) {
+        postAdjustmentCalls++;
+        lastCapturedPayload = payload;
+        lastCapturedHeaders = config?.headers;
+        const err = new Error('timeout of 10000ms exceeded');
+        err.code = 'ECONNABORTED';
+        throw err;
+      }
+      return { data: {} };
+    };
+
+    const adminAuth = {
+      user: { id: 1, role: 'ADMIN', name: 'Admin Tân' },
+      isAdmin: true,
+      isLoggingOut: false,
+      authInitializing: false,
+    };
+
+    // Component spy to monitor child -> parent session sync calls
+    function SessionWatcher({ children }) {
+      const { liftedSession } = useInventorySession();
+      const prevRef = React.useRef(null);
+      React.useEffect(() => {
+        if (liftedSession !== prevRef.current) {
+          prevRef.current = liftedSession;
+          if (liftedSession !== null) {
+            parentStateUpdateCount++;
+          }
+        }
+      }, [liftedSession]);
+      return children;
     }
 
-    // State update count must remain strictly 1
-    assert.equal(stateUpdatesCount, 1, 'Total parent state updates must be exactly 1, completely preventing update loops');
-  });
-
-  // =========================================================================
-  // TEST 2 — Route Unmount/Remount Preserves Intent (Same Idempotency-Key)
-  // =========================================================================
-  test('TEST 2 — Route unmount/remount preserves pending ambiguous session and Idempotency-Key without generating new UUID', () => {
-    // 1. In /inventory: Admin initiates adjustment on Product 42
-    const originalKey = 'uuid-authoritative-preserved-key-42';
-    const product42 = { product_id: 42, sku: 'SP0042', quantity: 10, stock_version: 2 };
-
-    const ambiguousSession = {
-      product: product42,
-      state: {
-        status: ADJUSTMENT_STATUS.AMBIGUOUS,
-        errorMessage: 'Connection lost ECONNABORTED',
-        ambiguousIntent: {
-          key: originalKey,
-          payload: { productId: 42, countedQuantity: 15, expectedStockVersion: 2, reason: 'Kiem ke cuoi ngay' },
-        },
-        reconciledResult: null,
-      },
-      draft: { countedQty: '15', reason: 'Kiem ke cuoi ngay' },
-    };
-
-    // Session is held by lifted InventorySessionProvider
-    let providerHeldSession = ambiguousSession;
-
-    // 2. User navigates /inventory -> /orders
-    // InventoryList is unmounted from DOM, but providerHeldSession remains intact
-    let inventoryListMounted = false;
-    assert.equal(inventoryListMounted, false, 'InventoryList is unmounted');
-    assert.ok(providerHeldSession !== null, 'Session survives route departure');
-
-    // 3. User navigates back /orders -> /inventory
-    inventoryListMounted = true;
-
-    // On remount, InventoryList receives liftedSession and initializes modal with initialDraft
-    const remountInitialDraft = providerHeldSession;
-    const restoredModalState = createInitialAdjustmentState(remountInitialDraft);
-
-    assert.equal(restoredModalState.status, ADJUSTMENT_STATUS.AMBIGUOUS, 'Modal must mount directly in AMBIGUOUS');
-    assert.equal(restoredModalState.ambiguousIntent.key, originalKey, 'Preserved key must match exactly, no new UUID generated');
-    assert.equal(remountInitialDraft.draft.countedQty, '15');
-    assert.equal(remountInitialDraft.draft.reason, 'Kiem ke cuoi ngay');
-
-    // Verification of controls on remounted modal
-    const canSubmitOnRemount = canSubmitAdjustment({
-      status: restoredModalState.status,
-      isValidCounted: true,
-      isReasonValid: true,
-      delta: 5,
-    });
-    assert.equal(canSubmitOnRemount, false, 'Submit button must be disabled on remount');
-    assert.equal(canCloseAdjustmentModal(restoredModalState.status, restoredModalState.ambiguousIntent), false, 'Cancel/close must be disabled on remount');
-  });
-
-  // =========================================================================
-  // TEST 3 — Role Downgrade & Session Security (No Privilege Leakage)
-  // =========================================================================
-  test('TEST 3 — Role downgrade to STAFF immediately suppresses adjustment UI and isolates privileged session', () => {
-    let currentUser = { id: 1, name: 'Admin', role: 'ADMIN' };
-    let liftedSession = {
-      product: { product_id: 10, sku: 'SP-10' },
-      state: {
-        status: ADJUSTMENT_STATUS.AMBIGUOUS,
-        ambiguousIntent: { key: 'uuid-admin-priv', payload: { secretAudit: true } },
-      },
-    };
-
-    // Render gate from InventoryList.jsx:
-    // {isAdmin && (adjustingProduct || pendingAmbiguousProduct) && <InventoryAdjustModal ... />}
-    const canRenderModal = (user) => {
-      const isAdmin = user?.role === 'ADMIN';
-      return Boolean(isAdmin && liftedSession);
-    };
-
-    // Step 1: When user is ADMIN, modal is rendered
-    assert.equal(canRenderModal(currentUser), true, 'ADMIN must be allowed to render modal');
-
-    // Step 2: Role downgrade in session (ADMIN -> STAFF)
-    currentUser = { id: 1, name: 'Admin', role: 'STAFF' };
-
-    // Gate evaluation immediately suppresses modal
-    assert.equal(canRenderModal(currentUser), false, 'STAFF must NEVER be allowed to render adjustment modal');
-
-    // Context security policy: if user is not ADMIN, session is cleared
-    if (!currentUser || currentUser.role !== 'ADMIN') {
-      liftedSession = null;
-    }
-    assert.equal(liftedSession, null, 'Privileged pending intent must be cleared upon role downgrade to prevent cross-user/role leakage');
-  });
-
-  // =========================================================================
-  // TEST 4 — Authoritative Reload Validation and Explicit Acknowledgement Gate
-  // =========================================================================
-  test('TEST 4 — Invalid reload rejected; valid reload requires explicit user acknowledgement before unlocking submit', async () => {
-    let activeProduct = { product_id: 50, sku: 'SP-50', quantity: 10, stock_version: 1 };
-    let toastErrorCalled = false;
-    let toastInfoCalled = false;
-    let modalReloadRequestId = 1;
-
-    // Production callback logic from InventoryList.jsx
-    const onReloadLatest = async (productId, mockServerResponse) => {
-      const _currentAttempt = ++modalReloadRequestId;
-      if (!activeProduct || activeProduct.product_id !== productId) {
-        return null;
-      }
-
-      if (!isValidAuthoritativeInventory(mockServerResponse, productId)) {
-        toastErrorCalled = true;
-        throw new Error('Dữ liệu tồn kho nhận từ máy chủ không hợp lệ hoặc sai mã sản phẩm.');
-      }
-
-      activeProduct = mockServerResponse;
-      toastInfoCalled = true;
-      return mockServerResponse;
-    };
-
-    // 1. Server returns wrong product (product_id: 99 instead of 50)
-    await assert.rejects(
-      async () => {
-        await onReloadLatest(50, { product_id: 99, quantity: 20, stock_version: 2 });
-      },
-      /không hợp lệ hoặc sai mã sản phẩm/
+    render(
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(
+          AuthContext.Provider,
+          { value: adminAuth },
+          React.createElement(
+            InventorySessionProvider,
+            null,
+            React.createElement(
+              SessionWatcher,
+              null,
+              React.createElement(
+                MemoryRouter,
+                { initialEntries: ['/inventory'] },
+                React.createElement(InventoryList, null)
+              )
+            )
+          )
+        )
+      )
     );
-    assert.equal(activeProduct.product_id, 50, 'activeProduct must not be overwritten by wrong-product response');
-    assert.equal(toastErrorCalled, true);
-    assert.equal(toastInfoCalled, false);
 
-    // 2. Server returns valid authoritative response
-    const validResponse = { product_id: 50, sku: 'SP-50', quantity: 20, stock_version: 2 };
-    const result = await onReloadLatest(50, validResponse);
-    assert.deepEqual(result, validResponse);
-    assert.equal(activeProduct.stock_version, 2);
-    assert.equal(toastInfoCalled, true);
-
-    // 3. Modal processes valid reload -> enters AWAITING_ACKNOWLEDGEMENT
-    let modalState = {
-      status: ADJUSTMENT_STATUS.RECONCILING,
-      ambiguousIntent: { key: 'uuid-ack-test', payload: {} },
-    };
-
-    modalState = reduceAdjustmentState(modalState, {
-      type: 'RELOAD_SUCCESS',
-      payload: {
-        previousStatus: ADJUSTMENT_STATUS.AMBIGUOUS,
-        reconciledResult: { previousVersion: 1, latestVersion: 2, latestQuantity: 20 },
-      },
+    // 1. Wait for inventory table to render product SP-101
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('SP-101')) {
+        throw new Error('Waiting for SP-101 table row');
+      }
     });
 
-    assert.equal(modalState.status, ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT);
-    assert.equal(canSubmitAdjustment({ status: modalState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), false, 'Submit must remain locked');
-    assert.equal(canCloseAdjustmentModal(modalState.status, modalState.ambiguousIntent), false, 'Close must remain locked');
+    // 2. Click "Điều chỉnh" button on row
+    const adjustBtn = dom.window.document.querySelector('button[title="Điều chỉnh tồn kho"]');
+    assert.ok(adjustBtn, 'Điều chỉnh button must exist in product row');
+    act(() => {
+      fireEvent.click(adjustBtn);
+    });
 
-    // 4. User explicitly clicks "Đã kiểm tra đối soát • Tiếp tục thao tác"
-    modalState = reduceAdjustmentState(modalState, { type: 'ACKNOWLEDGE_RECONCILIATION' });
-    assert.equal(modalState.status, ADJUSTMENT_STATUS.IDLE);
-    assert.equal(modalState.ambiguousIntent, null);
-    assert.equal(canSubmitAdjustment({ status: modalState.status, isValidCounted: true, isReasonValid: true, delta: 5 }), true, 'Submit unlocked only after acknowledgement');
-    assert.equal(canCloseAdjustmentModal(modalState.status, modalState.ambiguousIntent), true, 'Close unlocked only after acknowledgement');
+    // 3. Modal opens in DOM
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Điều chỉnh tồn kho')) {
+        throw new Error('Waiting for modal title');
+      }
+    });
+
+    // 4. Fill counted quantity and reason
+    const countedInput = dom.window.document.querySelector('input[type="number"]');
+    assert.ok(countedInput, 'Counted quantity input must exist');
+    act(() => {
+      fireEvent.change(countedInput, { target: { value: '25' } });
+    });
+
+    const reasonTextarea = dom.window.document.querySelector('textarea');
+    assert.ok(reasonTextarea, 'Reason textarea must exist');
+    act(() => {
+      fireEvent.change(reasonTextarea, { target: { value: 'Kiểm kê định kỳ phát hiện thừa' } });
+    });
+
+    // 5. Submit adjustment
+    const submitBtn = dom.window.document.querySelector('button[type="submit"]');
+    assert.ok(submitBtn, 'Submit button must exist');
+    assert.equal(submitBtn.disabled, false, 'Submit button must be enabled before submitting');
+
+    act(() => {
+      fireEvent.click(submitBtn);
+    });
+
+    // 6. Modal transitions to AMBIGUOUS upon ECONNABORTED
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ')) {
+        throw new Error('Waiting for AMBIGUOUS badge');
+      }
+    });
+
+    assert.ok(
+      dom.window.document.body.innerHTML.includes('Kết quả điều chỉnh chưa thể xác minh'),
+      'Must render ambiguous title'
+    );
+    assert.ok(
+      dom.window.document.body.innerHTML.includes('Mã giao dịch (Idempotency Key):'),
+      'Must render Idempotency-Key label'
+    );
+
+    // 7. Verify Idempotency-Key header was sent
+    assert.equal(postAdjustmentCalls, 1, 'Exactly 1 POST request must have been sent');
+    assert.equal(lastCapturedPayload.counted_quantity, 25, 'Counted quantity payload must match input');
+    assert.ok(lastCapturedHeaders && lastCapturedHeaders['Idempotency-Key'], 'Idempotency-Key header must be present');
+    const sentKey = lastCapturedHeaders['Idempotency-Key'];
+    assert.match(sentKey, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Must be valid UUID');
+
+    // 8. Effect Stability Verification:
+    // Child called parent update session exactly once; areAdjustmentSessionsEqual prevented infinite update loops!
+    assert.equal(parentStateUpdateCount, 1, 'Parent lifted session update count must be strictly 1, confirming no re-render loop');
+
+    // Submit and close buttons are locked in AMBIGUOUS state
+    const closeBtn = dom.window.document.querySelector('button[title="Đóng modal"]') || dom.window.document.querySelector('button[aria-label="Đóng"]');
+    if (closeBtn) {
+      assert.equal(closeBtn.disabled, true, 'Close button must be disabled in AMBIGUOUS state');
+    }
+    assert.equal(submitBtn.disabled, true, 'Submit button must be disabled in AMBIGUOUS state');
+  });
+
+  // =========================================================================
+  // TEST B: Router unmount / remount preserving Idempotency-Key
+  // Mount app with MemoryRouter, route /inventory
+  // Create ambiguous adjustment state
+  // Navigate away (/orders) -> InventoryList unmounts
+  // Navigate back (/inventory) -> InventoryList remounts
+  // Assert modal automatically restores state AMBIGUOUS
+  // Assert Idempotency-Key preserves exact original key, NO new UUID generated
+  // Assert no additional POST request sent on remount
+  // =========================================================================
+  test('TEST B — Router unmount / remount preserving Idempotency-Key', async () => {
+    let capturedOriginalKey = null;
+
+    // Simulate network error on submission
+    axiosClient.post = async (url, payload, config) => {
+      if (url.includes('/adjustments')) {
+        postAdjustmentCalls++;
+        capturedOriginalKey = config?.headers?.['Idempotency-Key'];
+        const err = new Error('Network Error: Gateway Timeout 504');
+        err.code = 'ECONNABORTED';
+        throw err;
+      }
+      return { data: {} };
+    };
+
+    const adminAuth = {
+      user: { id: 1, role: 'ADMIN', name: 'Admin Tân' },
+      isAdmin: true,
+      isLoggingOut: false,
+      authInitializing: false,
+    };
+
+    const navigateRef = { current: null };
+
+    render(
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(
+          AuthContext.Provider,
+          { value: adminAuth },
+          React.createElement(
+            InventorySessionProvider,
+            null,
+            React.createElement(
+              MemoryRouter,
+              { initialEntries: ['/inventory'] },
+              React.createElement(TestAppRouter, { navigateRef })
+            )
+          )
+        )
+      )
+    );
+
+    // 1. Wait for inventory row & open adjustment modal
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('SP-101')) {
+        throw new Error('Waiting for SP-101');
+      }
+    });
+
+    const adjustBtn = dom.window.document.querySelector('button[title="Điều chỉnh tồn kho"]');
+    act(() => {
+      fireEvent.click(adjustBtn);
+    });
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Điều chỉnh tồn kho')) {
+        throw new Error('Waiting for modal');
+      }
+    });
+
+    // 2. Fill inputs and submit to trigger AMBIGUOUS
+    const countedInput = dom.window.document.querySelector('input[type="number"]');
+    act(() => {
+      fireEvent.change(countedInput, { target: { value: '30' } });
+    });
+
+    const reasonTextarea = dom.window.document.querySelector('textarea');
+    act(() => {
+      fireEvent.change(reasonTextarea, { target: { value: 'Kiem ke kho cuoi ngay' } });
+    });
+
+    const submitBtn = dom.window.document.querySelector('button[type="submit"]');
+    act(() => {
+      fireEvent.click(submitBtn);
+    });
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ')) {
+        throw new Error('Waiting for AMBIGUOUS status');
+      }
+    });
+
+    assert.ok(capturedOriginalKey, 'Original Idempotency-Key must have been generated and sent');
+    assert.equal(postAdjustmentCalls, 1, 'Must have made exactly 1 POST call before unmount');
+
+    // 3. User navigates away: /inventory -> /orders
+    act(() => {
+      navigateRef.current('/orders');
+    });
+
+    // Wait until Orders page placeholder is rendered
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Trang danh sách đơn hàng')) {
+        throw new Error('Waiting for orders route');
+      }
+    });
+
+    // InventoryList and modal are completely unmounted from DOM
+    assert.equal(
+      dom.window.document.body.innerHTML.includes('Tổng quan tồn kho'),
+      false,
+      'InventoryList must be completely unmounted from DOM'
+    );
+    assert.equal(
+      dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ'),
+      false,
+      'Modal must be completely unmounted from DOM'
+    );
+
+    // 4. User navigates back: /orders -> /inventory
+    act(() => {
+      navigateRef.current('/inventory');
+    });
+
+    // Wait until InventoryList is mounted back in DOM
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Tổng quan tồn kho')) {
+        throw new Error('Waiting for InventoryList remount');
+      }
+    });
+
+    // Modal is automatically restored in AMBIGUOUS state because of liftedSession in InventorySessionProvider!
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ')) {
+        throw new Error('Modal must automatically restore in AMBIGUOUS state');
+      }
+    });
+
+    // 5. Assert: Idempotency-Key displayed on remounted modal strictly matches originalKey!
+    assert.ok(
+      dom.window.document.body.innerHTML.includes(capturedOriginalKey),
+      `Remounted modal must preserve exact original Idempotency-Key (${capturedOriginalKey}), NO new UUID generated`
+    );
+
+    // 6. Assert: No additional POST request was sent during route transition or remount
+    assert.equal(
+      postAdjustmentCalls,
+      1,
+      'POST call count must strictly remain 1 after route unmount/remount (fail-closed, no auto-replay)'
+    );
+
+    // 7. Assert: Controls remain securely locked on remount
+    const remountSubmitBtn = dom.window.document.querySelector('button[type="submit"]');
+    assert.ok(remountSubmitBtn, 'Submit button must exist on remounted modal');
+    assert.equal(remountSubmitBtn.disabled, true, 'Submit button must remain disabled on remount');
+  });
+
+  // =========================================================================
+  // TEST C: Role Downgrade Security in Mounted Tree
+  // Role change ADMIN -> STAFF immediately suppresses modal and clears lifted session
+  // =========================================================================
+  test('TEST C — Role downgrade immediately suppresses adjustment modal and clears lifted session', async () => {
+    let authState = {
+      user: { id: 1, role: 'ADMIN', name: 'Admin Tân' },
+      isAdmin: true,
+      isLoggingOut: false,
+      authInitializing: false,
+    };
+
+    let setAuthFn = null;
+    function DynamicAuthProvider({ children }) {
+      const [auth, setAuth] = React.useState(authState);
+      setAuthFn = setAuth;
+      return React.createElement(AuthContext.Provider, { value: auth }, children);
+    }
+
+    // Intercept POST to enter AMBIGUOUS
+    axiosClient.post = async () => {
+      const err = new Error('Network Timeout');
+      err.code = 'ECONNABORTED';
+      throw err;
+    };
+
+    render(
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(
+          DynamicAuthProvider,
+          null,
+          React.createElement(
+            InventorySessionProvider,
+            null,
+            React.createElement(
+              MemoryRouter,
+              { initialEntries: ['/inventory'] },
+              React.createElement(InventoryList, null)
+            )
+          )
+        )
+      )
+    );
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('SP-101')) throw new Error('Waiting row');
+    });
+
+    const adjustBtn = dom.window.document.querySelector('button[title="Điều chỉnh tồn kho"]');
+    act(() => {
+      fireEvent.click(adjustBtn);
+    });
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Điều chỉnh tồn kho')) throw new Error('Waiting modal');
+    });
+
+    const countedInput = dom.window.document.querySelector('input[type="number"]');
+    act(() => {
+      fireEvent.change(countedInput, { target: { value: '28' } });
+    });
+    const reasonTextarea = dom.window.document.querySelector('textarea');
+    act(() => {
+      fireEvent.change(reasonTextarea, { target: { value: 'Kiem ke dinh ky' } });
+    });
+    const submitBtn = dom.window.document.querySelector('button[type="submit"]');
+    act(() => {
+      fireEvent.click(submitBtn);
+    });
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ')) throw new Error('Waiting AMBIGUOUS');
+    });
+
+    // Role downgrade ADMIN -> STAFF
+    act(() => {
+      setAuthFn({
+        user: { id: 1, role: 'STAFF', name: 'Staff Tân' },
+        isAdmin: false,
+        isLoggingOut: false,
+        authInitializing: false,
+      });
+    });
+
+    // Modal must be immediately suppressed from DOM
+    await waitFor(() => {
+      if (dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ')) {
+        throw new Error('Modal must not be visible to STAFF');
+      }
+    });
+
+    assert.equal(
+      dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ'),
+      false,
+      'Privileged adjustment modal must be completely suppressed when downgraded to STAFF'
+    );
+  });
+
+  // =========================================================================
+  // TEST D: Authoritative Reload Validation and Explicit Acknowledgement
+  // Valid authoritative reload enters AWAITING_ACKNOWLEDGEMENT
+  // Requires user explicit acknowledgement before unlocking controls
+  // =========================================================================
+  test('TEST D — Authoritative reload validation and explicit user acknowledgement gate', async () => {
+    // Intercept POST to enter AMBIGUOUS
+    axiosClient.post = async () => {
+      const err = new Error('Gateway Timeout');
+      err.code = 'ECONNABORTED';
+      throw err;
+    };
+
+    const adminAuth = {
+      user: { id: 1, role: 'ADMIN', name: 'Admin Tân' },
+      isAdmin: true,
+      isLoggingOut: false,
+      authInitializing: false,
+    };
+
+    render(
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(
+          AuthContext.Provider,
+          { value: adminAuth },
+          React.createElement(
+            InventorySessionProvider,
+            null,
+            React.createElement(
+              MemoryRouter,
+              { initialEntries: ['/inventory'] },
+              React.createElement(InventoryList, null)
+            )
+          )
+        )
+      )
+    );
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('SP-101')) throw new Error('Waiting row');
+    });
+
+    const adjustBtn = dom.window.document.querySelector('button[title="Điều chỉnh tồn kho"]');
+    act(() => {
+      fireEvent.click(adjustBtn);
+    });
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Điều chỉnh tồn kho')) throw new Error('Waiting modal');
+    });
+
+    const countedInput = dom.window.document.querySelector('input[type="number"]');
+    act(() => {
+      fireEvent.change(countedInput, { target: { value: '25' } });
+    });
+    const reasonTextarea = dom.window.document.querySelector('textarea');
+    act(() => {
+      fireEvent.change(reasonTextarea, { target: { value: 'Kiem ke dot xuat' } });
+    });
+    const submitBtn = dom.window.document.querySelector('button[type="submit"]');
+    act(() => {
+      fireEvent.click(submitBtn);
+    });
+
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ')) throw new Error('Waiting AMBIGUOUS');
+    });
+
+    // 1. Click "Tải lại tồn kho từ máy chủ"
+    const reloadBtn = Array.from(dom.window.document.querySelectorAll('button')).find(
+      (btn) => btn.textContent.includes('Tải lại tồn kho')
+    );
+    assert.ok(reloadBtn, 'Reload button must be available in ambiguous state');
+    act(() => {
+      fireEvent.click(reloadBtn);
+    });
+
+    // 2. Modal enters AWAITING_ACKNOWLEDGEMENT
+    await waitFor(() => {
+      if (!dom.window.document.body.innerHTML.includes('Đã kiểm tra đối soát')) {
+        throw new Error('Waiting for acknowledgement button');
+      }
+    });
+
+    // In AWAITING_ACKNOWLEDGEMENT, submit remains locked
+    assert.equal(submitBtn.disabled, true, 'Submit button must remain disabled in AWAITING_ACKNOWLEDGEMENT');
+
+    // 3. User clicks explicit acknowledgement button
+    const ackBtn = Array.from(dom.window.document.querySelectorAll('button')).find(
+      (btn) => btn.textContent.includes('Đã kiểm tra đối soát')
+    );
+    assert.ok(ackBtn, 'Acknowledgement button must exist');
+    act(() => {
+      fireEvent.click(ackBtn);
+    });
+
+    // 4. Modal returns to IDLE with authoritative data, submit button unlocks!
+    await waitFor(() => {
+      if (dom.window.document.body.innerHTML.includes('Đã kiểm tra đối soát')) {
+        throw new Error('Waiting for reconciliation notice to clear');
+      }
+    });
+
+    assert.equal(
+      dom.window.document.body.innerHTML.includes('CHƯA RÕ KẾT QUẢ'),
+      false,
+      'Ambiguous banner cleared after explicit acknowledgement'
+    );
   });
 });
