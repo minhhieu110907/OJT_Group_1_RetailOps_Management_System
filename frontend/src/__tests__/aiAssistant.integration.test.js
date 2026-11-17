@@ -136,47 +136,63 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
     view.unmount();
   });
 
-  test('renders canonical insufficient_data state and handles 429 quota -> retry success', async () => {
+  test('handles timeout (Thử lại) -> insufficient_data (Thu hẹp câu hỏi) and 429 quota (Đóng)', async () => {
     let attempt = 0;
     axiosClient.post = async () => {
       attempt += 1;
       if (attempt === 1) {
-        const err = new Error('Too Many Requests');
-        err.response = { status: 429, data: { detail: 'Vui lòng đợi 30 giây.' } };
+        const err = new Error('timeout');
+        err.code = 'ECONNABORTED';
         throw err;
       }
-      return {
-        data: {
-          answer: 'Chưa có đủ dữ liệu bán hàng trong kỳ để đưa ra dự báo.',
-          evidence: [],
-          insufficient_data: true,
-        },
-      };
+      if (attempt === 2) {
+        return {
+          data: {
+            answer: 'Chưa có đủ dữ liệu bán hàng trong kỳ để đưa ra dự báo.',
+            evidence: [],
+            insufficient_data: true,
+          },
+        };
+      }
+      const err = new Error('Too Many Requests');
+      err.response = { status: 429, data: { detail: 'Rate limit' } };
+      throw err;
     };
 
     const view = renderAiAssistant('ADMIN');
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Doanh thu và số đơn hoàn tất 7 ngày gần nhất như thế nào?',
-      })
-    );
+    const quickPrompt = 'Doanh thu và số đơn hoàn tất 7 ngày gần nhất như thế nào?';
+    fireEvent.click(screen.getByRole('button', { name: quickPrompt }));
 
+    // State 4: Timeout -> single safe action "Thử lại"
     await waitFor(() => {
       const alert = screen.getByRole('alert');
-      assert.equal(alert.getAttribute('data-error-kind'), 'quota');
-      assert.match(alert.textContent, /Vượt giới hạn lượt hỏi tạm thời/);
+      assert.equal(alert.getAttribute('data-error-kind'), 'timeout');
+      assert.match(alert.textContent, /Quá thời gian chờ/);
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }));
 
+    // State 3: Insufficient data -> single safe action "Thu hẹp câu hỏi"
     await waitFor(() => {
       assert.ok(screen.getByText('Chưa đủ dữ liệu kết luận'));
-      assert.ok(
-        screen.getByText('Chưa có đủ dữ liệu bán hàng trong kỳ để đưa ra dự báo.')
-      );
+      assert.ok(screen.getByRole('button', { name: 'Thu hẹp câu hỏi' }));
     });
 
-    assert.equal(attempt, 2);
+    fireEvent.click(screen.getByRole('button', { name: 'Thu hẹp câu hỏi' }));
+    assert.equal(screen.getByLabelText('Nhập câu hỏi cho Trợ lý AI').value, quickPrompt);
+
+    // State 5: Quota 429 -> single safe action "Đóng" (no retry spam)
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi câu hỏi' }));
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      assert.equal(alert.getAttribute('data-error-kind'), 'quota');
+      assert.match(alert.textContent, /Đã đạt giới hạn sử dụng/);
+      assert.ok(screen.getByRole('button', { name: 'Đóng' }));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
+    assert.equal(screen.queryByRole('alert'), null);
+    assert.equal(attempt, 3);
     view.unmount();
   });
 

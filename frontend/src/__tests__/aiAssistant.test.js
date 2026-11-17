@@ -106,26 +106,33 @@ describe('aiApi — T04AB25 OpenAPI contract & AI-04 fail-closed behavior', () =
   test('classifyAiError maps 401/403, 429 quota, timeout, 503 unavailable, and 422 safely', () => {
     const c401 = classifyAiError({ response: { status: 401 } });
     assert.equal(c401.kind, 'denied');
+    assert.equal(c401.actionType, 'dismiss');
     assert.equal(c401.retryable, false);
 
     const c403 = classifyAiError({ response: { status: 403 } });
     assert.equal(c403.kind, 'denied');
+    assert.equal(c403.actionType, 'dismiss');
     assert.equal(c403.retryable, false);
 
     const c429 = classifyAiError({ response: { status: 429, data: { detail: 'Rate limit' } } });
     assert.equal(c429.kind, 'quota');
-    assert.equal(c429.retryable, true);
+    assert.equal(c429.actionType, 'dismiss');
+    assert.equal(c429.retryable, false);
+    assert.doesNotMatch(c429.message, /HTTP 429/);
 
     const cTimeout = classifyAiError({ code: 'ECONNABORTED' });
     assert.equal(cTimeout.kind, 'timeout');
+    assert.equal(cTimeout.actionType, 'retry');
     assert.equal(cTimeout.retryable, true);
 
     const c504 = classifyAiError({ response: { status: 504 } });
     assert.equal(c504.kind, 'timeout');
+    assert.equal(c504.actionType, 'retry');
     assert.equal(c504.retryable, true);
 
     const c503 = classifyAiError({ response: { status: 503 } });
     assert.equal(c503.kind, 'unavailable');
+    assert.equal(c503.actionType, 'retry');
     assert.equal(c503.retryable, true);
   });
 

@@ -282,6 +282,46 @@
   line-height: 1.45;
 }
 
+.narrowBtn {
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.narrowBtn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.errorHint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.dismissBtn {
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dismissBtn:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
 .evidenceSection {
   border-top: 1px solid #f1f5f9;
   padding-top: 10px;

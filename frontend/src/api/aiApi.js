@@ -90,6 +90,7 @@ export function classifyAiError(err) {
       status: 422,
       title: 'Câu hỏi chưa hợp lệ',
       message: err.message,
+      actionType: 'dismiss',
       retryable: false,
     };
   }
@@ -101,11 +102,12 @@ export function classifyAiError(err) {
     return {
       kind: 'denied',
       status,
-      title: 'Không có quyền truy cập Trợ lý AI',
+      title: 'Không có quyền truy cập',
       message:
         status === 401
-          ? 'Phiên đăng nhập đã hết hạn hoặc chưa được xác thực. Vui lòng đăng nhập lại bằng tài khoản ADMIN.'
-          : 'Chỉ tài khoản Quản trị viên (ADMIN) mới được phép sử dụng Trợ lý AI.',
+          ? 'Phiên đăng nhập đã hết hạn hoặc chưa được xác thực. Vui lòng đăng nhập lại bằng tài khoản Quản trị viên.'
+          : 'Trợ lý AI chỉ dành cho Quản trị viên. Tài khoản hiện tại không được phân quyền truy cập chức năng này.',
+      actionType: 'dismiss',
       retryable: false,
     };
   }
@@ -114,11 +116,12 @@ export function classifyAiError(err) {
     return {
       kind: 'quota',
       status,
-      title: 'Vượt giới hạn lượt hỏi tạm thời',
+      title: 'Đã đạt giới hạn sử dụng',
       message:
-        getApiErrorMessage(err, '') ||
-        'Hệ thống Trợ lý AI đang tạm giới hạn tần suất truy vấn (HTTP 429). Vui lòng đợi ít phút rồi thử lại.',
-      retryable: true,
+        'Bạn đã gửi quá nhiều yêu cầu trong thời gian ngắn. Vui lòng thử lại sau ít phút.',
+      hint: 'Vui lòng thử lại sau ít phút',
+      actionType: 'dismiss',
+      retryable: false,
     };
   }
 
@@ -131,9 +134,10 @@ export function classifyAiError(err) {
     return {
       kind: 'timeout',
       status,
-      title: 'Yêu cầu phân tích AI quá thời gian chờ',
+      title: 'Quá thời gian chờ',
       message:
-        'Truy vấn vượt quá thời gian xử lý cho phép. Vui lòng thử đặt câu hỏi ngắn gọn, rõ khoảng thời gian hơn hoặc thử lại.',
+        'Yêu cầu vượt quá thời gian phản hồi cho phép nên dữ liệu chưa được tải đầy đủ.',
+      actionType: 'retry',
       retryable: true,
     };
   }
@@ -142,8 +146,9 @@ export function classifyAiError(err) {
     return {
       kind: 'validation',
       status,
-      title: 'Dữ liệu câu hỏi không hợp lệ',
+      title: 'Câu hỏi chưa hợp lệ',
       message: getApiErrorMessage(err, 'Câu hỏi không đúng định dạng yêu cầu.'),
+      actionType: 'dismiss',
       retryable: false,
     };
   }
@@ -152,11 +157,10 @@ export function classifyAiError(err) {
     return {
       kind: 'unavailable',
       status,
-      title: 'Dịch vụ Trợ lý AI tạm thời chưa sẵn sàng',
+      title: 'Dịch vụ tạm thời không khả dụng',
       message:
-        status === 404
-          ? 'Endpoint Trợ lý AI (/api/v1/ai/query) chưa được kích hoạt trên máy chủ Backend.'
-          : 'Không thể kết nối tới dịch vụ Trợ lý AI lúc này. Vui lòng thử lại sau.',
+        'Hệ thống trợ lý AI đang được bảo trì hoặc kết nối tạm thời bị gián đoạn. Dữ liệu cửa hàng của bạn vẫn an toàn.',
+      actionType: 'retry',
       retryable: true,
     };
   }
@@ -169,6 +173,7 @@ export function classifyAiError(err) {
       err,
       'Đã xảy ra lỗi khi xử lý yêu cầu Trợ lý AI. Vui lòng thử lại.'
     ),
+    actionType: 'retry',
     retryable: true,
   };
 }

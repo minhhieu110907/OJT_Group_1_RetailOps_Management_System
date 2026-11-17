@@ -37,6 +37,7 @@ export default function AiAssistant() {
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -186,6 +187,20 @@ export default function AiAssistant() {
     setInputError('');
   };
 
+  const handleNarrowQuestion = (promptText) => {
+    if (!inputValue.trim() && promptText) {
+      setInputValue(promptText);
+    }
+    setInputError('');
+    if (textareaRef.current && typeof textareaRef.current.focus === 'function') {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleDismissError = (messageId) => {
+    setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+  };
+
   if (!isAdmin) {
     return (
       <div className={styles.pageContainer}>
@@ -294,11 +309,20 @@ export default function AiAssistant() {
                           <p className={styles.answerText}>{msg.response.answer}</p>
 
                           {msg.status === 'insufficient_data' && (
-                            <p className={styles.insufficientHint}>
-                              Hệ thống chưa đủ bằng chứng dữ liệu để đưa ra kết luận chắc chắn. Bạn
-                              có thể thử thu hẹp khoảng thời gian hoặc kiểm tra lại dữ liệu giao
-                              dịch/tồn kho.
-                            </p>
+                            <>
+                              <p className={styles.insufficientHint}>
+                                Gợi ý: Câu hỏi quá rộng hoặc dữ liệu nằm ngoài phạm vi thời gian
+                                đã ghi nhận.
+                              </p>
+                              <button
+                                type="button"
+                                className={styles.narrowBtn}
+                                disabled={isProcessing}
+                                onClick={() => handleNarrowQuestion(msg.promptText)}
+                              >
+                                Thu hẹp câu hỏi
+                              </button>
+                            </>
                           )}
 
                           {msg.response.evidence.length > 0 && (
@@ -342,7 +366,10 @@ export default function AiAssistant() {
                       >
                         <p className={styles.errorTitle}>{msg.errorInfo.title}</p>
                         <p className={styles.errorMessage}>{msg.errorInfo.message}</p>
-                        {msg.errorInfo.retryable && (
+                        {msg.errorInfo.hint && (
+                          <p className={styles.errorHint}>{msg.errorInfo.hint}</p>
+                        )}
+                        {msg.errorInfo.actionType === 'retry' ? (
                           <button
                             type="button"
                             className={styles.retryBtn}
@@ -355,6 +382,15 @@ export default function AiAssistant() {
                             }
                           >
                             Thử lại
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.dismissBtn}
+                            disabled={isProcessing}
+                            onClick={() => handleDismissError(msg.id)}
+                          >
+                            Đóng
                           </button>
                         )}
                       </div>
@@ -375,6 +411,7 @@ export default function AiAssistant() {
           )}
           <div className={styles.composerRow}>
             <textarea
+              ref={textareaRef}
               className={styles.textarea}
               aria-label="Nhập câu hỏi cho Trợ lý AI"
               placeholder="Ví dụ: Top 5 sản phẩm bán chạy 30 ngày qua hoặc sản phẩm nào cần nhập thêm?"
