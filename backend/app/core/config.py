@@ -2,9 +2,18 @@
 
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    EmailStr,
+    Field,
+    SecretStr,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -56,6 +65,26 @@ class Settings(BaseSettings):
     refresh_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
     business_rate_limit: int = Field(default=120, ge=1, le=10_000)
     business_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    rabbitmq_url: SecretStr | None = None
+    rabbitmq_host: str | None = None
+    rabbitmq_port: int = Field(default=5672, ge=1, le=65_535)
+    rabbitmq_vhost: str = "/retailops"
+    rabbitmq_username: str | None = None
+    rabbitmq_password: SecretStr | None = None
+    outbox_exchange: str = "retailops.email"
+    outbox_queue: str = "retailops.email.v1"
+    outbox_routing_key: str = "email.deliver.v1"
+    outbox_task_name: str = "retailops.email.deliver_v1"
+    outbox_batch_size: int = Field(default=25, ge=1, le=25)
+    outbox_poll_seconds: float = Field(default=5.0, gt=0, le=60)
+    email_retry_delays_seconds: tuple[int, int, int] = (30, 120, 300)
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=1025, ge=1, le=65_535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from_address: str = "no-reply@retailops.local"
+    smtp_starttls: bool = False
+    smtp_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
 
     @field_validator("cors_origins")
     @classmethod
@@ -97,6 +126,38 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator(
+        "outbox_exchange", "outbox_queue", "outbox_routing_key", "outbox_task_name"
+    )
+    @classmethod
+    def validate_broker_names(cls, value: str, info: ValidationInfo) -> str:
+        expected = {
+            "outbox_exchange": "retailops.email",
+            "outbox_queue": "retailops.email.v1",
+            "outbox_routing_key": "email.deliver.v1",
+            "outbox_task_name": "retailops.email.deliver_v1",
+        }
+        field_name = info.field_name
+        if value != expected[field_name]:
+            raise ValueError(f"{field_name} is frozen by the BE-OUTBOX contract")
+        return value
+
+    @field_validator("email_retry_delays_seconds")
+    @classmethod
+    def validate_email_retry_delays(
+        cls, value: tuple[int, int, int]
+    ) -> tuple[int, int, int]:
+        if value != (30, 120, 300):
+            raise ValueError("Email retry delays must be exactly 30,120,300 seconds")
+        return value
+
+    @field_validator("smtp_from_address")
+    @classmethod
+    def validate_smtp_header_safety(cls, value: str) -> str:
+        if not value or "\r" in value or "\n" in value:
+            raise ValueError("SMTP sender must be a single non-empty address")
+        return value
+
     @model_validator(mode="after")
     def validate_auth_configuration(self) -> "Settings":
         """Reject unsafe TTLs and incomplete production secret configuration."""
@@ -127,6 +188,46 @@ class Settings(BaseSettings):
             if self.cookie_secure is False:
                 raise ValueError("Production auth cookies must be Secure")
         return self
+
+    def require_rabbitmq_url(self) -> str:
+        if self.rabbitmq_url is not None:
+            return self.rabbitmq_url.get_secret_value()
+        if (
+            self.rabbitmq_host is None
+            or self.rabbitmq_username is None
+            or self.rabbitmq_password is None
+        ):
+            raise RuntimeError("RabbitMQ is not configured")
+        username = quote(self.rabbitmq_username, safe="")
+        password = quote(self.rabbitmq_password.get_secret_value(), safe="")
+        vhost = quote(self.rabbitmq_vhost, safe="")
+        return (
+            f"amqp://{username}:{password}@{self.rabbitmq_host}:"
+            f"{self.rabbitmq_port}/{vhost}"
+        )
+
+    def require_smtp_host(self) -> str:
+        if self.smtp_host is None:
+            raise RuntimeError("SMTP is not configured")
+        return self.smtp_host
+
+    def validate_email_worker_configuration(self) -> None:
+        """Fail worker startup without a complete environment-specific SMTP setup."""
+        if self.smtp_host is None:
+            raise RuntimeError("Email worker requires an SMTP host")
+        if (self.smtp_username is None) != (self.smtp_password is None):
+            raise RuntimeError("SMTP username and password must be configured together")
+        if self.environment.casefold() == "production":
+            if self.smtp_host.casefold() in {"mailpit", "localhost", "127.0.0.1"}:
+                raise RuntimeError("Production email worker cannot use local SMTP")
+            if not self.smtp_starttls:
+                raise RuntimeError("Production email worker requires STARTTLS")
+            try:
+                TypeAdapter(EmailStr).validate_python(self.smtp_from_address)
+            except ValidationError as error:
+                raise RuntimeError(
+                    "Production email worker requires a valid provider sender"
+                ) from error
 
     @property
     def cors_origin_allowlist(self) -> list[str]:

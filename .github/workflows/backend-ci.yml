@@ -194,3 +194,98 @@ jobs:
       - name: Tear down containers and ephemeral volume
         if: always()
         run: docker compose -f compose.yaml -f compose.ci.yaml down --volumes --remove-orphans
+
+  rabbitmq-integration:
+    name: Backend / RabbitMQ protocol and ACL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_PROJECT_NAME: retailops-t04a90f-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked dependencies
+        working-directory: backend
+        run: uv sync --locked
+      - name: Generate isolated broker and database credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          bootstrap_password="$(openssl rand -hex 24)"
+          publisher_password="$(openssl rand -hex 24)"
+          worker_password="$(openssl rand -hex 24)"
+          generic_password="$(openssl rand -hex 24)"
+          secret="$(openssl rand -hex 32)"
+          {
+            printf 'MYSQL_DATABASE=retailops\n'
+            printf 'MYSQL_TEST_DATABASE=retailops_test\n'
+            printf 'MYSQL_USER=retailops_app\n'
+            printf 'MYSQL_PASSWORD=%s\n' "$generic_password"
+            printf 'MYSQL_TEST_USER=retailops_test_runner\n'
+            printf 'MYSQL_TEST_PASSWORD=%s\n' "$generic_password"
+            printf 'MYSQL_ROOT_PASSWORD=%s\n' "$generic_password"
+            printf 'MYSQL_HOST_PORT=23306\n'
+            printf 'RETAILOPS_TEST_DATABASE_URL=mysql+pymysql://retailops_test_runner:%s@127.0.0.1:23306/retailops_test?charset=utf8mb4\n' "$generic_password"
+            printf 'RETAILOPS_JWT_SECRET=%s\n' "$secret"
+            printf 'RETAILOPS_CSRF_SECRET=%s\n' "$secret"
+            printf 'RETAILOPS_IDEMPOTENCY_SECRET=%s\n' "$secret"
+            printf 'RABBITMQ_BOOTSTRAP_USER=retailops_topology\n'
+            printf 'RABBITMQ_BOOTSTRAP_PASSWORD=%s\n' "$bootstrap_password"
+            printf 'RABBITMQ_PUBLISHER_USER=retailops_outbox_publisher\n'
+            printf 'RABBITMQ_PUBLISHER_PASSWORD=%s\n' "$publisher_password"
+            printf 'RABBITMQ_WORKER_USER=retailops_email_worker\n'
+            printf 'RABBITMQ_WORKER_PASSWORD=%s\n' "$worker_password"
+            printf 'RABBITMQ_AMQP_HOST_PORT=25673\n'
+            printf 'RABBITMQ_MANAGEMENT_HOST_PORT=25674\n'
+            printf 'MAILPIT_SMTP_HOST_PORT=21025\n'
+            printf 'MAILPIT_HTTP_HOST_PORT=28025\n'
+            printf 'RETAILOPS_TEST_RABBITMQ_MANAGEMENT_URL=http://127.0.0.1:25674\n'
+            printf 'RETAILOPS_TEST_RABBITMQ_BOOTSTRAP_URL=amqp://retailops_topology:%s@127.0.0.1:25673/%%2Fretailops\n' "$bootstrap_password"
+            printf 'RETAILOPS_TEST_RABBITMQ_PUBLISHER_URL=amqp://retailops_outbox_publisher:%s@127.0.0.1:25673/%%2Fretailops\n' "$publisher_password"
+            printf 'RETAILOPS_TEST_RABBITMQ_WORKER_URL=amqp://retailops_email_worker:%s@127.0.0.1:25673/%%2Fretailops\n' "$worker_password"
+          } > .env
+      - name: Validate isolated Compose configuration
+        run: docker compose -f compose.yaml -f compose.ci.yaml config --quiet
+      - name: Start isolated MySQL, RabbitMQ, Mailpit, and topology bootstrap
+        run: |
+          set -euo pipefail
+          docker compose -f compose.yaml -f compose.ci.yaml up -d --wait mysql rabbitmq mailpit
+          docker compose -f compose.yaml -f compose.ci.yaml up --build rabbitmq-bootstrap
+      - name: Outbox MySQL delivery integration tests
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source ../.env
+          set +a
+          uv run --locked pytest -m integration \
+            tests/integration/test_outbox_delivery_mysql.py
+      - name: RabbitMQ protocol, Celery worker, policy, and ACL integration tests
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source ../.env
+          set +a
+          uv run --locked pytest -m rabbitmq_integration \
+            tests/integration/test_outbox_rabbitmq.py
+      - name: Broker diagnostics
+        if: failure()
+        run: |
+          docker compose -f compose.yaml -f compose.ci.yaml ps -a || true
+          docker compose -f compose.yaml -f compose.ci.yaml logs --no-color --tail=160 mysql rabbitmq rabbitmq-bootstrap mailpit || true
+      - name: Tear down isolated broker project
+        if: always()
+        run: docker compose -f compose.yaml -f compose.ci.yaml down --volumes --remove-orphans
