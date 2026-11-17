@@ -11,7 +11,8 @@
 }
 
 .modalBox {
-  background-color: #ffffff;
+  background-color: var(--color-bg-surface, #ffffff);
+  border: 1px solid var(--color-border, transparent);
   border-radius: 12px;
   width: 100%;
   max-width: 540px;
@@ -31,7 +32,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-border, #f1f5f9);
   padding-bottom: 14px;
 }
 
@@ -262,8 +263,8 @@
 }
 
 .statCard {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background-color: var(--color-bg-hover, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 8px;
   padding: 12px;
   display: flex;
@@ -380,11 +381,12 @@
 .textInput {
   width: 100%;
   padding: 10px 45px 10px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background-color: var(--color-bg-input, #ffffff);
   border-radius: 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-neutral, #0f172a);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
   box-sizing: border-box;
@@ -412,10 +414,11 @@
 .textareaInput {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background-color: var(--color-bg-input, #ffffff);
   border-radius: 6px;
   font-size: 14px;
-  color: #0f172a;
+  color: var(--color-neutral, #0f172a);
   outline: none;
   resize: vertical;
   min-height: 70px;
@@ -451,8 +454,8 @@
 
 /* Audit Box */
 .auditBox {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background-color: var(--color-bg-hover, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 8px;
   padding: 12px 14px;
   display: flex;
@@ -473,7 +476,7 @@
 
 .auditValue {
   font-weight: 600;
-  color: #1e293b;
+  color: var(--color-neutral, #1e293b);
 }
 
 .auditValueExpected {
@@ -493,9 +496,9 @@
 
 .cancelBtn {
   padding: 10px 20px;
-  border: 1px solid #cbd5e1;
-  background-color: #ffffff;
-  color: #334155;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background-color: var(--color-bg-surface, #ffffff);
+  color: var(--color-neutral, #334155);
   font-size: 14px;
   font-weight: 600;
   border-radius: 6px;
@@ -504,7 +507,7 @@
 }
 
 .cancelBtn:hover:not(:disabled) {
-  background-color: #f1f5f9;
+  background-color: var(--color-bg-hover, #f1f5f9);
 }
 
 .submitBtn {

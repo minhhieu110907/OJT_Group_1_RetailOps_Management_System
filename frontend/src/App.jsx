@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
+import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { InventorySessionProvider } from './context/InventorySessionContext';
 import { ToastProvider } from './components/common';
@@ -63,10 +64,11 @@ function PlaceholderPage({ title }) {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <InventorySessionProvider>
-          <BrowserRouter>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <InventorySessionProvider>
+            <BrowserRouter>
             <Routes>
             {/* 0. Route kiểm tra kết nối hệ thống (Bảo toàn minh chứng Sprint 0) */}
             <Route path="/health" element={<HealthCheckPage />} />
@@ -129,5 +131,6 @@ export default function App() {
       </InventorySessionProvider>
     </AuthProvider>
   </ToastProvider>
+</ThemeProvider>
 );
 }
