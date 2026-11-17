@@ -1,0 +1,18 @@
+HTTP/1.1 200
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 163
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "product_id": 4,
+  "sku": "QA-SKU-764651-1",
+  "name": "QA Product Active 764651",
+  "category_id": 3,
+  "status": "ACTIVE",
+  "quantity": 0,
+  "stock_version": 0,
+  "first_stocked_at": null
+}

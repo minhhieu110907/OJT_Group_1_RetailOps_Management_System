@@ -411,6 +411,61 @@ export function parseAndValidateSalePriceVnd(rawInput) {
  * Invariant: Never default missing quantity, stock_version, status, or timestamps.
  * Missing, null, or wrong type must be strictly rejected.
  */
+export const PRODUCT_IMAGE_URL_MAX_LENGTH = 500;
+
+/**
+ * Validate optional product image URL against Backend contract:
+ * - Empty / null / undefined -> valid with value: null
+ * - Non-empty -> trimmed, 1..500 chars, valid absolute HTTPS URL without whitespace
+ */
+export function parseAndValidateProductImageUrl(rawValue) {
+  if (rawValue === undefined || rawValue === null) {
+    return { isValid: true, value: null, error: '' };
+  }
+  if (typeof rawValue !== 'string') {
+    return {
+      isValid: false,
+      value: null,
+      error: 'Link ảnh sản phẩm phải là chuỗi URL hợp lệ.',
+    };
+  }
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return { isValid: true, value: null, error: '' };
+  }
+  if (trimmed.length > PRODUCT_IMAGE_URL_MAX_LENGTH) {
+    return {
+      isValid: false,
+      value: null,
+      error: `Link ảnh sản phẩm không được vượt quá ${PRODUCT_IMAGE_URL_MAX_LENGTH} ký tự.`,
+    };
+  }
+  if (/\s/.test(trimmed)) {
+    return {
+      isValid: false,
+      value: null,
+      error: 'Link ảnh sản phẩm không được chứa khoảng trắng.',
+    };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:' || !parsed.hostname) {
+      return {
+        isValid: false,
+        value: null,
+        error: 'Link ảnh sản phẩm phải là URL HTTPS hợp lệ (bắt đầu bằng https://).',
+      };
+    }
+    return { isValid: true, value: trimmed, error: '' };
+  } catch {
+    return {
+      isValid: false,
+      value: null,
+      error: 'Link ảnh sản phẩm phải là URL HTTPS hợp lệ (bắt đầu bằng https://).',
+    };
+  }
+}
+
 export function validateProductRead(item) {
   if (!item || typeof item !== 'object') {
     throw new Error('Product payload must be an object.');
@@ -473,11 +528,23 @@ export function validateProductRead(item) {
     );
   }
 
+  let normalizedImageUrl = null;
+  if (item.image_url !== undefined && item.image_url !== null) {
+    const imageCheck = parseAndValidateProductImageUrl(item.image_url);
+    if (!imageCheck.isValid || !imageCheck.value) {
+      throw new Error(
+        `Schema violation: Product "${item.name}" (SKU: ${item.sku}) has invalid image_url: ${item.image_url}.`
+      );
+    }
+    normalizedImageUrl = imageCheck.value;
+  }
+
   return {
     id: item.id,
     category_id: item.category_id,
     sku: item.sku.trim(),
     name: item.name.trim(),
+    image_url: normalizedImageUrl,
     status: item.status,
     sale_price_vnd: item.sale_price_vnd,
     quantity: item.quantity,
@@ -513,6 +580,16 @@ export function validateCategoryRead(item) {
   ) {
     throw new Error(`Category ${item.id} has invalid description.`);
   }
+  if (
+    item.product_count !== undefined &&
+    (typeof item.product_count !== 'number' ||
+      !Number.isInteger(item.product_count) ||
+      item.product_count < 0)
+  ) {
+    throw new Error(
+      `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid product_count: ${item.product_count}.`
+    );
+  }
   if (!isValidIsoTimestamp(item.created_at)) {
     throw new Error(
       `Schema violation: Category "${item.name}" (ID: ${item.id}) has invalid or missing created_at timestamp: ${item.created_at}.`
@@ -528,6 +605,7 @@ export function validateCategoryRead(item) {
     id: item.id,
     name: item.name.trim(),
     ...(item.description !== undefined ? { description: item.description } : {}),
+    ...(item.product_count !== undefined ? { product_count: item.product_count } : {}),
     status: item.status,
     created_at: item.created_at,
     updated_at: item.updated_at,
@@ -788,8 +866,25 @@ export const productsApi = {
    */
   async createProduct(payloadOrWrapper) {
     assertRealApiMode(payloadOrWrapper?.isMockMode);
-    const data = payloadOrWrapper?.data ?? payloadOrWrapper;
-    const response = await axiosClient.post('/products', data);
+    const rawData = payloadOrWrapper?.data ?? payloadOrWrapper;
+    const cleanPayload = {
+      sku: String(rawData?.sku ?? '').trim(),
+      name: String(rawData?.name ?? '').trim(),
+      category_id: Number(rawData?.category_id),
+      sale_price_vnd: Number(rawData?.sale_price_vnd),
+    };
+    if (rawData?.image_url !== undefined && rawData?.image_url !== null) {
+      const imageCheck = parseAndValidateProductImageUrl(rawData.image_url);
+      if (!imageCheck.isValid) {
+        const err = new Error(imageCheck.error);
+        err.isClientValidation = true;
+        throw err;
+      }
+      if (imageCheck.value !== null) {
+        cleanPayload.image_url = imageCheck.value;
+      }
+    }
+    const response = await axiosClient.post('/products', cleanPayload);
     return validateProductRead(response.data);
   },
 
@@ -799,12 +894,23 @@ export const productsApi = {
    */
   async updateProduct({ isMockMode, id, data } = {}) {
     assertRealApiMode(isMockMode);
-    // Defensive payload sanitization: Send only whitelisted ProductUpdateRequest fields (name, category_id, sale_price_vnd)
-    // Never send 'sku', 'status', 'quantity', 'stock_version'
+    // Defensive payload sanitization: Send only whitelisted ProductUpdateRequest fields
+    // (name, category_id, sale_price_vnd, image_url). Never send 'sku', 'status', 'quantity', 'stock_version'.
     const cleanPayload = {};
     if (data.name !== undefined) cleanPayload.name = String(data.name).trim();
     if (data.category_id !== undefined) cleanPayload.category_id = Number(data.category_id);
     if (data.sale_price_vnd !== undefined) cleanPayload.sale_price_vnd = Number(data.sale_price_vnd);
+    if (data.image_url === null) {
+      cleanPayload.image_url = null;
+    } else if (data.image_url !== undefined) {
+      const imageCheck = parseAndValidateProductImageUrl(data.image_url);
+      if (!imageCheck.isValid) {
+        const err = new Error(imageCheck.error);
+        err.isClientValidation = true;
+        throw err;
+      }
+      cleanPayload.image_url = imageCheck.value;
+    }
 
     const response = await axiosClient.patch(`/products/${id}`, cleanPayload);
     return validateProductRead(response.data);

@@ -45,8 +45,19 @@ export default function OrderDetailModal({
   nowMs,
   onClose,
   onOpenCancelModal,
+  hideTimezone = false,
+  compactAdminLabel = false,
 }) {
   if (!order) return null;
+
+  const formatActor = (actorId, actorName) => {
+    if (actorName) return actorName;
+    const label = formatOrderActorLabel(actorId, user);
+    if (compactAdminLabel && /^Admin #\d+$/.test(label)) {
+      return 'Admin';
+    }
+    return label;
+  };
 
   const isVerified = detailStatus === 'verified';
   const eligibility = evaluateCancelOrderEligibility({
@@ -91,13 +102,6 @@ export default function OrderDetailModal({
         </div>
 
         <div className={styles.modalBody}>
-          {detailStatus === 'loading' && (
-            <div className={styles.alertBoxAmber} role="status">
-              <strong>Đang xác minh dữ liệu mới nhất</strong>
-              <p>Hệ thống đang tải thông tin mới nhất của đơn #{order.id} từ máy chủ...</p>
-            </div>
-          )}
-
           {detailStatus === 'error' && (
             <div className={styles.alertBoxRose} role="alert">
               <strong>Không thể xác minh chi tiết đơn hàng</strong>
@@ -119,23 +123,32 @@ export default function OrderDetailModal({
           <div className={styles.detailMetaBox}>
             <div className={styles.detailMetaLeft}>
               <p className={styles.detailMetaLine}>
-                Người tạo đơn: <strong>{formatOrderActorLabel(order.created_by, user)}</strong>
+                Người tạo đơn:{' '}
+                <strong>{formatActor(order.created_by, order.created_by_name)}</strong>
               </p>
               <p className={styles.detailMetaLine}>
-                Thời gian tạo: <strong>{formatOrderDateTimeVN(order.sold_at)} (Asia/Ho_Chi_Minh)</strong>
+                Thời gian tạo:{' '}
+                <strong>
+                  {formatOrderDateTimeVN(order.sold_at)}
+                  {hideTimezone ? '' : ' (Asia/Ho_Chi_Minh)'}
+                </strong>
               </p>
               {order.status === 'CANCELLED' && (
                 <>
                   <p className={styles.detailMetaLine}>
                     Thời gian hủy:{' '}
                     <strong>
-                      {formatOrderDateTimeVN(order.cancelled_at)} (Asia/Ho_Chi_Minh)
+                      {formatOrderDateTimeVN(order.cancelled_at)}
+                      {hideTimezone ? '' : ' (Asia/Ho_Chi_Minh)'}
                     </strong>
                   </p>
                   <p className={styles.detailMetaLine}>
                     Lý do hủy: <strong>{order.cancel_reason || '—'}</strong>
                     {order.cancelled_by
-                      ? ` (Người thực hiện: ${formatOrderActorLabel(order.cancelled_by, user)})`
+                      ? ` (Người thực hiện: ${formatActor(
+                          order.cancelled_by,
+                          order.cancelled_by_name
+                        )})`
                       : ''}
                   </p>
                 </>
@@ -192,7 +205,7 @@ export default function OrderDetailModal({
           >
             Đóng
           </button>
-          {canOpenCancel && (
+          {canOpenCancel && typeof onOpenCancelModal === 'function' && (
             <button
               type="button"
               className={styles.compactDangerBtn}

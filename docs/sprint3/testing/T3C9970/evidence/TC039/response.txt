@@ -1,0 +1,13 @@
+HTTP/1.1 401
+date: Sun, 15 Nov 2026 17:44:12 GMT
+server: uvicorn
+content-length: 77
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "UNAUTHENTICATED",
+  "message": "Yêu cầu xác thực.",
+  "details": null
+}

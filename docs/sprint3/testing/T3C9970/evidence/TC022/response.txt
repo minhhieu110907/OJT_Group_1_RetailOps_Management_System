@@ -1,0 +1,17 @@
+HTTP/1.1 409
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 198
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "STALE_STOCK_VERSION",
+  "message": "Phiên bản tồn kho đã thay đổi, vui lòng tải lại dữ liệu.",
+  "details": {
+    "product_id": 4,
+    "expected_stock_version": 2,
+    "current_stock_version": 3
+  }
+}
