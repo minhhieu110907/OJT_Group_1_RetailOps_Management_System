@@ -26,14 +26,26 @@ class CategoryService:
     def __init__(self, repository: CategoryRepository | None = None) -> None:
         self.repository = repository or CategoryRepository()
 
-    def get_by_id(self, session: Session, category_id: int) -> Category:
+    @staticmethod
+    def _to_read(category: Category, product_count: int) -> CategoryRead:
+        return CategoryRead(
+            id=category.id,
+            name=category.name,
+            description=category.description,
+            status=category.status,
+            product_count=product_count,
+            created_at=category.created_at,
+            updated_at=category.updated_at,
+        )
+
+    def get_by_id(self, session: Session, category_id: int) -> CategoryRead:
         """Fetch a category by ID or raise ResourceNotFoundError."""
-        category = self.repository.get_by_id(session, category_id)
-        if category is None:
+        row = self.repository.get_by_id(session, category_id)
+        if row is None:
             raise ResourceNotFoundError(
                 f"Không tìm thấy danh mục với mã {category_id}."
             )
-        return category
+        return self._to_read(*row)
 
     def list_categories(
         self,
@@ -48,13 +60,13 @@ class CategoryService:
             session, page=page, page_size=page_size, status=status, search=search
         )
         return CategoryListResponse(
-            items=[CategoryRead.model_validate(item) for item in items],
+            items=[self._to_read(category, count) for category, count in items],
             total=total,
             page=page,
             page_size=page_size,
         )
 
-    def create_category(self, session: Session, data: CategoryCreate) -> Category:
+    def create_category(self, session: Session, data: CategoryCreate) -> CategoryRead:
         """Create a new category in ACTIVE status and commit atomically."""
         now = _utc_now_naive()
         category = Category(
@@ -67,16 +79,21 @@ class CategoryService:
         try:
             self.repository.add(session, category)
             session.commit()
-            return category
+            return self._to_read(category, 0)
         except Exception:
             session.rollback()
             raise
 
     def update_category(
         self, session: Session, category_id: int, data: CategoryUpdate
-    ) -> Category:
+    ) -> CategoryRead:
         """Partially update category fields and commit atomically."""
-        category = self.get_by_id(session, category_id)
+        row = self.repository.get_by_id(session, category_id)
+        if row is None:
+            raise ResourceNotFoundError(
+                f"KhÃ´ng tÃ¬m tháº¥y danh má»¥c vá»›i mÃ£ {category_id}."
+            )
+        category, product_count = row
 
         if "name" in data.model_fields_set and data.name is not None:
             category.name = data.name.strip()
@@ -88,22 +105,27 @@ class CategoryService:
         try:
             session.flush()
             session.commit()
-            return category
+            return self._to_read(category, product_count)
         except Exception:
             session.rollback()
             raise
 
     def update_category_status(
         self, session: Session, category_id: int, data: CategoryStatusUpdate
-    ) -> Category:
+    ) -> CategoryRead:
         """Update category status (ACTIVE/INACTIVE) and commit atomically."""
-        category = self.get_by_id(session, category_id)
+        row = self.repository.get_by_id(session, category_id)
+        if row is None:
+            raise ResourceNotFoundError(
+                f"KhÃ´ng tÃ¬m tháº¥y danh má»¥c vá»›i mÃ£ {category_id}."
+            )
+        category, product_count = row
         category.status = data.status.value
         category.updated_at = _utc_now_naive()
         try:
             session.flush()
             session.commit()
-            return category
+            return self._to_read(category, product_count)
         except Exception:
             session.rollback()
             raise

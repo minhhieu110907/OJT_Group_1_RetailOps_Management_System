@@ -1,0 +1,484 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.titleArea {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mainTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.subTitle {
+  font-size: 13.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+.warehouseBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0.875rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: #374151;
+}
+
+.warehouseIcon {
+  color: #059669;
+  display: flex;
+  align-items: center;
+}
+
+/* Tabs */
+.tabsContainer {
+  display: flex;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1rem;
+  gap: 1.5rem;
+}
+
+.tabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #6b7280;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tabBtn:hover {
+  color: #111827;
+}
+
+.tabBtnActive {
+  color: #059669;
+  border-bottom-color: #059669;
+  font-weight: 600;
+}
+
+.tabCountBadge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #ecfdf5;
+  color: #059669;
+  border-radius: 9999px;
+}
+
+/* Info Box / Alert Banner */
+.infoBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: #166534;
+}
+
+.infoIcon {
+  color: #16a34a;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+/* Stat Cards Grid */
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.statCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.statHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: #4b5563;
+  margin-bottom: 0.5rem;
+}
+
+.statDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.statDotYellow {
+  background-color: #f59e0b;
+}
+
+.statDotRed {
+  background-color: #ef4444;
+}
+
+.statBody {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.statValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1;
+}
+
+.statSubBadge {
+  font-size: 0.6875rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background-color: #f3f4f6;
+  color: #4b5563;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.statSubBadgeGreen {
+  background-color: #ecfdf5;
+  color: #047857;
+}
+
+.statSubBadgeYellow {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.statSubBadgeRed {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Filter Card */
+.filterCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+@media (min-width: 1024px) {
+  .filterCard {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+  }
+}
+
+.searchWrap {
+  position: relative;
+  flex: 0 0 260px;
+  max-width: 320px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  font-size: 0.875rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  border-color: #059669;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
+}
+
+.filterControls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0; /* Cho phép các con co giãn và kích hoạt overflow */
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.filterLabel {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #4b5563;
+  width: 165px;
+  flex-shrink: 0; /* Đảm bảo nhãn không bao giờ bị bóp méo */
+  text-align: left;
+}
+
+/* Thanh trượt ngang cho danh sách chips khi có quá nhiều danh mục */
+.filterChips {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding: 0.25rem 0.125rem;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tùy chỉnh thanh cuộn tinh tế (subtle scrollbar) */
+.filterChips::-webkit-scrollbar {
+  height: 4px;
+}
+
+.filterChips::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.filterChips::-webkit-scrollbar-thumb {
+  background-color: #e2e8f0;
+  border-radius: 4px;
+}
+
+.filterChips:hover::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+}
+
+.chipBtn {
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  color: #4b5563;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0; /* Không bao giờ làm co nút khi danh mục dài */
+}
+
+.chipBtn:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.chipBtnActive {
+  background-color: #059669;
+  color: #ffffff;
+  border-color: #059669;
+  font-weight: 500;
+}
+
+.chipBtnActive:hover {
+  background-color: #047857;
+  border-color: #047857;
+}
+
+/* Badges for Table Rows */
+.statusBadgeActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background-color: #ecfdf5;
+  color: #047857;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.statusBadgeInactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background-color: #f3f4f6;
+  color: #6b7280;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.statusDotGreen {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+}
+
+.statusDotGray {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #9ca3af;
+}
+
+.badgeNormal {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background-color: #f3f4f6;
+  color: #4b5563;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.badgeLowStock {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background-color: #fef3c7;
+  color: #b45309;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.badgeOutOfStock {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background-color: #fee2e2;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.badgeInactive {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background-color: #f3f4f6;
+  color: #9ca3af;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.8125rem;
+  color: #059669;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.actionBtnText {
+  white-space: nowrap;
+}
+
+.actionBtn:hover {
+  background-color: #ecfdf5;
+  border-color: #059669;
+}
+
+.quantityCell {
+  font-weight: 600;
+  color: #111827;
+}
+
+.skuCell {
+  font-size: 0.84375rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.productNameCell {
+  font-weight: 500;
+  color: #111827;
+  line-height: 1.3;
+}
+
+.tableWrap {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.paginationWrap {
+  padding: 0.875rem 1.25rem;
+  background: #ffffff;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .statGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+

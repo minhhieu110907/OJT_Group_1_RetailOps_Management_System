@@ -40,7 +40,9 @@ def register(
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> RegisterResponse:
     response.headers["Cache-Control"] = "no-store"
-    return service.register(session, str(payload.email), payload.password)
+    return service.register(
+        session, str(payload.email), payload.password, payload.full_name
+    )
 
 
 def _set_auth_cookies(

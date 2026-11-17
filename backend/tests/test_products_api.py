@@ -1133,6 +1133,7 @@ async def test_api_products_query_params_validation_and_staff_admin_access() -> 
                     "category_id",
                     "sku",
                     "name",
+                    "image_url",
                     "status",
                     "sale_price_vnd",
                     "quantity",

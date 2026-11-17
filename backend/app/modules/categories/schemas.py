@@ -82,6 +82,7 @@ class CategoryRead(BaseModel):
     name: str
     description: str | None
     status: str
+    product_count: int = Field(ge=0)
     created_at: datetime
     updated_at: datetime
 
