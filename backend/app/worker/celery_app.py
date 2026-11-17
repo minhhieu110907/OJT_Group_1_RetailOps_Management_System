@@ -34,6 +34,7 @@ def create_celery_app() -> Celery:
         task_create_missing_queues=False,
         task_publish_retry=False,
         broker_transport_options={"confirm_publish": True},
+        task_default_queue=settings.outbox_queue,
         task_default_exchange=settings.outbox_exchange,
         task_default_exchange_type="direct",
         task_default_routing_key=settings.outbox_routing_key,

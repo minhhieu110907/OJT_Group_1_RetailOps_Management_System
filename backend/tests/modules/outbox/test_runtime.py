@@ -242,12 +242,97 @@ def test_celery_app_disables_worker_topology_declarations(
         app = create_celery_app()
         assert app.conf.worker_enable_remote_control is False
         assert app.conf.task_create_missing_queues is False
+        assert app.conf.task_default_queue == "retailops.email.v1"
+        assert app.conf.task_default_exchange == "retailops.email"
+        assert app.conf.task_default_routing_key == "email.deliver.v1"
+        assert "retailops.email.v1" in app.amqp.queues
+        assert "celery" not in app.amqp.queues
+        assert app.amqp.default_queue.name == "retailops.email.v1"
         assert len(app.conf.task_queues) == 1
         queue = app.conf.task_queues[0]
         assert queue.name == "retailops.email.v1"
         assert queue.no_declare is True
         assert queue.exchange.name == "retailops.email"
         assert queue.exchange.no_declare is True
+    finally:
+        get_settings.cache_clear()
+
+
+def test_celery_retry_uses_configured_default_queue_without_celery_keyerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import contextmanager
+
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("RETAILOPS_DB_HOST", "mysql")
+    monkeypatch.setenv("RETAILOPS_DB_NAME", "retailops_test")
+    monkeypatch.setenv("RETAILOPS_DB_USER", "test")
+    monkeypatch.setenv("RETAILOPS_DB_PASSWORD", "test-password")
+    monkeypatch.setenv(
+        "RETAILOPS_RABBITMQ_URL",
+        "amqp://worker:pass@rabbitmq:5672/%2Fretailops",
+    )
+    get_settings.cache_clear()
+    try:
+        from app.worker.celery_app import create_celery_app
+
+        app = create_celery_app()
+        published: list[dict[str, object]] = []
+
+        class FakeProducer:
+            def publish(self, _body: object, **kwargs: object) -> None:
+                published.append(kwargs)
+
+        @contextmanager
+        def fake_producer_or_acquire(_producer: object = None) -> object:
+            yield FakeProducer()
+
+        monkeypatch.setattr(app, "producer_or_acquire", fake_producer_or_acquire)
+
+        @app.task(
+            bind=True,
+            name="retailops.email.deliver_v1",
+            acks_late=True,
+            reject_on_worker_lost=True,
+            max_retries=3,
+        )
+        def probe_task(self: object, *, envelope: object) -> None:
+            return None
+
+        canonical_id = str(UUID(bytes=EVENT_ID))
+        probe_task.push_request(
+            id=canonical_id,
+            retries=0,
+            called_directly=False,
+            kwargs={"envelope": {"event_id": canonical_id, "schema_version": 1}},
+            delivery_info={
+                "exchange": "retailops.email",
+                "routing_key": "email.deliver.v1",
+            },
+        )
+        try:
+            with pytest.raises(Retry):
+                retry_or_requeue(
+                    probe_task,
+                    RuntimeError("SMTP_TRANSIENT"),
+                    delays=(30, 120, 300),
+                )
+        finally:
+            probe_task.pop_request()
+
+        assert len(published) == 1
+        call = published[0]
+        assert call["exchange"] == "retailops.email"
+        assert call["routing_key"] == "email.deliver.v1"
+        headers = call["headers"]
+        assert isinstance(headers, dict)
+        assert headers["task"] == "retailops.email.deliver_v1"
+        assert headers["id"] == canonical_id
+        assert headers["retries"] == 1
+        assert headers.get("eta") is not None
+        declared = call.get("declare") or ()
+        assert all(getattr(entity, "no_declare", False) for entity in declared)
     finally:
         get_settings.cache_clear()
 
