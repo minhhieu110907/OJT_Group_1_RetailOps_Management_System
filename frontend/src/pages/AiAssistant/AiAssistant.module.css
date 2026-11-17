@@ -542,3 +542,164 @@
     width: 100%;
   }
 }
+
+/* =========================================================
+   Chrome-inspired Dark Mode ([data-theme='dark'])
+   ========================================================= */
+:global([data-theme='dark']) .pageTitle {
+  color: #e8eaed;
+}
+
+:global([data-theme='dark']) .pageSubtitle {
+  color: #9aa0a6;
+}
+
+:global([data-theme='dark']) .newChatBtn {
+  background: #292a2d;
+  border-color: #3c4043;
+  color: #e8eaed;
+}
+
+:global([data-theme='dark']) .newChatBtn:hover:not(:disabled) {
+  background: #35363a;
+  border-color: #5f6368;
+}
+
+:global([data-theme='dark']) .safetyBanner {
+  background: #292a2d;
+  border-color: #3c4043;
+  color: #bdc1c6;
+}
+
+:global([data-theme='dark']) .chatShell {
+  background: #202124;
+  border-color: #3c4043;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+:global([data-theme='dark']) .messagesArea {
+  background: #202124;
+}
+
+:global([data-theme='dark']) .welcomeCard,
+:global([data-theme='dark']) .assistantCard,
+:global([data-theme='dark']) .stateCard {
+  background: #292a2d;
+  border-color: #3c4043;
+}
+
+:global([data-theme='dark']) .welcomeTitle,
+:global([data-theme='dark']) .answerText,
+:global([data-theme='dark']) .evidenceSource {
+  color: #e8eaed;
+}
+
+:global([data-theme='dark']) .welcomeDesc,
+:global([data-theme='dark']) .processingRow,
+:global([data-theme='dark']) .evidenceHeading,
+:global([data-theme='dark']) .evidenceSummary {
+  color: #bdc1c6;
+}
+
+:global([data-theme='dark']) .messageTime,
+:global([data-theme='dark']) .suggestionNote,
+:global([data-theme='dark']) .composerFooter {
+  color: #9aa0a6;
+}
+
+:global([data-theme='dark']) .assistantAuthor {
+  color: #5eead4;
+}
+
+:global([data-theme='dark']) .promptChip {
+  background: #35363a;
+  border-color: #4a4d52;
+  color: #e8eaed;
+}
+
+:global([data-theme='dark']) .promptChip:hover:not(:disabled) {
+  background: #3c4043;
+  border-color: #2dd4bf;
+}
+
+:global([data-theme='dark']) .userBubble {
+  background: #0f766e;
+  color: #f8fafc;
+}
+
+:global([data-theme='dark']) .spinner {
+  border-color: #3c4043;
+  border-top-color: #2dd4bf;
+}
+
+:global([data-theme='dark']) .evidenceSection {
+  border-top-color: #3c4043;
+}
+
+:global([data-theme='dark']) .evidenceCard {
+  background: #202124;
+  border-color: #3c4043;
+}
+
+:global([data-theme='dark']) .evidencePeriod {
+  background: rgba(20, 184, 166, 0.14);
+  border-color: rgba(45, 212, 191, 0.35);
+  color: #5eead4;
+}
+
+:global([data-theme='dark']) .insufficientBadge,
+:global([data-theme='dark']) .insufficientHint {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #fcd34d;
+}
+
+:global([data-theme='dark']) .errorBox {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(248, 113, 113, 0.38);
+  color: #fca5a5;
+}
+
+:global([data-theme='dark']) .errorBoxWarning {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(251, 191, 36, 0.38);
+  color: #fcd34d;
+}
+
+:global([data-theme='dark']) .retryBtn,
+:global([data-theme='dark']) .dismissBtn,
+:global([data-theme='dark']) .narrowBtn {
+  background: #35363a;
+  border-color: #5f6368;
+  color: #e8eaed;
+}
+
+:global([data-theme='dark']) .retryBtn:hover:not(:disabled),
+:global([data-theme='dark']) .dismissBtn:hover:not(:disabled),
+:global([data-theme='dark']) .narrowBtn:hover:not(:disabled) {
+  background: #3c4043;
+}
+
+:global([data-theme='dark']) .composer {
+  background: #292a2d;
+  border-top-color: #3c4043;
+}
+
+:global([data-theme='dark']) .textarea {
+  background: #202124;
+  border-color: #3c4043;
+  color: #e8eaed;
+}
+
+:global([data-theme='dark']) .textarea::placeholder {
+  color: #9aa0a6;
+}
+
+:global([data-theme='dark']) .textarea:focus {
+  border-color: #2dd4bf;
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+}
+
+:global([data-theme='dark']) .textarea:disabled {
+  background: #292a2d;
+}
