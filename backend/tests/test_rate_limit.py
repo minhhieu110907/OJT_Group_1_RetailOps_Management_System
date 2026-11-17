@@ -258,7 +258,10 @@ async def test_default_registration_policy_allows_five_then_returns_429() -> Non
 
 
 @pytest.mark.anyio
-async def test_login_ip_policy_allows_five_then_blocks_sixth() -> None:
+async def test_login_ip_policy_allows_five_then_blocks_sixth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.infrastructure.rate_limit.time.time", lambda: 120.0)
     configured = settings()
     redis = CountingRedis()
     service = RejectingLoginService()
