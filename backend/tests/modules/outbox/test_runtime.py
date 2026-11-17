@@ -261,7 +261,10 @@ def test_celery_app_disables_worker_topology_declarations(
 def test_celery_retry_uses_configured_default_queue_without_celery_keyerror(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from collections.abc import Iterator
     from contextlib import contextmanager
+
+    from kombu import Connection, Producer
 
     from app.core.config import get_settings
 
@@ -280,16 +283,6 @@ def test_celery_retry_uses_configured_default_queue_without_celery_keyerror(
         app = create_celery_app()
         published: list[dict[str, object]] = []
 
-        class FakeProducer:
-            def publish(self, _body: object, **kwargs: object) -> None:
-                published.append(kwargs)
-
-        @contextmanager
-        def fake_producer_or_acquire(_producer: object = None) -> object:
-            yield FakeProducer()
-
-        monkeypatch.setattr(app, "producer_or_acquire", fake_producer_or_acquire)
-
         @app.task(
             bind=True,
             name="retailops.email.deliver_v1",
@@ -301,25 +294,41 @@ def test_celery_retry_uses_configured_default_queue_without_celery_keyerror(
             return None
 
         canonical_id = str(UUID(bytes=EVENT_ID))
-        probe_task.push_request(
-            id=canonical_id,
-            retries=0,
-            called_directly=False,
-            kwargs={"envelope": {"event_id": canonical_id, "schema_version": 1}},
-            delivery_info={
-                "exchange": "retailops.email",
-                "routing_key": "email.deliver.v1",
-            },
-        )
-        try:
-            with pytest.raises(Retry):
-                retry_or_requeue(
-                    probe_task,
-                    RuntimeError("SMTP_TRANSIENT"),
-                    delays=(30, 120, 300),
-                )
-        finally:
-            probe_task.pop_request()
+        with Connection("memory://") as memory_conn:
+            real_producer = Producer(memory_conn)
+
+            def spy_publish(_body: object, **kwargs: object) -> None:
+                published.append(kwargs)
+
+            monkeypatch.setattr(real_producer, "publish", spy_publish)
+
+            @contextmanager
+            def memory_producer_or_acquire(
+                _producer: object = None,
+            ) -> Iterator[Producer]:
+                yield real_producer
+
+            monkeypatch.setattr(app, "producer_or_acquire", memory_producer_or_acquire)
+
+            probe_task.push_request(
+                id=canonical_id,
+                retries=0,
+                called_directly=False,
+                kwargs={"envelope": {"event_id": canonical_id, "schema_version": 1}},
+                delivery_info={
+                    "exchange": "retailops.email",
+                    "routing_key": "email.deliver.v1",
+                },
+            )
+            try:
+                with pytest.raises(Retry):
+                    retry_or_requeue(
+                        probe_task,
+                        RuntimeError("SMTP_TRANSIENT"),
+                        delays=(30, 120, 300),
+                    )
+            finally:
+                probe_task.pop_request()
 
         assert len(published) == 1
         call = published[0]
