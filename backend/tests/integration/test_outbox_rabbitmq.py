@@ -11,7 +11,9 @@ import time
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import IO
 from uuid import UUID, uuid4
 
 import pytest
@@ -163,8 +165,21 @@ def sanitized_worker_output(
     return text[-limit:]
 
 
+@dataclass(frozen=True)
+class WorkerHandle:
+    process: subprocess.Popen[bytes]
+    read_log: Callable[[], str]
+
+
+def read_worker_log(worker_log: IO[bytes]) -> bytes:
+    # pread never moves the file offset shared with the running child process.
+    return os.pread(worker_log.fileno(), os.fstat(worker_log.fileno()).st_size, 0)
+
+
 @contextmanager
-def running_worker(database_url: URL) -> Iterator[subprocess.Popen[bytes]]:
+def running_worker(
+    database_url: URL, *, loglevel: str = "WARNING"
+) -> Iterator[WorkerHandle]:
     environment = worker_environment(database_url)
     with tempfile.TemporaryFile() as worker_log:
         process = subprocess.Popen(
@@ -181,7 +196,7 @@ def running_worker(database_url: URL) -> Iterator[subprocess.Popen[bytes]]:
                 "--without-gossip",
                 "--without-mingle",
                 "--without-heartbeat",
-                "--loglevel=WARNING",
+                f"--loglevel={loglevel}",
                 "--queues=retailops.email.v1",
             ],
             env=environment,
@@ -202,7 +217,12 @@ def running_worker(database_url: URL) -> Iterator[subprocess.Popen[bytes]]:
                     )
                 queue = management_get("/api/queues/%2Fretailops/retailops.email.v1")
                 if isinstance(queue, dict) and queue.get("consumers", 0) >= 1:
-                    yield process
+                    yield WorkerHandle(
+                        process,
+                        lambda: sanitized_worker_output(
+                            read_worker_log(worker_log), environment
+                        ),
+                    )
                     return
                 time.sleep(0.25)
             worker_log.seek(0)
@@ -265,26 +285,42 @@ def wait_for_event(
     pytest.fail("Outbox event did not reach the expected state")
 
 
-def queue_ack_count(queue_name: str) -> int:
+def queue_state(queue_name: str) -> dict[str, int]:
     queue = management_get(f"/api/queues/%2Fretailops/{queue_name}")
     assert isinstance(queue, dict)
-    stats = queue.get("message_stats")
-    if isinstance(stats, dict):
-        return int(stats.get("ack", 0))
-    return 0
+    return {
+        key: int(queue.get(key) or 0)
+        for key in (
+            "messages",
+            "messages_ready",
+            "messages_unacknowledged",
+            "consumers",
+        )
+    }
 
 
-def wait_for_queue_ack(
-    queue_name: str, expected_acks: int, timeout: float = 15.0
+def wait_until(
+    condition: Callable[[], bool],
+    *,
+    timeout: float,
+    failure: Callable[[], str],
+    interval: float = 0.25,
 ) -> None:
+    """Poll an observable condition; fail with sanitized diagnostics, never skip."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if queue_ack_count(queue_name) >= expected_acks:
+        if condition():
             return
-        time.sleep(0.25)
-    pytest.fail(
-        f"Queue {queue_name} did not record {expected_acks} acks within {timeout}s"
-    )
+        time.sleep(interval)
+    if condition():
+        return
+    pytest.fail(failure())
+
+
+def parse_eta(value: object) -> datetime:
+    assert isinstance(value, str), f"Celery eta header missing: {value!r}"
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 @contextmanager
@@ -513,10 +549,14 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
     cleanup_worker_events(migrated_integration_engine)
     event_id = create_event(migrated_integration_engine, delivery_attempts=0)
     canonical_id = str(UUID(bytes=event_id))
-    baseline_acks = queue_ack_count("retailops.email.v1")
+    live = "retailops.email.v1"
+    worker_log = ""
     try:
-        with running_worker(integration_database_url):
+        with running_worker(integration_database_url, loglevel="INFO") as worker:
+            published_at = datetime.now(UTC)
             publish_email_task(event_id)
+
+            # Evidence 1 (database): the first delivery attempt was recorded durably.
             event = wait_for_event(
                 migrated_integration_engine,
                 event_id,
@@ -526,19 +566,63 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
                 ),
             )
             assert event.outcome is None
-            wait_for_queue_ack("retailops.email.v1", baseline_acks + 1)
 
-        # Terminating the worker before the 30-second ETA returns its reserved
-        # retry to RabbitMQ. Inspect that real Celery retry while the channel is open.
+            # Evidence 2 (worker): Celery logs this line only after task.retry()
+            # has published the retry copy (apply_async precedes raising Retry).
+            retry_line = f"[{canonical_id}] retry: Retry in 30s"
+            wait_until(
+                lambda: retry_line in worker.read_log(),
+                timeout=20,
+                failure=lambda: (
+                    "Worker never reported the 30s retry for the event:\n"
+                    f"{worker.read_log()}"
+                ),
+            )
+
+            # Evidence 3 (broker): after the original was acked, one message
+            # (the ETA retry) is outstanding. Total = ready + unacked, so it does not
+            # matter whether the worker currently holds it in its ETA timer.
+            wait_until(
+                lambda: queue_state(live)["messages"] >= 1,
+                timeout=20,
+                failure=lambda: f"Broker holds no retry message: {queue_state(live)}",
+            )
+            worker_log = worker.read_log()
+
+        # The worker is stopped; unacked ETA messages return to ready on channel close.
+        # Observe that transition explicitly instead of assuming it is instantaneous.
+        wait_until(
+            lambda: queue_state(live)["messages_ready"] >= 1,
+            timeout=30,
+            failure=lambda: (
+                "Retry message was not returned to ready after worker shutdown: "
+                f"{queue_state(live)}\n{worker_log}"
+            ),
+        )
+
         with receive_message(
             required_environment("RETAILOPS_TEST_RABBITMQ_WORKER_URL"),
             LIVE_QUEUE,
+            timeout=20,
             predicate=lambda msg: msg.headers.get("id") == canonical_id,
         ) as retry_message:
-            assert retry_message.headers["task"] == "retailops.email.deliver_v1"
-            assert retry_message.headers["retries"] == 1
-            assert retry_message.headers["id"] == canonical_id
-            assert canonical_id in message_body_text(retry_message)
+            headers = retry_message.headers
+            assert headers["task"] == "retailops.email.deliver_v1"
+            assert headers["id"] == canonical_id
+            assert headers["retries"] == 1
+            # First retry delay is exactly the contract value 30s, measured from
+            # when the worker processed the task (shortly after publish).
+            eta = parse_eta(headers.get("eta"))
+            assert (
+                published_at + timedelta(seconds=29)
+                <= eta
+                <= published_at + timedelta(seconds=30 + 25)
+            )
+            # Frozen envelope without secrets (protocol-2 body: args, kwargs, embed).
+            body = json.loads(message_body_text(retry_message))
+            assert body[1] == {
+                "envelope": {"event_id": canonical_id, "schema_version": 1}
+            }
             retry_message.ack()
     finally:
         cleanup_worker_events(migrated_integration_engine)
