@@ -9,6 +9,16 @@
   --color-danger: #B91C1C;     /* Đỏ đậm - dùng cho nút hành động nguy hiểm / Đăng xuất trong Modal */
   --color-bg-page: #F8FAFC;    /* Nền vùng nội dung chính */
   --color-border: #E2E8F0;     /* Viền mảnh ngăn cách Sidebar và Header */
+  --color-bg-surface: #FFFFFF; /* Nền khối/card/sidebar/header */
+  --color-bg-hover: #F1F5F9;   /* Hover button/item */
+
+  /* Semantic status tokens (Light Mode) */
+  --color-text-primary: #242A30;
+  --color-text-secondary: #586574;
+  --color-surface-muted: #F8FAFC;
+  --color-status-success: #087F5B;
+  --color-status-warning: #D97706;
+  --color-status-danger: #B91C1C;
 
   /* Font chữ hệ thống */
   --font-family-base: 'Inter', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -23,6 +33,2117 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+[data-theme='dark'] {
+  --color-primary: #10B981;    /* Xanh ngọc sáng hơn trong nền tối */
+  --color-tertiary: #064E3B;   /* Nền xanh thẫm cho item active */
+  --color-secondary: #94A3B8;  /* Xám bạc nhạt */
+  --color-neutral: #F1F5F9;    /* Trắng xám cho chữ chính */
+  --color-danger: #EF4444;     /* Đỏ tươi hơn */
+  --color-bg-page: #0B1320;    /* Nền trang tối sâu */
+  --color-border: #1E293B;     /* Viền tối */
+  --color-bg-surface: #131E30; /* Nền sidebar, header, card */
+  --color-bg-hover: #1E293B;   /* Nền hover tối */
+  --color-bg-input: #0B1320;   /* Nền input tối */
+
+  /* Semantic status tokens (Dark Mode) */
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-surface-muted: #0E1726;
+  --color-status-success: #10B981;
+  --color-status-warning: #F59E0B;
+  --color-status-danger: #EF4444;
+}
+
+/* =========================================================
+   DARK THEME COMPREHENSIVE RULES
+   Đảm bảo tất cả bảng, modal, card, input, dropdown không bị sót nền trắng
+   ========================================================= */
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+[data-theme='dark'] body {
+  background-color: var(--color-bg-page);
+  color: var(--color-neutral);
+}
+
+/* 1. Bảng dữ liệu (Tables) */
+[data-theme='dark'] table {
+  background-color: transparent !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] thead,
+[data-theme='dark'] th {
+  background-color: #172338 !important;
+  color: #94A3B8 !important;
+  border-color: var(--color-border) !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] tbody tr {
+  background-color: transparent !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] tbody tr:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+/* Hàng sản phẩm hết hàng trong bảng sản phẩm: Nền đỏ thẫm tinh tế, dịu mắt, tương phản chuẩn Dark theme */
+[data-theme='dark'] tbody tr[class*="outOfStockRow"],
+[data-theme='dark'] tr[class*="outOfStockRow"] {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+
+[data-theme='dark'] tbody tr[class*="outOfStockRow"]:hover,
+[data-theme='dark'] tr[class*="outOfStockRow"]:hover {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+/* Nút pill lọc tồn kho trong Quản lý sản phẩm (stockFilterPill) */
+[data-theme='dark'] [class*="stockPillAll"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #CBD5E1 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="stockPillAll"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="stockPillAll"][class*="stockPillActive"] {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+  border-color: #475569 !important;
+}
+
+[data-theme='dark'] [class*="stockPillOut"] {
+  background-color: rgba(220, 38, 38, 0.15) !important;
+  color: #F87171 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="stockPillOut"]:hover {
+  background-color: rgba(220, 38, 38, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="stockPillOut"][class*="stockPillActive"] {
+  background-color: rgba(220, 38, 38, 0.35) !important;
+  color: #FECACA !important;
+  border-color: #EF4444 !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="stockPillLow"] {
+  background-color: rgba(217, 119, 6, 0.15) !important;
+  color: #FBBF24 !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="stockPillLow"]:hover {
+  background-color: rgba(217, 119, 6, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="stockPillLow"][class*="stockPillActive"] {
+  background-color: rgba(217, 119, 6, 0.35) !important;
+  color: #FEF3C7 !important;
+  border-color: #F59E0B !important;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='dark'] td {
+  color: #FFFFFF !important;
+  font-weight: 500;
+  border-color: var(--color-border) !important;
+}
+
+/* Thẻ chữ và nội dung dữ liệu bên trong ô bảng */
+[data-theme='dark'] td span:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]):not([class*="danger"]):not([class*="warning"]):not([class*="success"]):not([class*="error"]):not([class*="amber"]):not([class*="rose"]):not([class*="Tag"]):not([class*="conflict"]):not([class*="Conflict"]):not([class*="alert"]):not([class*="Alert"]),
+[data-theme='dark'] td p:not([class*="danger"]):not([class*="warning"]):not([class*="error"]):not([class*="conflict"]):not([class*="Conflict"]):not([class*="alert"]):not([class*="Alert"]),
+[data-theme='dark'] td div:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]):not([class*="danger"]):not([class*="warning"]):not([class*="error"]):not([class*="stockCell"]):not([class*="conflict"]):not([class*="Conflict"]):not([class*="alert"]):not([class*="Alert"]),
+[data-theme='dark'] td strong:not([class*="danger"]):not([class*="warning"]):not([class*="error"]):not([class*="conflict"]):not([class*="Conflict"]):not([class*="alert"]):not([class*="Alert"]),
+[data-theme='dark'] [class*="skuText"],
+[data-theme='dark'] [class*="productNameText"],
+[data-theme='dark'] [class*="categoryText"],
+[data-theme='dark'] [class*="priceText"],
+[data-theme='dark'] [class*="stockNumber"],
+[data-theme='dark'] [class*="quantityCell"],
+[data-theme='dark'] [class*="skuCell"],
+[data-theme='dark'] [class*="productNameCell"],
+[data-theme='dark'] [class*="orderCode"],
+[data-theme='dark'] [class*="customerName"],
+[data-theme='dark'] [class*="supplierName"],
+[data-theme='dark'] [class*="receiptCode"],
+[data-theme='dark'] [class*="staffName"] {
+  color: #FFFFFF !important;
+}
+
+/* 2. Modals & Dialogs */
+[data-theme='dark'] [class*="modalBox"],
+[data-theme='dark'] [class*="modalContainer"],
+[data-theme='dark'] [class*="modalContent"],
+[data-theme='dark'] [class*="Modal_modalBox"] {
+  background-color: var(--color-bg-surface) !important;
+  color: var(--color-neutral) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="footerSection"],
+[data-theme='dark'] [class*="modalFooter"],
+[data-theme='dark'] [class*="footerRow"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 3. Cards, Containers, Boxes & Table Footers */
+[data-theme='dark'] [class*="statCard"],
+[data-theme='dark'] [class*="filterCard"],
+[data-theme='dark'] [class*="filterBar"],
+[data-theme='dark'] [class*="toolbarCard"],
+[data-theme='dark'] [class*="tableCard"],
+[data-theme='dark'] [class*="movementFilterCard"],
+[data-theme='dark'] [class*="tableWrap"],
+[data-theme='dark'] [class*="tableContainer"],
+[data-theme='dark'] [class*="tableSection"],
+[data-theme='dark'] [class*="auditBox"],
+[data-theme='dark'] [class*="paginationWrap"],
+[data-theme='dark'] [class*="paginationBar"],
+[data-theme='dark'] [class*="paginationRightWrap"],
+[data-theme='dark'] [class*="tableFooter"],
+[data-theme='dark'] [class*="tableFooterBar"],
+[data-theme='dark'] [class*="paginationRow"],
+[data-theme='dark'] [class*="detailFooter"],
+[data-theme='dark'] [class*="rightPanel"],
+[data-theme='dark'] [class*="immutableRuleBanner"],
+[data-theme='dark'] [class*="detailModalCard"],
+[data-theme='dark'] [class*="detailTableWrap"],
+[data-theme='dark'] [class*="detailMetaBox"],
+[data-theme='dark'] [class*="summaryCard"],
+[data-theme='dark'] [class*="authCard"],
+[data-theme='dark'] [class*="accountCard"],
+[data-theme='dark'] [class*="demoCard"],
+[data-theme='dark'] [class*="statusCard"],
+[data-theme='dark'] [class*="stateCard"],
+[data-theme='dark'] [class*="staffCard"],
+[data-theme='dark'] [class*="productCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-neutral) !important;
+}
+
+[data-theme='dark'] [class*="paginationSummary"],
+[data-theme='dark'] [class*="tableSummaryText"],
+[data-theme='dark'] [class*="pageInfo"],
+[data-theme='dark'] [class*="totalSummary"],
+[data-theme='dark'] [class*="shortcutFooter"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="totalSummary"] strong {
+  color: #FFFFFF !important;
+}
+
+/* 4. Inputs, Textareas & Selects */
+[data-theme='dark'] input:not([type="checkbox"]):not([type="radio"]),
+[data-theme='dark'] textarea,
+[data-theme='dark'] select,
+[data-theme='dark'] [class*="searchInput"],
+[data-theme='dark'] [class*="statusSelect"],
+[data-theme='dark'] [class*="filterSelect"],
+[data-theme='dark'] [class*="dateInputInline"],
+[data-theme='dark'] [class*="dateFilterWrap"],
+[data-theme='dark'] [class*="searchBoxWrap"],
+[data-theme='dark'] [class*="statusSelectSingle"],
+[data-theme='dark'] [class*="formInput"],
+[data-theme='dark'] [class*="formSelect"] {
+  background-color: var(--color-bg-input, #0B1320) !important;
+  color: #FFFFFF !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] input:focus,
+[data-theme='dark'] textarea:focus,
+[data-theme='dark'] select:focus,
+[data-theme='dark'] [class*="searchInput"]:focus,
+[data-theme='dark'] [class*="statusSelect"]:focus,
+[data-theme='dark'] [class*="filterSelect"]:focus,
+[data-theme='dark'] [class*="dateFilterWrap"]:focus-within,
+[data-theme='dark'] [class*="statusSelectSingle"]:focus,
+[data-theme='dark'] [class*="formInput"]:focus,
+[data-theme='dark'] [class*="formSelect"]:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
+}
+
+[data-theme='dark'] [class*="searchIcon"],
+[data-theme='dark'] [class*="dateCalendarIcon"] {
+  color: #64748B !important;
+}
+
+[data-theme='dark'] [class*="datePrefixLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="todayBadgeInline"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="filterResetBtn"],
+[data-theme='dark'] [class*="resetFilterBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="filterResetBtn"]:hover,
+[data-theme='dark'] [class*="resetFilterBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] input::placeholder,
+[data-theme='dark'] textarea::placeholder {
+  color: #64748B !important;
+}
+
+/* 5. Buttons & Controls */
+[data-theme='dark'] button:disabled,
+[data-theme='dark'] input:disabled,
+[data-theme='dark'] select:disabled,
+[data-theme='dark'] textarea:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  color: #94A3B8 !important;
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+}
+
+[data-theme='dark'] [class*="cancelBtn"],
+[data-theme='dark'] [class*="btnCancel"],
+[data-theme='dark'] button[class*="secondary"],
+[data-theme='dark'] [class*="pageBtn"]:not([class*="active"]) {
+  background-color: var(--color-bg-surface) !important;
+  color: #FFFFFF !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="pageBtn"][class*="active"] {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cancelBtn"]:hover,
+[data-theme='dark'] [class*="btnCancel"]:hover,
+[data-theme='dark'] [class*="pageBtn"]:hover:not(:disabled):not([class*="active"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+  border-color: var(--color-secondary) !important;
+}
+
+[data-theme='dark'] [class*="chipBtn"]:not([class*="active"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: var(--color-secondary) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 6. Sidebar, Navigation & Top Tabs */
+[data-theme='dark'] [class*="navItem"]:hover:not([class*="navItemActive"]) {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="navItemActive"] {
+  background-color: var(--color-tertiary) !important;
+  color: var(--color-primary) !important;
+}
+
+[data-theme='dark'] [class*="navItem"]:hover [class*="navIcon"] {
+  color: #FFFFFF !important;
+}
+
+/* Tab 'Phiếu nhập' & 'Lịch sử nhập hàng' trong Quản lý nhập hàng và Tồn kho */
+[data-theme='dark'] [class*="navTabBtn"],
+[data-theme='dark'] [class*="tabBtn"] {
+  color: #CBD5E1 !important;
+  font-weight: 600;
+  border-bottom: 2px solid transparent !important;
+}
+
+[data-theme='dark'] [class*="navTabBtn"]:hover,
+[data-theme='dark'] [class*="tabBtn"]:hover:not([class*="tabBtnActive"]) {
+  color: #FFFFFF !important;
+  background-color: rgba(30, 41, 59, 0.7) !important;
+  border-radius: 6px 6px 0 0;
+}
+
+[data-theme='dark'] [class*="navTabBtnActive"],
+[data-theme='dark'] [class*="tabBtnActive"] {
+  color: #10B981 !important;
+  border-bottom: 2px solid #10B981 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="tabsContainer"] {
+  border-bottom: 2px solid var(--color-border) !important;
+}
+
+/* Bộ lọc danh mục & chip lọc dạng nút (chipBtn) */
+[data-theme='dark'] [class*="chipBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #CBD5E1 !important;
+  border: 1px solid var(--color-border) !important;
+  font-weight: 500;
+}
+
+[data-theme='dark'] [class*="chipBtn"]:hover:not([class*="chipBtnActive"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+  border-color: #475569 !important;
+}
+
+[data-theme='dark'] button[class*="chipBtnActive"],
+[data-theme='dark'] [class*="chipBtn"][class*="chipBtnActive"],
+[data-theme='dark'] [class*="chipBtnActive"] {
+  background-color: #059669 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #34D399 !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="tabCountBadgeGray"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="tabCountBadge"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="warehouseHint"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="warehouseHint"] strong {
+  color: #FFFFFF !important;
+}
+
+/* 7. Header User trigger, Notification Popover & Admin/Staff role badges */
+[data-theme='dark'] [class*="userDropdownTrigger"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="userDropdownTrigger"]:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="userDropdownTriggerActive"] {
+  background-color: #064E3B !important;
+  border-color: var(--color-primary) !important;
+}
+
+[data-theme='dark'] [class*="notificationPopover"],
+[data-theme='dark'] [class*="notificationHeader"],
+[data-theme='dark'] [class*="notificationList"],
+[data-theme='dark'] [class*="notificationCard"],
+[data-theme='dark'] [class*="notificationFooter"],
+[data-theme='dark'] [class*="notificationSafeguardBanner"],
+[data-theme='dark'] [class*="notificationStateBox"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="notificationCard"]:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="notificationHeaderTitle"],
+[data-theme='dark'] [class*="notificationItemTitle"],
+[data-theme='dark'] [class*="notificationItemTitleRead"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="notificationSubtext"],
+[data-theme='dark'] [class*="notificationTimestamp"],
+[data-theme='dark'] [class*="readLabel"],
+[data-theme='dark'] [class*="safeguardText"],
+[data-theme='dark'] [class*="notificationStateText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="openQueueBtnSecondary"],
+[data-theme='dark'] [class*="markSingleReadBtn"],
+[data-theme='dark'] [class*="notificationRetryBtn"] {
+  background-color: var(--color-bg-hover) !important;
+  border-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="unreadPillBadgeZero"],
+[data-theme='dark'] [class*="processedApprovalTag"],
+[data-theme='dark'] [class*="notificationAvatarRead"] {
+  background-color: var(--color-bg-hover) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="headerUserName"],
+[data-theme='dark'] [class*="accountName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="headerUserRoleBadge"],
+[data-theme='dark'] [class*="dropdownRoleBadge"] {
+  color: #34D399 !important;
+  background-color: rgba(6, 78, 59, 0.7) !important;
+}
+
+[data-theme='dark'] [class*="accountFooter"],
+[data-theme='dark'] [class*="accountCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* 8. Table cells, badges, and status contrast across all modules */
+[data-theme='dark'] [class*="quantityCell"],
+[data-theme='dark'] [class*="skuCell"],
+[data-theme='dark'] [class*="productNameCell"],
+[data-theme='dark'] [class*="supplierNameCol"] span {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="supplierCodeText"] {
+  color: #94A3B8 !important;
+}
+
+/* Badges đỏ trong bảng & thẻ thống kê: nền đỏ thẫm/tối dễ chịu, chữ đỏ tươi sáng/trắng rõ ràng */
+[data-theme='dark'] [class*="badgeOutOfStock"],
+[data-theme='dark'] [class*="badgeRejected"],
+[data-theme='dark'] [class*="statusBadgeCancelled"],
+[data-theme='dark'] [class*="statusCancelled"],
+[data-theme='dark'] [class*="statSubBadgeRed"],
+[data-theme='dark'] [class*="badgeMovementSale"],
+[data-theme='dark'] [class*="stockTagDanger"],
+[data-theme='dark'] [class*="statusPillDanger"],
+[data-theme='dark'] [class*="statusPillRejected"] {
+  background-color: rgba(220, 38, 38, 0.2) !important;
+  color: #F87171 !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="badgeLowStock"],
+[data-theme='dark'] [class*="statSubBadgeYellow"],
+[data-theme='dark'] [class*="badgePending"],
+[data-theme='dark'] [class*="stockTagWarning"],
+[data-theme='dark'] [class*="statusPillPending"],
+[data-theme='dark'] [class*="statusBadgeDraft"],
+[data-theme='dark'] [class*="windowBadgeAmber"] {
+  background-color: rgba(217, 119, 6, 0.2) !important;
+  color: #FBBF24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="badgeInStock"],
+[data-theme='dark'] [class*="badgeNormal"],
+[data-theme='dark'] [class*="badgeApproved"],
+[data-theme='dark'] [class*="badgeSuccess"],
+[data-theme='dark'] [class*="statusBadgeActive"],
+[data-theme='dark'] [class*="statusCompleted"],
+[data-theme='dark'] [class*="statusBadgeConfirmed"],
+[data-theme='dark'] [class*="statusPillApproved"],
+[data-theme='dark'] [class*="statusPillSuccess"],
+[data-theme='dark'] [class*="badgeMovementPurchase"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="badgeMovementCancel"] {
+  background-color: rgba(37, 99, 235, 0.2) !important;
+  color: #60A5FA !important;
+  border: 1px solid rgba(96, 165, 250, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="badgeInactive"],
+[data-theme='dark'] [class*="badgeNeutral"],
+[data-theme='dark'] [class*="statusBadgeInactive"],
+[data-theme='dark'] [class*="badgeMovementAdjustment"],
+[data-theme='dark'] [class*="referenceBadge"] {
+  background-color: rgba(71, 85, 105, 0.3) !important;
+  color: #CBD5E1 !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+}
+
+/* Tag người thực hiện (actorBadge) trong Lịch sử biến động: Rõ chữ và viền tối hòa hợp */
+[data-theme='dark'] [class*="actorBadge"] {
+  background-color: #1E293B !important;
+  color: #F1F5F9 !important;
+  border: 1px solid #334155 !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="viewReasonBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #38BDF8 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="viewReasonBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  border-color: #0284C7 !important;
+}
+
+[data-theme='dark'] [class*="totalBadge"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="totalBadge"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="editRowBtn"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="editRowBtn"]:hover {
+  background-color: rgba(16, 185, 129, 0.25) !important;
+  color: #10B981 !important;
+}
+
+/* Nút thao tác trong bảng Quản lý nhập hàng ('Sửa nháp' / 'Chi tiết') */
+[data-theme='dark'] [class*="viewDetailBtn"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="viewDetailBtn"]:hover {
+  background-color: rgba(16, 185, 129, 0.28) !important;
+  color: #10B981 !important;
+  border-color: #10B981 !important;
+}
+
+/* Nút 'Xem chi tiết' trong danh sách Đơn hàng */
+[data-theme='dark'] [class*="viewBtn"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="viewBtn"]:hover {
+  background-color: rgba(16, 185, 129, 0.28) !important;
+  color: #10B981 !important;
+  border-color: #10B981 !important;
+}
+
+/* Nút hành động trong bảng (ví dụ: nút 'Điều chỉnh') */
+[data-theme='dark'] [class*="actionBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="actionBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  border-color: var(--color-primary) !important;
+  color: #10B981 !important;
+}
+
+/* Chi tiết Modal Phiếu nhập, Modal Điều chỉnh tồn kho, Modal Lý do biến động và Modal Đơn hàng */
+[data-theme='dark'] [class*="reasonModalBox"],
+[data-theme='dark'] [class*="modalBox"],
+[data-theme='dark'] [class*="detailModalCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="modalHeader"],
+[data-theme='dark'] [class*="modalTitle"],
+[data-theme='dark'] [class*="detailModalTitle"] {
+  color: #FFFFFF !important;
+  border-bottom-color: var(--color-border) !important;
+}
+
+/* Modal lý do biến động & hiển thị mã SKU, tên sản phẩm */
+[data-theme='dark'] [class*="metaRow"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="metaLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="metaValue"],
+[data-theme='dark'] [class*="skuHighlight"],
+[data-theme='dark'] [class*="productName"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="reasonBox"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="reasonBoxLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="reasonContent"] {
+  color: #FFFFFF !important;
+}
+
+/* Số lượng thay đổi trong lịch sử biến động (+ xanh, - đỏ rõ nét) */
+[data-theme='dark'] [class*="qtyIncrease"] {
+  color: #34D399 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="qtyDecrease"] {
+  color: #F87171 !important;
+  font-weight: 700 !important;
+}
+
+/* Modal Điều chỉnh tồn kho (InventoryAdjustModal) */
+[data-theme='dark'] [class*="modalBox"] [class*="categoryBadge"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="versionBadge"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="versionLabel"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="versionValue"] {
+  color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="subInfo"],
+[data-theme='dark'] [class*="skuText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="skuText"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="textInput"],
+[data-theme='dark'] [class*="textareaInput"] {
+  background-color: var(--color-bg-input, #0B1320) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="auditBox"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="auditLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="auditValue"] {
+  color: #FFFFFF !important;
+}
+
+/* Optimistic Locking Conflict & AMBIGUOUS State in Inventory Adjust Modal */
+[data-theme='dark'] [class*="conflictCard"] {
+  background-color: #24160B !important;
+  border-color: #78350F !important;
+}
+
+[data-theme='dark'] [class*="conflictTitle"] {
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="conflictSubtitle"] {
+  color: #F59E0B !important;
+}
+
+[data-theme='dark'] [class*="httpBadge"] {
+  background-color: #451A03 !important;
+  border-color: #92400E !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="conflictDesc"] {
+  color: #FEF3C7 !important;
+}
+
+[data-theme='dark'] [class*="conflictDetailsBox"] {
+  background-color: #17110C !important;
+  border-color: #78350F !important;
+}
+
+[data-theme='dark'] [class*="conflictDetailLabel"] {
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="conflictDetailValue"] {
+  color: #F1F5F9 !important;
+}
+
+[data-theme='dark'] [class*="conflictActionProtect"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="conflictReloadBtn"] {
+  background-color: #29180D !important;
+  border-color: #D97706 !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="conflictReloadBtn"]:hover {
+  background-color: #381E10 !important;
+  border-color: #F59E0B !important;
+  color: #FFFFFF !important;
+}
+
+/* Chi tiết Modal Phiếu nhập và Modal Đơn hàng */
+[data-theme='dark'] [class*="metaInfoRow"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="metaInfoRow"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="infoBlock"] [class*="infoLabel"],
+[data-theme='dark'] [class*="itemsHeader"] [class*="itemsTitle"],
+[data-theme='dark'] [class*="detailSectionTitle"],
+[data-theme='dark'] [class*="detailModalTitle"],
+[data-theme='dark'] [class*="infoValue"],
+[data-theme='dark'] [class*="detailMetaLeft"] strong,
+[data-theme='dark'] [class*="detailTotalRow"] span,
+[data-theme='dark'] [class*="summaryTotalRow"] span,
+[data-theme='dark'] [class*="totalHighlight"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="infoSub"],
+[data-theme='dark'] [class*="itemSubSku"],
+[data-theme='dark'] [class*="detailMetaLine"],
+[data-theme='dark'] [class*="unitPrice"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="itemsTable"],
+[data-theme='dark'] [class*="detailTable"] {
+  background-color: transparent !important;
+}
+
+[data-theme='dark'] [class*="itemsTable"] th,
+[data-theme='dark'] [class*="detailTable"] th {
+  background-color: #172338 !important;
+  color: #94A3B8 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="itemsTable"] td,
+[data-theme='dark'] [class*="detailTable"] td {
+  border-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="itemMainName"],
+[data-theme='dark'] [class*="lineTotal"],
+[data-theme='dark'] [class*="qtyBadge"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="infoGrid"],
+[data-theme='dark'] [class*="summaryBlock"] {
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="readOnlyNotice"] {
+  background-color: #172338 !important;
+  border: 1px solid var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="readOnlyNotice"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="confirmWarningBox"] {
+  background-color: rgba(217, 119, 6, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="confirmWarningBox"] strong {
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="modalFooterRight"],
+[data-theme='dark'] [class*="modalFooter"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="windowBadgeMuted"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="lineHeaderRow"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="removeLineBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="addLineBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px dashed var(--color-border) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="addItemLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="modalCloseBtn"] {
+  background-color: transparent !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="modalCloseBtn"]:hover {
+  color: #FFFFFF !important;
+}
+
+/* =========================================================
+   10. Module Xét duyệt nhân viên (Staff Approval)
+   ========================================================= */
+[data-theme='dark'] [class*="staffCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1.5px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="staffCard"]:hover {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="staffCardSelected"] {
+  border-color: var(--color-primary) !important;
+  background-color: #064E3B !important;
+}
+
+[data-theme='dark'] [class*="applicantTexts"] strong,
+[data-theme='dark'] [class*="applicantTexts"] h4,
+[data-theme='dark'] [class*="staffName"] {
+  color: #FFFFFF !important;
+  font-weight: 700;
+}
+
+[data-theme='dark'] [class*="applicantEmail"],
+[data-theme='dark'] [class*="applicantPhone"],
+[data-theme='dark'] [class*="summaryLeft"],
+[data-theme='dark'] [class*="summaryRight"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="avatarCircleNeutral"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="authCodeBadge"],
+[data-theme='dark'] [class*="modalRecordIdBadge"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="sectionBox"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="sectionTitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="sectionTag"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="infoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoValue"] {
+  color: #FFFFFF !important;
+  font-weight: 600;
+}
+
+[data-theme='dark'] [class*="scopeValueRow"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="modalSubheader"] {
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="statusTabs"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="statusTabBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="statusTabBtn"]:hover {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="statusTabBtnActive"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="policyBadge"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="policyBadge"] strong {
+  color: #FFFFFF !important;
+}
+
+/* Thẻ thống kê KPI Tồn kho (Tổng mã hàng, Đang kinh doanh, Tồn thấp, Hết hàng) */
+[data-theme='dark'] [class*="statHeader"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="statHeader"] span {
+  color: #FFFFFF !important;
+}
+
+/* Modal Điều chỉnh tồn kho: Nhãn trường nhập liệu (fieldLabel, helperLabel) */
+[data-theme='dark'] [class*="fieldLabel"],
+[data-theme='dark'] label[class*="fieldLabel"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="helperLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="inputUnit"] {
+  color: #94A3B8 !important;
+}
+
+/* Trang Danh mục (CategoryList): Số lượng sản phẩm & Bộ lọc trạng thái */
+[data-theme='dark'] [class*="productCountBadge"] {
+  background-color: #172338 !important;
+  color: #38BDF8 !important;
+  border: 1px solid var(--color-border) !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] [class*="tabBtn"] {
+  color: #94A3B8 !important;
+  border-bottom: none !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] [class*="tabBtn"]:hover:not([class*="tabBtnActive"]) {
+  color: #FFFFFF !important;
+  background-color: var(--color-bg-hover) !important;
+  border-radius: 4px !important;
+}
+
+[data-theme='dark'] [class*="tabsSegment"] [class*="tabBtnActive"] {
+  background-color: var(--color-bg-surface) !important;
+  color: #34D399 !important;
+  border: 1px solid var(--color-primary) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 9. Typography & Text (Tiêu đề và nội dung chính trong Dark Theme) */
+[data-theme='dark'] h1,
+[data-theme='dark'] h2,
+[data-theme='dark'] h3,
+[data-theme='dark'] h4,
+[data-theme='dark'] [class*="mainTitle"],
+[data-theme='dark'] [class*="pageTitle"],
+[data-theme='dark'] [class*="modalTitle"],
+[data-theme='dark'] [class*="detailModalTitle"],
+[data-theme='dark'] [class*="statValue"],
+[data-theme='dark'] [class*="statCardNumber"],
+[data-theme='dark'] [class*="headerSubtitle"],
+[data-theme='dark'] [class*="filterLabel"],
+[data-theme='dark'] [class*="formLabel"],
+[data-theme='dark'] [class*="timeInfo"],
+[data-theme='dark'] [class*="timeInfo"] strong,
+[data-theme='dark'] [class*="stateTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="subtitle"],
+[data-theme='dark'] [class*="stateDesc"],
+[data-theme='dark'] [class*="bottomDisclaimer"],
+[data-theme='dark'] [class*="storeScopeLabel"] {
+  color: #94A3B8 !important;
+}
+
+/* Quy chuẩn & Danh sách / Modal xét duyệt nhân viên (Staff Approval) */
+[data-theme='dark'] [class*="applicantName"] {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="applicantEmail"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="requestCodePill"],
+[data-theme='dark'] [class*="sectionTag"],
+[data-theme='dark'] [class*="modalRecordIdBadge"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="complianceNotice"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="complianceIcon"] {
+  color: #38BDF8 !important;
+}
+
+[data-theme='dark'] [class*="sectionBox"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="sectionTitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoValue"],
+[data-theme='dark'] [class*="scopeValueRow"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="roleBox"] {
+  background-color: #0B1320 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="roleBoxTitle"] {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="roleCodePill"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #34D399 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="roleDescParagraph"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="roleDescParagraph"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="roleNoteText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="reasonLabel"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="reasonHint"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="reasonTextarea"] {
+  background-color: var(--color-bg-input, #0B1320) !important;
+  border: 1px solid var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="reasonTextarea"]:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="modalSubheader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+/* =========================================================
+   TOAST NOTIFICATIONS IN DARK THEME (Đậm màu, tương phản cao, rõ chữ)
+   ========================================================= */
+[data-theme='dark'] [class*="toastCard"] {
+  background-color: #131E30 !important;
+  border-color: #1E293B !important;
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="message"] {
+  color: #FFFFFF !important;
+  font-weight: 500 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="closeBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="closeBtn"]:hover {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+/* Toast Success (Xanh lá) */
+[data-theme='dark'] [class*="toastCard_success"] {
+  border-left: 4px solid #10B981 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_success"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+/* Toast Error (Đỏ) */
+[data-theme='dark'] [class*="toastCard_error"] {
+  border-left: 4px solid #EF4444 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_error"] {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #F87171 !important;
+}
+
+/* Toast Warning (Vàng hổ phách) */
+[data-theme='dark'] [class*="toastCard_warning"] {
+  border-left: 4px solid #F59E0B !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_warning"] {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+  color: #FBBF24 !important;
+}
+
+/* Toast Info (Xanh dương) */
+[data-theme='dark'] [class*="toastCard_info"] {
+  border-left: 4px solid #0EA5E9 !important;
+}
+
+[data-theme='dark'] [class*="toastCard"] [class*="icon_info"] {
+  background-color: rgba(14, 165, 233, 0.2) !important;
+  color: #38BDF8 !important;
+}
+
+/* =========================================================
+   POS MODULE IN DARK THEME (Giao diện Bán hàng tại quầy)
+   ========================================================= */
+[data-theme='dark'] [class*="pageTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="storeBadge"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="categoryPill"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="categoryPill"]:hover:not([class*="categoryPillActive"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+  border-color: #475569 !important;
+}
+
+[data-theme='dark'] [class*="categoryPillActive"] {
+  background-color: #059669 !important;
+  border-color: #10B981 !important;
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.4) !important;
+}
+
+/* Card Sản phẩm POS */
+[data-theme='dark'] [class*="productCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="productCard"]:hover {
+  border-color: #475569 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="imageFrame"] {
+  background: linear-gradient(145deg, #0E1726 0%, #172338 100%) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="placeholderMonogram"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="skuBadge"] {
+  background-color: rgba(19, 30, 48, 0.9) !important;
+  border-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="productCard"] [class*="productName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="stockValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cardFooter"] {
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="priceLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="priceValue"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="addBtn"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="addBtn"]:hover:not(:disabled) {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="addBtn"]:disabled {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #64748B !important;
+}
+
+[data-theme='dark'] [class*="catalogFootnote"],
+[data-theme='dark'] [class*="footnoteNote"] {
+  color: #94A3B8 !important;
+}
+
+/* Khung Giỏ hàng POS (Cart Panel) */
+[data-theme='dark'] [class*="cartPanel"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="cartHeader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="cartTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cartTitleIcon"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="clearCartBtn"] {
+  background-color: rgba(220, 38, 38, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="clearCartBtn"]:hover:not(:disabled) {
+  background-color: rgba(220, 38, 38, 0.3) !important;
+}
+
+[data-theme='dark'] [class*="cartItem"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="cartItemName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="cartItemMeta"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="qtyStepper"] {
+  background-color: #0B1320 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="qtyBtn"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="qtyBtn"]:hover:not(:disabled) {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="qtyBtn"]:disabled {
+  color: #475569 !important;
+}
+
+[data-theme='dark'] [class*="qtyValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="lineTotal"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="removeItemBtn"] {
+  color: #64748B !important;
+}
+
+[data-theme='dark'] [class*="removeItemBtn"]:hover:not(:disabled) {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="cartFooter"] {
+  background-color: #0E1726 !important;
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="disclaimerBanner"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #A7F3D0 !important;
+}
+
+[data-theme='dark'] [class*="summaryRow"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="totalRow"] {
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="totalLabel"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="totalValue"] {
+  color: #34D399 !important;
+}
+
+/* Modals của POS (Kết quả thanh toán, xung đột tồn kho / giá) */
+[data-theme='dark'] [class*="posModalCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="posModalHeader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="posModalTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="posModalSubtitle"],
+[data-theme='dark'] [class*="conflictHelperNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="posModalCloseBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="posModalCloseBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="alertBoxAmber"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="alertBoxRose"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="conflictTableWrap"],
+[data-theme='dark'] [class*="priceDiffCard"],
+[data-theme='dark'] [class*="priceMetricBox"],
+[data-theme='dark'] [class*="updatedTotalBar"],
+[data-theme='dark'] [class*="orderRuleChecklist"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="conflictProductName"],
+[data-theme='dark'] [class*="receiptItemName"],
+[data-theme='dark'] [class*="updatedTotalValues"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="priceDiffCardHeader"] {
+  color: #E2E8F0 !important;
+}
+
+[data-theme='dark'] [class*="priceMetricOld"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="priceMetricNew"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="receiptLineTotal"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="posModalFooterRight"],
+[data-theme='dark'] [class*="posModalFooterBetween"] {
+  background-color: #0E1726 !important;
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="completedOrderTotalBox"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="completedOrderTotalBox"] strong {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="compactSecondaryBtn"]:hover {
+  background-color: var(--color-bg-hover) !important;
+  border-color: #475569 !important;
+}
+
+/* =========================================================
+   AUTH LAYOUT & PAGES IN DARK THEME (Đăng nhập, Đăng ký, Quên mật khẩu)
+   ========================================================= */
+[data-theme='dark'] [class*="AuthLayout_header"],
+[data-theme='dark'] [class*="authLayout"] header,
+[data-theme='dark'] [class*="authLayout"] [class*="header"] {
+  background-color: #131E30 !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="AuthLayout_footer"],
+[data-theme='dark'] [class*="authLayout"] footer,
+[data-theme='dark'] [class*="authLayout"] [class*="footer"] {
+  background-color: #0E1726 !important;
+  border-top: 1px solid var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="brandName"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="brandSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="versionBadge"] {
+  background-color: #1E293B !important;
+  color: #34D399 !important;
+  border: 1px solid #334155 !important;
+}
+
+[data-theme='dark'] [class*="onlineStatus"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="onlineStatus"]:hover {
+  background-color: #24344D !important;
+  border-color: #475569 !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="pingBtn"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="pingBtn"]:hover:not(:disabled) {
+  background-color: #064E3B !important;
+  color: #34D399 !important;
+  border-color: #10B981 !important;
+}
+
+/* Khung Card Form Auth (Đăng nhập / Đăng ký) */
+[data-theme='dark'] [class*="authCard"],
+[data-theme='dark'] [class*="AuthLayout_authCard"] {
+  background-color: #131E30 !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 4px 10px -6px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme='dark'] [class*="authCard"] [class*="headerSection"] [class*="title"],
+[data-theme='dark'] [class*="AuthLayout"] [class*="headerSection"] [class*="title"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="authCard"] [class*="headerSection"] [class*="subtitle"],
+[data-theme='dark'] [class*="AuthLayout"] [class*="headerSection"] [class*="subtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="fieldGroup"] [class*="label"] {
+  color: #E2E8F0 !important;
+}
+
+[data-theme='dark'] [class*="leftIcon"],
+[data-theme='dark'] [class*="eyeBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="eyeBtn"]:hover {
+  background-color: #1E293B !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="helperText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="cardFooter"] {
+  border-top-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+/* Trang Đăng ký tài khoản (Register) */
+[data-theme='dark'] [class*="infoBanner"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+
+[data-theme='dark'] [class*="infoTitle"] {
+  color: #FDE68A !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="infoDesc"] {
+  color: #FEF3C7 !important;
+}
+
+[data-theme='dark'] [class*="infoDesc"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="authCard"] [class*="cardTitle"],
+[data-theme='dark'] [class*="AuthLayout"] [class*="cardTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="authCard"] [class*="cardSubtitle"],
+[data-theme='dark'] [class*="AuthLayout"] [class*="cardSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="criteriaBox"] {
+  background-color: #0E1726 !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="criteriaTitle"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="criteriaItem"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="criteriaItem"][class*="criteriaPassed"],
+[data-theme='dark'] [class*="criteriaPassed"] {
+  color: #34D399 !important;
+  font-weight: 600 !important;
+}
+
+[data-theme='dark'] [class*="privacyNotice"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="privacyIcon"] {
+  stroke: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="loginLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="loginLink"]:hover {
+  color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="forgotLink"],
+[data-theme='dark'] [class*="registerLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="forgotLink"]:hover,
+[data-theme='dark'] [class*="registerLink"]:hover {
+  color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="emailSimBox"] {
+  background-color: #0E1726 !important;
+  border: 1px dashed #10B981 !important;
+}
+
+[data-theme='dark'] [class*="emailSimBadge"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="emailSimTo"],
+[data-theme='dark'] [class*="emailSimTip"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="emailSimDesc"] {
+  color: #CBD5E1 !important;
+}
+
+/* Trang Trạng thái tài khoản (AccountStatus: Yêu cầu đăng ký đã được ghi nhận / Chờ duyệt / Từ chối) */
+[data-theme='dark'] [class*="statusCard"] {
+  background-color: #131E30 !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="cardPending"] {
+  border-color: #F59E0B !important;
+  box-shadow: 0 4px 16px -4px rgba(245, 158, 11, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="cardApproved"] {
+  border-color: #10B981 !important;
+  box-shadow: 0 4px 16px -4px rgba(16, 185, 129, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="cardRejected"] {
+  border-color: #EF4444 !important;
+  box-shadow: 0 4px 16px -4px rgba(239, 68, 68, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="headerBlock"] [class*="stateTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="headerBlock"] [class*="stateDesc"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="infoTable"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="infoRow"] {
+  border-bottom-color: #1E293B !important;
+}
+
+[data-theme='dark'] [class*="infoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="infoValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="mailNoteBox"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="greenNoteBox"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #A7F3D0 !important;
+}
+
+[data-theme='dark'] [class*="rejectReasonBox"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1.5px dashed rgba(239, 68, 68, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="rejectReasonLabel"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="rejectReasonText"] {
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="resubmitSection"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="resubmitTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="resubmitDesc"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="lastUpdatedTag"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
+/* Hộp cảnh báo sai mật khẩu / lỗi đăng nhập (errorAlert, errorBox) */
+[data-theme='dark'] [class*="errorAlert"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+}
+
+[data-theme='dark'] [class*="errorAlert"] [class*="errorIcon"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="errorAlert"] [class*="errorTitle"] {
+  color: #F87171 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme='dark'] [class*="errorAlert"] [class*="errorDesc"] {
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="errorBox"] {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+  color: #FECACA !important;
+}
+
+[data-theme='dark'] [class*="fieldError"] {
+  color: #F87171 !important;
+}
+
+/* =========================================================
+   DASHBOARD & ANALYTICS MODULE IN DARK THEME
+   Báo cáo & Phân tích Doanh thu, KPI Cards, Biểu đồ Doanh thu & Cơ cấu Đơn hàng
+   ========================================================= */
+[data-theme='dark'] [class*="kpiCard"],
+[data-theme='dark'] [class*="panelCard"],
+[data-theme='dark'] [class*="stateCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="kpiCard"]:hover {
+  border-color: #10B981 !important;
+  box-shadow: 0 10px 24px rgba(16, 185, 129, 0.2) !important;
+}
+
+[data-theme='dark'] [class*="kpiLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kpiValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="kpiValueRed"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="kpiUnit"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="kpiUnitRed"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="kpiSub"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kpiIconEmerald"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="kpiIconSlate"] {
+  background-color: #1E293B !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kpiIconRed"] {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="segmentedBar"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="segmentBtn"] {
+  color: #94A3B8 !important;
+  border-right-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="segmentBtn"]:hover:not([class*="segmentBtnActive"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="segmentBtnActive"] {
+  background-color: #059669 !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="periodChip"] {
+  background-color: #1E293B !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="refreshBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="refreshBtn"]:hover:not(:disabled) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="panelTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="panelSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="chartStatBox"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="chartStatLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="chartStatValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="chartStatValueEmerald"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="donutPercent"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="donutSub"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="statPillGreen"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="statPillRed"] {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="lowStockAlertBar"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="lowStockLink"] {
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="accountingRuleNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="accountingRuleNote"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="tableMetaText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="tableMetaText"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="viewAllLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] th {
+  background-color: #172338 !important;
+  color: #94A3B8 !important;
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] td {
+  border-bottom-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] tbody tr:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] tfoot td {
+  background-color: #0E1726 !important;
+  border-top-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="orderCodeCell"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="completedNum"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="cancelledNum"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="revenueNum"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="tableFooterNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="badgeGray"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="legendPill"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="demoCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="demoTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="demoDesc"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="demoRoleTag"] {
+  background-color: rgba(6, 78, 59, 0.7) !important;
+  color: #34D399 !important;
 }
 
 * {

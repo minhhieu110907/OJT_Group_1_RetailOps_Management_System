@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "test": "node --test src/__tests__/authSecurity.test.js src/__tests__/productList.test.js src/__tests__/productImageUrl.test.js src/__tests__/notifications.test.js src/__tests__/supplierList.test.js src/__tests__/categoryList.test.js src/__tests__/posPage.test.js src/__tests__/purchaseReceipts.test.js src/__tests__/orderCancel.test.js src/__tests__/inventoryManagement.test.js src/__tests__/inventoryLifecycle.integration.test.js src/__tests__/dashboard.test.js src/__tests__/dashboard.integration.test.js src/__tests__/aiAssistant.test.js src/__tests__/aiAssistant.integration.test.js",
+    "test:theme": "node --test src/__tests__/themeToggle.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

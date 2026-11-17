@@ -17,7 +17,8 @@
   max-height: min(90vh, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
-  background-color: #FFFFFF;
+  background-color: var(--color-bg-surface, #FFFFFF);
+  border: 1px solid var(--color-border, transparent);
   border-radius: 12px;
   box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.15),
     0 8px 10px -6px rgba(15, 23, 42, 0.08);
@@ -68,7 +69,7 @@
 }
 
 .closeBtn:hover {
-  background-color: #F1F5F9;
+  background-color: var(--color-bg-hover, #F1F5F9);
   color: var(--color-neutral, #242A30);
 }
 
@@ -85,10 +86,10 @@
   overscroll-behavior: contain;
 }
 
-/* Phần Footer ngăn cách bởi đường viền mảnh 1px solid #F1F5F9 */
+/* Phần Footer ngăn cách bởi đường viền mảnh 1px solid */
 .footerSection {
-  border-top: 1px solid #F1F5F9;
-  background-color: #FAFAFA;
+  border-top: 1px solid var(--color-border, #F1F5F9);
+  background-color: var(--color-bg-hover, #FAFAFA);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -101,8 +102,8 @@
 .cancelBtn {
   padding: 8px 16px;
   border-radius: 8px;
-  border: 1px solid #CBD5E1;
-  background-color: #FFFFFF;
+  border: 1px solid var(--color-border, #CBD5E1);
+  background-color: var(--color-bg-surface, #FFFFFF);
   color: var(--color-neutral, #242A30);
   font-size: 14px;
   font-weight: 600;
@@ -111,8 +112,8 @@
 }
 
 .cancelBtn:hover {
-  background-color: #F8FAFC;
-  border-color: #94A3B8;
+  background-color: var(--color-bg-hover, #F8FAFC);
+  border-color: var(--color-secondary, #94A3B8);
 }
 
 .dangerBtn {

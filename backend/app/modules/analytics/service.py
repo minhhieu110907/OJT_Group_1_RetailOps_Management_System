@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError
 from app.modules.analytics.repository import SalesAnalyticsRepository
+from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD, LowStockPage
+from app.modules.inventory.service import InventoryQueryService
 
 VIETNAM_TIMEZONE = timezone(timedelta(hours=7), name="Asia/Ho_Chi_Minh")
 try:
@@ -52,6 +54,16 @@ class ProductAnalyticsItem:
     revenue_vnd: int
     quantity: int | None = None
     first_stocked_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ProductAnalyticsPage:
+    """Paginated product analytics result."""
+
+    items: tuple[ProductAnalyticsItem, ...]
+    total: int
+    page: int
+    page_size: int
 
 
 @dataclass(frozen=True)
@@ -125,6 +137,22 @@ def resolve_sales_period(
         raise DomainValidationError("Khoảng ngày lọc vượt giới hạn cho phép.") from err
 
     return Period(start_utc=start_utc, end_utc_exclusive=end_utc_exclusive)
+
+
+def resolve_days_period(
+    days: int = 7,
+    *,
+    now_fn: Callable[[], datetime] | None = None,
+) -> Period:
+    """Resolve rolling N Vietnam business days (1..366) into half-open UTC bounds."""
+    if days < 1 or days > 366:
+        raise DomainValidationError(
+            "Số ngày tra cứu phải nằm trong khoảng từ 1 đến 366."
+        )
+    now_dt = now_fn() if now_fn is not None else datetime.now(VN_TZ)
+    today_vn = now_dt.astimezone(VN_TZ).date()
+    from_date = today_vn - timedelta(days=days - 1)
+    return resolve_sales_period(from_date=from_date, to_date=today_vn, now_fn=now_fn)
 
 
 class SalesAnalyticsService:
@@ -221,6 +249,100 @@ class DefaultProductAnalyticsAdapter:
             )
             for item in raw_items
         ]
+
+
+def _to_product_analytics_item(item: dict) -> ProductAnalyticsItem:
+    return ProductAnalyticsItem(
+        product_id=item["product_id"],
+        sku=item["sku"],
+        name=item["name"],
+        sold_units=item["sold_units"],
+        revenue_vnd=item["revenue_vnd"],
+        quantity=item["quantity"],
+        first_stocked_at=item["first_stocked_at"],
+    )
+
+
+class ProductAnalyticsService:
+    """Read-only product analytics service for top, slow-moving, and low-stock."""
+
+    def __init__(
+        self,
+        repository: SalesAnalyticsRepository | None = None,
+        inventory_query: InventoryQueryService | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._repository = repository or SalesAnalyticsRepository()
+        self._inventory_query = inventory_query or InventoryQueryService()
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def top(
+        self,
+        session: Session,
+        *,
+        period: Period,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ProductAnalyticsPage:
+        """Return paginated top-selling products for COMPLETED orders in period."""
+        offset = (page - 1) * page_size
+        raw_items = self._repository.get_top_products(
+            session,
+            start_utc=period.start_utc,
+            end_utc_exclusive=period.end_utc_exclusive,
+            limit=page_size,
+            offset=offset,
+        )
+        total = self._repository.count_top_products(
+            session,
+            start_utc=period.start_utc,
+            end_utc_exclusive=period.end_utc_exclusive,
+        )
+        return ProductAnalyticsPage(
+            items=tuple(_to_product_analytics_item(i) for i in raw_items),
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    def slow(
+        self,
+        session: Session,
+        *,
+        as_of_utc: datetime | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ProductAnalyticsPage:
+        """Return paginated slow-moving ACTIVE products (>7d stocked, <=2 sold/30d)."""
+        effective_now = as_of_utc if as_of_utc is not None else self._clock()
+        offset = (page - 1) * page_size
+        raw_items, total = self._repository.list_slow_products(
+            session,
+            as_of_utc=effective_now,
+            limit=page_size,
+            offset=offset,
+        )
+        return ProductAnalyticsPage(
+            items=tuple(_to_product_analytics_item(i) for i in raw_items),
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    def low_stock(
+        self,
+        session: Session,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> LowStockPage:
+        """Delegate low-stock query to InventoryQueryService with P0 threshold."""
+        return self._inventory_query.get_low_stock(
+            session=session,
+            page=page,
+            page_size=page_size,
+            threshold=DEFAULT_LOW_STOCK_THRESHOLD,
+        )
 
 
 class DashboardService:

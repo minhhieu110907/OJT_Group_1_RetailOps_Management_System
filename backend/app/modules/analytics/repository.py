@@ -1,14 +1,21 @@
 """Repository for sales analytics queries."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.models import Inventory
-from app.modules.products.models import Product
+from app.modules.products.models import CatalogStatus, Product
 from app.modules.sales.models import Order, OrderItem, OrderStatus
+
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    """Convert timezone-aware or naive datetime into UTC-naive for MySQL DATETIME."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC).replace(tzinfo=None)
+    return dt
 
 
 class SalesAnalyticsRepository:
@@ -178,3 +185,113 @@ class SalesAnalyticsRepository:
             }
             for r in rows
         ]
+
+    def count_top_products(
+        self,
+        session: Session,
+        *,
+        start_utc: datetime,
+        end_utc_exclusive: datetime,
+    ) -> int:
+        """Count distinct products sold in COMPLETED orders in the period."""
+        start_utc_naive = _to_utc_naive(start_utc)
+        end_utc_exclusive_naive = _to_utc_naive(end_utc_exclusive)
+
+        stmt = (
+            select(func.count(func.distinct(OrderItem.product_id)))
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.status == OrderStatus.COMPLETED,
+                Order.sold_at >= start_utc_naive,
+                Order.sold_at < end_utc_exclusive_naive,
+            )
+        )
+        return int(session.scalar(stmt) or 0)
+
+    def list_slow_products(
+        self,
+        session: Session,
+        *,
+        as_of_utc: datetime,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List slow-moving ACTIVE products (stock > 0, stocked > 7d, sold <= 2 in 30d).
+
+        Only COMPLETED orders in [as_of_utc - 30 days, as_of_utc) are counted.
+        CANCELLED orders are excluded; products with zero orders have sold_units = 0.
+        """
+        as_of_naive = _to_utc_naive(as_of_utc)
+        stocked_before = as_of_naive - timedelta(days=7)
+        sales_window_start = as_of_naive - timedelta(days=30)
+
+        sales_subq = (
+            select(
+                OrderItem.product_id.label("product_id"),
+                func.coalesce(func.sum(OrderItem.quantity), 0).label("sold_units"),
+                func.coalesce(func.sum(OrderItem.line_total_vnd), 0).label(
+                    "revenue_vnd"
+                ),
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.status == OrderStatus.COMPLETED,
+                Order.sold_at >= sales_window_start,
+                Order.sold_at < as_of_naive,
+            )
+            .group_by(OrderItem.product_id)
+            .subquery("slow_sales_30d")
+        )
+
+        sold_units_expr = func.coalesce(sales_subq.c.sold_units, 0).label("sold_units")
+        revenue_expr = func.coalesce(sales_subq.c.revenue_vnd, 0).label("revenue_vnd")
+
+        base_stmt = (
+            select(
+                Product.id.label("product_id"),
+                Product.sku.label("sku"),
+                Product.name.label("name"),
+                sold_units_expr,
+                revenue_expr,
+                Inventory.quantity.label("quantity"),
+                Inventory.first_stocked_at.label("first_stocked_at"),
+            )
+            .join(Inventory, Inventory.product_id == Product.id)
+            .outerjoin(sales_subq, sales_subq.c.product_id == Product.id)
+            .where(
+                Product.status == CatalogStatus.ACTIVE.value,
+                Inventory.quantity > 0,
+                Inventory.first_stocked_at.is_not(None),
+                Inventory.first_stocked_at < stocked_before,
+                func.coalesce(sales_subq.c.sold_units, 0) <= 2,
+            )
+        )
+
+        count_stmt = select(func.count()).select_from(base_stmt.subquery("slow_base"))
+        total = int(session.scalar(count_stmt) or 0)
+
+        ordered_stmt = base_stmt.order_by(
+            sold_units_expr.asc(),
+            Inventory.quantity.desc(),
+            Inventory.first_stocked_at.asc(),
+            Product.id.asc(),
+        )
+        if offset > 0:
+            ordered_stmt = ordered_stmt.offset(offset)
+        if limit > 0:
+            ordered_stmt = ordered_stmt.limit(limit)
+
+        rows = session.execute(ordered_stmt).all()
+        items = [
+            {
+                "product_id": int(r.product_id),
+                "sku": str(r.sku),
+                "name": str(r.name),
+                "sold_units": int(r.sold_units),
+                "revenue_vnd": int(r.revenue_vnd),
+                "quantity": int(r.quantity),
+                "first_stocked_at": r.first_stocked_at,
+            }
+            for r in rows
+        ]
+        return items, total

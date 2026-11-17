@@ -18,12 +18,10 @@ import styles from './SupplierList.module.css';
 // Component hiển thị tag trạng thái chuẩn thiết kế
 function SupplierStatusBadge({ status, inModal = false }) {
   const isActive = status === 'ACTIVE';
-  const inactiveBg = inModal ? '#FEF2F2' : '#F3F4F6';
-  const inactiveColor = inModal ? '#DC2626' : '#4B5563';
-  const inactiveBorder = inModal ? '#FECACA' : '#E5E7EB';
 
   return (
     <span
+      className={isActive ? styles.statusBadgeActive : styles.statusBadgeInactive}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -31,9 +29,9 @@ function SupplierStatusBadge({ status, inModal = false }) {
         borderRadius: '9999px',
         fontSize: '12.5px',
         fontWeight: '500',
-        backgroundColor: isActive ? '#DCFCE7' : inactiveBg,
-        color: isActive ? '#166534' : inactiveColor,
-        border: `1px solid ${isActive ? '#BBF7D0' : inactiveBorder}`,
+        backgroundColor: isActive ? 'rgba(16, 185, 129, 0.18)' : (inModal ? 'rgba(239, 68, 68, 0.2)' : 'rgba(71, 85, 105, 0.25)'),
+        color: isActive ? '#10B981' : (inModal ? '#EF4444' : '#94A3B8'),
+        border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.4)' : (inModal ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.3)')}`,
       }}
     >
       {isActive ? 'Đang hợp tác' : 'Ngừng hợp tác'}

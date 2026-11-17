@@ -65,5 +65,7 @@ jobs:
         run: npm run lint
       - name: Run auth security tests
         run: npm test
+      - name: Run theme integration tests
+        run: npm run test:theme
       - name: Production build
         run: npm run build
