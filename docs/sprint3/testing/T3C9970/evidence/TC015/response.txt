@@ -1,0 +1,13 @@
+HTTP/1.1 401
+date: Sun, 15 Nov 2026 17:44:11 GMT
+server: uvicorn
+content-length: 93
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "SESSION_INVALID",
+  "message": "Phiên đăng nhập không hợp lệ.",
+  "details": null
+}

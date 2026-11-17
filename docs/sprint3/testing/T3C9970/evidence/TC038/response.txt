@@ -1,0 +1,13 @@
+HTTP/1.1 404
+date: Sun, 15 Nov 2026 17:44:12 GMT
+server: uvicorn
+content-length: 101
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "RESOURCE_NOT_FOUND",
+  "message": "Phiếu nhập ID 999999 không tồn tại.",
+  "details": null
+}

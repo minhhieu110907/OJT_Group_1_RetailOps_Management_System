@@ -1,0 +1,13 @@
+HTTP/1.1 409
+date: Sun, 15 Nov 2026 17:44:12 GMT
+server: uvicorn
+content-length: 146
+content-type: application/json
+vary: Origin
+connection: close
+
+{
+  "code": "INVALID_STATE",
+  "message": "Nhà cung cấp 'QA Sup DeactivateAfter 764651' đang ở trạng thái không hoạt động.",
+  "details": null
+}

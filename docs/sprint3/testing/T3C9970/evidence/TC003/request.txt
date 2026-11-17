@@ -1,0 +1,2 @@
+GET http://127.0.0.1:8001/api/v1/inventory?category_id=3 HTTP/1.1
+Authorization: Bearer <REDACTED_TOKEN>

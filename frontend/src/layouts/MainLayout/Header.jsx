@@ -20,9 +20,10 @@ export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // State quản lý đóng/mở User Dropdown, Notification Popover, Modal Đổi mật khẩu và Modal xác nhận đăng xuất
+  // State quản lý đóng/mở User Dropdown, Notification Popover, Modal Thông tin cá nhân, Modal Đổi mật khẩu và Modal xác nhận đăng xuất
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
@@ -749,7 +750,7 @@ export default function Header() {
                     role="menuitem"
                     onClick={() => {
                       setIsDropdownOpen(false);
-                      toast.info('Đang mở trang Thông tin cá nhân');
+                      setIsProfileModalOpen(true);
                     }}
                   >
                     <span className={styles.dropdownItemIcon}>
@@ -805,6 +806,122 @@ export default function Header() {
           </div>
         </div>
       </header>
+
+      {/* MODAL THÔNG TIN CÁ NHÂN KHI BẤM TỪ DROPDOWN HEADER */}
+      <Modal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        title="Thông tin cá nhân"
+        maxWidth="460px"
+        footer={
+          <button
+            type="button"
+            className={modalStyles.cancelBtn}
+            onClick={() => setIsProfileModalOpen(false)}
+          >
+            Đóng
+          </button>
+        }
+      >
+        <div className={styles.profileModalContent}>
+          <div className={styles.profileSummaryHeader}>
+            <div className={styles.profileAvatarLarge}>{avatarInitials}</div>
+            <div className={styles.profileSummaryMeta}>
+              <h3 className={styles.profileSummaryName}>
+                {user?.name || '—'}
+              </h3>
+              <span className={styles.profileRoleBadge}>{roleLabel}</span>
+            </div>
+          </div>
+
+          <div className={styles.profileInfoList}>
+            <div className={styles.profileInfoCard}>
+              <div className={styles.profileInfoText}>
+                <span className={styles.profileInfoLabel}>Họ và tên</span>
+                <span className={styles.profileInfoValue}>
+                  {user?.name || '—'}
+                </span>
+              </div>
+              <span className={styles.profileInfoIcon} aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <circle cx="9" cy="10" r="2" />
+                  <path d="M15 8h2" />
+                  <path d="M15 12h2" />
+                  <path d="M7 16h10" />
+                </svg>
+              </span>
+            </div>
+
+            <div className={styles.profileInfoCard}>
+              <div className={styles.profileInfoText}>
+                <span className={styles.profileInfoLabel}>Vai trò hệ thống</span>
+                <span className={styles.profileInfoValue}>{roleLabel}</span>
+              </div>
+              <span className={styles.profileInfoIcon} aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </span>
+            </div>
+
+            <div className={styles.profileInfoCard}>
+              <div className={styles.profileInfoText}>
+                <span className={styles.profileInfoLabel}>Địa chỉ email</span>
+                <span className={styles.profileInfoValue}>
+                  {user?.email || '—'}
+                </span>
+              </div>
+              <span className={styles.profileInfoIcon} aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2" />
+                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                </svg>
+              </span>
+            </div>
+
+            <div className={styles.profileInfoCard}>
+              <div className={styles.profileInfoText}>
+                <span className={styles.profileInfoLabel}>
+                  Trạng thái tài khoản
+                </span>
+                <span
+                  className={
+                    user?.status === 'ACTIVE' || user?.status === 'APPROVED'
+                      ? styles.profileStatusPillActive
+                      : styles.profileStatusPillMuted
+                  }
+                >
+                  <span>•</span>
+                  <span>
+                    {user?.status === 'ACTIVE' || user?.status === 'APPROVED'
+                      ? 'Đang hoạt động'
+                      : user?.status === 'PENDING' ||
+                        user?.status === 'PENDING_APPROVAL'
+                      ? 'Chờ duyệt'
+                      : user?.status === 'REJECTED'
+                      ? 'Đã từ chối'
+                      : user?.status || '—'}
+                  </span>
+                </span>
+              </div>
+              <span
+                className={
+                  user?.status === 'ACTIVE' || user?.status === 'APPROVED'
+                    ? styles.profileStatusIconActive
+                    : styles.profileInfoIcon
+                }
+                aria-hidden="true"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
+              </span>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* MODAL XÁC NHẬN ĐĂNG XUẤT KHI BẤM TỪ DROPDOWN HEADER */}
       <Modal

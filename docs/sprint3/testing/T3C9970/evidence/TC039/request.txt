@@ -1,0 +1,7 @@
+POST http://127.0.0.1:8001/api/v1/purchase-receipts/11/confirm HTTP/1.1
+Content-Type: application/json
+Idempotency-Key: t3c9970-rc-401-764651
+
+{
+  "expected_draft_version": 1
+}

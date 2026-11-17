@@ -19,6 +19,7 @@ import SupplierList from './pages/Suppliers/SupplierList';
 import PurchaseList from './pages/Purchases/PurchaseList';
 import PosPage from './pages/Pos/PosPage';
 import OrderList from './pages/Orders/OrderList';
+import Dashboard from './pages/Dashboard/Dashboard';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -94,12 +95,7 @@ export default function App() {
 
                 {/* 2.2. Nhánh Quản trị (CHỈ DÀNH RIÊNG CHO ADMIN) */}
                 <Route element={<ProtectedRoute allowedRoles={['ADMIN']} />}>
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <PlaceholderPage title="Báo cáo Tổng quan Dashboard" />
-                    }
-                  />
+                  <Route path="/dashboard" element={<Dashboard />} />
                   <Route
                     path="/categories"
                     element={<CategoryList />}
