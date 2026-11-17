@@ -9,6 +9,16 @@ services:
     ports:
       - "127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"
 
+  rabbitmq:
+    ports:
+      - "127.0.0.1:${RABBITMQ_AMQP_HOST_PORT:-15673}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT:-15674}:15672"
+
+  mailpit:
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_HOST_PORT:-11025}:1025"
+      - "127.0.0.1:${MAILPIT_HTTP_HOST_PORT:-18025}:8025"
+
 networks:
   application:
     internal: false
