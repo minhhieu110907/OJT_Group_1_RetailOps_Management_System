@@ -4,14 +4,18 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from app.modules.analytics.service import Period, ProductAnalyticsService
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.categories.models import Category
-from app.modules.inventory.models import Inventory
+from app.modules.inventory.models import (
+    Inventory,
+    InventoryAdjustment,
+    StockMovement,
+)
 from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
 from app.modules.inventory.service import InventoryQueryService
 from app.modules.products.models import CatalogStatus, Product
@@ -145,49 +149,88 @@ class ProductAnalyticsRunContext:
         return order
 
     def cleanup(self) -> None:
-        """Delete strictly this run's tracked rows in FK dependency order."""
-        if not (
-            self.order_ids or self.product_ids or self.category_ids or self.user_ids
-        ):
+        """Delete strictly this run's tracked rows with fail-closed reference checks."""
+        if self.order_ids:
+            with Session(self.engine) as session, session.begin():
+                session.execute(
+                    delete(OrderItem).where(OrderItem.order_id.in_(self.order_ids))
+                )
+                session.execute(delete(Order).where(Order.id.in_(self.order_ids)))
+            self.order_ids.clear()
+
+        if not (self.product_ids or self.category_ids or self.user_ids):
             return
 
         with Session(self.engine) as session, session.begin():
-            order_predicates = []
-            if self.order_ids:
-                order_predicates.append(Order.id.in_(self.order_ids))
-            if self.user_ids:
-                order_predicates.append(Order.created_by.in_(self.user_ids))
-
-            resolved_order_ids: list[int] = []
-            if order_predicates:
-                resolved_order_ids = list(
-                    session.scalars(select(Order.id).where(or_(*order_predicates)))
+            if self.product_ids:
+                ext_item = session.scalar(
+                    select(OrderItem.order_id)
+                    .where(OrderItem.product_id.in_(self.product_ids))
+                    .limit(1)
                 )
-
-            item_predicates = []
-            if resolved_order_ids:
-                item_predicates.append(OrderItem.order_id.in_(resolved_order_ids))
-            if self.product_ids:
-                item_predicates.append(OrderItem.product_id.in_(self.product_ids))
-            if item_predicates:
-                session.execute(delete(OrderItem).where(or_(*item_predicates)))
-
-            if resolved_order_ids:
-                session.execute(delete(Order).where(Order.id.in_(resolved_order_ids)))
-
-            if self.product_ids:
+                if ext_item is not None:
+                    raise RuntimeError(
+                        "Fail-closed cleanup: tracked product(s) still referenced "
+                        f"by external OrderItem (order_id={ext_item})."
+                    )
+                ext_move = session.scalar(
+                    select(StockMovement.id)
+                    .where(StockMovement.product_id.in_(self.product_ids))
+                    .limit(1)
+                )
+                if ext_move is not None:
+                    raise RuntimeError(
+                        "Fail-closed cleanup: tracked product(s) still referenced "
+                        f"by external StockMovement (id={ext_move})."
+                    )
+                ext_adj = session.scalar(
+                    select(InventoryAdjustment.id)
+                    .where(InventoryAdjustment.product_id.in_(self.product_ids))
+                    .limit(1)
+                )
+                if ext_adj is not None:
+                    raise RuntimeError(
+                        "Fail-closed cleanup: tracked product(s) still referenced "
+                        f"by external InventoryAdjustment (id={ext_adj})."
+                    )
                 session.execute(
                     delete(Inventory).where(Inventory.product_id.in_(self.product_ids))
                 )
                 session.execute(delete(Product).where(Product.id.in_(self.product_ids)))
+                self.product_ids.clear()
 
             if self.category_ids:
+                ext_prod = session.scalar(
+                    select(Product.id)
+                    .where(Product.category_id.in_(self.category_ids))
+                    .limit(1)
+                )
+                if ext_prod is not None:
+                    raise RuntimeError(
+                        "Fail-closed cleanup: tracked category(ies) still referenced "
+                        f"by external Product (id={ext_prod})."
+                    )
                 session.execute(
                     delete(Category).where(Category.id.in_(self.category_ids))
                 )
+                self.category_ids.clear()
 
             if self.user_ids:
+                ext_order = session.scalar(
+                    select(Order.id)
+                    .where(
+                        (Order.created_by.in_(self.user_ids))
+                        | (Order.cancelled_by.in_(self.user_ids))
+                    )
+                    .limit(1)
+                )
+                if ext_order is not None:
+                    raise RuntimeError(
+                        "Fail-closed cleanup: tracked user(s) still referenced "
+                        f"by external Order (id={ext_order})."
+                    )
                 session.execute(delete(User).where(User.id.in_(self.user_ids)))
+                self.user_ids.clear()
 
 
 def test_top_products_ranking_and_excludes_cancelled(
@@ -551,3 +594,71 @@ def test_cross_run_isolation_does_not_delete_other_runs_data(
     with Session(migrated_integration_engine) as session:
         assert session.get(Product, prod_b_id) is None
         assert session.get(Order, order_b_id) is None
+
+
+def test_shared_product_and_actor_cleanup_is_isolated_and_fail_closed(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Cleanup fails closed on external refs and never deletes another run's orders."""
+    ctx_a = ProductAnalyticsRunContext(migrated_integration_engine)
+    ctx_b = ProductAnalyticsRunContext(migrated_integration_engine)
+    now = datetime(2026, 11, 10, 0, 0, 0)
+
+    try:
+        with Session(migrated_integration_engine) as session, session.begin():
+            shared_user, shared_cat = ctx_a.seed_user_and_category(session)
+            shared_prod = ctx_a.add_product(
+                session,
+                category_id=shared_cat.id,
+                sku_suffix="SHARED",
+                name="Shared Product",
+                price_vnd=15000,
+                quantity=10,
+                first_stocked_at=now,
+            )
+            order_a = ctx_a.add_order(
+                session,
+                actor_id=shared_user.id,
+                product=shared_prod,
+                quantity=1,
+                sold_at=now,
+            )
+            order_b = ctx_b.add_order(
+                session,
+                actor_id=shared_user.id,
+                product=shared_prod,
+                quantity=2,
+                sold_at=now,
+            )
+            order_a_id = order_a.id
+            order_b_id = order_b.id
+            shared_prod_id = shared_prod.id
+            shared_cat_id = shared_cat.id
+            shared_user_id = shared_user.id
+
+        # Run A cleanup deletes its own order_a, then fails closed because order_b
+        # still references shared_prod and shared_user.
+        with pytest.raises(RuntimeError, match="Fail-closed cleanup"):
+            ctx_a.cleanup()
+
+        with Session(migrated_integration_engine) as session:
+            assert session.get(Order, order_a_id) is None
+            assert session.get(Order, order_b_id) is not None
+            assert session.get(Product, shared_prod_id) is not None
+            assert session.get(User, shared_user_id) is not None
+
+        # Run B cleanup deletes only order_b; shared entities stay intact.
+        ctx_b.cleanup()
+        with Session(migrated_integration_engine) as session:
+            assert session.get(Order, order_b_id) is None
+            assert session.get(Product, shared_prod_id) is not None
+
+        # Now Run A cleanup completes cleanly with zero external references left.
+        ctx_a.cleanup()
+        with Session(migrated_integration_engine) as session:
+            assert session.get(Product, shared_prod_id) is None
+            assert session.get(Category, shared_cat_id) is None
+            assert session.get(User, shared_user_id) is None
+    finally:
+        ctx_b.cleanup()
+        ctx_a.cleanup()
