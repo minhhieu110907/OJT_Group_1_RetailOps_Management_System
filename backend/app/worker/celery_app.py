@@ -27,6 +27,7 @@ def create_celery_app() -> Celery:
         task_reject_on_worker_lost=True,
         worker_prefetch_multiplier=1,
         worker_concurrency=1,
+        worker_enable_remote_control=False,
         task_publish_retry=False,
         broker_transport_options={"confirm_publish": True},
         task_default_exchange=settings.outbox_exchange,

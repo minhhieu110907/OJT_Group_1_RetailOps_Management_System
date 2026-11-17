@@ -32,6 +32,7 @@ class CeleryEventPublisher:
                 self.settings.outbox_task_name,
                 kwargs={"envelope": self.envelope(event_id)},
                 task_id=canonical_id,
+                queue=self.settings.outbox_queue,
                 exchange=self.settings.outbox_exchange,
                 routing_key=self.settings.outbox_routing_key,
                 serializer="json",

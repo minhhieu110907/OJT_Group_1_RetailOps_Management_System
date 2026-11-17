@@ -260,7 +260,7 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -f compose.yaml -f compose.ci.yaml up -d --wait mysql rabbitmq mailpit
-          docker compose -f compose.yaml -f compose.ci.yaml up --build rabbitmq-bootstrap
+          docker compose -f compose.yaml -f compose.ci.yaml run --rm --build --no-deps rabbitmq-bootstrap
       - name: Outbox MySQL delivery integration tests
         working-directory: backend
         shell: bash

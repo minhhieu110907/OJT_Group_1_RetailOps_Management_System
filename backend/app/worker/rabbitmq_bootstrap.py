@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -164,7 +165,6 @@ def bootstrap(config: BootstrapConfig) -> None:
             "apply-to": "quorum_queues",
         },
     )
-    queue = api.request("GET", f"/api/queues/{vhost}/retailops.email.v1")
     expected = {
         "dead-letter-exchange": "retailops.email.parking",
         "dead-letter-routing-key": "email.parked.v1",
@@ -173,11 +173,33 @@ def bootstrap(config: BootstrapConfig) -> None:
         "delivery-limit": 5,
         "max-length-bytes": 67_108_864,
     }
+    policy = api.request(
+        "GET", f"/api/policies/{vhost}/retailops-email-live-reliability"
+    )
     if (
-        queue.get("type") != "quorum"
-        or queue.get("effective_policy_definition") != expected
+        not isinstance(policy, dict)
+        or policy.get("pattern") != r"^retailops\.email\.v1$"
+        or policy.get("apply-to") != "quorum_queues"
+        or policy.get("priority") != 100
+        or policy.get("definition") != expected
     ):
-        raise RuntimeError("RabbitMQ live queue policy is not effective")
+        raise RuntimeError("RabbitMQ live queue policy was not stored as requested")
+
+    # Policy updates are asynchronous. RabbitMQ documents that re-application can
+    # take a few seconds, so verify the effective queue definition with a bounded
+    # poll instead of racing the management API immediately after the PUT.
+    deadline = time.monotonic() + 15
+    while True:
+        queue = api.request("GET", f"/api/queues/{vhost}/retailops.email.v1")
+        if (
+            isinstance(queue, dict)
+            and queue.get("type") == "quorum"
+            and queue.get("effective_policy_definition") == expected
+        ):
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError("RabbitMQ live queue policy is not effective")
+        time.sleep(0.25)
     for exchange, queue_name, routing_key in (
         ("retailops.email", "retailops.email.v1", "email.deliver.v1"),
         (

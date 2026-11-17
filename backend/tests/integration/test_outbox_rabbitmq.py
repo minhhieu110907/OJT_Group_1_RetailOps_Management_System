@@ -3,8 +3,10 @@
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -140,48 +142,83 @@ def worker_environment(database_url: URL) -> dict[str, str]:
     return environment
 
 
+def sanitized_worker_output(
+    output: bytes, environment: dict[str, str], *, limit: int = 4_000
+) -> str:
+    text = output.decode("utf-8", errors="replace")
+    for name, value in environment.items():
+        if value and ("PASSWORD" in name or name.endswith("_URL")):
+            text = text.replace(value, "[REDACTED]")
+    text = re.sub(
+        r"\b(?:amqps?|mysql(?:\+pymysql)?|redis)://[^\s@]+@",
+        "[URL_REDACTED]@",
+        text,
+    )
+    text = re.sub(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        "[EMAIL_REDACTED]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text[-limit:]
+
+
 @contextmanager
 def running_worker(database_url: URL) -> Iterator[subprocess.Popen[bytes]]:
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "celery",
-            "-A",
-            "app.worker.celery_app:celery_app",
-            "worker",
-            "--pool=solo",
-            "--concurrency=1",
-            "--prefetch-multiplier=1",
-            "--without-gossip",
-            "--without-mingle",
-            "--without-heartbeat",
-            "--loglevel=WARNING",
-            "--queues=retailops.email.v1",
-        ],
-        env=worker_environment(database_url),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                pytest.fail(f"Celery worker exited with code {process.returncode}")
-            queue = management_get("/api/queues/%2Fretailops/retailops.email.v1")
-            if isinstance(queue, dict) and queue.get("consumers", 0) >= 1:
-                yield process
-                return
-            time.sleep(0.25)
-        pytest.fail("Celery worker did not start consuming within 30 seconds")
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+    environment = worker_environment(database_url)
+    with tempfile.TemporaryFile() as worker_log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "celery",
+                "-A",
+                "app.worker.celery_app:celery_app",
+                "worker",
+                "--pool=solo",
+                "--concurrency=1",
+                "--prefetch-multiplier=1",
+                "--without-gossip",
+                "--without-mingle",
+                "--without-heartbeat",
+                "--loglevel=WARNING",
+                "--queues=retailops.email.v1",
+            ],
+            env=environment,
+            stdout=worker_log,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    worker_log.seek(0)
+                    diagnostics = sanitized_worker_output(
+                        worker_log.read(), environment
+                    )
+                    pytest.fail(
+                        f"Celery worker exited with code {process.returncode}:\n"
+                        f"{diagnostics}"
+                    )
+                queue = management_get("/api/queues/%2Fretailops/retailops.email.v1")
+                if isinstance(queue, dict) and queue.get("consumers", 0) >= 1:
+                    yield process
+                    return
+                time.sleep(0.25)
+            worker_log.seek(0)
+            diagnostics = sanitized_worker_output(worker_log.read(), environment)
+            pytest.fail(
+                "Celery worker did not start consuming within 30 seconds:\n"
+                f"{diagnostics}"
+            )
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 def publish_email_task(event_id: bytes) -> None:
@@ -195,10 +232,12 @@ def publish_envelope(envelope: object, task_id: str) -> None:
         broker=required_environment("RETAILOPS_TEST_RABBITMQ_PUBLISHER_URL"),
     )
     app.conf.broker_transport_options = {"confirm_publish": True}
+    app.conf.task_queues = (LIVE_QUEUE,)
     app.send_task(
         "retailops.email.deliver_v1",
         kwargs={"envelope": envelope},
         task_id=task_id,
+        queue=LIVE_QUEUE.name,
         exchange="retailops.email",
         routing_key="email.deliver.v1",
         serializer="json",
@@ -246,6 +285,15 @@ def receive_message(
         pytest.fail(f"No message arrived in {queue.name} within {timeout} seconds")
 
 
+def message_body_text(message: Message) -> str:
+    body = message.body
+    if isinstance(body, bytes):
+        return body.decode("utf-8")
+    if isinstance(body, str):
+        return body
+    pytest.fail(f"Unexpected broker message body type: {type(body).__name__}")
+
+
 def test_effective_quorum_dead_letter_policy() -> None:
     queue = management_get("/api/queues/%2Fretailops/retailops.email.v1")
     assert isinstance(queue, dict)
@@ -258,6 +306,25 @@ def test_effective_quorum_dead_letter_policy() -> None:
         "delivery-limit": 5,
         "max-length-bytes": 67_108_864,
     }
+    policy = management_get(
+        "/api/policies/%2Fretailops/retailops-email-live-reliability"
+    )
+    assert isinstance(policy, dict)
+    assert policy["apply-to"] == "quorum_queues"
+    assert policy["pattern"] == r"^retailops\.email\.v1$"
+    assert policy["priority"] == 100
+
+    live_bindings = management_get(
+        "/api/bindings/%2Fretailops/e/retailops.email/q/retailops.email.v1"
+    )
+    parking_bindings = management_get(
+        "/api/bindings/%2Fretailops/e/retailops.email.parking/q/"
+        "retailops.email.parked.v1"
+    )
+    assert isinstance(live_bindings, list)
+    assert isinstance(parking_bindings, list)
+    assert any(item["routing_key"] == "email.deliver.v1" for item in live_bindings)
+    assert any(item["routing_key"] == "email.parked.v1" for item in parking_bindings)
 
 
 def test_mandatory_publish_rejects_unroutable_message() -> None:
@@ -283,10 +350,12 @@ def test_real_celery_protocol_retry_acl_and_secret_free_body() -> None:
     event_id = str(uuid4())
     app = Celery("t04a90f-test", broker=publisher_url)
     app.conf.broker_transport_options = {"confirm_publish": True}
+    app.conf.task_queues = (LIVE_QUEUE,)
     app.send_task(
         "retailops.email.deliver_v1",
         kwargs={"envelope": {"event_id": event_id, "schema_version": 1}},
         task_id=event_id,
+        queue=LIVE_QUEUE.name,
         exchange="retailops.email",
         routing_key="email.deliver.v1",
         serializer="json",
@@ -295,7 +364,7 @@ def test_real_celery_protocol_retry_acl_and_secret_free_body() -> None:
     )
 
     with receive_message(worker_url, LIVE_QUEUE) as message:
-        body = message.body.decode()
+        body = message_body_text(message)
         assert message.headers["task"] == "retailops.email.deliver_v1"
         assert message.headers["id"] == event_id
         assert event_id in body
@@ -349,7 +418,7 @@ def test_reject_without_requeue_dead_letters_to_parking() -> None:
     with receive_message(worker_url, LIVE_QUEUE) as live_message:
         live_message.reject(requeue=False)
     with receive_message(bootstrap_url, PARKING_QUEUE) as parked_message:
-        assert correlation_id in parked_message.body.decode()
+        assert correlation_id in message_body_text(parked_message)
         parked_message.ack()
 
 
@@ -380,7 +449,7 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
             assert retry_message.headers["task"] == "retailops.email.deliver_v1"
             assert retry_message.headers["retries"] == 1
             assert retry_message.headers["id"] == str(UUID(bytes=event_id))
-            assert str(UUID(bytes=event_id)) in retry_message.body.decode()
+            assert str(UUID(bytes=event_id)) in message_body_text(retry_message)
             retry_message.ack()
     finally:
         cleanup_worker_events(migrated_integration_engine)
@@ -424,5 +493,5 @@ def test_real_worker_invalid_envelope_is_parked(
         ) as parked_message:
             assert parked_message.headers["task"] == "retailops.email.deliver_v1"
             assert parked_message.headers["id"] == task_id
-            assert "not-a-canonical-uuid" in parked_message.body.decode()
+            assert "not-a-canonical-uuid" in message_body_text(parked_message)
             parked_message.ack()

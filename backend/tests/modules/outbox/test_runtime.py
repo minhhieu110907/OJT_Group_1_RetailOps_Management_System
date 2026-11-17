@@ -207,6 +207,7 @@ def test_celery_publish_requires_routable_persistent_confirm() -> None:
     assert app.options["delivery_mode"] == 2
     assert app.options["mandatory"] is True
     assert app.options["retry"] is False
+    assert app.options["queue"] == "retailops.email.v1"
 
 
 @pytest.mark.parametrize(
