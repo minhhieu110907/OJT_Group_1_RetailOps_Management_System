@@ -323,6 +323,30 @@ def parse_eta(value: object) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def broker_diagnostics(queue_name: str, exchange_name: str) -> str:
+    """Counters that tell a dropped/unroutable retry from one that is merely held."""
+    queue = management_get(f"/api/queues/%2Fretailops/{queue_name}")
+    exchange = management_get(f"/api/exchanges/%2Fretailops/{exchange_name}")
+    assert isinstance(queue, dict)
+    assert isinstance(exchange, dict)
+    return json.dumps(
+        {
+            "queue": queue_state(queue_name),
+            "queue_message_stats": queue.get("message_stats"),
+            "exchange_message_stats": exchange.get("message_stats"),
+        },
+        sort_keys=True,
+    )
+
+
+def worker_reported_retry(log: str, task_id: str, delay_seconds: int) -> bool:
+    """Match Celery's retry log line by task id, not by its exact layout."""
+    return any(
+        task_id in line and "retry" in line.casefold() and f"{delay_seconds}s" in line
+        for line in log.splitlines()
+    )
+
+
 @contextmanager
 def receive_message(
     connection_url: str,
@@ -550,6 +574,10 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
     event_id = create_event(migrated_integration_engine, delivery_attempts=0)
     canonical_id = str(UUID(bytes=event_id))
     live = "retailops.email.v1"
+
+    def broker() -> str:
+        return broker_diagnostics(live, "retailops.email")
+
     worker_log = ""
     try:
         with running_worker(integration_database_url, loglevel="INFO") as worker:
@@ -567,11 +595,11 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
             )
             assert event.outcome is None
 
-            # Evidence 2 (worker): Celery logs this line only after task.retry()
-            # has published the retry copy (apply_async precedes raising Retry).
-            retry_line = f"[{canonical_id}] retry: Retry in 30s"
+            # Evidence 2 (worker): Celery logs the retry only after task.retry() has
+            # called apply_async. This is NOT proof of broker acceptance; the broker
+            # evidence below and the fetched message are what establish that.
             wait_until(
-                lambda: retry_line in worker.read_log(),
+                lambda: worker_reported_retry(worker.read_log(), canonical_id, 30),
                 timeout=20,
                 failure=lambda: (
                     "Worker never reported the 30s retry for the event:\n"
@@ -585,7 +613,10 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
             wait_until(
                 lambda: queue_state(live)["messages"] >= 1,
                 timeout=20,
-                failure=lambda: f"Broker holds no retry message: {queue_state(live)}",
+                failure=lambda: (
+                    "Broker holds no retry message after the worker reported it: "
+                    f"{broker()}\n{worker.read_log()}"
+                ),
             )
             worker_log = worker.read_log()
 
@@ -596,7 +627,7 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
             timeout=30,
             failure=lambda: (
                 "Retry message was not returned to ready after worker shutdown: "
-                f"{queue_state(live)}\n{worker_log}"
+                f"{broker()}\n{worker_log}"
             ),
         )
 
