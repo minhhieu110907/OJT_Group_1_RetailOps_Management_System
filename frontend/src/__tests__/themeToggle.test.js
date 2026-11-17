@@ -199,14 +199,21 @@ describe('Theme Toggle (Light / Dark Mode) Suite', () => {
     assert.equal(view1.getByTestId('theme-text').textContent, 'light');
     view1.unmount();
 
-    // Case D2: localStorage.getItem throws SecurityError (e.g. private mode / cookies disabled)
-    const originalGetItem = localStorage.getItem;
-    const originalSetItem = localStorage.setItem;
+    // Case D2: Storage.prototype throws SecurityError (e.g. private mode / cookies disabled)
+    // Override Storage.prototype directly to guarantee interception in all DOM implementations
+    const proto = Object.getPrototypeOf(localStorage);
+    const originalGetItem = proto.getItem;
+    const originalSetItem = proto.setItem;
 
-    localStorage.getItem = () => {
+    let getItemCallCount = 0;
+    let setItemCallCount = 0;
+
+    proto.getItem = function () {
+      getItemCallCount++;
       throw new Error('SecurityError: Access is denied for this document');
     };
-    localStorage.setItem = () => {
+    proto.setItem = function () {
+      setItemCallCount++;
       throw new Error('SecurityError: Access is denied for this document');
     };
 
@@ -216,24 +223,33 @@ describe('Theme Toggle (Light / Dark Mode) Suite', () => {
       view2 = render(
         React.createElement(ThemeProvider, null, React.createElement(ThemeConsumer))
       );
+      // Assert that getItem threw and was intercepted
+      assert.ok(getItemCallCount > 0, 'Storage.prototype.getItem must be called and intercepted');
+
+      // Theme toggle should still operate smoothly in memory without crashing
       act(() => {
         fireEvent.click(view2.getByTestId('theme-toggle-btn'));
       });
+
+      // Assert that setItem was called and intercepted
+      assert.ok(setItemCallCount > 0, 'Storage.prototype.setItem must be called and intercepted');
+      assert.equal(view2.getByTestId('theme-text').textContent, 'dark');
+      assert.equal(document.documentElement.getAttribute('data-theme'), 'dark');
     } catch {
       crashed = true;
+    } finally {
+      // Always restore native Storage.prototype methods in teardown
+      proto.getItem = originalGetItem;
+      proto.setItem = originalSetItem;
+      if (view2) {
+        view2.unmount();
+      }
     }
 
     assert.equal(crashed, false, 'ThemeProvider must NEVER crash when localStorage throws');
-    if (view2) {
-      view2.unmount();
-    }
-
-    // Restore localStorage
-    localStorage.getItem = originalGetItem;
-    localStorage.setItem = originalSetItem;
   });
 
-  test('TEST E — Header theme button accessibility name and toggle contract', () => {
+  test('TEST E — Theme consumer accessible toggle contract', () => {
     localStorage.setItem('retailops_theme', 'light');
 
     const { getByTestId } = render(
