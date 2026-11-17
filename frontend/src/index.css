@@ -1855,6 +1855,240 @@
   color: #F87171 !important;
 }
 
+/* =========================================================
+   DASHBOARD & ANALYTICS MODULE IN DARK THEME
+   Báo cáo & Phân tích Doanh thu, KPI Cards, Biểu đồ Doanh thu & Cơ cấu Đơn hàng
+   ========================================================= */
+[data-theme='dark'] [class*="kpiCard"],
+[data-theme='dark'] [class*="panelCard"],
+[data-theme='dark'] [class*="stateCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+}
+
+[data-theme='dark'] [class*="kpiCard"]:hover {
+  border-color: #10B981 !important;
+  box-shadow: 0 10px 24px rgba(16, 185, 129, 0.2) !important;
+}
+
+[data-theme='dark'] [class*="kpiLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kpiValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="kpiValueRed"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="kpiUnit"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="kpiUnitRed"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="kpiSub"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kpiIconEmerald"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="kpiIconSlate"] {
+  background-color: #1E293B !important;
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kpiIconRed"] {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="segmentedBar"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="segmentBtn"] {
+  color: #94A3B8 !important;
+  border-right-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="segmentBtn"]:hover:not([class*="segmentBtnActive"]) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="segmentBtnActive"] {
+  background-color: #059669 !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="periodChip"] {
+  background-color: #1E293B !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="refreshBtn"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="refreshBtn"]:hover:not(:disabled) {
+  background-color: var(--color-bg-hover) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="panelTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="panelSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="chartStatBox"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="chartStatLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="chartStatValue"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="chartStatValueEmerald"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="donutPercent"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="donutSub"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="statPillGreen"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="statPillRed"] {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="lowStockAlertBar"] {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="lowStockLink"] {
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="accountingRuleNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="accountingRuleNote"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="tableMetaText"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="tableMetaText"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="viewAllLink"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] th {
+  background-color: #172338 !important;
+  color: #94A3B8 !important;
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] td {
+  border-bottom-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] tbody tr:hover {
+  background-color: var(--color-bg-hover) !important;
+}
+
+[data-theme='dark'] [class*="dataTable"] tfoot td {
+  background-color: #0E1726 !important;
+  border-top-color: var(--color-border) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="orderCodeCell"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="completedNum"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="cancelledNum"] {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="revenueNum"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="tableFooterNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="badgeGray"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="legendPill"] {
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="demoCard"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="demoTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="demoDesc"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="demoRoleTag"] {
+  background-color: rgba(6, 78, 59, 0.7) !important;
+  color: #34D399 !important;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
