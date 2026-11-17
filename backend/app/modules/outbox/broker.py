@@ -38,6 +38,7 @@ class CeleryEventPublisher:
                 serializer="json",
                 delivery_mode=2,
                 mandatory=True,
+                declare=(),
                 retry=False,
                 ignore_result=True,
             )

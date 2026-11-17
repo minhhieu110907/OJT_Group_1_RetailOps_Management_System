@@ -206,8 +206,20 @@ def test_celery_publish_requires_routable_persistent_confirm() -> None:
     assert app.options is not None
     assert app.options["delivery_mode"] == 2
     assert app.options["mandatory"] is True
+    assert app.options["declare"] == ()
     assert app.options["retry"] is False
     assert app.options["queue"] == "retailops.email.v1"
+    assert app.options["exchange"] == "retailops.email"
+    assert app.options["routing_key"] == "email.deliver.v1"
+    assert app.options["serializer"] == "json"
+    assert app.options["ignore_result"] is True
+    assert app.options["task_id"] == str(UUID(bytes=EVENT_ID))
+    assert app.options["kwargs"] == {
+        "envelope": {
+            "event_id": str(UUID(bytes=EVENT_ID)),
+            "schema_version": 1,
+        }
+    }
 
 
 @pytest.mark.parametrize(

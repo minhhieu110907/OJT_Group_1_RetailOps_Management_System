@@ -243,6 +243,7 @@ def publish_envelope(envelope: object, task_id: str) -> None:
         serializer="json",
         delivery_mode=2,
         mandatory=True,
+        declare=(),
         retry=False,
     )
 
@@ -360,6 +361,8 @@ def test_real_celery_protocol_retry_acl_and_secret_free_body() -> None:
         routing_key="email.deliver.v1",
         serializer="json",
         delivery_mode=2,
+        mandatory=True,
+        declare=(),
         retry=False,
     )
 
