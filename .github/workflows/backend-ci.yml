@@ -56,7 +56,7 @@ jobs:
             exit 1
           fi
       - name: Unit and API tests
-        run: uv run --locked pytest -m "not integration"
+        run: uv run --locked pytest -m "not integration and not rabbitmq_integration"
 
   mysql-integration:
     name: Backend / MySQL integration
