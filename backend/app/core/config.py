@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote, urlsplit
 
 from pydantic import (
@@ -85,6 +86,17 @@ class Settings(BaseSettings):
     smtp_from_address: str = "no-reply@retailops.local"
     smtp_starttls: bool = False
     smtp_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    password_reset_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    password_reset_base_url: str = "http://127.0.0.1:5173/reset-password"
+    password_reset_email_adapter: Literal["outbox", "memory"] = "outbox"
+    forgot_password_ip_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    forgot_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    forgot_password_account_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    forgot_password_account_rate_window_seconds: int = Field(
+        default=3_600, ge=1, le=86_400
+    )
+    reset_password_ip_rate_limit: int = Field(default=10, ge=1, le=10_000)
+    reset_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
 
     @field_validator("cors_origins")
     @classmethod
@@ -150,6 +162,35 @@ class Settings(BaseSettings):
         if value != (30, 120, 300):
             raise ValueError("Email retry delays must be exactly 30,120,300 seconds")
         return value
+
+    @field_validator("password_reset_base_url")
+    @classmethod
+    def validate_password_reset_base_url(cls, value: str) -> str:
+        """Require an explicit HTTP(S) base URL without query or fragment."""
+        cleaned = value.strip()
+        parsed = urlsplit(cleaned)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("password_reset_base_url must be a clean HTTP(S) URL")
+        return cleaned.rstrip("/")
+
+    @model_validator(mode="after")
+    def reject_memory_reset_adapter_in_production(self) -> "Settings":
+        """Ensure fake in-memory reset email adapter cannot run in production."""
+        if (
+            self.environment.strip().lower() == "production"
+            and self.password_reset_email_adapter == "memory"
+        ):
+            raise ValueError(
+                "In-memory password reset email adapter is forbidden in production"
+            )
+        return self
 
     @field_validator("smtp_from_address")
     @classmethod

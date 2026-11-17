@@ -232,3 +232,37 @@ class CsrfService:
             expected_session_id=expected,
         )
         return expected
+
+
+def generate_reset_token() -> str:
+    """Return a URL-safe CSPRNG password reset token with 256 bits of entropy."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(raw_token: str) -> str:
+    """Return the 64-character lowercase SHA-256 hex digest of a reset token."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def encrypt_reset_secret(plaintext: str, key_material: str) -> bytes:
+    """Encrypt reset secret into nonce(16) || ciphertext || hmac_sha256(32)."""
+    key_bytes = hashlib.sha256(
+        f"retailops-reset-secret:{key_material}".encode()
+    ).digest()
+    enc_key = hmac.new(key_bytes, b"enc", hashlib.sha256).digest()
+    mac_key = hmac.new(key_bytes, b"mac", hashlib.sha256).digest()
+    nonce = secrets.token_bytes(16)
+    data = plaintext.encode("utf-8")
+    keystream = bytearray()
+    counter = 0
+    while len(keystream) < len(data):
+        block = hmac.new(
+            enc_key,
+            nonce + counter.to_bytes(4, "big"),
+            hashlib.sha256,
+        ).digest()
+        keystream.extend(block)
+        counter += 1
+    ciphertext = bytes(b ^ k for b, k in zip(data, keystream[: len(data)], strict=True))
+    tag = hmac.new(mac_key, nonce + ciphertext, hashlib.sha256).digest()
+    return nonce + ciphertext + tag
