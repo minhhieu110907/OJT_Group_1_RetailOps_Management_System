@@ -265,25 +265,63 @@ def wait_for_event(
     pytest.fail("Outbox event did not reach the expected state")
 
 
+def queue_ack_count(queue_name: str) -> int:
+    queue = management_get(f"/api/queues/%2Fretailops/{queue_name}")
+    assert isinstance(queue, dict)
+    stats = queue.get("message_stats")
+    if isinstance(stats, dict):
+        return int(stats.get("ack", 0))
+    return 0
+
+
+def wait_for_queue_ack(
+    queue_name: str, expected_acks: int, timeout: float = 15.0
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if queue_ack_count(queue_name) >= expected_acks:
+            return
+        time.sleep(0.25)
+    pytest.fail(
+        f"Queue {queue_name} did not record {expected_acks} acks within {timeout}s"
+    )
+
+
 @contextmanager
 def receive_message(
-    connection_url: str, queue: Queue, timeout: float = 10.0
+    connection_url: str,
+    queue: Queue,
+    timeout: float = 10.0,
+    predicate: Callable[[Message], bool] | None = None,
 ) -> Iterator[Message]:
     deadline = time.monotonic() + timeout
     with Connection(connection_url) as connection:
         bound_queue = queue(connection.default_channel)
-        while time.monotonic() < deadline:
-            message = bound_queue.get(no_ack=False)
-            if message is not None:
-                try:
-                    yield message
-                finally:
-                    if not message.acknowledged:
-                        with suppress(ChannelError, OperationalError):
-                            message.reject(requeue=True)
-                return
-            time.sleep(0.1)
-        pytest.fail(f"No message arrived in {queue.name} within {timeout} seconds")
+        held: list[Message] = []
+        try:
+            while time.monotonic() < deadline:
+                message = bound_queue.get(no_ack=False)
+                if message is not None:
+                    if predicate is None or predicate(message):
+                        for other in held:
+                            with suppress(ChannelError, OperationalError):
+                                other.reject(requeue=True)
+                        held.clear()
+                        try:
+                            yield message
+                        finally:
+                            if not message.acknowledged:
+                                with suppress(ChannelError, OperationalError):
+                                    message.reject(requeue=True)
+                        return
+                    held.append(message)
+                    continue
+                time.sleep(0.1)
+            pytest.fail(f"No message arrived in {queue.name} within {timeout} seconds")
+        finally:
+            for other in held:
+                with suppress(ChannelError, OperationalError):
+                    other.reject(requeue=True)
 
 
 def message_body_text(message: Message) -> str:
@@ -459,7 +497,11 @@ def test_reject_without_requeue_dead_letters_to_parking() -> None:
         )
     with receive_message(worker_url, LIVE_QUEUE) as live_message:
         live_message.reject(requeue=False)
-    with receive_message(bootstrap_url, PARKING_QUEUE) as parked_message:
+    with receive_message(
+        bootstrap_url,
+        PARKING_QUEUE,
+        predicate=lambda msg: correlation_id in message_body_text(msg),
+    ) as parked_message:
         assert correlation_id in message_body_text(parked_message)
         parked_message.ack()
 
@@ -470,6 +512,8 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
 ) -> None:
     cleanup_worker_events(migrated_integration_engine)
     event_id = create_event(migrated_integration_engine, delivery_attempts=0)
+    canonical_id = str(UUID(bytes=event_id))
+    baseline_acks = queue_ack_count("retailops.email.v1")
     try:
         with running_worker(integration_database_url):
             publish_email_task(event_id)
@@ -482,16 +526,19 @@ def test_real_worker_transient_smtp_publishes_routed_retry(
                 ),
             )
             assert event.outcome is None
+            wait_for_queue_ack("retailops.email.v1", baseline_acks + 1)
 
         # Terminating the worker before the 30-second ETA returns its reserved
         # retry to RabbitMQ. Inspect that real Celery retry while the channel is open.
         with receive_message(
-            required_environment("RETAILOPS_TEST_RABBITMQ_WORKER_URL"), LIVE_QUEUE
+            required_environment("RETAILOPS_TEST_RABBITMQ_WORKER_URL"),
+            LIVE_QUEUE,
+            predicate=lambda msg: msg.headers.get("id") == canonical_id,
         ) as retry_message:
             assert retry_message.headers["task"] == "retailops.email.deliver_v1"
             assert retry_message.headers["retries"] == 1
-            assert retry_message.headers["id"] == str(UUID(bytes=event_id))
-            assert str(UUID(bytes=event_id)) in message_body_text(retry_message)
+            assert retry_message.headers["id"] == canonical_id
+            assert canonical_id in message_body_text(retry_message)
             retry_message.ack()
     finally:
         cleanup_worker_events(migrated_integration_engine)
@@ -532,6 +579,7 @@ def test_real_worker_invalid_envelope_is_parked(
         with receive_message(
             required_environment("RETAILOPS_TEST_RABBITMQ_BOOTSTRAP_URL"),
             PARKING_QUEUE,
+            predicate=lambda msg: msg.headers.get("id") == task_id,
         ) as parked_message:
             assert parked_message.headers["task"] == "retailops.email.deliver_v1"
             assert parked_message.headers["id"] == task_id

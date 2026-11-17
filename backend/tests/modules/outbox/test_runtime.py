@@ -226,7 +226,6 @@ def test_celery_app_disables_worker_topology_declarations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.core.config import get_settings
-    from app.worker.celery_app import create_celery_app
 
     monkeypatch.setenv("RETAILOPS_DB_HOST", "mysql")
     monkeypatch.setenv("RETAILOPS_DB_NAME", "retailops_test")
@@ -238,6 +237,8 @@ def test_celery_app_disables_worker_topology_declarations(
     )
     get_settings.cache_clear()
     try:
+        from app.worker.celery_app import create_celery_app
+
         app = create_celery_app()
         assert app.conf.worker_enable_remote_control is False
         assert app.conf.task_create_missing_queues is False
