@@ -52,6 +52,17 @@ class ProductAnalyticsItemRead(BaseModel):
         return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class ProductAnalyticsPageRead(BaseModel):
+    """Paginated product analytics list matching openapi ProductAnalyticsPage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ProductAnalyticsItemRead]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+
+
 class DashboardRead(BaseModel):
     """Executive dashboard summary matching openapi DashboardRead."""
 
