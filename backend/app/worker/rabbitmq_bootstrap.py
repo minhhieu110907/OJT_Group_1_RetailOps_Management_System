@@ -111,9 +111,9 @@ def bootstrap(config: BootstrapConfig) -> None:
         "PUT",
         f"/api/permissions/{vhost}/{quote(config.worker_user, safe='')}",
         {
-            "configure": "^(retailops\\.email|retailops\\.email\\.v1)$",
-            "write": "^(retailops\\.email|retailops\\.email\\.v1)$",
-            "read": "^(retailops\\.email|retailops\\.email\\.v1)$",
+            "configure": "^$",
+            "write": "^retailops\\.email$",
+            "read": "^retailops\\.email\\.v1$",
         },
     )
     for exchange in ("retailops.email", "retailops.email.parking"):

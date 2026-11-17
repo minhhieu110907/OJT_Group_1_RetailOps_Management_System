@@ -375,7 +375,22 @@ def test_real_celery_protocol_retry_acl_and_secret_free_body() -> None:
             assert forbidden not in body.casefold()
         message.ack()
 
-    # The worker identity must be able to republish a delayed Celery retry.
+    # Verify exact least-privilege ACL definitions stored in RabbitMQ.
+    publisher_user = required_environment("RABBITMQ_PUBLISHER_USER")
+    worker_user = required_environment("RABBITMQ_WORKER_USER")
+    publisher_perm = management_get(f"/api/permissions/%2Fretailops/{publisher_user}")
+    worker_perm = management_get(f"/api/permissions/%2Fretailops/{worker_user}")
+    assert isinstance(publisher_perm, dict)
+    assert isinstance(worker_perm, dict)
+    assert publisher_perm["configure"] == "^$"
+    assert publisher_perm["write"] == r"^retailops\.email$"
+    assert publisher_perm["read"] == "^$"
+    assert worker_perm["configure"] == "^$"
+    assert worker_perm["write"] == r"^retailops\.email$"
+    assert worker_perm["read"] == r"^retailops\.email\.v1$"
+
+    # The worker identity must be able to republish a delayed Celery retry
+    # without declaring or binding topology.
     with Connection(worker_url, transport_options={"confirm_publish": True}) as conn:
         Producer(conn).publish(
             {"retry_probe": event_id},
@@ -383,11 +398,35 @@ def test_real_celery_protocol_retry_acl_and_secret_free_body() -> None:
             routing_key="email.deliver.v1",
             serializer="json",
             delivery_mode=2,
-            declare=[LIVE_EXCHANGE, LIVE_QUEUE],
             retry=False,
         )
     with receive_message(worker_url, LIVE_QUEUE) as retry_probe:
         retry_probe.ack()
+
+    # The worker cannot declare exchanges/queues or bind queues.
+    with (
+        pytest.raises((ChannelError, OperationalError)),
+        Connection(worker_url) as conn,
+    ):
+        conn.default_channel.exchange_declare(
+            exchange="retailops.email", type="direct", durable=True
+        )
+    with (
+        pytest.raises((ChannelError, OperationalError)),
+        Connection(worker_url) as conn,
+    ):
+        conn.default_channel.queue_bind(
+            queue="retailops.email.v1",
+            exchange="retailops.email",
+            routing_key="email.deliver.v1",
+        )
+
+    # The worker cannot read from parking.
+    with (
+        pytest.raises((ChannelError, OperationalError)),
+        Connection(worker_url) as conn,
+    ):
+        PARKING_QUEUE(conn.default_channel).get(no_ack=False)
 
     # The worker cannot bypass the broker and write directly to parking.
     with (

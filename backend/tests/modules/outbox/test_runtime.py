@@ -222,6 +222,35 @@ def test_celery_publish_requires_routable_persistent_confirm() -> None:
     }
 
 
+def test_celery_app_disables_worker_topology_declarations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import get_settings
+    from app.worker.celery_app import create_celery_app
+
+    monkeypatch.setenv("RETAILOPS_DB_HOST", "mysql")
+    monkeypatch.setenv("RETAILOPS_DB_NAME", "retailops_test")
+    monkeypatch.setenv("RETAILOPS_DB_USER", "test")
+    monkeypatch.setenv("RETAILOPS_DB_PASSWORD", "test-password")
+    monkeypatch.setenv(
+        "RETAILOPS_RABBITMQ_URL",
+        "amqp://worker:pass@rabbitmq:5672/%2Fretailops",
+    )
+    get_settings.cache_clear()
+    try:
+        app = create_celery_app()
+        assert app.conf.worker_enable_remote_control is False
+        assert app.conf.task_create_missing_queues is False
+        assert len(app.conf.task_queues) == 1
+        queue = app.conf.task_queues[0]
+        assert queue.name == "retailops.email.v1"
+        assert queue.no_declare is True
+        assert queue.exchange.name == "retailops.email"
+        assert queue.exchange.no_declare is True
+    finally:
+        get_settings.cache_clear()
+
+
 @pytest.mark.parametrize(
     "event_id",
     [

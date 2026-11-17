@@ -8,13 +8,16 @@ from app.core.config import get_settings
 
 def create_celery_app() -> Celery:
     settings = get_settings()
-    exchange = Exchange(settings.outbox_exchange, type="direct", durable=True)
+    exchange = Exchange(
+        settings.outbox_exchange, type="direct", durable=True, no_declare=True
+    )
     queue = Queue(
         settings.outbox_queue,
         exchange=exchange,
         routing_key=settings.outbox_routing_key,
         durable=True,
         queue_arguments={"x-queue-type": "quorum"},
+        no_declare=True,
     )
     app = Celery("retailops-email", broker=settings.require_rabbitmq_url())
     app.conf.update(
@@ -28,6 +31,7 @@ def create_celery_app() -> Celery:
         worker_prefetch_multiplier=1,
         worker_concurrency=1,
         worker_enable_remote_control=False,
+        task_create_missing_queues=False,
         task_publish_retry=False,
         broker_transport_options={"confirm_publish": True},
         task_default_exchange=settings.outbox_exchange,
