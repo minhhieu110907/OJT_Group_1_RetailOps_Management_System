@@ -12,6 +12,14 @@
   --color-bg-surface: #FFFFFF; /* Nền khối/card/sidebar/header */
   --color-bg-hover: #F1F5F9;   /* Hover button/item */
 
+  /* Semantic status tokens (Light Mode) */
+  --color-text-primary: #242A30;
+  --color-text-secondary: #586574;
+  --color-surface-muted: #F8FAFC;
+  --color-status-success: #087F5B;
+  --color-status-warning: #D97706;
+  --color-status-danger: #B91C1C;
+
   /* Font chữ hệ thống */
   --font-family-base: 'Inter', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
@@ -38,6 +46,14 @@
   --color-bg-surface: #131E30; /* Nền sidebar, header, card */
   --color-bg-hover: #1E293B;   /* Nền hover tối */
   --color-bg-input: #0B1320;   /* Nền input tối */
+
+  /* Semantic status tokens (Dark Mode) */
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-surface-muted: #0E1726;
+  --color-status-success: #10B981;
+  --color-status-warning: #F59E0B;
+  --color-status-danger: #EF4444;
 }
 
 /* =========================================================
@@ -145,11 +161,11 @@
   border-color: var(--color-border) !important;
 }
 
-/* Biến mọi thẻ chữ con bên trong ô bảng thành màu trắng */
-[data-theme='dark'] td span:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]),
-[data-theme='dark'] td p,
-[data-theme='dark'] td div:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]),
-[data-theme='dark'] td strong,
+/* Thẻ chữ và nội dung dữ liệu bên trong ô bảng */
+[data-theme='dark'] td span:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]):not([class*="danger"]):not([class*="warning"]):not([class*="success"]):not([class*="error"]):not([class*="amber"]):not([class*="rose"]):not([class*="Tag"]),
+[data-theme='dark'] td p:not([class*="danger"]):not([class*="warning"]):not([class*="error"]),
+[data-theme='dark'] td div:not([class*="badge"]):not([class*="tag"]):not([class*="Badge"]):not([class*="Dot"]):not([class*="Pill"]):not([class*="danger"]):not([class*="warning"]):not([class*="error"]):not([class*="stockCell"]),
+[data-theme='dark'] td strong:not([class*="danger"]):not([class*="warning"]):not([class*="error"]),
 [data-theme='dark'] [class*="skuText"],
 [data-theme='dark'] [class*="productNameText"],
 [data-theme='dark'] [class*="categoryText"],
@@ -184,8 +200,6 @@
 }
 
 /* 3. Cards, Containers, Boxes & Table Footers */
-[data-theme='dark'] [class*="card"],
-[data-theme='dark'] [class*="Card"],
 [data-theme='dark'] [class*="statCard"],
 [data-theme='dark'] [class*="filterCard"],
 [data-theme='dark'] [class*="filterBar"],
@@ -207,7 +221,15 @@
 [data-theme='dark'] [class*="immutableRuleBanner"],
 [data-theme='dark'] [class*="detailModalCard"],
 [data-theme='dark'] [class*="detailTableWrap"],
-[data-theme='dark'] [class*="detailMetaBox"] {
+[data-theme='dark'] [class*="detailMetaBox"],
+[data-theme='dark'] [class*="summaryCard"],
+[data-theme='dark'] [class*="authCard"],
+[data-theme='dark'] [class*="accountCard"],
+[data-theme='dark'] [class*="demoCard"],
+[data-theme='dark'] [class*="statusCard"],
+[data-theme='dark'] [class*="stateCard"],
+[data-theme='dark'] [class*="staffCard"],
+[data-theme='dark'] [class*="productCard"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
   color: var(--color-neutral) !important;
@@ -289,6 +311,17 @@
 }
 
 /* 5. Buttons & Controls */
+[data-theme='dark'] button:disabled,
+[data-theme='dark'] input:disabled,
+[data-theme='dark'] select:disabled,
+[data-theme='dark'] textarea:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  color: #94A3B8 !important;
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+}
+
 [data-theme='dark'] [class*="cancelBtn"],
 [data-theme='dark'] [class*="btnCancel"],
 [data-theme='dark'] button[class*="secondary"],
@@ -1024,16 +1057,17 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* 9. Typography & Text (Toàn bộ chữ chuyển sang trắng / sáng) */
+/* 9. Typography & Text (Tiêu đề và nội dung chính trong Dark Theme) */
 [data-theme='dark'] h1,
 [data-theme='dark'] h2,
 [data-theme='dark'] h3,
 [data-theme='dark'] h4,
-[data-theme='dark'] [class*="title"],
-[data-theme='dark'] [class*="Title"],
+[data-theme='dark'] [class*="mainTitle"],
+[data-theme='dark'] [class*="pageTitle"],
+[data-theme='dark'] [class*="modalTitle"],
+[data-theme='dark'] [class*="detailModalTitle"],
 [data-theme='dark'] [class*="statValue"],
-[data-theme='dark'] [class*="productName"],
-[data-theme='dark'] [class*="subtitle"],
+[data-theme='dark'] [class*="statCardNumber"],
 [data-theme='dark'] [class*="headerSubtitle"],
 [data-theme='dark'] [class*="filterLabel"],
 [data-theme='dark'] [class*="formLabel"],

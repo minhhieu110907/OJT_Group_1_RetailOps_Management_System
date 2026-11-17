@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const THEME_STORAGE_KEY = 'retailops_theme';
 
@@ -25,19 +25,25 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     try {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
+      if (typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.setAttribute('data-theme', theme);
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(THEME_STORAGE_KEY, theme);
+      }
     } catch {
       // Tránh lỗi bảo mật trên môi trường đặc biệt
     }
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme((prevTheme) => (prevTheme === 'dark' ? 'light' : 'dark'));
-  };
+  }, []);
+
+  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
