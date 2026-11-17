@@ -1,0 +1,195 @@
+process.env.NODE_ENV = 'development';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+import { JSDOM } from 'jsdom';
+import path from 'path';
+import fs from 'fs';
+import { pathToFileURL } from 'url';
+import test, { describe, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+
+const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
+  url: 'http://localhost/ai-assistant',
+  pretendToBeVisual: true,
+});
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+Object.defineProperty(globalThis, 'navigator', {
+  value: dom.window.navigator,
+  configurable: true,
+  writable: true,
+});
+globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.HTMLTextAreaElement = dom.window.HTMLTextAreaElement;
+globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
+
+const outDir = path.resolve('./node_modules/.cache_ai_test');
+fs.mkdirSync(outDir, { recursive: true });
+const entryPath = path.join(outDir, 'aiHarnessEntry.jsx');
+fs.writeFileSync(
+  entryPath,
+  [
+    "import AiAssistant from '../../src/pages/AiAssistant/AiAssistant.jsx';",
+    "import { AuthContext } from '../../src/context/AuthContext.jsx';",
+    "import axiosClient from '../../src/api/axiosClient.js';",
+    'export { AiAssistant, AuthContext, axiosClient };',
+    '',
+  ].join('\n'),
+  'utf8'
+);
+
+const { build } = await import('vite');
+const react = (await import('@vitejs/plugin-react')).default;
+
+await build({
+  plugins: [react()],
+  build: {
+    ssr: true,
+    write: true,
+    outDir,
+    rollupOptions: {
+      input: entryPath,
+    },
+  },
+  logLevel: 'silent',
+});
+
+const harnessUrl = pathToFileURL(path.join(outDir, 'aiHarnessEntry.js')).href;
+const { AiAssistant, AuthContext, axiosClient } = await import(harnessUrl);
+const { render, screen, waitFor, fireEvent, cleanup } = await import(
+  '@testing-library/react'
+);
+const React = await import('react');
+
+function renderAiAssistant(role = 'ADMIN') {
+  return render(
+    React.createElement(
+      AuthContext.Provider,
+      {
+        value: {
+          user: { id: 1, username: role === 'ADMIN' ? 'admin' : 'staff01', role },
+          isMockMode: false,
+        },
+      },
+      React.createElement(AiAssistant)
+    )
+  );
+}
+
+describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
+  const originalPost = axiosClient.post;
+
+  beforeEach(() => {
+    cleanup();
+    dom.window.document.body.innerHTML = '<div id="root"></div>';
+  });
+
+  afterEach(() => {
+    cleanup();
+    axiosClient.post = originalPost;
+  });
+
+  test('ADMIN submits prompt -> shows processing state -> renders answer & evidence cards', async () => {
+    let resolveAsk;
+    const askPromise = new Promise((res) => {
+      resolveAsk = res;
+    });
+
+    let capturedPayload = null;
+    axiosClient.post = async (url, body) => {
+      assert.equal(url, '/ai/query');
+      capturedPayload = body;
+      return askPromise;
+    };
+
+    const view = renderAiAssistant('ADMIN');
+    const textarea = screen.getByLabelText('Nhập câu hỏi cho Trợ lý AI');
+    fireEvent.change(textarea, { target: { value: 'Sản phẩm nào sắp hết hàng?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi câu hỏi' }));
+
+    await waitFor(() => {
+      assert.ok(screen.getByText('Đang phân tích dữ liệu bán hàng và tồn kho...'));
+    });
+
+    resolveAsk({
+      data: {
+        answer: 'Hiện có 2 sản phẩm dưới ngưỡng tồn an toàn, gợi ý nhập thêm.',
+        evidence: [
+          {
+            source: 'inventory.low_stock',
+            period: 'Hiện tại (17/11/2026)',
+            summary: 'Coca Cola 330ml còn 3 lon; Nước suối còn 2 chai.',
+          },
+        ],
+        insufficient_data: false,
+      },
+    });
+
+    await waitFor(() => {
+      assert.ok(screen.getByText('Hiện có 2 sản phẩm dưới ngưỡng tồn an toàn, gợi ý nhập thêm.'));
+      assert.ok(screen.getByText('inventory.low_stock'));
+      assert.ok(screen.getByText('Hiện tại (17/11/2026)'));
+      assert.ok(screen.getByText('Coca Cola 330ml còn 3 lon; Nước suối còn 2 chai.'));
+    });
+
+    assert.deepEqual(capturedPayload, { message: 'Sản phẩm nào sắp hết hàng?' });
+    view.unmount();
+  });
+
+  test('renders canonical insufficient_data state and handles 429 quota -> retry success', async () => {
+    let attempt = 0;
+    axiosClient.post = async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        const err = new Error('Too Many Requests');
+        err.response = { status: 429, data: { detail: 'Vui lòng đợi 30 giây.' } };
+        throw err;
+      }
+      return {
+        data: {
+          answer: 'Chưa có đủ dữ liệu bán hàng trong kỳ để đưa ra dự báo.',
+          evidence: [],
+          insufficient_data: true,
+        },
+      };
+    };
+
+    const view = renderAiAssistant('ADMIN');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Doanh thu và số đơn hoàn tất 7 ngày gần nhất như thế nào?',
+      })
+    );
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      assert.equal(alert.getAttribute('data-error-kind'), 'quota');
+      assert.match(alert.textContent, /Vượt giới hạn lượt hỏi tạm thời/);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }));
+
+    await waitFor(() => {
+      assert.ok(screen.getByText('Chưa đủ dữ liệu kết luận'));
+      assert.ok(
+        screen.getByText('Chưa có đủ dữ liệu bán hàng trong kỳ để đưa ra dự báo.')
+      );
+    });
+
+    assert.equal(attempt, 2);
+    view.unmount();
+  });
+
+  test('blocks STAFF user from calling /ai/query and renders access denied card', () => {
+    let postCalled = false;
+    axiosClient.post = async () => {
+      postCalled = true;
+      return { data: {} };
+    };
+
+    const view = renderAiAssistant('STAFF');
+    assert.ok(screen.getByText('Không có quyền truy cập'));
+    assert.equal(postCalled, false);
+    view.unmount();
+  });
+});
