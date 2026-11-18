@@ -1036,7 +1036,7 @@ def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
     with Session(migrated_integration_engine) as session, session.begin():
         staff = User(
             email_normalized=staff_email,
-            password_hash=hasher.hash_password(old_password),
+            password_hash=hasher.hash(old_password),
             role="STAFF",
             status="ACTIVE",
             admin_slot=None,
@@ -1178,7 +1178,7 @@ def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
             refreshed_user = session.get(User, staff_id)
             refreshed_session = session.get(AuthSession, existing_session_id)
             assert refreshed_user is not None
-            assert hasher.verify_password(new_password, refreshed_user.password_hash)
+            assert hasher.verify(new_password, refreshed_user.password_hash)
             assert refreshed_session is not None
             assert refreshed_session.revoked_at is not None
     finally:
