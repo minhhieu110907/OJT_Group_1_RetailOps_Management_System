@@ -6,6 +6,7 @@ from sqlalchemy import Select, select, update
 from sqlalchemy.orm import Session
 
 from app.modules.auth.models import PasswordResetToken, User
+from app.modules.outbox.contracts import StuckEventCandidate
 from app.modules.outbox.models import OutboxEvent
 
 ENABLED_EMAIL_EVENTS = (
@@ -181,3 +182,93 @@ class OutboxRepository:
             )
         )
         return found is not None
+
+    def find_stuck_events(
+        self,
+        session: Session,
+        *,
+        stuck_before: datetime,
+        batch_size: int,
+    ) -> tuple[StuckEventCandidate, ...]:
+        """Return bounded, deterministically ordered stuck-event candidates."""
+        statement = (
+            select(
+                OutboxEvent.id,
+                OutboxEvent.event_type,
+                OutboxEvent.published_at,
+                OutboxEvent.publish_attempts,
+                OutboxEvent.delivery_attempts,
+                OutboxEvent.last_error_code,
+            )
+            .where(
+                OutboxEvent.outcome.is_(None),
+                OutboxEvent.published_at.is_not(None),
+                OutboxEvent.published_at <= stuck_before,
+                OutboxEvent.event_type.in_(ENABLED_EMAIL_EVENTS),
+            )
+            .order_by(OutboxEvent.published_at, OutboxEvent.id)
+            .limit(batch_size)
+        )
+        rows = session.execute(statement).all()
+        return tuple(
+            StuckEventCandidate(
+                event_id=row[0],
+                event_type=row[1],
+                published_at=row[2],
+                publish_attempts=row[3],
+                delivery_attempts=row[4],
+                last_error_code=row[5],
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    def _replay_guard_reason(
+        event: OutboxEvent | None, *, max_attempts: int
+    ) -> str | None:
+        if event is None:
+            return "EVENT_NOT_FOUND"
+        if event.outcome is not None or event.finished_at is not None:
+            return f"TERMINAL_OUTCOME_{event.outcome or 'FINISHED'}"
+        if event.event_type not in ENABLED_EMAIL_EVENTS:
+            return "EVENT_TYPE_DISABLED"
+        if event.published_at is None:
+            return "EVENT_NOT_PUBLISHED"
+        if event.delivery_attempts >= max_attempts:
+            return "DELIVERY_ATTEMPT_BUDGET_EXHAUSTED"
+        return None
+
+    def check_replay_eligibility(
+        self,
+        session: Session,
+        *,
+        event_id: bytes,
+        max_attempts: int = 4,
+    ) -> tuple[str, int | None]:
+        """Read-only eligibility check for dry-run operator inspection."""
+        event = session.get(OutboxEvent, event_id)
+        reason = self._replay_guard_reason(event, max_attempts=max_attempts)
+        if reason is not None:
+            return reason, event.delivery_attempts if event is not None else None
+        assert event is not None
+        return "ELIGIBLE", event.delivery_attempts
+
+    def requeue_for_operator_replay(
+        self,
+        session: Session,
+        *,
+        event_id: bytes,
+        now: datetime,
+        max_attempts: int = 4,
+    ) -> tuple[str, int | None]:
+        """Re-open an eligible stuck event under row lock without resetting budget."""
+        event = session.get(OutboxEvent, event_id, with_for_update=True)
+        reason = self._replay_guard_reason(event, max_attempts=max_attempts)
+        if reason is not None:
+            return reason, event.delivery_attempts if event is not None else None
+        assert event is not None
+        event.published_at = None
+        event.available_at = now
+        event.last_error_code = "OPERATOR_REPLAY_QUEUED"
+        session.flush()
+        return "REPLAY_QUEUED", event.delivery_attempts

@@ -661,3 +661,290 @@ def test_permanent_failure_is_terminal() -> None:
     ).handle(event_id=EVENT_ID)
     assert result == EmailOutcome(EVENT_ID, "FAILED")
     assert repository.finished == [("FAILED", "SMTP_PERMANENT")]
+
+
+def test_publisher_resilience_backs_off_on_db_error_and_resets_on_recovery(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.modules.outbox.reconciler import OutboxStuckDetector
+    from app.worker.publisher_main import compute_db_backoff_seconds, run_poll_cycle
+
+    class FailingDbPublisher:
+        def __init__(self) -> None:
+            self.fail = True
+
+        def publish_due(
+            self, _factory: object, *, batch_size: int
+        ) -> PublishBatchResult:
+            if self.fail:
+                raise SQLAlchemyError("mysql://secret:pass@db/retailops down")
+            return PublishBatchResult(scanned=1, published=1, failed=0)
+
+    class NoopDetector(OutboxStuckDetector):
+        def detect(self, *_args: object, **_kwargs: object) -> tuple[object, ...]:  # type: ignore[override]
+            return ()
+
+    settings = base_settings(outbox_poll_seconds=5.0, outbox_batch_size=10)
+    publisher = FailingDbPublisher()
+    detector = NoopDetector()
+
+    assert compute_db_backoff_seconds(5.0, 1) == 5.0
+    assert compute_db_backoff_seconds(5.0, 2) == 10.0
+    assert compute_db_backoff_seconds(5.0, 5) == 60.0
+    assert compute_db_backoff_seconds(5.0, 10) == 60.0
+
+    with caplog.at_level("WARNING"):
+        failures, delay = run_poll_cycle(
+            publisher,  # type: ignore[arg-type]
+            detector,
+            session_factory,  # type: ignore[arg-type]
+            settings,
+            consecutive_db_failures=0,
+            should_detect_stuck=False,
+        )
+    assert failures == 1
+    assert delay == 5.0
+    assert "secret:pass" not in caplog.text
+
+    failures, delay = run_poll_cycle(
+        publisher,  # type: ignore[arg-type]
+        detector,
+        session_factory,  # type: ignore[arg-type]
+        settings,
+        consecutive_db_failures=failures,
+        should_detect_stuck=False,
+    )
+    assert failures == 2
+    assert delay == 10.0
+
+    publisher.fail = False
+    failures, delay = run_poll_cycle(
+        publisher,  # type: ignore[arg-type]
+        detector,
+        session_factory,  # type: ignore[arg-type]
+        settings,
+        consecutive_db_failures=failures,
+        should_detect_stuck=True,
+    )
+    assert failures == 0
+    assert delay == 5.0
+
+
+def test_publisher_resilience_does_not_swallow_programming_error() -> None:
+    from app.modules.outbox.reconciler import OutboxStuckDetector
+    from app.worker.publisher_main import run_poll_cycle
+
+    class BuggyPublisher:
+        def publish_due(
+            self, _factory: object, *, batch_size: int
+        ) -> PublishBatchResult:
+            raise ValueError("programming bug")
+
+    with pytest.raises(ValueError, match="programming bug"):
+        run_poll_cycle(
+            BuggyPublisher(),  # type: ignore[arg-type]
+            OutboxStuckDetector(),
+            session_factory,  # type: ignore[arg-type]
+            base_settings(),
+            consecutive_db_failures=0,
+            should_detect_stuck=False,
+        )
+
+
+def test_stuck_detector_is_read_only_and_enforces_bounds(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.modules.outbox.contracts import StuckEventCandidate
+    from app.modules.outbox.reconciler import OutboxStuckDetector
+
+    class DetectorRepo:
+        def find_stuck_events(
+            self, _session: object, *, stuck_before: datetime, batch_size: int
+        ) -> tuple[StuckEventCandidate, ...]:
+            assert stuck_before == datetime(2026, 11, 18, 7, 45)
+            assert batch_size == 10
+            return (
+                StuckEventCandidate(
+                    event_id=EVENT_ID,
+                    event_type="STAFF_APPROVED",
+                    published_at=datetime(2026, 11, 18, 7, 0),
+                    publish_attempts=1,
+                    delivery_attempts=2,
+                    last_error_code="SMTP_TRANSIENT",
+                ),
+            )
+
+    sessions: list[FakeSession] = []
+
+    def tracking_factory() -> FakeSession:
+        s = FakeSession()
+        sessions.append(s)
+        return s
+
+    detector = OutboxStuckDetector(
+        repository=DetectorRepo(),  # type: ignore[arg-type]
+        clock=lambda: NOW,
+    )
+    with pytest.raises(ValueError, match="between 1 and 25"):
+        detector.detect(tracking_factory, batch_size=26, stuck_after_seconds=900)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="at least 60"):
+        detector.detect(tracking_factory, batch_size=10, stuck_after_seconds=30)  # type: ignore[arg-type]
+
+    with caplog.at_level("WARNING"):
+        found = detector.detect(
+            tracking_factory,  # type: ignore[arg-type]
+            batch_size=10,
+            stuck_after_seconds=900,
+        )
+    assert len(found) == 1
+    assert sessions[0].commits == 0
+    assert "Detected stuck Outbox events" in caplog.text
+
+
+def test_operator_recovery_fail_closed_dry_run_and_guards() -> None:
+    from app.modules.outbox.reconciler import OutboxOperatorRecovery
+
+    class FakeVerifier:
+        def __init__(self, verified: bool) -> None:
+            self.verified = verified
+
+        def verify_quiesced(self) -> tuple[bool, str]:
+            return (
+                (True, "VERIFIED_QUIESCED")
+                if self.verified
+                else (False, "REPLAY_NOT_VERIFIABLE")
+            )
+
+    class FakeRecoveryRepo:
+        def __init__(
+            self, check_code: str = "ELIGIBLE", exec_code: str = "REPLAY_QUEUED"
+        ) -> None:
+            self.check_code = check_code
+            self.exec_code = exec_code
+            self.requeue_called = False
+
+        def check_replay_eligibility(
+            self, _session: object, *, event_id: bytes, max_attempts: int = 4
+        ) -> tuple[str, int | None]:
+            return self.check_code, 2
+
+        def requeue_for_operator_replay(
+            self,
+            _session: object,
+            *,
+            event_id: bytes,
+            now: datetime,
+            max_attempts: int = 4,
+        ) -> tuple[str, int | None]:
+            self.requeue_called = True
+            return self.exec_code, 2
+
+    class TrackingSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rollbacks = 0
+
+        def rollback(self) -> None:
+            self.rollbacks += 1
+
+    # 1. Fail-closed when broker not verifiable
+    repo = FakeRecoveryRepo()
+    res = OutboxOperatorRecovery(FakeVerifier(False), repository=repo).replay(  # type: ignore[arg-type]
+        session_factory,  # type: ignore[arg-type]
+        event_id=EVENT_ID,
+        reason="incident-1",
+        execute=True,
+    )
+    assert res.status == "REPLAY_NOT_VERIFIABLE"
+    assert not repo.requeue_called
+
+    # 2. Dry-run does not mutate
+    res_dry = OutboxOperatorRecovery(FakeVerifier(True), repository=repo).replay(  # type: ignore[arg-type]
+        session_factory,  # type: ignore[arg-type]
+        event_id=EVENT_ID,
+        reason="incident-1",
+        execute=False,
+    )
+    assert res_dry.status == "DRY_RUN_ELIGIBLE"
+    assert not repo.requeue_called
+
+    # 3. Guard rejection rolls back
+    guard_repo = FakeRecoveryRepo(exec_code="TERMINAL_OUTCOME_SENT")
+    ts = TrackingSession()
+    res_rej = OutboxOperatorRecovery(FakeVerifier(True), repository=guard_repo).replay(  # type: ignore[arg-type]
+        lambda: ts,  # type: ignore[arg-type]
+        event_id=EVENT_ID,
+        reason="incident-1",
+        execute=True,
+    )
+    assert res_rej.status == "REPLAY_REJECTED"
+    assert res_rej.reason_code == "TERMINAL_OUTCOME_SENT"
+    assert ts.rollbacks == 1
+    assert ts.commits == 0
+
+    # 4. Execute succeeds when verified and eligible
+    ts_ok = TrackingSession()
+    res_ok = OutboxOperatorRecovery(FakeVerifier(True), repository=repo).replay(  # type: ignore[arg-type]
+        lambda: ts_ok,  # type: ignore[arg-type]
+        event_id=EVENT_ID,
+        reason="incident-1",
+        execute=True,
+    )
+    assert res_ok.status == "REPLAY_QUEUED"
+    assert res_ok.delivery_attempts == 2
+    assert ts_ok.commits == 1
+
+
+def test_reconcile_cli_rejects_unsafe_flags_and_requires_reason() -> None:
+    from app.worker.reconcile_outbox import build_parser, main
+
+    parser = build_parser()
+    canonical = str(UUID(bytes=EVENT_ID))
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--event-id", canonical, "--confirm-no-inflight"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--event-id", canonical, "--force"])
+    with pytest.raises(SystemExit):
+        main(["--detect-only", "--execute"])
+    with pytest.raises(SystemExit):
+        main(["--event-id", canonical.upper(), "--execute", "--reason", "ok"])
+    with pytest.raises(SystemExit):
+        main(["--event-id", canonical, "--execute", "--reason", "   "])
+
+
+def test_amqp_quiesce_verifier_fails_closed_without_management_config() -> None:
+    from app.modules.outbox.reconciler import AmqpQuiesceVerifier
+
+    verifier = AmqpQuiesceVerifier(
+        amqp_url="amqp://unused:unused@localhost:5672/%2Fretailops",
+        queue_name="retailops.email.v1",
+        management_url="",
+        admin_user="",
+        admin_password="",
+        quiesced_users=(),
+    )
+    assert verifier.verify_quiesced() == (False, "REPLAY_NOT_VERIFIABLE")
+
+
+def test_amqp_quiesce_verifier_rejects_remote_http_and_malformed_payload() -> None:
+    from app.modules.outbox.reconciler import AmqpQuiesceVerifier
+
+    remote_http = AmqpQuiesceVerifier(
+        amqp_url="amqp://unused:unused@localhost:5672/%2Fretailops",
+        queue_name="retailops.email.v1",
+        management_url="http://rabbitmq.prod.internal:15672",
+        admin_user="admin",
+        admin_password="secret",
+        quiesced_users=("retailops_outbox_publisher",),
+    )
+    assert remote_http.verify_quiesced() == (False, "REPLAY_NOT_VERIFIABLE")
+    assert AmqpQuiesceVerifier._is_allowed_management_url("https://rmq.prod:15671")
+    assert AmqpQuiesceVerifier._is_allowed_management_url("http://127.0.0.1:25674")
+    assert (
+        AmqpQuiesceVerifier._parse_nonneg_int({"consumers": None}, "consumers") is None
+    )
+    assert (
+        AmqpQuiesceVerifier._parse_nonneg_int({"consumers": True}, "consumers") is None
+    )
+    assert AmqpQuiesceVerifier._parse_nonneg_int({"consumers": -1}, "consumers") is None
+    assert AmqpQuiesceVerifier._parse_nonneg_int({"consumers": 0}, "consumers") == 0
