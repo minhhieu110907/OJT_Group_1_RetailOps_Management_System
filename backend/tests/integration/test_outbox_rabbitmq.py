@@ -1170,7 +1170,7 @@ def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
                 "/api/v1/auth/reset-password",
                 json={"token": raw_token, "new_password": "AnotherPassword!789"},
             )
-            assert replay_resp.status_code == 400
+            assert replay_resp.status_code == 401
 
         with Session(migrated_integration_engine) as session:
             refreshed_user = session.get(User, staff_id)
