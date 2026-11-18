@@ -770,6 +770,9 @@ def test_t04aa00_duplicate_delivery_is_idempotent(
                 assert refreshed.outcome == "SENT"
             assert mailpit_message_count_for_recipient(recipient) == 1
     finally:
+        from kombu import pools
+
+        pools.reset()
         cleanup_worker_events(migrated_integration_engine)
 
 
@@ -881,7 +884,10 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
             )
             assert blocked.status == "REPLAY_NOT_VERIFIABLE"
 
-        # 4. After worker stops (and Management stats refresh), replay succeeds
+        # 4. After worker and test publisher pool stop, replay succeeds
+        from kombu import pools
+
+        pools.reset()
         quiesce_deadline = time.monotonic() + 10
         while time.monotonic() < quiesce_deadline:
             ok, _ = verifier.verify_quiesced()
@@ -918,4 +924,7 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
             )
             assert delivered.delivery_attempts == 2
     finally:
+        from kombu import pools
+
+        pools.reset()
         cleanup_worker_events(migrated_integration_engine)
