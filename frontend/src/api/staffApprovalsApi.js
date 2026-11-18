@@ -151,10 +151,14 @@ export function validateApprovalListItemRead(item) {
   return {
     ...base,
     email: item.email.trim(),
-    full_name:
-      typeof item.full_name === 'string' && item.full_name.trim()
-        ? item.full_name.trim()
-        : null,
+    ...(item.full_name !== undefined
+      ? {
+          full_name:
+            typeof item.full_name === 'string' && item.full_name.trim()
+              ? item.full_name.trim()
+              : null,
+        }
+      : {}),
   };
 }
 
