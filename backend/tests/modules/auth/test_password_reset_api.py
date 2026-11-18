@@ -502,3 +502,10 @@ def test_email_worker_handles_password_reset_valid_expired_and_inactive(
     out3 = handler.handle(event_id=ev3_id)
     assert out3.status == "FAILED"
     sent_transport.send.assert_not_called()
+
+
+def test_blank_outbox_secret_key_normalizes_to_none() -> None:
+    from app.core.config import Settings
+
+    settings = Settings(outbox_secret_key="   ")
+    assert settings.outbox_secret_key is None

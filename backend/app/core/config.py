@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     reset_password_ip_rate_limit: int = Field(default=10, ge=1, le=10_000)
     reset_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
 
+    @field_validator("outbox_secret_key", mode="before")
+    @classmethod
+    def normalize_blank_outbox_secret_key(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | str | None:
+        """Treat empty env var (e.g. Docker Compose `${VAR:-}`) as unset."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, SecretStr) and not value.get_secret_value().strip():
+            return None
+        return value
+
     @field_validator("cors_origins")
     @classmethod
     def validate_cors_origins(cls, value: str) -> str:
