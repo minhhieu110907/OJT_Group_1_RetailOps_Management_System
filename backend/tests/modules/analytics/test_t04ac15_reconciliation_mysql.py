@@ -1156,7 +1156,7 @@ def test_reconciliation_cleanup_isolation_mysql(
                 response_body={"ok": True},
                 completed_at=now_unaware,
                 created_at=now_unaware,
-                expires_at=now_unaware,
+                expires_at=now_unaware + timedelta(hours=24),
             )
             session.add(idem_b)
 
@@ -1380,7 +1380,7 @@ def test_reconciliation_cleanup_shared_admin_immunity_mysql(
             response_body={"ok": True},
             completed_at=now,
             created_at=now,
-            expires_at=now,
+            expires_at=now + timedelta(hours=24),
         )
         session.add(admin_idem)
 
