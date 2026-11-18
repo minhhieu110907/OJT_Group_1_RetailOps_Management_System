@@ -173,17 +173,32 @@ docker compose ps
 ```
 
 #### C. Địa chỉ Truy cập & Lệnh Kiểm tra Sức khỏe Hệ thống (Health Check):
-- **Giao diện Web (SPA qua Nginx):** `http://localhost:${NGINX_HOST_PORT:-80}/` (hoặc `http://127.0.0.1:${NGINX_HOST_PORT:-80}/`).
-- **Tài liệu API tương tác (khi chạy local backend):** `http://127.0.0.1:${BACKEND_HOST_PORT:-8000}/docs`.
-- **Lệnh kiểm tra sức khỏe API (sử dụng curl GET):**
-  ```powershell
-  # Trên Linux / macOS hoặc Git Bash:
-  curl -fsS "http://127.0.0.1:${NGINX_HOST_PORT:-80}/api/v1/health"
+- **Giao diện Web (SPA phục vụ qua Nginx):**
+  - Cổng mặc định: `http://127.0.0.1/` (hoặc `http://localhost/`)
+  - Khi Nginx cấu hình cổng 8080 (`NGINX_HOST_PORT=8080`): `http://127.0.0.1:8080/` (hoặc `http://localhost:8080/`)
+- **Tài liệu API tương tác (Swagger UI khi chạy local backend trực tiếp):** `http://127.0.0.1:8000/docs` (hoặc cổng tương ứng theo `BACKEND_HOST_PORT`).
 
-  # Trên Windows PowerShell (sử dụng curl.exe trực tiếp để tránh alias):
-  curl.exe -fsS "http://127.0.0.1:${env:NGINX_HOST_PORT:-80}/api/v1/health"
-  # Phản hồi JSON kỳ vọng: {"status":"ok"}
+- **Lệnh kiểm tra sức khỏe API (Health Check qua GET `/api/v1/health`):**
+
+  *Trên Linux / macOS / Git Bash:*
+  ```bash
+  curl -fsS "http://127.0.0.1:${NGINX_HOST_PORT:-80}/api/v1/health"
   ```
+
+  *Trên Windows PowerShell:*
+  *(Lưu ý: Docker Compose tự đọc file `.env`, nhưng PowerShell không tự động nạp các biến này vào process environment `$env:`. Người dùng có thể kiểm tra cổng Nginx thực tế đang map qua lệnh `docker compose ps` hoặc xác định biến `$nginxPort` như bên dưới):*
+  ```powershell
+  # Xác định cổng Nginx (mặc định là 80, hoặc lấy từ biến môi trường/file .env nếu đã thiết lập):
+  $nginxPort = if ($env:NGINX_HOST_PORT) {
+      $env:NGINX_HOST_PORT
+  } else {
+      "80"
+  }
+
+  # Sử dụng curl.exe trực tiếp trên Windows để tránh alias Invoke-WebRequest của PowerShell:
+  curl.exe -fsS "http://127.0.0.1:$nginxPort/api/v1/health"
+  ```
+  *Phản hồi JSON kỳ vọng khi backend sẵn sàng:* `{"status":"ok"}`
 
 ---
 
@@ -205,7 +220,9 @@ Sau khi thực hiện Bước 3 của quy trình khởi động, hệ thống c�
 > **Lưu ý về dữ liệu giao dịch:** Hệ thống **chưa có script seed tự động** cho Sản phẩm, Phiếu nhập và Đơn hàng để tránh sinh dữ liệu giả định. Để buổi demo diễn ra trơn tru, người phụ trách thực hiện tạo nhanh dữ liệu mẫu trước giờ thuyết trình theo 4 bước sau (mất khoảng 3 phút):
 
 1. **Tạo tài khoản Nhân viên (Staff):**
-   - Truy cập trang đăng ký `http://localhost:${NGINX_HOST_PORT:-80}/register`.
+   - Truy cập trang đăng ký tài khoản:
+     - Cổng mặc định: `http://127.0.0.1/register` (hoặc `http://localhost/register`)
+     - Khi dùng cổng 8080: `http://127.0.0.1:8080/register` (hoặc `http://localhost:8080/register`)
    - Tạo tài khoản mẫu: `staff@retailops.local` / `StaffPassword@123`.
    - Đăng nhập tài khoản `Admin`, mở menu **Quản lý Nhân sự**, duyệt tài khoản `staff@retailops.local`.
 2. **Tạo 4 Sản phẩm mẫu trong Catalog (tìm kiếm theo SKU thay vì dựa vào ID cố định):**
