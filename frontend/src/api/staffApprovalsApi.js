@@ -138,9 +138,23 @@ export function validateApprovalListItemRead(item) {
     );
   }
 
+  if (
+    item.full_name !== undefined &&
+    item.full_name !== null &&
+    typeof item.full_name !== 'string'
+  ) {
+    throw new Error(
+      `Schema violation: ApprovalListItemRead #${item.id} has invalid full_name: ${JSON.stringify(item.full_name)}`
+    );
+  }
+
   return {
     ...base,
     email: item.email.trim(),
+    full_name:
+      typeof item.full_name === 'string' && item.full_name.trim()
+        ? item.full_name.trim()
+        : null,
   };
 }
 

@@ -287,6 +287,7 @@ export default function StaffApprovalList() {
 
     return items.filter((item) => {
       const searchableText = [
+        item.full_name || '',
         item.email || '',
         `hồ sơ nhân viên #${item.id}`,
         `reg-${item.id}`,
@@ -687,7 +688,7 @@ export default function StaffApprovalList() {
                     <div className={styles.applicantTexts}>
                       <div className={styles.applicantNameRow}>
                         <span className={styles.applicantName}>
-                          {item.email}
+                          {item.full_name || item.email}
                         </span>
                         <span className={styles.requestCodePill}>
                           ID: REG-{item.id} • Lần #{item.attempt_no}
@@ -919,7 +920,10 @@ export default function StaffApprovalList() {
                       Người xử lý quyết định
                     </span>
                     <span className={styles.infoValue}>
-                      Admin #{selectedApproval.decided_by}
+                      {selectedApproval.decided_by === user?.id &&
+                      (user?.full_name || user?.name)
+                        ? user.full_name || user.name
+                        : `Quản trị viên #${selectedApproval.decided_by}`}
                     </span>
                   </div>
                 )}

@@ -1003,17 +1003,24 @@ export function normalizeBackendUser(rawUser) {
         ? 'PENDING'
         : rawStatus;
 
+  const normalizedFullName =
+    typeof rawUser.full_name === 'string' && rawUser.full_name.trim()
+      ? rawUser.full_name.trim()
+      : null;
+
   const fallbackName =
     role === 'ADMIN'
-      ? 'Quản trị viên (Admin)'
+      ? 'Quản trị viên'
       : email.split('@')[0] || 'Nhân viên RetailOps';
 
   return {
     id: rawId,
+    full_name: normalizedFullName,
     name:
-      typeof rawUser.name === 'string' && rawUser.name.trim()
+      normalizedFullName ||
+      (typeof rawUser.name === 'string' && rawUser.name.trim()
         ? rawUser.name.trim()
-        : fallbackName,
+        : fallbackName),
     email,
     role,
     status: mappedStatus,

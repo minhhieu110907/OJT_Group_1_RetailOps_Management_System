@@ -47,6 +47,7 @@ export default function Header() {
     (user?.status === 'APPROVED' || user?.status === 'ACTIVE');
   const roleLabel = user?.role === 'ADMIN' ? 'Quản trị viên' : 'Nhân viên';
   const avatarInitials = user?.role === 'ADMIN' ? 'A' : 'NV';
+  const displayName = (user?.name || '').replace(/\s*\(admin\)/gi, '').trim();
 
   // Tự động đóng Dropdown / Popover khi bấm ra ngoài hoặc nhấn phím Esc
   useEffect(() => {
@@ -696,7 +697,9 @@ export default function Header() {
 
               {/* Tên người dùng & Nhãn vai trò màu xanh #087F5B */}
               <div className={styles.headerUserText}>
-                <span className={styles.headerUserName}>{user?.name}</span>
+                {displayName && (
+                  <span className={styles.headerUserName}>{displayName}</span>
+                )}
                 <span className={styles.headerUserRoleBadge}>{roleLabel}</span>
               </div>
 
@@ -728,9 +731,11 @@ export default function Header() {
                   </div>
                   <div className={styles.dropdownUserInfo}>
                     <div className={styles.dropdownNameRow}>
-                      <span className={styles.dropdownUserName}>
-                        {user?.name}
-                      </span>
+                      {displayName && (
+                        <span className={styles.dropdownUserName}>
+                          {displayName}
+                        </span>
+                      )}
                       <span className={styles.dropdownRoleBadge}>
                         {roleLabel}
                       </span>
@@ -828,7 +833,7 @@ export default function Header() {
             <div className={styles.profileAvatarLarge}>{avatarInitials}</div>
             <div className={styles.profileSummaryMeta}>
               <h3 className={styles.profileSummaryName}>
-                {user?.name || '—'}
+                {displayName || '—'}
               </h3>
               <span className={styles.profileRoleBadge}>{roleLabel}</span>
             </div>
@@ -839,7 +844,7 @@ export default function Header() {
               <div className={styles.profileInfoText}>
                 <span className={styles.profileInfoLabel}>Họ và tên</span>
                 <span className={styles.profileInfoValue}>
-                  {user?.name || '—'}
+                  {displayName || '—'}
                 </span>
               </div>
               <span className={styles.profileInfoIcon} aria-hidden="true">

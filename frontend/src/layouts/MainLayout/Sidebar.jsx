@@ -203,8 +203,11 @@ export default function Sidebar() {
 
             {/* Ở giữa: Tên hiển thị & Vai trò */}
             <div className={styles.accountInfo}>
-              <span className={styles.accountName} title={user.name}>
-                {user.name}
+              <span
+                className={styles.accountName}
+                title={(user.name || '').replace(/\s*\(admin\)/gi, '').trim()}
+              >
+                {(user.name || '').replace(/\s*\(admin\)/gi, '').trim()}
               </span>
               <span className={styles.accountRole}>
                 {isAdmin ? 'Quản lý' : 'Nhân viên'}

@@ -9,6 +9,9 @@ export function formatOrderActorLabel(actorId, currentUser) {
     return '—';
   }
   if (currentUser && currentUser.id === actorId) {
+    if (typeof currentUser.full_name === 'string' && currentUser.full_name.trim()) {
+      return currentUser.full_name.trim();
+    }
     if (currentUser.role === 'ADMIN') return `Admin #${actorId}`;
     if (currentUser.role === 'STAFF') return `Nhân viên #${actorId}`;
   }

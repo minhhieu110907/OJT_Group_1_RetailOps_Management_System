@@ -487,12 +487,15 @@ export function AuthProvider({ children }) {
       return newUser;
     }
 
-    // Real API Mode -> Gọi POST /api/v1/auth/register (chỉ gửi { email, password } theo extra="forbid")
+    // Real API Mode -> Gọi POST /api/v1/auth/register (gửi { email, password, full_name? } theo RegisterRequest)
+    const trimmedFullName = (userData.fullName || '').trim();
+    const registerPayload = {
+      email: normalizedEmail,
+      password: userData.password,
+      ...(trimmedFullName ? { full_name: trimmedFullName } : {}),
+    };
     try {
-      const res = await axiosClient.post('/auth/register', {
-        email: normalizedEmail,
-        password: userData.password,
-      });
+      const res = await axiosClient.post('/auth/register', registerPayload);
 
       // Backend trả HTTP 202 {"message": "..."} chung chống dò quét email:
       // Không sinh User ID giả, không khẳng định chắc chắn tài khoản đã được tạo mới ở trạng thái PENDING,
