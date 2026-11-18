@@ -449,7 +449,7 @@ def test_email_worker_handles_password_reset_valid_expired_and_inactive(
     caplog.set_level(logging.DEBUG)
     sf = _make_sqlite_session_factory()
     secret_key = "w" * 32
-    now_box = [datetime(2026, 11, 18, 10, 0, 0)]
+    now_box = [datetime.now(UTC).replace(microsecond=0, tzinfo=None)]
     adapter = OutboxPasswordResetEmailAdapter(secret_key=secret_key)
     service = AuthResetService(
         email_port=adapter,
@@ -507,5 +507,12 @@ def test_email_worker_handles_password_reset_valid_expired_and_inactive(
 def test_blank_outbox_secret_key_normalizes_to_none() -> None:
     from app.core.config import Settings
 
-    settings = Settings(outbox_secret_key="   ")
+    settings = Settings(
+        _env_file=None,
+        db_host="127.0.0.1",
+        db_name="retailops",
+        db_user="retailops",
+        db_password="secret",
+        outbox_secret_key="   ",
+    )
     assert settings.outbox_secret_key is None
