@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     outbox_task_name: str = "retailops.email.deliver_v1"
     outbox_batch_size: int = Field(default=25, ge=1, le=25)
     outbox_poll_seconds: float = Field(default=5.0, gt=0, le=60)
+    outbox_stuck_after_seconds: int = Field(default=900, ge=60, le=86_400)
+    outbox_reconcile_interval_seconds: float = Field(default=60.0, ge=5.0, le=3_600.0)
     email_retry_delays_seconds: tuple[int, int, int] = (30, 120, 300)
     smtp_host: str | None = None
     smtp_port: int = Field(default=1025, ge=1, le=65_535)

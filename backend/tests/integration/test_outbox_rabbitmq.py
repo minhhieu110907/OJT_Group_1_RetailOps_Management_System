@@ -700,3 +700,143 @@ def test_real_worker_invalid_envelope_is_parked(
             assert parked_message.headers["id"] == task_id
             assert "not-a-canonical-uuid" in message_body_text(parked_message)
             parked_message.ack()
+
+
+def test_t04aa00_duplicate_delivery_is_idempotent(
+    migrated_integration_engine: Engine,
+    integration_database_url: URL,
+) -> None:
+    cleanup_worker_events(migrated_integration_engine)
+    event_id = create_event(migrated_integration_engine, delivery_attempts=0)
+    try:
+        with running_worker(integration_database_url):
+            publish_email_task(event_id)
+            publish_email_task(event_id)
+            event = wait_for_event(
+                migrated_integration_engine,
+                event_id,
+                lambda current: current.outcome == "SENT",
+            )
+            assert event.delivery_attempts == 1
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                queue = management_get("/api/queues/%2Fretailops/retailops.email.v1")
+                if isinstance(queue, dict) and queue.get("messages") == 0:
+                    break
+                time.sleep(0.2)
+            with Session(migrated_integration_engine) as session:
+                refreshed = session.get(OutboxEvent, event_id)
+                assert refreshed is not None
+                assert refreshed.delivery_attempts == 1
+                assert refreshed.outcome == "SENT"
+    finally:
+        cleanup_worker_events(migrated_integration_engine)
+
+
+def test_t04aa00_broker_outage_and_controlled_replay_recovery(
+    migrated_integration_engine: Engine,
+    integration_database_url: URL,
+) -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import get_settings
+    from app.modules.outbox.broker import CeleryEventPublisher
+    from app.modules.outbox.errors import BrokerPublishError
+    from app.modules.outbox.publisher import OutboxPublisher
+    from app.modules.outbox.reconciler import (
+        AmqpQuiesceVerifier,
+        OutboxOperatorRecovery,
+        OutboxStuckDetector,
+    )
+    from app.worker.celery_app import create_celery_app
+
+    cleanup_worker_events(migrated_integration_engine)
+    event_id = create_event(migrated_integration_engine, delivery_attempts=1)
+    session_factory = sessionmaker(
+        bind=migrated_integration_engine, autoflush=False, expire_on_commit=False
+    )
+
+    class OfflineBroker:
+        def publish(self, _event_id: bytes) -> None:
+            raise BrokerPublishError("broker down")
+
+    try:
+        # 1. Mark event as unpublished first, verify offline broker keeps intent
+        with Session(migrated_integration_engine) as session:
+            ev = session.get(OutboxEvent, event_id)
+            assert ev is not None
+            ev.published_at = None
+            ev.available_at = NOW - timedelta(minutes=20)
+            session.commit()
+
+        offline_result = OutboxPublisher(OfflineBroker()).publish_due(
+            session_factory, batch_size=10
+        )
+        assert offline_result.failed == 1
+
+        # 2. Simulate stuck/parked state after publish
+        with Session(migrated_integration_engine) as session:
+            ev = session.get(OutboxEvent, event_id)
+            assert ev is not None
+            ev.published_at = NOW - timedelta(minutes=20)
+            ev.last_error_code = "SMTP_TRANSIENT"
+            session.commit()
+
+        detector = OutboxStuckDetector()
+        candidates = detector.detect(
+            session_factory, batch_size=10, stuck_after_seconds=900
+        )
+        assert [c.event_id for c in candidates] == [event_id]
+
+        bootstrap_url = required_environment("RETAILOPS_TEST_RABBITMQ_BOOTSTRAP_URL")
+        verifier = AmqpQuiesceVerifier(
+            amqp_url=bootstrap_url,
+            queue_name="retailops.email.v1",
+            management_url=required_environment(
+                "RETAILOPS_TEST_RABBITMQ_MANAGEMENT_URL"
+            ),
+            admin_user=required_environment("RABBITMQ_BOOTSTRAP_USER"),
+            admin_password=required_environment("RABBITMQ_BOOTSTRAP_PASSWORD"),
+            vhost="/retailops",
+            quiesced_users=(
+                required_environment("RABBITMQ_PUBLISHER_USER"),
+                required_environment("RABBITMQ_WORKER_USER"),
+            ),
+        )
+        recovery = OutboxOperatorRecovery(verifier)
+
+        # 3. Fail-closed while worker consumer is active
+        with running_worker(integration_database_url):
+            blocked = recovery.replay(
+                session_factory,
+                event_id=event_id,
+                reason="t04aa00-active-worker-check",
+                execute=True,
+            )
+            assert blocked.status == "REPLAY_NOT_VERIFIABLE"
+
+        # 4. After worker stops (quiesced), controlled replay succeeds
+        replayed = recovery.replay(
+            session_factory,
+            event_id=event_id,
+            reason="t04aa00-quiesced-replay",
+            execute=True,
+        )
+        assert replayed.status == "REPLAY_QUEUED"
+        assert replayed.delivery_attempts == 1
+
+        # 5. Resume publisher + worker and verify terminal SENT
+        settings = get_settings()
+        publisher = OutboxPublisher(CeleryEventPublisher(create_celery_app(), settings))
+        pub_result = publisher.publish_due(session_factory, batch_size=10)
+        assert pub_result.published >= 1
+
+        with running_worker(integration_database_url):
+            delivered = wait_for_event(
+                migrated_integration_engine,
+                event_id,
+                lambda current: current.outcome == "SENT",
+            )
+            assert delivered.delivery_attempts == 2
+    finally:
+        cleanup_worker_events(migrated_integration_engine)
