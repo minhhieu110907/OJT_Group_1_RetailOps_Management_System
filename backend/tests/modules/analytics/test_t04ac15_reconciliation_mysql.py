@@ -492,6 +492,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             # Record StockMovement PURCHASE_CONFIRM for all 4 products
             sm_rcpt_coca = StockMovement(
                 product_id=prod_coca.id,
+                sku_snapshot=prod_coca.sku,
                 receipt_id=receipt.id,
                 order_id=None,
                 adjustment_id=None,
@@ -504,6 +505,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             )
             sm_rcpt_milk = StockMovement(
                 product_id=prod_milk.id,
+                sku_snapshot=prod_milk.sku,
                 receipt_id=receipt.id,
                 order_id=None,
                 adjustment_id=None,
@@ -516,6 +518,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             )
             sm_rcpt_lays = StockMovement(
                 product_id=prod_lays.id,
+                sku_snapshot=prod_lays.sku,
                 receipt_id=receipt.id,
                 order_id=None,
                 adjustment_id=None,
@@ -528,6 +531,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             )
             sm_rcpt_tuna = StockMovement(
                 product_id=prod_tuna.id,
+                sku_snapshot=prod_tuna.sku,
                 receipt_id=receipt.id,
                 order_id=None,
                 adjustment_id=None,
@@ -591,6 +595,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
 
             sm_sale_coca = StockMovement(
                 product_id=prod_coca.id,
+                sku_snapshot=prod_coca.sku,
                 receipt_id=None,
                 order_id=order_1.id,
                 adjustment_id=None,
@@ -603,6 +608,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             )
             sm_sale_milk = StockMovement(
                 product_id=prod_milk.id,
+                sku_snapshot=prod_milk.sku,
                 receipt_id=None,
                 order_id=order_1.id,
                 adjustment_id=None,
@@ -657,6 +663,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             # Initial SALE movement when order placed (Lay's 5->2, Tuna 3->2)
             sm_sale_lays = StockMovement(
                 product_id=prod_lays.id,
+                sku_snapshot=prod_lays.sku,
                 receipt_id=None,
                 order_id=order_2.id,
                 adjustment_id=None,
@@ -669,6 +676,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             )
             sm_sale_tuna = StockMovement(
                 product_id=prod_tuna.id,
+                sku_snapshot=prod_tuna.sku,
                 receipt_id=None,
                 order_id=order_2.id,
                 adjustment_id=None,
@@ -694,6 +702,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
 
             sm_cancel_lays = StockMovement(
                 product_id=prod_lays.id,
+                sku_snapshot=prod_lays.sku,
                 receipt_id=None,
                 order_id=order_2.id,
                 adjustment_id=None,
@@ -706,6 +715,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
             )
             sm_cancel_tuna = StockMovement(
                 product_id=prod_tuna.id,
+                sku_snapshot=prod_tuna.sku,
                 receipt_id=None,
                 order_id=order_2.id,
                 adjustment_id=None,
