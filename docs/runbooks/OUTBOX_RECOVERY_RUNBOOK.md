@@ -21,8 +21,11 @@
    ```bash
    python -m app.worker.reconcile_outbox --event-id <canonical-uuid>
    ```
-   - Verifies via RabbitMQ AMQP `queue_declare(passive=True)` (using `RABBITMQ_BOOTSTRAP_USER` / `RABBITMQ_BOOTSTRAP_PASSWORD`) that `consumer_count == 0` and `message_count == 0` on `retailops.email.v1`.
-   - Returns `REPLAY_NOT_VERIFIABLE` if any consumer or message remains or the broker is unreachable.
+   - Performs **two-layer broker quiesce verification** using operator credentials (`RABBITMQ_BOOTSTRAP_USER` / `RABBITMQ_BOOTSTRAP_PASSWORD`, never embedded in publisher/worker runtime):
+     1. **AMQP `queue_declare(passive=True)`** on `retailops.email.v1`: verifies `consumer_count == 0` and `message_count == 0`.
+     2. **RabbitMQ Management API** (`/api/queues/{vhost}/retailops.email.v1` and `/api/connections`): verifies `consumers == 0`, `messages == 0`, `messages_ready == 0`, `messages_unacknowledged == 0`, and **0** active connections from `RABBITMQ_PUBLISHER_USER` or `RABBITMQ_WORKER_USER`.
+   - Management API transport requires `https://` for remote hosts; `http://` is permitted only for explicit loopback (`localhost`, `127.0.0.1`, `::1`) in local/CI environments.
+   - Returns `REPLAY_NOT_VERIFIABLE` if any consumer, message, active connection, malformed response, or unreachable broker is detected.
 4. **Execute controlled replay (single event):**
    ```bash
    python -m app.worker.reconcile_outbox --event-id <canonical-uuid> --reason "<ticket-or-reason>" --execute

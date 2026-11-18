@@ -122,7 +122,12 @@ def cleanup_worker_events(engine: Engine) -> None:
         )
 
 
-def worker_environment(database_url: URL) -> dict[str, str]:
+def worker_environment(
+    database_url: URL,
+    *,
+    smtp_host: str = "127.0.0.1",
+    smtp_port: int = 1,
+) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
         {
@@ -135,8 +140,8 @@ def worker_environment(database_url: URL) -> dict[str, str]:
             "RETAILOPS_RABBITMQ_URL": required_environment(
                 "RETAILOPS_TEST_RABBITMQ_WORKER_URL"
             ),
-            "RETAILOPS_SMTP_HOST": "127.0.0.1",
-            "RETAILOPS_SMTP_PORT": "1",
+            "RETAILOPS_SMTP_HOST": smtp_host,
+            "RETAILOPS_SMTP_PORT": str(smtp_port),
             "RETAILOPS_SMTP_FROM_ADDRESS": "no-reply@retailops.local",
             "RETAILOPS_SMTP_STARTTLS": "false",
         }
@@ -178,9 +183,15 @@ def read_worker_log(worker_log: IO[bytes]) -> bytes:
 
 @contextmanager
 def running_worker(
-    database_url: URL, *, loglevel: str = "WARNING"
+    database_url: URL,
+    *,
+    loglevel: str = "WARNING",
+    smtp_host: str = "127.0.0.1",
+    smtp_port: int = 1,
 ) -> Iterator[WorkerHandle]:
-    environment = worker_environment(database_url)
+    environment = worker_environment(
+        database_url, smtp_host=smtp_host, smtp_port=smtp_port
+    )
     with tempfile.TemporaryFile() as worker_log:
         process = subprocess.Popen(
             [
@@ -702,14 +713,42 @@ def test_real_worker_invalid_envelope_is_parked(
             parked_message.ack()
 
 
+def mailpit_message_count_for_recipient(recipient: str) -> int:
+    http_port = int(required_environment("MAILPIT_HTTP_HOST_PORT"))
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{http_port}/api/v1/messages", timeout=10
+    ) as response:
+        data = json.loads(response.read())
+    messages = data.get("messages", [])
+    return sum(
+        1
+        for msg in messages
+        if any(
+            isinstance(to, dict) and to.get("Address") == recipient
+            for to in msg.get("To", [])
+        )
+    )
+
+
 def test_t04aa00_duplicate_delivery_is_idempotent(
     migrated_integration_engine: Engine,
     integration_database_url: URL,
 ) -> None:
     cleanup_worker_events(migrated_integration_engine)
     event_id = create_event(migrated_integration_engine, delivery_attempts=0)
+    with Session(migrated_integration_engine) as session:
+        user_id = session.scalar(
+            select(OutboxEvent.subject_user_id).where(OutboxEvent.id == event_id)
+        )
+        recipient = session.scalar(
+            select(User.email_normalized).where(User.id == user_id)
+        )
+        assert recipient is not None
+    smtp_port = int(required_environment("MAILPIT_SMTP_HOST_PORT"))
     try:
-        with running_worker(integration_database_url):
+        with running_worker(
+            integration_database_url, smtp_host="127.0.0.1", smtp_port=smtp_port
+        ):
             publish_email_task(event_id)
             publish_email_task(event_id)
             event = wait_for_event(
@@ -729,6 +768,7 @@ def test_t04aa00_duplicate_delivery_is_idempotent(
                 assert refreshed is not None
                 assert refreshed.delivery_attempts == 1
                 assert refreshed.outcome == "SENT"
+            assert mailpit_message_count_for_recipient(recipient) == 1
     finally:
         cleanup_worker_events(migrated_integration_engine)
 
@@ -737,31 +777,43 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
     migrated_integration_engine: Engine,
     integration_database_url: URL,
 ) -> None:
+    from pydantic import SecretStr
     from sqlalchemy.orm import sessionmaker
 
-    from app.core.config import get_settings
+    from app.core.config import Settings
     from app.modules.outbox.broker import CeleryEventPublisher
-    from app.modules.outbox.errors import BrokerPublishError
     from app.modules.outbox.publisher import OutboxPublisher
     from app.modules.outbox.reconciler import (
         AmqpQuiesceVerifier,
         OutboxOperatorRecovery,
         OutboxStuckDetector,
     )
-    from app.worker.celery_app import create_celery_app
 
     cleanup_worker_events(migrated_integration_engine)
     event_id = create_event(migrated_integration_engine, delivery_attempts=1)
     session_factory = sessionmaker(
         bind=migrated_integration_engine, autoflush=False, expire_on_commit=False
     )
+    publisher_url = required_environment("RETAILOPS_TEST_RABBITMQ_PUBLISHER_URL")
+    smtp_port = int(required_environment("MAILPIT_SMTP_HOST_PORT"))
 
-    class OfflineBroker:
-        def publish(self, _event_id: bytes) -> None:
-            raise BrokerPublishError("broker down")
+    def build_isolated_settings(amqp_url: str) -> Settings:
+        return Settings(
+            db_host=integration_database_url.host or "127.0.0.1",
+            db_name=integration_database_url.database or "retailops_test",
+            db_user=integration_database_url.username or "unused",
+            db_password=SecretStr(integration_database_url.password or "unused"),
+            rabbitmq_url=SecretStr(amqp_url),
+        )
+
+    def build_isolated_celery(amqp_url: str) -> Celery:
+        app = Celery("t04aa00-publisher-test", broker=amqp_url)
+        app.conf.broker_transport_options = {"confirm_publish": True}
+        app.conf.task_queues = (LIVE_QUEUE,)
+        return app
 
     try:
-        # 1. Mark event as unpublished first, verify offline broker keeps intent
+        # 1. Real unreachable AMQP endpoint keeps Outbox intent unpublished
         with Session(migrated_integration_engine) as session:
             ev = session.get(OutboxEvent, event_id)
             assert ev is not None
@@ -769,10 +821,22 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
             ev.available_at = NOW - timedelta(minutes=20)
             session.commit()
 
-        offline_result = OutboxPublisher(OfflineBroker()).publish_due(
+        unreachable_url = "amqp://unused:unused@127.0.0.1:1/%2Fretailops"
+        unreachable_publisher = OutboxPublisher(
+            CeleryEventPublisher(
+                build_isolated_celery(unreachable_url),
+                build_isolated_settings(unreachable_url),
+            )
+        )
+        offline_result = unreachable_publisher.publish_due(
             session_factory, batch_size=10
         )
         assert offline_result.failed == 1
+        with Session(migrated_integration_engine) as session:
+            ev = session.get(OutboxEvent, event_id)
+            assert ev is not None
+            assert ev.published_at is None
+            assert ev.last_error_code == "BROKER_PUBLISH_FAILED"
 
         # 2. Simulate stuck/parked state after publish
         with Session(migrated_integration_engine) as session:
@@ -806,7 +870,9 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
         recovery = OutboxOperatorRecovery(verifier)
 
         # 3. Fail-closed while worker consumer is active
-        with running_worker(integration_database_url):
+        with running_worker(
+            integration_database_url, smtp_host="127.0.0.1", smtp_port=smtp_port
+        ):
             blocked = recovery.replay(
                 session_factory,
                 event_id=event_id,
@@ -826,12 +892,18 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
         assert replayed.delivery_attempts == 1
 
         # 5. Resume publisher + worker and verify terminal SENT
-        settings = get_settings()
-        publisher = OutboxPublisher(CeleryEventPublisher(create_celery_app(), settings))
+        publisher = OutboxPublisher(
+            CeleryEventPublisher(
+                build_isolated_celery(publisher_url),
+                build_isolated_settings(publisher_url),
+            )
+        )
         pub_result = publisher.publish_due(session_factory, batch_size=10)
         assert pub_result.published >= 1
 
-        with running_worker(integration_database_url):
+        with running_worker(
+            integration_database_url, smtp_host="127.0.0.1", smtp_port=smtp_port
+        ):
             delivered = wait_for_event(
                 migrated_integration_engine,
                 event_id,

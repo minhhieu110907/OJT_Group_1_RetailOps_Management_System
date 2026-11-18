@@ -8,7 +8,7 @@ import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from uuid import UUID
 
 from amqp.exceptions import AMQPError
@@ -66,6 +66,24 @@ class AmqpQuiesceVerifier:
             body = response.read()
             return json.loads(body) if body else None
 
+    @staticmethod
+    def _is_allowed_management_url(url: str) -> bool:
+        parsed = urlsplit(url)
+        if parsed.scheme == "https" and bool(parsed.hostname):
+            return True
+        return parsed.scheme == "http" and parsed.hostname in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }
+
+    @staticmethod
+    def _parse_nonneg_int(payload: dict[str, Any], key: str) -> int | None:
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+        return value
+
     def verify_quiesced(self) -> tuple[bool, str]:
         if (
             not self.management_url
@@ -75,6 +93,13 @@ class AmqpQuiesceVerifier:
         ):
             LOGGER.warning(
                 "Outbox replay blocked: incomplete operator broker verification config",
+                extra={"reason_code": "REPLAY_NOT_VERIFIABLE"},
+            )
+            return False, "REPLAY_NOT_VERIFIABLE"
+
+        if not self._is_allowed_management_url(self.management_url):
+            LOGGER.warning(
+                "Outbox replay blocked: insecure Management API transport",
                 extra={"reason_code": "REPLAY_NOT_VERIFIABLE"},
             )
             return False, "REPLAY_NOT_VERIFIABLE"
@@ -112,10 +137,22 @@ class AmqpQuiesceVerifier:
         if not isinstance(queue_info, dict) or not isinstance(connections, list):
             return False, "REPLAY_NOT_VERIFIABLE"
 
-        mgmt_consumers = int(queue_info.get("consumers", -1))
-        mgmt_messages = int(queue_info.get("messages", -1))
-        mgmt_ready = int(queue_info.get("messages_ready", -1))
-        mgmt_unacked = int(queue_info.get("messages_unacknowledged", -1))
+        mgmt_consumers = self._parse_nonneg_int(queue_info, "consumers")
+        mgmt_messages = self._parse_nonneg_int(queue_info, "messages")
+        mgmt_ready = self._parse_nonneg_int(queue_info, "messages_ready")
+        mgmt_unacked = self._parse_nonneg_int(queue_info, "messages_unacknowledged")
+
+        if (
+            mgmt_consumers is None
+            or mgmt_messages is None
+            or mgmt_ready is None
+            or mgmt_unacked is None
+        ):
+            LOGGER.warning(
+                "Outbox replay blocked: malformed Management API queue payload",
+                extra={"reason_code": "REPLAY_NOT_VERIFIABLE"},
+            )
+            return False, "REPLAY_NOT_VERIFIABLE"
 
         active_runtime_connections = [
             conn

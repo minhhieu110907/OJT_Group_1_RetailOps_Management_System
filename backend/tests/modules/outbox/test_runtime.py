@@ -924,3 +924,27 @@ def test_amqp_quiesce_verifier_fails_closed_without_management_config() -> None:
         quiesced_users=(),
     )
     assert verifier.verify_quiesced() == (False, "REPLAY_NOT_VERIFIABLE")
+
+
+def test_amqp_quiesce_verifier_rejects_remote_http_and_malformed_payload() -> None:
+    from app.modules.outbox.reconciler import AmqpQuiesceVerifier
+
+    remote_http = AmqpQuiesceVerifier(
+        amqp_url="amqp://unused:unused@localhost:5672/%2Fretailops",
+        queue_name="retailops.email.v1",
+        management_url="http://rabbitmq.prod.internal:15672",
+        admin_user="admin",
+        admin_password="secret",
+        quiesced_users=("retailops_outbox_publisher",),
+    )
+    assert remote_http.verify_quiesced() == (False, "REPLAY_NOT_VERIFIABLE")
+    assert AmqpQuiesceVerifier._is_allowed_management_url("https://rmq.prod:15671")
+    assert AmqpQuiesceVerifier._is_allowed_management_url("http://127.0.0.1:25674")
+    assert (
+        AmqpQuiesceVerifier._parse_nonneg_int({"consumers": None}, "consumers") is None
+    )
+    assert (
+        AmqpQuiesceVerifier._parse_nonneg_int({"consumers": True}, "consumers") is None
+    )
+    assert AmqpQuiesceVerifier._parse_nonneg_int({"consumers": -1}, "consumers") is None
+    assert AmqpQuiesceVerifier._parse_nonneg_int({"consumers": 0}, "consumers") == 0
