@@ -22,7 +22,7 @@ export const MENU_ITEMS = [
   },
   {
     path: '/pos',
-    label: 'Bán hàng (POS)',
+    label: 'Bán hàng',
     roles: ['ADMIN', 'STAFF'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -203,8 +203,11 @@ export default function Sidebar() {
 
             {/* Ở giữa: Tên hiển thị & Vai trò */}
             <div className={styles.accountInfo}>
-              <span className={styles.accountName} title={user.name}>
-                {user.name}
+              <span
+                className={styles.accountName}
+                title={(user.name || '').replace(/\s*\(admin\)/gi, '').trim()}
+              >
+                {(user.name || '').replace(/\s*\(admin\)/gi, '').trim()}
               </span>
               <span className={styles.accountRole}>
                 {isAdmin ? 'Quản lý' : 'Nhân viên'}

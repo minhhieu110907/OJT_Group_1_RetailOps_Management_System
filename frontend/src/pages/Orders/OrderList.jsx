@@ -270,7 +270,7 @@ export default function OrderList() {
         width: '150px',
         render: (row) => (
           <span className={styles.creatorCell}>
-            {formatOrderActorLabel(row.created_by, user)}
+            {row.created_by_name || formatOrderActorLabel(row.created_by, user)}
           </span>
         ),
       },

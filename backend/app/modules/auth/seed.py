@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import PROJECT_ROOT
 from app.modules.auth.models import User, UserRole, UserStatus
+from app.modules.auth.schemas import normalize_full_name
 from app.modules.auth.security import PasswordHasher, normalize_email
 
 
@@ -23,6 +24,7 @@ class AdminSeedSettings(BaseSettings):
 
     email: str
     password: SecretStr
+    full_name: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=Path(PROJECT_ROOT) / ".env",
@@ -38,10 +40,16 @@ def seed_admin(
     *,
     email: str,
     password: SecretStr,
+    full_name: str | None = None,
     password_hasher: PasswordHasher | None = None,
 ) -> bool:
     """Create the sole Admin or no-op for the same existing identity."""
     normalized_email = normalize_email(email)
+    normalized_full_name = (
+        normalize_full_name(full_name)
+        if full_name is not None and full_name.strip() != ""
+        else None
+    )
     existing_admin = session.scalar(select(User).where(User.admin_slot == 1))
     if existing_admin is not None:
         if existing_admin.email_normalized != normalized_email:
@@ -58,6 +66,7 @@ def seed_admin(
     hasher = password_hasher or PasswordHasher()
     admin = User(
         email_normalized=normalized_email,
+        full_name=normalized_full_name,
         password_hash=hasher.hash(password.get_secret_value()),
         role=UserRole.ADMIN,
         status=UserStatus.ACTIVE,
@@ -87,6 +96,7 @@ def main() -> None:
             session,
             email=settings.email,
             password=settings.password,
+            full_name=settings.full_name,
         )
     outcome = "created" if created else "already exists"
     print(f"Admin seed completed: {outcome}")

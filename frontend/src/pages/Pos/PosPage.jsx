@@ -467,7 +467,7 @@ export default function PosPage() {
       <section className={styles.catalogSection} aria-label="Danh sách sản phẩm POS">
         <div className={styles.pageHeader}>
           <div className={styles.titleGroup}>
-            <h1 className={styles.pageTitle}>Bán hàng tại quầy (POS)</h1>
+            <h1 className={styles.pageTitle}>Bán hàng tại quầy</h1>
           </div>
         </div>
 

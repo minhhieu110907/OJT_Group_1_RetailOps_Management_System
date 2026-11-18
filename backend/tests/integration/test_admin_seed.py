@@ -35,6 +35,7 @@ def test_admin_seed_is_idempotent_without_password_rotation(
             session,
             email=f"  {SEED_EMAIL.upper()}  ",
             password=SecretStr("first password"),
+            full_name="  Vũ Trần Lâm  ",
             password_hasher=hasher,
         )
         original_hash = session.scalar(
@@ -55,6 +56,7 @@ def test_admin_seed_is_idempotent_without_password_rotation(
     assert admin is not None
     assert admin.role == "ADMIN"
     assert admin.status == "ACTIVE"
+    assert admin.full_name == "Vũ Trần Lâm"
     assert admin.password_hash == original_hash
     assert admin_count == 1
 

@@ -41,16 +41,16 @@
   --color-secondary: #94A3B8;  /* Xám bạc nhạt */
   --color-neutral: #F1F5F9;    /* Trắng xám cho chữ chính */
   --color-danger: #EF4444;     /* Đỏ tươi hơn */
-  --color-bg-page: #0B1320;    /* Nền trang tối sâu */
-  --color-border: #1E293B;     /* Viền tối */
-  --color-bg-surface: #131E30; /* Nền sidebar, header, card */
-  --color-bg-hover: #1E293B;   /* Nền hover tối */
-  --color-bg-input: #0B1320;   /* Nền input tối */
+  --color-bg-page: #0B1120;    /* Tầng 0: Nền trang tối sâu */
+  --color-bg-surface: #151F32; /* Tầng 1: Nền sidebar, header, card chính */
+  --color-surface-muted: #1E293B; /* Tầng 2: Khối phụ / hộp lồng bên trong card */
+  --color-bg-input: #1E293B;   /* Tầng 2: Nền ô nhập liệu tách biệt rõ với card */
+  --color-bg-hover: #26354D;   /* Tầng 3: Nền hover nổi bật */
+  --color-border: #2D3D56;     /* Viền phân tách rõ nét giữa các khối */
 
   /* Semantic status tokens (Dark Mode) */
   --color-text-primary: #F1F5F9;
   --color-text-secondary: #94A3B8;
-  --color-surface-muted: #0E1726;
   --color-status-success: #10B981;
   --color-status-warning: #F59E0B;
   --color-status-danger: #EF4444;
@@ -436,17 +436,71 @@
 
 /* 7. Header User trigger, Notification Popover & Admin/Staff role badges */
 [data-theme='dark'] [class*="userDropdownTrigger"] {
-  background-color: var(--color-bg-surface) !important;
-  border-color: var(--color-border) !important;
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
 }
 
 [data-theme='dark'] [class*="userDropdownTrigger"]:hover {
   background-color: var(--color-bg-hover) !important;
+  border-color: #475569 !important;
 }
 
 [data-theme='dark'] [class*="userDropdownTriggerActive"] {
   background-color: #064E3B !important;
   border-color: var(--color-primary) !important;
+}
+
+[data-theme='dark'] [class*="dropdownMenu"],
+[data-theme='dark'] [class*="helpPopover"] {
+  background-color: #182438 !important;
+  border-color: #334155 !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5) !important;
+}
+
+[data-theme='dark'] [class*="dropdownLogoutItem"]:hover,
+[data-theme='dark'] [class*="logoutButton"]:hover {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="iconBtnActive"],
+[data-theme='dark'] [class*="notificationAvatarUnread"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="profileSummaryHeader"] {
+  border-bottom-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="profileSummaryName"],
+[data-theme='dark'] [class*="profileInfoValue"] {
+  color: #F8FAFC !important;
+}
+
+[data-theme='dark'] [class*="profileInfoLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="profileInfoCard"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+}
+
+[data-theme='dark'] [class*="profileRoleBadge"],
+[data-theme='dark'] [class*="profileStatusPillActive"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(52, 211, 153, 0.35) !important;
+}
+
+[data-theme='dark'] [class*="profileStatusPillMuted"] {
+  background-color: #26354D !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="profileStatusIconActive"] {
+  color: #34D399 !important;
 }
 
 [data-theme='dark'] [class*="notificationPopover"],
@@ -504,10 +558,14 @@
   background-color: rgba(6, 78, 59, 0.7) !important;
 }
 
-[data-theme='dark'] [class*="accountFooter"],
-[data-theme='dark'] [class*="accountCard"] {
+[data-theme='dark'] [class*="accountFooter"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="accountCard"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
 }
 
 /* 8. Table cells, badges, and status contrast across all modules */
@@ -1131,10 +1189,31 @@
 }
 
 [data-theme='dark'] [class*="subtitle"],
+[data-theme='dark'] [class*="pageSubtitle"],
 [data-theme='dark'] [class*="stateDesc"],
 [data-theme='dark'] [class*="bottomDisclaimer"],
 [data-theme='dark'] [class*="storeScopeLabel"] {
-  color: #94A3B8 !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="timezoneBadge"],
+[data-theme='dark'] [class*="autoRestoreBadge"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #F8FAFC !important;
+}
+
+[data-theme='dark'] [class*="immutableRuleBanner"] {
+  background-color: var(--color-bg-surface) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="immutableRuleTitle"] {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="immutableRuleDesc"] {
+  color: #E2E8F0 !important;
 }
 
 /* Quy chuẩn & Danh sách / Modal xét duyệt nhân viên (Staff Approval) */
@@ -2126,6 +2205,26 @@
 
 [data-theme='dark'] [class*="legendPill"] {
   color: #34D399 !important;
+}
+
+[data-theme='dark'] [class*="chartSvg"] line {
+  stroke: #26354D !important;
+}
+
+[data-theme='dark'] [class*="chartColGroup"] > text {
+  fill: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="chartColGroupActive"] > text {
+  fill: #F8FAFC !important;
+}
+
+[data-theme='dark'] [class*="chartColGroup"] g text {
+  fill: #0F172A !important;
+}
+
+[data-theme='dark'] [class*="donutSvg"] circle:first-of-type {
+  stroke: #26354D !important;
 }
 
 [data-theme='dark'] [class*="demoCard"] {

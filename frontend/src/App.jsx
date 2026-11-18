@@ -20,6 +20,7 @@ import PurchaseList from './pages/Purchases/PurchaseList';
 import PosPage from './pages/Pos/PosPage';
 import OrderList from './pages/Orders/OrderList';
 import Dashboard from './pages/Dashboard/Dashboard';
+import AiAssistant from './pages/AiAssistant/AiAssistant';
 import { HealthCheckPage } from './pages/HealthCheckPage';
 import ProtectedRoute from './routes/ProtectedRoute';
 import styles from './layouts/MainLayout/MainLayout.module.css';
@@ -115,10 +116,7 @@ export default function App() {
                     }
                   />
                   <Route path="/staff" element={<StaffApprovalList />} />
-                  <Route
-                    path="/ai-assistant"
-                    element={<PlaceholderPage title="Trợ lý AI (RetailOps AI)" />}
-                  />
+                  <Route path="/ai-assistant" element={<AiAssistant />} />
                 </Route>
               </Route>
             </Route>
