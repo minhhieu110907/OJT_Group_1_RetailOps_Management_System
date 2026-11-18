@@ -208,4 +208,111 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
     assert.equal(postCalled, false);
     view.unmount();
   });
+
+  test('P1/P2: prevents synchronous double-submit, hides raw HTTP 500 details, and aborts on reset/role change', async () => {
+    let postCount = 0;
+    let firstSignal = null;
+    let resolvePending = null;
+
+    axiosClient.post = async (_url, _body, config) => {
+      postCount += 1;
+      if (postCount === 1) {
+        firstSignal = config?.signal;
+        return new Promise((res) => {
+          resolvePending = res;
+        });
+      }
+      const err500 = new Error('Internal Server Error');
+      err500.response = {
+        status: 500,
+        data: { detail: 'SQL ERROR: SELECT * FROM orders WHERE secret_key=abc' },
+      };
+      throw err500;
+    };
+
+    const view = renderAiAssistant('ADMIN');
+    const textarea = screen.getByLabelText('Nhập câu hỏi cho Trợ lý AI');
+    fireEvent.change(textarea, { target: { value: 'Kiểm tra double submit' } });
+
+    // Two synchronous submits before React re-render -> at most 1 HTTP call
+    const form = textarea.closest('form');
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    assert.equal(postCount, 1);
+
+    // Reset conversation while pending -> aborts signal and ignores late response
+    fireEvent.click(screen.getByRole('button', { name: 'Cuộc trò chuyện mới' }));
+    assert.equal(firstSignal?.aborted, true);
+
+    resolvePending({
+      data: {
+        answer: 'Late stale answer that must NOT appear',
+        evidence: [],
+        insufficient_data: false,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(
+      document.body.textContent.includes('Late stale answer that must NOT appear'),
+      false
+    );
+
+    // HTTP 500 with SQL detail -> UI must NOT expose SQL/stack trace
+    fireEvent.change(screen.getByLabelText('Nhập câu hỏi cho Trợ lý AI'), {
+      target: { value: 'Trigger 500 safe error' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi câu hỏi' }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      assert.equal(alert.getAttribute('data-error-kind'), 'error');
+      assert.equal(alert.textContent.includes('SQL ERROR'), false);
+      assert.equal(alert.textContent.includes('secret_key'), false);
+    });
+
+    // Role transition ADMIN -> STAFF while pending invalidates request & clears chat
+    let secondSignal = null;
+    let resolveBeforeRoleChange = null;
+    axiosClient.post = async (_url, _body, config) => {
+      secondSignal = config?.signal;
+      return new Promise((res) => {
+        resolveBeforeRoleChange = res;
+      });
+    };
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }));
+    assert.ok(secondSignal);
+
+    view.rerender(
+      React.createElement(
+        AuthContext.Provider,
+        {
+          value: {
+            user: { id: 2, username: 'staff01', role: 'STAFF' },
+            isMockMode: false,
+          },
+        },
+        React.createElement(AiAssistant)
+      )
+    );
+
+    assert.equal(secondSignal.aborted, true);
+    assert.ok(screen.getByText('Không có quyền truy cập'));
+
+    resolveBeforeRoleChange({
+      data: {
+        answer: 'Leaked admin response after role change',
+        evidence: [],
+        insufficient_data: false,
+      },
+    });
+    await Promise.resolve();
+    assert.equal(
+      document.body.textContent.includes('Leaked admin response after role change'),
+      false
+    );
+
+    view.unmount();
+  });
 });

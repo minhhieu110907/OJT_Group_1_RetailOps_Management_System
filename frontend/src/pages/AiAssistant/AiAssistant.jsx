@@ -3,6 +3,7 @@ import {
   AI_QUERY_MAX_LENGTH,
   aiApi,
   classifyAiError,
+  isAiRequestCanceled,
   validateAiMessageInput,
 } from '../../api/aiApi';
 import { useAuth } from '../../context/AuthContext';
@@ -33,21 +34,42 @@ export default function AiAssistant() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const reqSeqRef = useRef(0);
+  const inFlightRef = useRef(false);
   const nextIdRef = useRef(1);
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const sessionKeyRef = useRef(`${user?.id ?? 'anon'}:${user?.role ?? 'none'}:${isMockMode}`);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      inFlightRef.current = false;
+      reqSeqRef.current += 1;
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
   }, []);
+
+  // Invalidate any pending AI request immediately if auth session, role, or mode changes
+  useEffect(() => {
+    const nextKey = `${user?.id ?? 'anon'}:${user?.role ?? 'none'}:${isMockMode}`;
+    if (sessionKeyRef.current !== nextKey) {
+      sessionKeyRef.current = nextKey;
+      reqSeqRef.current += 1;
+      inFlightRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setIsProcessing(false);
+      setMessages([]);
+      setInputError('');
+    }
+  }, [user?.id, user?.role, isMockMode]);
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
@@ -57,7 +79,7 @@ export default function AiAssistant() {
 
   const runAskQuery = useCallback(
     async ({ promptText, replaceMessageId = null }) => {
-      if (!isAdmin || isProcessing) return;
+      if (!isAdmin || inFlightRef.current || isProcessing) return;
 
       const check = validateAiMessageInput(promptText);
       if (!check.isValid) {
@@ -65,6 +87,7 @@ export default function AiAssistant() {
         return;
       }
 
+      inFlightRef.current = true;
       setInputError('');
       setIsProcessing(true);
 
@@ -139,7 +162,7 @@ export default function AiAssistant() {
         );
       } catch (err) {
         if (!isMountedRef.current || currentSeq !== reqSeqRef.current) return;
-        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+        if (isAiRequestCanceled(err)) return;
 
         const classified = classifyAiError(err);
         setMessages((prev) =>
@@ -156,8 +179,11 @@ export default function AiAssistant() {
           )
         );
       } finally {
-        if (isMountedRef.current && currentSeq === reqSeqRef.current) {
-          setIsProcessing(false);
+        if (currentSeq === reqSeqRef.current) {
+          inFlightRef.current = false;
+          if (isMountedRef.current) {
+            setIsProcessing(false);
+          }
         }
       }
     },
@@ -178,6 +204,7 @@ export default function AiAssistant() {
 
   const handleResetConversation = () => {
     reqSeqRef.current += 1;
+    inFlightRef.current = false;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;

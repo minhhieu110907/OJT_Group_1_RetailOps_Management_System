@@ -8,6 +8,7 @@ import {
   AI_QUERY_MAX_LENGTH,
   aiApi,
   classifyAiError,
+  isAiRequestCanceled,
   validateAiAskResponse,
   validateAiEvidence,
   validateAiMessageInput,
@@ -80,7 +81,7 @@ describe('aiApi — T04AB25 OpenAPI contract & AI-04 fail-closed behavior', () =
     }
   });
 
-  test('validates AIAskResponse and AIEvidence strictly (fail-closed)', () => {
+  test('validates AIAskResponse and AIEvidence strictly (fail-closed, additionalProperties: false)', () => {
     assert.throws(() => validateAiAskResponse(null));
     assert.throws(() =>
       validateAiAskResponse({ answer: '', evidence: [], insufficient_data: false })
@@ -91,6 +92,45 @@ describe('aiApi — T04AB25 OpenAPI contract & AI-04 fail-closed behavior', () =
     assert.throws(() =>
       validateAiAskResponse({ answer: 'OK', evidence: [], insufficient_data: 'no' })
     );
+    // Missing required fields
+    assert.throws(() => validateAiAskResponse({ evidence: [], insufficient_data: false }));
+    assert.throws(() => validateAiAskResponse({ answer: 'OK', insufficient_data: false }));
+    assert.throws(() => validateAiAskResponse({ answer: 'OK', evidence: [] }));
+
+    // Extra field on AIAskResponse (additionalProperties: false)
+    assert.throws(
+      () =>
+        validateAiAskResponse({
+          answer: 'OK',
+          evidence: [],
+          insufficient_data: false,
+          extra_debug_sql: 'SELECT * FROM orders',
+        }),
+      /unexpected field/
+    );
+
+    // Extra field on AIEvidence (additionalProperties: false)
+    assert.throws(
+      () =>
+        validateAiEvidence({
+          source: 'inventory',
+          period: null,
+          summary: 'Còn 3 sản phẩm',
+          raw_row_id: 99,
+        }),
+      /unexpected field/
+    );
+
+    // Missing required period field on AIEvidence
+    assert.throws(
+      () =>
+        validateAiEvidence({
+          source: 'inventory',
+          summary: 'Còn 3 sản phẩm',
+        }),
+      /missing required period/
+    );
+
     assert.throws(() =>
       validateAiEvidence({ source: 'sales', period: 123, summary: 'test' })
     );
@@ -101,6 +141,48 @@ describe('aiApi — T04AB25 OpenAPI contract & AI-04 fail-closed behavior', () =
       summary: 'Còn 3 sản phẩm sắp hết',
     });
     assert.equal(validNullPeriod.period, null);
+  });
+
+  test('classifyAiError never exposes untrusted backend details (500 SQL/stack, 400/422) and handles cancel', () => {
+    const c500 = classifyAiError({
+      response: {
+        status: 500,
+        data: {
+          detail: 'Traceback: SELECT * FROM users WHERE sk-secret-key; mysql://internal-db:3306',
+          message: 'SQL syntax error near SELECT',
+        },
+      },
+    });
+    assert.equal(c500.kind, 'error');
+    assert.equal(c500.retryable, true);
+    assert.doesNotMatch(c500.message, /SELECT|Traceback|sk-secret|internal-db|SQL/i);
+
+    const c422 = classifyAiError({
+      response: {
+        status: 422,
+        data: { detail: 'Internal Pydantic Traceback at app/modules/ai/schemas.py' },
+      },
+    });
+    assert.equal(c422.kind, 'validation');
+    assert.equal(c422.retryable, false);
+    assert.doesNotMatch(c422.message, /Pydantic|Traceback|schemas\.py/i);
+
+    const c400 = classifyAiError({
+      response: { status: 400, data: { message: 'raw internal provider error' } },
+    });
+    assert.equal(c400.kind, 'validation');
+    assert.doesNotMatch(c400.message, /raw internal provider/i);
+
+    const c502 = classifyAiError({ response: { status: 502 } });
+    assert.equal(c502.kind, 'unavailable');
+
+    const cNetwork = classifyAiError(new Error('Network Error'));
+    assert.equal(cNetwork.kind, 'unavailable');
+
+    assert.equal(isAiRequestCanceled({ name: 'CanceledError' }), true);
+    assert.equal(isAiRequestCanceled({ name: 'AbortError' }), true);
+    assert.equal(isAiRequestCanceled({ code: 'ERR_CANCELED' }), true);
+    assert.equal(isAiRequestCanceled({ response: { status: 500 } }), false);
   });
 
   test('classifyAiError maps 401/403, 429 quota, timeout, 503 unavailable, and 422 safely', () => {

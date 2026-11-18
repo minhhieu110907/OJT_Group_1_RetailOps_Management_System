@@ -1,8 +1,22 @@
-import axiosClient, { getApiErrorMessage } from './axiosClient.js';
+import axiosClient from './axiosClient.js';
 import { assertRealApiMode } from './productsApi.js';
 
 export const AI_QUERY_MAX_LENGTH = 4000;
 export const AI_QUERY_TIMEOUT_MS = 20000;
+
+const ALLOWED_AI_EVIDENCE_KEYS = new Set(['source', 'period', 'summary']);
+const ALLOWED_AI_RESPONSE_KEYS = new Set(['answer', 'evidence', 'insufficient_data']);
+
+/**
+ * Check if an error represents an intentional request abort/cancellation.
+ */
+export function isAiRequestCanceled(err) {
+  return (
+    err?.name === 'CanceledError' ||
+    err?.name === 'AbortError' ||
+    err?.code === 'ERR_CANCELED'
+  );
+}
 
 /**
  * Validate AIEvidence item from OpenAPI schema:
@@ -12,8 +26,16 @@ export function validateAiEvidence(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
     throw new Error('AIEvidence item must be an object.');
   }
+  for (const key of Object.keys(item)) {
+    if (!ALLOWED_AI_EVIDENCE_KEYS.has(key)) {
+      throw new Error(`AIEvidence contains unexpected field: ${key}`);
+    }
+  }
   if (typeof item.source !== 'string' || !item.source.trim()) {
     throw new Error('AIEvidence missing valid source.');
+  }
+  if (!Object.prototype.hasOwnProperty.call(item, 'period') || item.period === undefined) {
+    throw new Error('AIEvidence missing required period field.');
   }
   if (item.period !== null && typeof item.period !== 'string') {
     throw new Error('AIEvidence.period must be string or null.');
@@ -29,12 +51,17 @@ export function validateAiEvidence(item) {
 }
 
 /**
- * Validate AIAskResponse contract (fail-closed):
+ * Validate AIAskResponse contract (fail-closed, additionalProperties: false):
  * { answer: string, evidence: AIEvidence[], insufficient_data: boolean }
  */
 export function validateAiAskResponse(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('AIAskResponse payload must be an object.');
+  }
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_AI_RESPONSE_KEYS.has(key)) {
+      throw new Error(`AIAskResponse contains unexpected field: ${key}`);
+    }
   }
   if (typeof payload.answer !== 'string' || !payload.answer.trim()) {
     throw new Error('AIAskResponse missing valid answer.');
@@ -147,7 +174,8 @@ export function classifyAiError(err) {
       kind: 'validation',
       status,
       title: 'Câu hỏi chưa hợp lệ',
-      message: getApiErrorMessage(err, 'Câu hỏi không đúng định dạng yêu cầu.'),
+      message:
+        'Câu hỏi không đúng định dạng hoặc vượt quá giới hạn cho phép (1–4.000 ký tự).',
       actionType: 'dismiss',
       retryable: false,
     };
@@ -169,10 +197,7 @@ export function classifyAiError(err) {
     kind: 'error',
     status,
     title: 'Không thể hoàn tất phân tích AI',
-    message: getApiErrorMessage(
-      err,
-      'Đã xảy ra lỗi khi xử lý yêu cầu Trợ lý AI. Vui lòng thử lại.'
-    ),
+    message: 'Đã xảy ra lỗi khi xử lý yêu cầu Trợ lý AI. Vui lòng thử lại.',
     actionType: 'retry',
     retryable: true,
   };
