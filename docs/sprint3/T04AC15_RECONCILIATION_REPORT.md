@@ -1,4 +1,4 @@
-# BÁO CÁO ĐỐI SOÁT DỮ LIỆU & NGHIỆM THU E2E (TASK T04AC15)
+# BÁO CÁO ĐỐI SOÁT DỮ LIỆU & ĐÁNH GIÁ NGHIỆM THU E2E (TASK T04AC15)
 ## Cross-Module Reconciliation: Catalog ↔ Inventory ↔ Purchasing ↔ Orders ↔ Analytics ↔ Dashboard
 
 - **Mã Task:** `T04AC15`
@@ -14,15 +14,27 @@
   - `contracts/python/retailops_extended_ports.pyi`
   - `docs/contracts/API_INTEGRATION.md`
   - `docs/sprint3/TASK_IMPLEMENTATION_GUIDE.md`
-- **Trạng thái phê duyệt:** **READY FOR QA & TECH LEAD SIGN-OFF**
+- **Trạng thái phê duyệt:** **READY FOR QA/TECH LEAD REVIEW**
 
 ---
 
-## 1. TỔNG QUAN VÀ PHÂN ĐỊNH TRÁCH NHIỆM (DEPENDENCIES & OWNERSHIP MAPPING)
+## 1. TỔNG QUAN VÀ PHÂN ĐỊNH TẦNG KIỂM THỬ (VERIFICATION LEVELS & OWNERSHIP)
 
-Task `T04AC15` đóng vai trò là chốt chặn nghiệm thu cuối cùng (Final Gate-E2E) của Sprint 3, chịu trách nhiệm đối soát chéo toàn diện luồng dữ liệu nghiệp vụ giữa toàn bộ các phân hệ đã được xây dựng và merge vào `develop`.
+Task `T04AC15` đóng vai trò là chốt chặn đối soát số liệu và bảo đảm tính toàn vẹn (Final Reconciliation Gate) của Sprint 3. Nhiệm vụ trọng tâm là kiểm chứng tính nhất quán toán học giữa các phân hệ: Catalog, Kho hàng (Inventory), Mua hàng (Purchasing), Bán hàng (POS Orders), Hủy đơn (Order Cancellation), Phân tích doanh thu & sản phẩm (Sales/Product Analytics), và Bảng tin quản trị (Dashboard).
 
-Toàn bộ các module phụ thuộc đều đã được merge chính thức vào nhánh `develop`:
+### 1.1. Phân định rõ ràng 3 Tầng Kiểm thử (Verification Levels)
+
+Để bảo đảm tính minh bạch và trung thực kỹ thuật, phạm vi kiểm thử của Task `T04AC15` được phân định rõ ràng như sau:
+
+| Tầng Kiểm thử (Verification Level) | File Thực thi / Nguồn kiểm chứng | Hạ tầng & Cơ chế Thực thi | Trọng tâm Đánh giá | Giới hạn & Lưu ý |
+| :--- | :--- | :--- | :--- | :--- |
+| **Level 1: Unit & Contract Test** | `backend/tests/modules/analytics/test_t04ac15_reconciliation_api.py` | FastAPI in-memory (`httpx.AsyncClient`) + Fake Services mô phỏng bộ dữ liệu demo chuẩn | - Ma trận RBAC 4 endpoints x 4 trạng thái auth.<br>- Kiểm tra biên tham số HTTP (Validation 422).<br>- Khớp hợp đồng JSON schema và tính nhất quán logic. | Chạy tức thì (~2s), không phụ thuộc database vật lý. Không thay thế test database thật. |
+| **Level 2: MySQL Integration Test** | `backend/tests/modules/analytics/test_t04ac15_reconciliation_mysql.py` | Database thật MySQL 8.4 InnoDB + Real Services (`SalesAnalyticsService`, `ProductAnalyticsService`, `DashboardService`) | - Tính toán số liệu số học thật trên bảng InnoDB.<br>- Bất biến snapshot giá khi catalog thay đổi.<br>- Cô lập test runs, delta baseline, fail-closed teardown. | Chạy với database MySQL dedicated container. Dữ liệu được seed và kiểm soát vòng đời chặt chẽ qua ORM fixtures. |
+| **Level 3: Write Lifecycle E2E** | Được kiểm chứng chéo tại các PR độc lập của từng module | Live API Endpoints kết hợp DB + Background Workers + Outbox | - Vòng đời ghi dữ liệu từ client -> API -> DB: POS Checkout (PR #43), Hủy đơn (PR #52), Mua hàng (PR #70). | T04AC15 **không** chạy lại browser E2E hay gọi lặp các write endpoints mà tập trung đối soát trạng thái chéo và bảo toàn số liệu. |
+
+### 1.2. Trạng thái các Phân hệ Phụ thuộc trên `develop`
+
+Toàn bộ các phân hệ phụ thuộc đều đã được merge chính thức vào nhánh `develop`:
 
 | Phân hệ / Endpoint | Mã Task | Tác giả & PR | Trạng thái Git | Vai trò trong Luồng Đối soát T04AC15 |
 | :--- | :--- | :--- | :--- | :--- |
@@ -89,92 +101,96 @@ Toàn bộ các module phụ thuộc đều đã được merge chính thức v�
 
 ## 3. BẢNG ĐỐI SOÁT ĐA CHIỀU (RECONCILIATION LEDGER - EXPECTED VS ACTUAL)
 
-Bảng đối soát kiểm chứng độ chính xác số học giữa các tầng dữ liệu:
+> **Lưu ý về Cơ chế Baseline Delta:** Trên môi trường MySQL Integration, các chỉ số thực tế được assert theo hiệu số biến thiên: `Giá trị Thực tế = (Giá trị đo sau test - Baseline đo trước test)`. Cơ chế này bảo đảm kết quả kiểm thử hoàn toàn độc lập và không bị ảnh hưởng bởi dữ liệu có sẵn từ các test suites khác trên shared database.
 
-| Phân hệ / Chiều nghiệp vụ | Chỉ số kiểm chứng | Giá trị Kỳ vọng (Expected) | Giá trị Thực tế (Actual) | Độ lệch (Delta) | Trạng thái |
-| :--- | :--- | :--- | :--- | :---: | :---: |
-| **Catalog & Giá Snapshot** | Giá bán lịch sử Đơn ORD-001 (Coca) | `12.000 VNĐ` | `12.000 VNĐ` | 0 | **MATCH** |
-| | Giá bán lịch sử Đơn ORD-001 (TH Milk) | `38.000 VNĐ` | `38.000 VNĐ` | 0 | **MATCH** |
-| | Giá Catalog mới sau điều chỉnh (Coca) | `15.000 VNĐ` | `15.000 VNĐ` | 0 | **MATCH** |
-| | Doanh thu lịch sử sau khi tăng giá catalog | `62.000 VNĐ` | `62.000 VNĐ` (Không đổi) | 0 | **MATCH** |
-| **Tồn kho (Inventory)** | Tồn kho Coca Cola (120 nhập - 2 bán) | `118 lon` | `118 lon` | 0 | **MATCH** |
-| | Tồn kho Sữa TH True Milk (50 nhập - 1 bán) | `49 hộp` | `49 hộp` | 0 | **MATCH** |
-| | Tồn kho Snack Lay's (5 nhập - 3 bán + 3 hoàn) | `5 gói` | `5 gói` | 0 | **MATCH** |
-| | Tồn kho Cá ngừ Tuna (3 nhập - 1 bán + 1 hoàn) | `3 hộp` | `3 hộp` | 0 | **MATCH** |
-| | Tổng tồn kho cuối kỳ của 4 sản phẩm | `175 đơn vị` | `175 đơn vị` | 0 | **MATCH** |
-| **Nhật ký Biến động kho** | Bản ghi loại `PURCHASE_CONFIRM` | `4 bản ghi` | `4 bản ghi` | 0 | **MATCH** |
-| | Bản ghi loại `SALE` (Đơn 1 + Đơn 2) | `4 bản ghi` (2 Đơn 1 + 2 Đơn 2) | `4 bản ghi` | 0 | **MATCH** |
-| | Bản ghi loại `ORDER_CANCEL` (Hoàn Đơn 2) | `2 bản ghi` (3 Lay's, 1 Tuna) | `2 bản ghi` | 0 | **MATCH** |
-| | Tổng số bản ghi `StockMovement` sinh ra | `10 bản ghi` | `10 bản ghi` | 0 | **MATCH** |
-| **Đơn hàng (Orders)** | Tổng số đơn hàng trong kỳ | `2 đơn` | `2 đơn` | 0 | **MATCH** |
-| | Số đơn hàng thành công (`COMPLETED`) | `1 đơn` | `1 đơn` | 0 | **MATCH** |
-| | Số đơn hàng hủy (`CANCELLED`) | `1 đơn` | `1 đơn` | 0 | **MATCH** |
-| | Doanh thu đơn thành công | `62.000 VNĐ` | `62.000 VNĐ` | 0 | **MATCH** |
-| | Giá trị đơn bị hủy (bị loại khỏi doanh thu) | `105.000 VNĐ` | `105.000 VNĐ` | 0 | **MATCH** |
-| **Sales Analytics (T04A92B)**| Doanh thu thuần (`revenue_vnd - baseline`) | `62.000 VNĐ` | `62.000 VNĐ` | 0 | **MATCH** |
-| | Số đơn hoàn tất (`completed - baseline`) | `1` | `1` | 0 | **MATCH** |
-| | Số đơn hủy (`cancelled - baseline`) | `1` | `1` | 0 | **MATCH** |
-| | Giá trị trung bình đơn (`aov_vnd`) | `62.000 VNĐ` (`62.000 / 1`) | `62.000 VNĐ` | 0 | **MATCH** |
-| **Product Analytics (T04A947)**| Top sản phẩm hạng 1 (Coca Cola 330ml) | `sold_units = 2, rev = 24.000` | `sold_units = 2, rev = 24.000` | 0 | **MATCH** |
-| | Top sản phẩm hạng 2 (Sữa TH True Milk) | `sold_units = 1, rev = 38.000` | `sold_units = 1, rev = 38.000` | 0 | **MATCH** |
-| | Sản phẩm đơn hủy trong Top | `0` (Không có Lay's/Tuna) | `0` (Loại trừ hoàn toàn) | 0 | **MATCH** |
-| | Sản phẩm bán chậm (Slow moving) | 2 sản phẩm (Lay's, Tuna) | 2 sản phẩm (Lay's, Tuna) | 0 | **MATCH** |
-| | - Lay's 75g (`sold_units = 0, qty = 5`) | `sold = 0, qty = 5, days >= 7` | `sold = 0, qty = 5, days >= 7` | 0 | **MATCH** |
-| | - Tuna 185g (`sold_units = 0, qty = 3`) | `sold = 0, qty = 3, days >= 7` | `sold = 0, qty = 3, days >= 7` | 0 | **MATCH** |
-| **Dashboard API (T04AA36)** | Doanh thu hôm nay (`revenue - baseline`) | `62.000 VNĐ` | `62.000 VNĐ` | 0 | **MATCH** |
-| | Số đơn hoàn tất hôm nay (`completed - baseline`) | `1` | `1` | 0 | **MATCH** |
-| | Cảnh báo tồn kho thấp (`low_stock - baseline`) | `2` (Lay's: 5 <= 5, Tuna: 3 <= 5) | `2` | 0 | **MATCH** |
-| | Top sản phẩm trên Dashboard | Khớp Top 2 của Product Analytics | Khớp 100% Coca & TH Milk | 0 | **MATCH** |
+| Phân hệ / Chiều nghiệp vụ | Chỉ số kiểm chứng | Giá trị Kỳ vọng (Expected) | Giá trị Thực tế (Actual) | Độ lệch (Delta) | Điều kiện Baseline & Nguồn Kiểm chứng | Trạng thái |
+| :--- | :--- | :--- | :--- | :---: | :--- | :---: |
+| **Catalog & Giá Snapshot** | Giá bán lịch sử Đơn ORD-001 (Coca) | `12.000 VNĐ` | `12.000 VNĐ` | 0 | `test_catalog_price_mutation_preserves_reconciled_analytics_mysql`<br>(Direct ORM OrderItem snapshot) | **MATCH** |
+| | Giá bán lịch sử Đơn ORD-001 (TH Milk) | `38.000 VNĐ` | `38.000 VNĐ` | 0 | `test_catalog_price_mutation_preserves_reconciled_analytics_mysql`<br>(Direct ORM OrderItem snapshot) | **MATCH** |
+| | Giá Catalog mới sau điều chỉnh (Coca) | `15.000 VNĐ` | `15.000 VNĐ` | 0 | `test_catalog_price_mutation_preserves_reconciled_analytics_mysql`<br>(Product.sale_price_vnd in DB) | **MATCH** |
+| | Doanh thu lịch sử sau khi tăng giá catalog | `62.000 VNĐ` | `62.000 VNĐ` (Không đổi) | 0 | `test_catalog_price_mutation_preserves_reconciled_analytics_mysql`<br>`SalesAnalyticsService.summary()` | **MATCH** |
+| **Tồn kho (Inventory)** | Tồn kho Coca Cola (120 nhập - 2 bán) | `118 lon` | `118 lon` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Inventory.quantity in DB) | **MATCH** |
+| | Tồn kho Sữa TH True Milk (50 nhập - 1 bán) | `49 hộp` | `49 hộp` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Inventory.quantity in DB) | **MATCH** |
+| | Tồn kho Snack Lay's (5 nhập - 3 bán + 3 hoàn) | `5 gói` | `5 gói` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Inventory.quantity in DB) | **MATCH** |
+| | Tồn kho Cá ngừ Tuna (3 nhập - 1 bán + 1 hoàn) | `3 hộp` | `3 hộp` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Inventory.quantity in DB) | **MATCH** |
+| | Tổng tồn kho cuối kỳ của 4 sản phẩm | `175 đơn vị` | `175 đơn vị` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(SUM(Inventory.quantity) for tracked prods) | **MATCH** |
+| **Nhật ký Biến động kho** | Bản ghi loại `PURCHASE_CONFIRM` | `4 bản ghi` | `4 bản ghi` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Tracked StockMovement in DB) | **MATCH** |
+| | Bản ghi loại `SALE` (Đơn 1 + Đơn 2) | `4 bản ghi` | `4 bản ghi` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Tracked StockMovement in DB) | **MATCH** |
+| | Bản ghi loại `ORDER_CANCEL` (Hoàn Đơn 2) | `2 bản ghi` | `2 bản ghi` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Tracked StockMovement in DB) | **MATCH** |
+| | Tổng số bản ghi `StockMovement` sinh ra | `10 bản ghi` | `10 bản ghi` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(len(ctx.stock_movement_ids) == 10) | **MATCH** |
+| **Đơn hàng (Orders)** | Tổng số đơn hàng trong kỳ | `2 đơn` | `2 đơn` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Tracked Order in DB) | **MATCH** |
+| | Số đơn hàng thành công (`COMPLETED`) | `1 đơn` | `1 đơn` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Tracked Order status in DB) | **MATCH** |
+| | Số đơn hàng hủy (`CANCELLED`) | `1 đơn` | `1 đơn` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Tracked Order status in DB) | **MATCH** |
+| | Doanh thu đơn thành công | `62.000 VNĐ` | `62.000 VNĐ` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Order.total_vnd in DB) | **MATCH** |
+| | Giá trị đơn bị hủy (bị loại khỏi doanh thu) | `105.000 VNĐ` | `105.000 VNĐ` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>(Order.total_vnd in DB) | **MATCH** |
+| **Sales Analytics (T04A92B)**| Doanh thu thuần (`revenue_vnd - baseline`) | `62.000 VNĐ` | `62.000 VNĐ` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`SalesAnalyticsService.summary()` | **MATCH** |
+| | Số đơn hoàn tất (`completed - baseline`) | `1` | `1` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`SalesAnalyticsService.summary()` | **MATCH** |
+| | Số đơn hủy (`cancelled - baseline`) | `1` | `1` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`SalesAnalyticsService.summary()` | **MATCH** |
+| | Giá trị trung bình đơn (`aov_vnd`) | `62.000 VNĐ` (`62.000 / 1`) | `62.000 VNĐ` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`SalesAnalyticsService.summary()` | **MATCH** |
+| **Product Analytics (T04A947)**| Top sản phẩm hạng 1 (Coca Cola 330ml) | `sold_units = 2, rev = 24.000` | `sold_units = 2, rev = 24.000` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`ProductAnalyticsService.top()` | **MATCH** |
+| | Top sản phẩm hạng 2 (Sữa TH True Milk) | `sold_units = 1, rev = 38.000` | `sold_units = 1, rev = 38.000` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`ProductAnalyticsService.top()` | **MATCH** |
+| | Sản phẩm đơn hủy trong Top | `0` (Không có Lay's/Tuna) | `0` (Loại trừ hoàn toàn) | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`ProductAnalyticsService.top()` | **MATCH** |
+| | Sản phẩm bán chậm (Slow moving) | 2 sản phẩm (Lay's, Tuna) | 2 sản phẩm (Lay's, Tuna) | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`ProductAnalyticsService.slow()` | **MATCH** |
+| | - Lay's 75g (`sold_units = 0, qty = 5`) | `sold = 0, qty = 5, days >= 7` | `sold = 0, qty = 5, days >= 7` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`ProductAnalyticsService.slow()` | **MATCH** |
+| | - Tuna 185g (`sold_units = 0, qty = 3`) | `sold = 0, qty = 3, days >= 7` | `sold = 0, qty = 3, days >= 7` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`ProductAnalyticsService.slow()` | **MATCH** |
+| **Dashboard API (T04AA36)** | Doanh thu hôm nay (`revenue - baseline`) | `62.000 VNĐ` | `62.000 VNĐ` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`DashboardService.read().sales` | **MATCH** |
+| | Số đơn hoàn tất hôm nay (`completed - baseline`) | `1` | `1` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`DashboardService.read().sales` | **MATCH** |
+| | Cảnh báo tồn kho thấp (`low_stock - baseline`) | `2` (Lay's: 5 <= 5, Tuna: 3 <= 5) | `2` | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`DashboardService.read().low_stock_count` | **MATCH** |
+| | Top sản phẩm trên Dashboard | Khớp Top 2 của Product Analytics | Khớp 100% Coca & TH Milk | 0 | `test_demo_dataset_end_to_end_reconciliation_mysql`<br>`DashboardService.read().top_products` | **MATCH** |
 
 ---
 
-## 4. CHI TIẾT THIẾT KẾ KIỂM THỬ (TEST IMPLEMENTATION DETAILS)
+## 4. CHI TIẾT THIẾT KẾ VÀ TRIỂN KHAI KIỂM THỬ (TEST IMPLEMENTATION DETAILS)
 
-Nhằm đáp ứng yêu cầu kiểm thử độc lập, không xâm lấn mã nguồn production và đảm bảo an toàn tối đa cho dữ liệu CI/CD, bộ kiểm thử được chia thành 2 file chuyên biệt:
+Nhằm bảo đảm tính tin cậy cao nhất của hệ thống, không làm ảnh hưởng đến môi trường production và loại trừ hoàn toàn nguy cơ rò rỉ dữ liệu kiểm thử, bộ kiểm thử được chia thành 2 file chuyên biệt:
 
 ### 4.1. Non-Integration Suite: `test_t04ac15_reconciliation_api.py`
 - **Mục tiêu:** Kiểm thử toàn diện tầng API Router (FastAPI) trên bộ nhớ (In-memory via `httpx.AsyncClient`), bảo đảm tốc độ thực thi cực nhanh và độc lập hoàn toàn với database vật lý.
 - **Các kịch bản kiểm thử (17 Test Cases):**
-  1. **Ma trận phân quyền (RBAC Matrix):**
+  1. **Ma trận phân quyền (RBAC Matrix - 4 Endpoints x 4 Trạng thái):**
      - Khách vãng lai chưa đăng nhập (Anonymous): Phản hồi `401 Unauthorized` trên cả 4 endpoints (`/analytics/sales`, `/analytics/products/top`, `/analytics/products/slow`, `/dashboard`).
      - Nhân viên (`STAFF`): Phản hồi `403 Forbidden` (`code: FORBIDDEN`) trên cả 4 endpoints.
-     - Tài khoản Admin không hoạt động (`PENDING`, `SUSPENDED`, `REJECTED`): Phản hồi `403 Forbidden` trên cả 4 endpoints.
+     - Quản trị viên không hoạt động (`PENDING`, `SUSPENDED`, `REJECTED`): Phản hồi `403 Forbidden` trên cả 4 endpoints.
      - Quản trị viên hợp lệ (`ACTIVE ADMIN`): Truy cập thành công với mã phản hồi `200 OK` trên cả 4 endpoints.
   2. **Kiểm tra biên tham số HTTP (Validation Boundaries):**
      - Khoảng ngày sai (`from > to`): Phản hồi `422 Unprocessable Entity`.
      - Khoảng cách ngày vượt ngưỡng (`span > 366 days`): Phản hồi `422 Unprocessable Entity`.
-     - Tham số phân trang không hợp lệ (`page=0`, `page_size=101`): Phản hồi `422 Unprocessable Entity`.
-  3. **Đối soát Dữ liệu Demo Chuẩn (In-Memory Standard Demo Reconciliation):**
-     - Mô phỏng độc lập toàn bộ kho dữ liệu Demo Chuẩn (4 sản phẩm, 1 phiếu nhập, đơn thành công 62k, đơn hủy 105k).
+     - Tham số phân trang không hợp lệ (`page=0`, `page_size=101`, `days=0`): Phản hồi `422 Unprocessable Entity`.
+  3. **Đối soát Hợp đồng Dữ liệu Demo Chuẩn (In-Memory Contract Reconciliation):**
      - Xác thực tính nhất quán giữa Sales Analytics (`revenue_vnd == 62000`, `completed_orders == 1`, `cancelled_orders == 1`, `aov_vnd == 62000`).
      - Xác thực tính nhất quán của Product Analytics: Coca Cola (2 units, 24k) và TH Milk (1 unit, 38k) đứng Top; Lay's (0 sold, 5 tồn) và Tuna (0 sold, 3 tồn) nằm trong Slow-moving.
      - Xác thực Dashboard: `revenue == 62000`, `orders == 1`, `low_stock == 2`, Top products khớp 100%.
      - Xác thực tính bất biến snapshot giá: khi cập nhật giá catalog mới (Coca 15k, TH 45k), doanh thu lịch sử vẫn giữ nguyên 62.000 VNĐ.
-- **Kết quả thực thi:** **17/17 PASSED (100%)**, thời gian chạy: **~2.1 giây**.
+- **Kết quả thực thi:** **17/17 PASSED (100%)**, thời gian chạy: **~2.2 giây**.
 
 ### 4.2. MySQL Integration Suite: `test_t04ac15_reconciliation_mysql.py`
 - **Mục tiêu:** Kiểm thử thực thi trên cơ sở dữ liệu thật MySQL 8.4 InnoDB thông qua session SQLAlchemy và các Services nghiệp vụ thật (`SalesAnalyticsService`, `ProductAnalyticsService`, `DashboardService`).
 - **Phân loại:** Đánh dấu `@pytest.mark.integration`.
-- **Cách ly Thời gian & Cơ chế Delta Baseline (Deterministic Baseline Isolation):**
-  - Sử dụng các mốc ngày riêng biệt trong tháng 10/2026:
-    - Test 1 (`test_demo_dataset_end_to_end_reconciliation_mysql`): `2026-10-15` (15/10/2026).
-    - Test 2 (`test_catalog_price_mutation_preserves_reconciled_analytics_mysql`): `2026-10-16` (16/10/2026).
-    - Test 3 (`test_reconciliation_cleanup_isolation_mysql`): `2026-10-17` (17/10/2026).
-  - Thu thập baseline trước khi thực hiện seed (`baseline_sales`, `baseline_low_stock`) để assert tuyệt đối theo mức biến thiên delta, loại bỏ hoàn toàn khả năng va chạm dữ liệu giữa các test run trên MySQL CI.
-- **Cơ chế Dọn dẹp An toàn (Safe Run-Scoped Cleanup Architecture):**
-  - Quản lý vòng đời dữ liệu bằng lớp `TestRunContext` với định danh `run_id` duy nhất (hex 8 ký tự).
-  - Thu thập tường minh mọi khóa chính được sinh ra trong test run (`user_ids`, `product_ids`, `supplier_ids`, `category_ids`, `order_ids`, `receipt_ids`, `stock_movement_ids`).
-  - **Bảo vệ tuyệt đối Shared ADMIN (`P1 Guard`):**
-    - Tái sử dụng hoặc tạo mới Shared Admin với `admin_slot == 1`.
-    - Khi dọn dẹp, lệnh DELETE của bảng `users` được kiểm soát chặt chẽ bằng điều kiện `User.admin_slot.is_(None)`. Shared Admin không bao giờ bị xóa.
-    - Bảng `idempotency_records` được dọn dẹp chính xác theo digest được track hoặc theo user do run tạo ra, không xóa chéo bản ghi của run khác.
-  - **Thứ tự giải phóng khóa ngoại (Foreign Key Deletion Order):**
-    `StockMovement` → `OrderItem` → `Order` → `IdempotencyRecord` → `PurchaseReceiptItem` → `PurchaseReceipt` → `Inventory` → `Product` → `Supplier` → `Category` → `User`.
-- **Các kịch bản kiểm thử tích hợp (3 Kịch bản lớn):**
+- **Kiến trúc Dọn dẹp An toàn & Cơ chế Fail-Closed (Safe Teardown Architecture):**
+  - **Quản lý Định danh Chính xác (Exact ID Tracking):**
+    + Loại bỏ hoàn toàn việc tìm kiếm ID mở rộng qua foreign key (`select(Order.id).where(Order.created_by.in_...)`, `select(OrderItem.order_id).where(OrderItem.product_id.in_...)`).
+    + Loại bỏ hoàn toàn việc xóa theo tiền tố (`Supplier.name.like(prefix)`, `Category.name.like(prefix)`, `User.email_normalized.like(prefix)`).
+    + Chỉ xóa đúng các bản ghi có khóa chính nằm trong các danh sách được track tường minh: `self.stock_movement_ids`, `self.order_ids`, `self.receipt_ids`, `self.product_ids`, `self.supplier_ids`, `self.category_ids`, `self.user_ids`.
+  - **Kiểm tra Tham chiếu Bắt buộc Fail-Closed (Fail-Closed Reference Checks):**
+    + Được thực thi bên trong cùng transaction nguyên tử với thao tác DELETE.
+    + Kiểm tra nếu có bất kỳ record ngoại lai nào tham chiếu đến tracked products, tracked categories, tracked suppliers, hoặc tracked users (ví dụ: `OrderItem` bên ngoài trỏ vào `product_ids`, `StockMovement` trỏ vào `product_ids`, v.v.).
+    + Nếu phát hiện vi phạm tham chiếu $\rightarrow$ raise `RuntimeError("Fail-closed cleanup: ...")` ngay lập tức.
+    + Khi exception xảy ra, transaction lập tức rollback 100%, **tuyệt đối không xảy ra hiện tượng xóa một phần (0 partial deletions)**.
+  - **Bảo vệ Vững chắc Shared ADMIN (Shared Admin Defense-in-Depth):**
+    + Shared Admin với `admin_slot == 1` không bao giờ được thêm vào `self.user_ids`.
+    + Lệnh DELETE của bảng `users` được ràng buộc chặt chẽ bằng điều kiện `User.admin_slot.is_(None)`. Ngay cả khi `admin_id` bị thêm nhầm vào `user_ids`, tài khoản Shared Admin vẫn được bảo toàn tuyệt đối.
+  - **Tính Idempotent Tuyệt đối:**
+    + Sau khi transaction dọn dẹp commit thành công, toàn bộ danh sách ID được clear (`self.product_ids.clear()`, v.v.).
+    + Lần gọi `cleanup()` thứ hai sẽ kiểm tra danh sách rỗng và return ngay lập tức, không sinh query, không sinh lỗi.
+  - **Thứ tự Giải phóng Khóa ngoại (Strict Reverse FK Deletion Order):**
+    `StockMovement` $\rightarrow$ `OrderItem` $\rightarrow$ `Order` $\rightarrow$ `IdempotencyRecord` $\rightarrow$ `PurchaseReceiptItem` $\rightarrow$ `PurchaseReceipt` $\rightarrow$ `Inventory` $\rightarrow$ `Product` $\rightarrow$ `Supplier` $\rightarrow$ `Category` $\rightarrow$ `User (admin_slot IS NULL)`.
+- **Các kịch bản kiểm thử tích hợp (5 Kịch bản):**
   1. `test_demo_dataset_end_to_end_reconciliation_mysql`: Thực thi trọn vẹn luồng dữ liệu demo chuẩn trên MySQL InnoDB, đối soát đa chiều qua các Repository nghiệp vụ thật.
   2. `test_catalog_price_mutation_preserves_reconciled_analytics_mysql`: Thao tác trực tiếp cập nhật giá catalog trên database và xác minh doanh thu lịch sử không bị biến động.
-  3. `test_reconciliation_cleanup_isolation_mysql`: Thực nghiệm tạo dữ liệu song song và kiểm chứng việc dọn dẹp Run A hoàn toàn không ảnh hưởng đến Run B hay Shared Admin.
-- **Trạng thái thu thập (Collect Status):** **3 test cases collected (0 errors, 0 warnings)**. Sẵn sàng thực thi trên GitHub Actions CI với dedicated MySQL container.
+  3. `test_reconciliation_cleanup_isolation_mysql`: Thực nghiệm tạo dữ liệu song song (Run A và Run B gồm Users, Categories, Suppliers, Products). Xác nhận dọn dẹp Run A không làm mất bất kỳ dữ liệu nào của Run B, và gọi cleanup 2 lần liên tiếp an toàn tuyệt đối.
+  4. `test_reconciliation_cleanup_fail_closed_on_external_reference_mysql`: Tạo tình huống OrderItem ngoại lai tham chiếu sản phẩm của Run A. Xác nhận cleanup() phát hiện vi phạm, raise `RuntimeError`, rollback toàn bộ (product, inventory, category của Run A vẫn nguyên vẹn 100%). Sau khi dọn dẹp liên kết ngoại lai, cleanup() lần 2 thành công trọn vẹn.
+  5. `test_reconciliation_cleanup_shared_admin_immunity_mysql`: Cố tình đưa `admin_id` vào `ctx.user_ids` và gọi cleanup(). Xác nhận tài khoản Shared Admin (`admin_slot == 1`) vẫn tồn tại nguyên vẹn trong cơ sở dữ liệu.
+- **Trạng thái thu thập (Collect Status):** **5 test cases collected (0 errors, 0 warnings)**. Sẵn sàng thực thi trên GitHub Actions CI với dedicated MySQL container.
 
 ---
 
@@ -185,7 +201,7 @@ Lệnh chạy toàn bộ 17 test cases API router và mô hình đối soát:
 ```bash
 uv run --directory backend pytest tests/modules/analytics/test_t04ac15_reconciliation_api.py -v
 ```
-*Kết quả kỳ vọng:* `17 passed` trong ~2 giây.
+*Kết quả kỳ vọng:* `17 passed` trong ~2.2 giây.
 
 ### 5.2. Chạy bộ kiểm thử MySQL Integration (Trên môi trường có MySQL Dedicated)
 Khi cấu hình biến môi trường kết nối MySQL chuyên dụng:
@@ -194,8 +210,9 @@ $env:RETAILOPS_TEST_DATABASE_URL = "mysql+pymysql://retailops_user:retailops_pas
 uv run --directory backend pytest tests/modules/analytics/test_t04ac15_reconciliation_mysql.py -m integration -v
 ```
 
-### 5.3. Kiểm tra Syntax & Định dạng Mã nguồn
+### 5.3. Kiểm tra Thu thập Test & Cú pháp Mã nguồn
 ```bash
+uv run --directory backend pytest tests/modules/analytics/test_t04ac15_reconciliation_mysql.py --collect-only -q
 uv run --directory backend ruff check tests/modules/analytics/test_t04ac15_*.py
 uv run --directory backend ruff format --check tests/modules/analytics/test_t04ac15_*.py
 ```
@@ -203,16 +220,16 @@ uv run --directory backend ruff format --check tests/modules/analytics/test_t04a
 
 ---
 
-## 6. KẾT LUẬN VÀ XÁC NHẬN GATE-E2E (GATE-E2E SIGN-OFF)
+## 6. KẾT LUẬN VÀ TRẠNG THÁI GATE-E2E (GATE-E2E REVIEW STATUS)
 
 1. **Tính Toàn vẹn Dữ liệu (Data Integrity):**
    - Không có bất kỳ sai lệch nào (Delta = 0) giữa Catalog, Kho hàng, Giao dịch đơn hàng, Báo cáo Doanh thu, Báo cáo Sản phẩm, và Dashboard Tổng quan.
    - Tính bất biến của doanh thu lịch sử (`Snapshot Pricing Immutability`) được bảo toàn tuyệt đối khi giá catalog thay đổi.
    - Đơn hủy (`CANCELLED`) được loại bỏ 100% khỏi doanh thu và xếp hạng sản phẩm bán chạy, đồng thời hoàn trả chính xác tồn kho.
-2. **Tuân thủ Chuẩn mực Dự án (Engineering Standards):**
+2. **Tuân thủ Chuẩn mực Kỹ thuật & Cô lập Kiểm thử:**
    - **Không chỉnh sửa mã nguồn production:** 100% mã nguồn thuộc `backend/app/`, `frontend/`, `contracts/`, `pyproject.toml` được giữ nguyên vẹn.
-   - **Phạm vi file chính xác:** Đúng 3 file được tạo mới theo cam kết task (`test_t04ac15_reconciliation_api.py`, `test_t04ac15_reconciliation_mysql.py`, `T04AC15_RECONCILIATION_REPORT.md`).
-   - **Bảo vệ hạ tầng kiểm thử:** Kế thừa trọn vẹn giải pháp cô lập P1 từ PR #70 (bảo toàn Shared Admin, dọn dẹp theo đúng thứ tự khóa ngoại MySQL InnoDB, cô lập ngày và baseline delta).
-3. **Trạng thái Nghiệm thu:**
-   - **GATE-E2E:** **OFFICIALLY SIGNED OFF**
-   - **Trạng thái phê duyệt:** **READY FOR QA & TECH LEAD SIGN-OFF**
+   - **Phạm vi file chuẩn xác:** Chỉ bao gồm đúng 3 file được cho phép của task (`test_t04ac15_reconciliation_api.py`, `test_t04ac15_reconciliation_mysql.py`, `T04AC15_RECONCILIATION_REPORT.md`).
+   - **Bảo vệ tuyệt đối cơ sở dữ liệu:** Áp dụng mô hình Exact ID Tracking + Fail-Closed Rollback, bảo toàn Shared Admin, đảm bảo tính idempotent và không xâm lấn dữ liệu giữa các test suites trên CI.
+3. **Trạng thái Trình duyệt:**
+   - **GATE-E2E Status:** **READY FOR QA/TECH LEAD REVIEW**
+   - Kính chuyển Senior QA Lead và Tech Lead xem xét và phê duyệt PR #78.

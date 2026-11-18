@@ -1,6 +1,7 @@
-"""API and service contract tests for T04AC15 cross-module reconciliation.
+"""API router and service contract tests for T04AC15 cross-module reconciliation.
 
-Scope (Contract: HTTP-ANALYTICS, GATE-E2E):
+Verification Level: Unit & Contract Tests (In-Memory FastAPI + Mocked/Fake Services).
+Scope (Contract: HTTP-ANALYTICS):
 1. Route Authorization (RBAC) & Parameter Boundary Validation across 4 endpoints:
    - GET /api/v1/analytics/sales
    - GET /api/v1/analytics/products/top
@@ -8,7 +9,7 @@ Scope (Contract: HTTP-ANALYTICS, GATE-E2E):
    - GET /api/v1/dashboard
    (Enforces 401 Unauthenticated, 403 Forbidden for STAFF / non-active ADMIN,
     422 Validation Error on invalid dates/pagination, and 200 OK for active ADMIN).
-2. Standard Demo Dataset Reconciliation at Service / API Level:
+2. Standard Demo Dataset Contract Reconciliation at Router Level (In-Memory):
    - 4 Demo Products:
      * DRK-COCA-330 (Coca Cola 330ml): sale_price=12k, stock=118, sold=2, rev=24k
      * DRK-MILK-TH1L (TH True Milk 1L): sale_price=38k, stock=49, sold=1, rev=38k
