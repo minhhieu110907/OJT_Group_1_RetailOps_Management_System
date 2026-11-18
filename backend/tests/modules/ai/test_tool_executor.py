@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.config import Settings
 from app.core.exceptions import (
     DependencyUnavailableError,
     DomainValidationError,
@@ -108,6 +109,34 @@ def bound(*, user=None, sales=None, products=None, clock=None):
         inventory_service=Inventory(),
         clock=clock or (lambda: datetime(2026, 11, 18, 12, tzinfo=UTC)),
     )
+
+
+def test_bound_budget_uses_central_settings_and_preserves_contract_ceiling():
+    settings = Settings(
+        _env_file=None,
+        db_host="127.0.0.1",
+        db_name="unit_test_only",
+        db_user="unit_test_user",
+        db_password="not-a-real-password",
+        ai_request_deadline_seconds=5,
+        ai_max_tool_calls=2,
+        ai_max_tool_output_bytes=1024,
+    )
+    principal = CurrentPrincipal(user=admin_session().user, session_id=uuid4())
+    request = bind_authenticated_request(
+        principal, request_id="configured", settings=settings
+    )
+    assert (request.budget.deadline_seconds, request.budget.max_calls) == (5, 2)
+    assert request.budget.max_output_bytes == 1024
+    with pytest.raises(ValueError):
+        Settings(
+            _env_file=None,
+            db_host="127.0.0.1",
+            db_name="unit_test_only",
+            db_user="unit_test_user",
+            db_password="not-a-real-password",
+            ai_max_tool_calls=4,
+        )
 
 
 def test_admin_and_identity_spoofing_are_verified_before_dispatch():

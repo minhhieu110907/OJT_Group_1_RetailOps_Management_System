@@ -16,6 +16,12 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, ValidationError
 from sqlalchemy.orm import Session
 
+from app.core.config import (
+    AI_MAX_TOOL_CALLS,
+    AI_MAX_TOOL_OUTPUT_BYTES,
+    AI_REQUEST_DEADLINE_SECONDS,
+    Settings,
+)
 from app.core.exceptions import (
     AppException,
     DependencyUnavailableError,
@@ -41,9 +47,6 @@ ToolId = Literal[
 _TOOLS = frozenset(
     ("get_sales_summary", "get_top_products", "get_slow_products", "get_low_stock")
 )
-_MAX_CALLS = 3
-_MAX_OUTPUT_BYTES = 32 * 1024
-_DEADLINE_SECONDS = 15.0
 _VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 _CANONICAL_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 
@@ -113,6 +116,7 @@ def bind_authenticated_request(
     product_service: ProductAnalyticsService | None = None,
     inventory_service: InventoryQueryService | None = None,
     clock: Callable[[], datetime] | None = None,
+    settings: Settings | None = None,
 ) -> BoundToolRequest:
     """Call only after the live auth dependency; never pass a body/model principal.
 
@@ -123,7 +127,17 @@ def bind_authenticated_request(
         raise ForbiddenError()
     user = principal.user
     context = ToolContext(user.id, str(user.role), request_id)
-    budget = ToolBudget()
+    budget = ToolBudget(
+        max_calls=settings.ai_max_tool_calls if settings else AI_MAX_TOOL_CALLS,
+        max_output_bytes=(
+            settings.ai_max_tool_output_bytes if settings else AI_MAX_TOOL_OUTPUT_BYTES
+        ),
+        deadline_seconds=(
+            settings.ai_request_deadline_seconds
+            if settings
+            else AI_REQUEST_DEADLINE_SECONDS
+        ),
+    )
     executor = AIToolExecutor(
         sales_service=sales_service,
         product_service=product_service,
@@ -167,6 +181,9 @@ class ToolBudget:
     started_at: float = 0.0
     calls: int = 0
     output_bytes: int = 0
+    max_calls: int = AI_MAX_TOOL_CALLS
+    max_output_bytes: int = AI_MAX_TOOL_OUTPUT_BYTES
+    deadline_seconds: float = AI_REQUEST_DEADLINE_SECONDS
     lock: RLock = field(default_factory=RLock, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -175,21 +192,21 @@ class ToolBudget:
 
     def reserve(self) -> None:
         if (
-            self.calls >= _MAX_CALLS
-            or time.monotonic() - self.started_at >= _DEADLINE_SECONDS
+            self.calls >= self.max_calls
+            or time.monotonic() - self.started_at >= self.deadline_seconds
         ):
-            if self.calls >= _MAX_CALLS:
+            if self.calls >= self.max_calls:
                 raise RateLimitedError(60)
             raise DependencyUnavailableError()
         self.calls += 1
 
     def add_output(self, payload: bytes) -> None:
-        if self.output_bytes + len(payload) > _MAX_OUTPUT_BYTES:
+        if self.output_bytes + len(payload) > self.max_output_bytes:
             raise RateLimitedError(60)
         self.output_bytes += len(payload)
 
     def check_deadline(self) -> None:
-        if time.monotonic() - self.started_at >= _DEADLINE_SECONDS:
+        if time.monotonic() - self.started_at >= self.deadline_seconds:
             raise DependencyUnavailableError()
 
 

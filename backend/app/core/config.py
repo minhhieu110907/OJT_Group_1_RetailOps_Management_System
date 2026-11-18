@@ -20,6 +20,9 @@ from sqlalchemy import URL
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = BACKEND_DIR.parent
 DEVELOPMENT_CORS_ORIGIN = "http://127.0.0.1:5173"
+AI_REQUEST_DEADLINE_SECONDS = 15.0
+AI_MAX_TOOL_CALLS = 3
+AI_MAX_TOOL_OUTPUT_BYTES = 32 * 1024
 
 
 class Settings(BaseSettings):
@@ -65,6 +68,15 @@ class Settings(BaseSettings):
     refresh_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
     business_rate_limit: int = Field(default=120, ge=1, le=10_000)
     business_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    ai_request_deadline_seconds: float = Field(
+        default=AI_REQUEST_DEADLINE_SECONDS, gt=0, le=AI_REQUEST_DEADLINE_SECONDS
+    )
+    ai_max_tool_calls: int = Field(
+        default=AI_MAX_TOOL_CALLS, ge=1, le=AI_MAX_TOOL_CALLS
+    )
+    ai_max_tool_output_bytes: int = Field(
+        default=AI_MAX_TOOL_OUTPUT_BYTES, ge=1, le=AI_MAX_TOOL_OUTPUT_BYTES
+    )
     rabbitmq_url: SecretStr | None = None
     rabbitmq_host: str | None = None
     rabbitmq_port: int = Field(default=5672, ge=1, le=65_535)
