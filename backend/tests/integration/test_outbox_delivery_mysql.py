@@ -231,7 +231,7 @@ def test_stuck_detection_and_mysql8_explain_plan(
                 OutboxEvent(
                     id=secret_id,
                     subject_user_id=user.id,
-                    event_type="PASSWORD_RESET",
+                    event_type="STAFF_REAPPLY_PROOF",
                     payload={"schema_version": 1},
                     secret_expires_at=NOW + timedelta(hours=1),
                     secret_ciphertext=b"cipher",
