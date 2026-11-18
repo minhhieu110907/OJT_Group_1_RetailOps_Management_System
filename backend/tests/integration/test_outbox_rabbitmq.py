@@ -776,6 +776,55 @@ def test_t04aa00_duplicate_delivery_is_idempotent(
         cleanup_worker_events(migrated_integration_engine)
 
 
+def create_t04aa00_event(
+    engine: Engine,
+    *,
+    created_at: datetime,
+    available_at: datetime,
+    published_at: datetime | None,
+    delivery_attempts: int,
+    publish_attempts: int = 0,
+) -> bytes:
+    event_id = uuid4().bytes
+    with Session(engine) as session:
+        user = User(
+            email_normalized=f"{EMAIL_PREFIX}{uuid4().hex}@example.com",
+            password_hash="test-hash",
+            role="STAFF",
+            status="ACTIVE",
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            OutboxEvent(
+                id=event_id,
+                subject_user_id=user.id,
+                event_type="STAFF_APPROVED",
+                payload={
+                    "schema_version": 1,
+                    "approval_request_id": 1,
+                    "actor_id": 1,
+                },
+                secret_expires_at=None,
+                secret_ciphertext=None,
+                created_at=created_at,
+                available_at=available_at,
+                published_at=published_at,
+                publish_attempts=publish_attempts,
+                delivery_attempts=delivery_attempts,
+                outcome=None,
+                finished_at=None,
+                last_error_code=None,
+            )
+        )
+        session.commit()
+    return event_id
+
+
 def test_t04aa00_broker_outage_and_controlled_replay_recovery(
     migrated_integration_engine: Engine,
     integration_database_url: URL,
@@ -793,7 +842,16 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
     )
 
     cleanup_worker_events(migrated_integration_engine)
-    event_id = create_event(migrated_integration_engine, delivery_attempts=1)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
+    past_time = now_utc - timedelta(minutes=20)
+    event_id = create_t04aa00_event(
+        migrated_integration_engine,
+        created_at=past_time,
+        available_at=past_time,
+        published_at=None,
+        delivery_attempts=1,
+        publish_attempts=0,
+    )
     session_factory = sessionmaker(
         bind=migrated_integration_engine, autoflush=False, expire_on_commit=False
     )
@@ -817,13 +875,6 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
 
     try:
         # 1. Real unreachable AMQP endpoint keeps Outbox intent unpublished
-        with Session(migrated_integration_engine) as session:
-            ev = session.get(OutboxEvent, event_id)
-            assert ev is not None
-            ev.published_at = None
-            ev.available_at = NOW - timedelta(minutes=20)
-            session.commit()
-
         unreachable_url = "amqp://unused:unused@127.0.0.1:1/%2Fretailops"
         unreachable_publisher = OutboxPublisher(
             CeleryEventPublisher(
@@ -841,11 +892,11 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
             assert ev.published_at is None
             assert ev.last_error_code == "BROKER_PUBLISH_FAILED"
 
-        # 2. Simulate stuck/parked state after publish
+        # 2. Simulate stuck/parked state after publish in the past
         with Session(migrated_integration_engine) as session:
             ev = session.get(OutboxEvent, event_id)
             assert ev is not None
-            ev.published_at = NOW - timedelta(minutes=20)
+            ev.published_at = past_time
             ev.last_error_code = "SMTP_TRANSIENT"
             session.commit()
 
