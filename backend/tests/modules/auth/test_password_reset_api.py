@@ -672,6 +672,10 @@ def test_password_reset_base_url_https_and_loopback_validation() -> None:
         "cookie_secure": True,
     }
 
+    # Production without explicit password_reset_base_url -> FAIL (fail-closed)
+    with pytest.raises(ValidationError):
+        Settings(**base_kwargs, environment="production")
+
     # Production + HTTP -> FAIL
     with pytest.raises(ValidationError):
         Settings(

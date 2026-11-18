@@ -19,6 +19,7 @@ def make_settings(
             "jwt_secret": SecretStr("j" * 32),
             "csrf_secret": SecretStr("c" * 32),
             "cookie_secure": True,
+            "password_reset_base_url": "https://app.retailops.example/reset-password",
         }
     return Settings(
         db_host="unused",

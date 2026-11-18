@@ -202,10 +202,7 @@ class Settings(BaseSettings):
         parsed = urlsplit(self.password_reset_base_url)
         env = self.environment.strip().lower()
         if env == "production":
-            if (
-                "password_reset_base_url" in self.model_fields_set
-                and parsed.scheme != "https"
-            ):
+            if parsed.scheme != "https":
                 raise ValueError(
                     "RETAILOPS_PASSWORD_RESET_BASE_URL must use HTTPS in production"
                 )
