@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from threading import RLock
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
+    AppException,
     DependencyUnavailableError,
     DomainValidationError,
     ForbiddenError,
+    RateLimitedError,
 )
 from app.modules.analytics.service import (
     ProductAnalyticsService,
@@ -23,6 +29,7 @@ from app.modules.analytics.service import (
     resolve_days_period,
     resolve_sales_period,
 )
+from app.modules.auth.dependencies import CurrentPrincipal
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
 from app.modules.inventory.service import InventoryQueryService
@@ -37,6 +44,49 @@ _TOOLS = frozenset(
 _MAX_CALLS = 3
 _MAX_OUTPUT_BYTES = 32 * 1024
 _DEADLINE_SECONDS = 15.0
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+_CANONICAL_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
+
+
+class _StrictDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _SalesData(_StrictDTO):
+    period_start: StrictStr
+    period_end_exclusive: StrictStr
+    revenue_vnd: StrictInt = Field(ge=0)
+    completed_orders: StrictInt = Field(ge=0)
+    cancelled_orders: StrictInt = Field(ge=0)
+    aov_vnd: StrictInt = Field(ge=0)
+
+
+class _ProductItem(_StrictDTO):
+    product_id: StrictInt = Field(ge=1)
+    sku: StrictStr
+    name: StrictStr
+    sold_units: StrictInt = Field(ge=0)
+    revenue_vnd: StrictInt = Field(ge=0)
+    quantity: StrictInt | None = Field(default=None, ge=0)
+    first_stocked_at: StrictStr | None = None
+
+
+class _LowStockItem(_StrictDTO):
+    product_id: StrictInt = Field(ge=1)
+    sku: StrictStr
+    name: StrictStr
+    quantity: StrictInt = Field(ge=0)
+    threshold: StrictInt = Field(ge=0)
+
+
+class _ProductPage(_StrictDTO):
+    items: list[_ProductItem] = Field(max_length=20)
+    total: StrictInt = Field(ge=0)
+
+
+class _LowStockPage(_StrictDTO):
+    items: list[_LowStockItem] = Field(max_length=20)
+    total: StrictInt = Field(ge=0)
 
 
 @dataclass(frozen=True)
@@ -47,10 +97,67 @@ class ToolContext:
 
 
 @dataclass(frozen=True)
+class BoundToolRequest:
+    """One authenticated request's opaque context, executor, and shared budget."""
+
+    context: ToolContext
+    executor: AIToolExecutor
+    budget: ToolBudget
+
+
+def bind_authenticated_request(
+    principal: CurrentPrincipal,
+    *,
+    request_id: str,
+    sales_service: SalesAnalyticsService | None = None,
+    product_service: ProductAnalyticsService | None = None,
+    inventory_service: InventoryQueryService | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> BoundToolRequest:
+    """Call only after the live auth dependency; never pass a body/model principal.
+
+    Create once at orchestration start, then reuse context and executor for all calls.
+    The context object identity is a per-request capability, not a comparable tuple.
+    """
+    if not isinstance(principal, CurrentPrincipal):
+        raise ForbiddenError()
+    user = principal.user
+    context = ToolContext(user.id, str(user.role), request_id)
+    budget = ToolBudget()
+    executor = AIToolExecutor(
+        sales_service=sales_service,
+        product_service=product_service,
+        inventory_service=inventory_service,
+        budget=budget,
+        clock=clock,
+        context_verifier=lambda supplied: (
+            supplied is context
+            and principal.user.id == context.actor_id
+            and str(principal.user.role) == context.actor_role
+        ),
+    )
+    return BoundToolRequest(context, executor, budget)
+
+
+@dataclass(frozen=True)
 class ToolResult:
     tool_id: ToolId
     data: Mapping[str, Any]
     source_period: str | None
+
+
+def serialize_tool_result(result: ToolResult) -> bytes:
+    """Use these exact UTF-8 bytes when handing a result to the LLM provider."""
+    return json.dumps(
+        {
+            "tool_id": result.tool_id,
+            "data": result.data,
+            "source_period": result.source_period,
+        },
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
 
 
 @dataclass
@@ -60,6 +167,7 @@ class ToolBudget:
     started_at: float = 0.0
     calls: int = 0
     output_bytes: int = 0
+    lock: RLock = field(default_factory=RLock, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.started_at == 0.0:
@@ -70,17 +178,19 @@ class ToolBudget:
             self.calls >= _MAX_CALLS
             or time.monotonic() - self.started_at >= _DEADLINE_SECONDS
         ):
-            raise DomainValidationError("AI tool request budget exceeded.")
+            if self.calls >= _MAX_CALLS:
+                raise RateLimitedError(60)
+            raise DependencyUnavailableError()
         self.calls += 1
 
     def add_output(self, payload: bytes) -> None:
         if self.output_bytes + len(payload) > _MAX_OUTPUT_BYTES:
-            raise DomainValidationError("AI tool output budget exceeded.")
+            raise RateLimitedError(60)
         self.output_bytes += len(payload)
 
     def check_deadline(self) -> None:
         if time.monotonic() - self.started_at >= _DEADLINE_SECONDS:
-            raise DomainValidationError("AI tool request deadline exceeded.")
+            raise DependencyUnavailableError()
 
 
 class AIToolExecutor:
@@ -92,7 +202,7 @@ class AIToolExecutor:
         product_service: ProductAnalyticsService | None = None,
         inventory_service: InventoryQueryService | None = None,
         budget: ToolBudget | None = None,
-        clock: callable | None = None,
+        clock: Callable[[], datetime] | None = None,
         context_verifier: Callable[[ToolContext], bool] | None = None,
     ) -> None:
         self._sales = sales_service or SalesAnalyticsService()
@@ -113,55 +223,61 @@ class AIToolExecutor:
         started = time.monotonic()
         status = "error"
         output_bytes = 0
+        verified = False
+        error_code = None
         try:
-            if self._context_verifier is None or not self._context_verifier(context):
-                raise ForbiddenError()
-            self._authenticate_admin(session, context)
-            if tool_id not in _TOOLS:
-                raise DomainValidationError("Unknown AI tool.")
-            if not isinstance(arguments, Mapping):
-                raise DomainValidationError("Tool arguments must be an object.")
-            self._budget.reserve()
-            self._budget.check_deadline()
-            result = self._dispatch(session, tool_id, arguments)
-            self._budget.check_deadline()
-            payload = json.dumps(
-                {
-                    "tool_id": result.tool_id,
-                    "data": result.data,
-                    "source_period": result.source_period,
-                },
-                default=self._json_default,
-                separators=(",", ":"),
-            ).encode()
-            self._budget.add_output(payload)
-            output_bytes = len(payload)
-            status = "success"
-            return result
-        except (DomainValidationError, ForbiddenError, DependencyUnavailableError):
+            with self._budget.lock:
+                if self._context_verifier is None or not self._context_verifier(
+                    context
+                ):
+                    raise ForbiddenError()
+                verified = True
+                self._budget.check_deadline()
+                self._authenticate_admin(session, context)
+                self._budget.check_deadline()
+                self._budget.reserve()  # invalid model calls consume quota too
+                if not isinstance(tool_id, str) or tool_id not in _TOOLS:
+                    raise DomainValidationError("Unknown AI tool.")
+                if not isinstance(arguments, Mapping):
+                    raise DomainValidationError("Tool arguments must be an object.")
+                result = self._dispatch(session, tool_id, arguments)
+                self._budget.check_deadline()
+                payload = serialize_tool_result(result)
+                self._budget.check_deadline()
+                self._budget.add_output(payload)
+                output_bytes = len(payload)
+                status = "success"
+                return result
+        except AppException as error:
+            error_code = error.code
             raise
         except Exception as error:
+            error_code = "DEPENDENCY_UNAVAILABLE"
             raise DependencyUnavailableError() from error
         finally:
             logger.info(
                 "ai_tool_execution",
                 extra={
-                    "request_id": context.request_id,
-                    "actor_id": context.actor_id,
-                    "tool_id": tool_id,
+                    "request_id": context.request_id if verified else "invalid",
+                    "actor_id": context.actor_id if verified else None,
+                    "tool_id": tool_id
+                    if isinstance(tool_id, str) and tool_id in _TOOLS
+                    else "unknown",
                     "status": status,
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
                     "output_bytes": output_bytes,
+                    "error_code": error_code,
                 },
             )
 
     @staticmethod
     def _authenticate_admin(session: Session, context: ToolContext) -> None:
-        user = session.get(User, context.actor_id)
+        user = session.get(User, context.actor_id, populate_existing=True)
         if (
             user is None
             or user.status != UserStatus.ACTIVE
             or user.role != UserRole.ADMIN
+            or context.actor_role != UserRole.ADMIN
         ):
             raise ForbiddenError()
 
@@ -170,19 +286,28 @@ class AIToolExecutor:
     ) -> ToolResult:
         if tool_id == "get_sales_summary":
             self._check_keys(args, {"start_date", "end_date"})
-            start = self._date(args.get("start_date"), "start_date")
-            end = self._date(args.get("end_date"), "end_date")
-            today = self._clock().date()
-            if start is not None and end is not None and (end - start).days > 89:
-                raise DomainValidationError("Date range must not exceed 90 days.")
-            if end and end > today or start and start > today:
-                raise DomainValidationError("Future dates are not allowed.")
+            start = (
+                self._date(args["start_date"], "start_date")
+                if "start_date" in args
+                else None
+            )
+            end = (
+                self._date(args["end_date"], "end_date") if "end_date" in args else None
+            )
+            today = self._clock().astimezone(_VN_TZ).date()
+            end = end or today
+            start = start or end
+            inclusive_days = (end - start).days + 1
+            if not 1 <= inclusive_days <= 90 or end > today:
+                raise DomainValidationError("Invalid sales date range.")
             period = resolve_sales_period(
                 from_date=start, to_date=end, now_fn=self._clock
             )
             value = self._sales.summary(session, period=period)
             data = {
-                k: getattr(value, k)
+                k: self._utc(getattr(value, k))
+                if k.startswith("period_")
+                else getattr(value, k)
                 for k in (
                     "period_start",
                     "period_end_exclusive",
@@ -192,7 +317,7 @@ class AIToolExecutor:
                     "aov_vnd",
                 )
             }
-            return ToolResult(
+            return self._validated_result(
                 tool_id,
                 data,
                 f"{period.start_utc.isoformat()}/{period.end_utc_exclusive.isoformat()}",
@@ -203,27 +328,31 @@ class AIToolExecutor:
                 self._bounded_int(args.get("days", 7), "days", 1, 90),
                 self._bounded_int(args.get("limit", 5), "limit", 1, 20),
             )
+            period = resolve_days_period(days, now_fn=self._clock)
             page = self._products.top(
                 session,
-                period=resolve_days_period(days, now_fn=self._clock),
+                period=period,
                 page=1,
                 page_size=limit,
             )
-            return ToolResult(
+            self._check_page(page, limit)
+            return self._validated_result(
                 tool_id,
                 {"items": [self._item(i) for i in page.items], "total": page.total},
-                f"last_{days}_days",
+                f"{period.start_utc.isoformat()}/{period.end_utc_exclusive.isoformat()}",
             )
         if tool_id == "get_slow_products":
             self._check_keys(args, {"limit"})
             limit = self._bounded_int(args.get("limit", 10), "limit", 1, 20)
+            as_of = self._clock()
             page = self._products.slow(
-                session, as_of_utc=self._clock(), page=1, page_size=limit
+                session, as_of_utc=as_of, page=1, page_size=limit
             )
-            return ToolResult(
+            self._check_page(page, limit)
+            return self._validated_result(
                 tool_id,
                 {"items": [self._item(i) for i in page.items], "total": page.total},
-                "trailing_30_days; stocked_more_than_7_days",
+                f"as_of={self._utc(as_of)}; trailing_30_days; stocked_more_than_7_days",
             )
         self._check_keys(args, {"limit"})
         limit = self._bounded_int(args.get("limit", 10), "limit", 1, 20)
@@ -233,7 +362,8 @@ class AIToolExecutor:
             page_size=limit,
             threshold=DEFAULT_LOW_STOCK_THRESHOLD,
         )
-        return ToolResult(
+        self._check_page(page, limit)
+        return self._validated_result(
             tool_id,
             {"items": [self._safe_low(i) for i in page.items], "total": page.total},
             "current_stock",
@@ -243,6 +373,15 @@ class AIToolExecutor:
     def _check_keys(args: Mapping[str, Any], allowed: set[str]) -> None:
         if any(key not in allowed for key in args):
             raise DomainValidationError("Unexpected tool argument.")
+
+    @staticmethod
+    def _check_page(page: Any, limit: int) -> None:
+        if (
+            len(page.items) > limit
+            or type(page.total) is not int
+            or page.total < len(page.items)
+        ):
+            raise DependencyUnavailableError()
 
     @staticmethod
     def _bounded_int(value: Any, name: str, low: int, high: int) -> int:
@@ -255,19 +394,20 @@ class AIToolExecutor:
         return value
 
     @staticmethod
-    def _date(value: Any, name: str) -> date | None:
-        if value is None:
-            return None
-        if not isinstance(value, str):
+    def _date(value: Any, name: str) -> date:
+        if not isinstance(value, str) or not _CANONICAL_DATE.fullmatch(value):
             raise DomainValidationError(f"Invalid {name}.")
         try:
-            return date.fromisoformat(value)
+            parsed = date.fromisoformat(value)
+            if parsed.isoformat() != value:
+                raise ValueError
+            return parsed
         except ValueError as error:
             raise DomainValidationError(f"Invalid {name}.") from error
 
     @staticmethod
     def _item(item: Any) -> dict[str, Any]:
-        return {
+        data = {
             k: getattr(item, k)
             for k in (
                 "product_id",
@@ -275,11 +415,14 @@ class AIToolExecutor:
                 "name",
                 "sold_units",
                 "revenue_vnd",
-                "quantity",
-                "first_stocked_at",
             )
-            if getattr(item, k, None) is not None
         }
+        for key in ("quantity", "first_stocked_at"):
+            if hasattr(item, key):
+                data[key] = getattr(item, key)
+        if "first_stocked_at" in data and data["first_stocked_at"] is not None:
+            data["first_stocked_at"] = AIToolExecutor._utc(data["first_stocked_at"])
+        return data
 
     @staticmethod
     def _safe_low(item: Any) -> dict[str, Any]:
@@ -289,7 +432,27 @@ class AIToolExecutor:
         }
 
     @staticmethod
-    def _json_default(value: Any) -> str:
-        if isinstance(value, datetime):
-            return value.astimezone(UTC).isoformat()
-        raise TypeError
+    def _utc(value: datetime) -> str:
+        if not isinstance(value, datetime):
+            raise ValueError("Invalid datetime from business service")
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)  # MySQL stores UTC without tzinfo
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _validated_result(
+        tool_id: ToolId, data: dict[str, Any], source_period: str
+    ) -> ToolResult:
+        try:
+            model = {
+                "get_sales_summary": _SalesData,
+                "get_top_products": _ProductPage,
+                "get_slow_products": _ProductPage,
+                "get_low_stock": _LowStockPage,
+            }[tool_id]
+            validated = model.model_validate(data)
+            return ToolResult(
+                tool_id, validated.model_dump(exclude_unset=True), source_period
+            )
+        except ValidationError as error:
+            raise DependencyUnavailableError() from error
