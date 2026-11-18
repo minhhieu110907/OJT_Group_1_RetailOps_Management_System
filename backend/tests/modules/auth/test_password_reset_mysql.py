@@ -102,12 +102,14 @@ def test_password_reset_full_lifecycle_and_outbox_in_mysql(
     try:
         with Session(migrated_integration_engine) as session:
             staff = ctx.create_staff(session, password="OldPass!123")
+            staff_id = staff.id
+            staff_email = staff.email_normalized
             now_naive = datetime.now(UTC).replace(tzinfo=None)
             sess_id = uuid4().bytes
             session.add(
                 AuthSession(
                     id=sess_id,
-                    user_id=staff.id,
+                    user_id=staff_id,
                     created_at=now_naive,
                     expires_at=now_naive + timedelta(hours=8),
                     revoked_at=None,
@@ -123,11 +125,11 @@ def test_password_reset_full_lifecycle_and_outbox_in_mysql(
             password_hasher=hasher,
         )
         with Session(migrated_integration_engine) as session:
-            outbox_service.request_reset(session, email=staff.email_normalized)
+            outbox_service.request_reset(session, email=staff_email)
 
         with Session(migrated_integration_engine) as session:
             ev = session.scalar(
-                select(OutboxEvent).where(OutboxEvent.subject_user_id == staff.id)
+                select(OutboxEvent).where(OutboxEvent.subject_user_id == staff_id)
             )
             assert ev is not None
             assert ev.event_type == "PASSWORD_RESET"
@@ -141,7 +143,7 @@ def test_password_reset_full_lifecycle_and_outbox_in_mysql(
             password_hasher=hasher,
         )
         with Session(migrated_integration_engine) as session:
-            mem_service.request_reset(session, email=staff.email_normalized)
+            mem_service.request_reset(session, email=staff_email)
 
         raw_token = mem_adapter.sent_emails[0].reset_link.split("token=", 1)[1]
         with Session(migrated_integration_engine) as session:
@@ -150,7 +152,7 @@ def test_password_reset_full_lifecycle_and_outbox_in_mysql(
             )
 
         with Session(migrated_integration_engine) as session:
-            updated_user = session.get(User, staff.id)
+            updated_user = session.get(User, staff_id)
             assert updated_user is not None
             assert hasher.verify("NewPass!456", updated_user.password_hash)
             revoked_sess = session.get(AuthSession, sess_id)
