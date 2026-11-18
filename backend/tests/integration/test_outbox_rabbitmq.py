@@ -989,16 +989,16 @@ def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
     migrated_integration_engine: Engine,
     integration_database_url: URL,
 ) -> None:
-    from app.modules.auth.rate_limit import (
-        enforce_forgot_password_rate_limit,
-        enforce_reset_password_rate_limit,
-    )
     from fastapi.testclient import TestClient
     from pydantic import SecretStr
     from sqlalchemy.orm import sessionmaker
 
-    from app.core.config import Settings
-    from app.infrastructure.dependencies import get_db_session, get_settings
+    from app.core.config import Settings, get_settings
+    from app.db.session import get_db_session
+    from app.infrastructure.dependencies import (
+        enforce_forgot_password_rate_limit,
+        enforce_reset_password_rate_limit,
+    )
     from app.main import create_app
     from app.modules.auth.models import AuthSession, PasswordResetToken
     from app.modules.auth.security import PasswordHasher
