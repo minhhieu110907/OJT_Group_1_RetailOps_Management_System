@@ -379,6 +379,13 @@ Nghiệm thu: Kiểm tra HTTP 401/403, thu hồi phiên đăng nhập, Checkout/
 
 ## T04A9E6 — AI Tool Executor
 
+### Quyết định AI Contract 18/11 — Dương đọc trước khi tích hợp
+- **Nguồn canonical:** `contracts/python/retailops_extended_ports.pyi` cho ABI; `contracts/ai_tool_schemas.json` cho 4 input/output schemas; `docs/contracts/ASYNC_AI_CONTRACTS.md` mục `Quyết định triển khai T04A9E6` cho defaults, service adapter, error/budget semantics.
+- **Đã chốt về kỹ thuật, chờ Dương ACK:** sales mặc định hôm nay VN và tối đa 90 ngày inclusive, top days=7/limit=5, slow limit=10, low-stock limit=10; 3 calls, 15s shared deadline, 32 KiB shared serialized result; ADMIN every call, no model identity, read-only. Product Analytics runtime trả `ProductAnalyticsPage`, low-stock runtime gọi `InventoryQueryService.get_low_stock`; không giả định kiểu trả về từ .pyi là runtime class.
+- **Gate:** Dương có thể viết mock/integration adapter ngay theo docs; chưa coi provider ready hoặc real integration complete trước provider PR, ACK và CI. Mọi phát hiện drift => sửa docs/schema+tests trong PR, không lặng lẽ thay chữ ký.
+
+
+
 **Bảo mật bắt buộc:** chỉ dùng chữ ký `.pyi` `AIToolExecutor.execute(session, *, tool_id, arguments, context)`; `ToolContext` do backend lấy từ principal đã xác thực, không nhận `actor_id`/role do LLM đề xuất. Validate theo `contracts/ai_tool_schemas.json` trước service call, kiểm ADMIN mỗi lần; deadline mặc định 15s, 3 tool calls và 32 KiB data/request đã được Tech Lead chốt trong CF-2.4; vẫn chờ provider–consumer ACK trên PR.
 
 
