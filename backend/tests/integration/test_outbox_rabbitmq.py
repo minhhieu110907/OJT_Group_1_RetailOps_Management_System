@@ -1051,11 +1051,9 @@ def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
             AuthSession(
                 id=existing_session_id,
                 user_id=staff_id,
-                refresh_token_hash="r" * 64,
                 created_at=now,
                 expires_at=now + timedelta(hours=8),
                 revoked_at=None,
-                last_used_at=None,
             )
         )
 
