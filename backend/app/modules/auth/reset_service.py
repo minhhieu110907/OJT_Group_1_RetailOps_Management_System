@@ -74,7 +74,9 @@ class AuthResetService:
             raise DomainValidationError("Định dạng email không hợp lệ.") from err
 
         user = session.scalar(
-            select(User).where(User.email_normalized == normalized_email)
+            select(User)
+            .where(User.email_normalized == normalized_email)
+            .with_for_update()
         )
         if (
             user is None

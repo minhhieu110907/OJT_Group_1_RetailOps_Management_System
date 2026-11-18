@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr | None = None
     csrf_secret: SecretStr | None = None
     idempotency_secret: SecretStr | None = None
+    outbox_secret_key: SecretStr | None = None
     jwt_issuer: str = "retailops-api"
     jwt_audience: str = "retailops-api"
     access_token_ttl_seconds: int = 900
@@ -222,6 +223,12 @@ class Settings(BaseSettings):
             if len(secret_value.encode()) < 32 or secret_value.startswith("CHANGE_ME"):
                 raise ValueError(
                     "Idempotency secret must be a non-placeholder of at least 32 bytes"
+                )
+        if self.outbox_secret_key is not None:
+            secret_value = self.outbox_secret_key.get_secret_value()
+            if len(secret_value.encode()) < 32 or secret_value.startswith("CHANGE_ME"):
+                raise ValueError(
+                    "Outbox secret key must be a non-placeholder of at least 32 bytes"
                 )
         if self.environment.casefold() == "production":
             if self.jwt_secret is None or self.csrf_secret is None:

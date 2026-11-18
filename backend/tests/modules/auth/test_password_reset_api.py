@@ -38,7 +38,14 @@ from app.modules.auth.reset_service import (
     AuthResetService,
 )
 from app.modules.auth.router import get_auth_reset_service
-from app.modules.auth.security import PasswordHasher, hash_reset_token
+from app.modules.auth.security import (
+    RESET_SECRET_VERSION,
+    PasswordHasher,
+    decrypt_reset_secret,
+    encrypt_reset_secret,
+    hash_reset_token,
+)
+from app.modules.outbox.handler import EmailEventHandler
 from app.modules.outbox.models import OutboxEvent
 
 
@@ -100,6 +107,7 @@ def _make_settings(**overrides) -> Settings:
         "jwt_secret": SecretStr("j" * 32),
         "csrf_secret": SecretStr("c" * 32),
         "idempotency_secret": SecretStr("i" * 32),
+        "outbox_secret_key": SecretStr("o" * 32),
         "password_reset_email_adapter": "memory",
         "password_reset_base_url": "https://app.retailops.example/reset-password",
     }
@@ -411,3 +419,86 @@ def test_outbox_reset_adapter_encrypts_secret_in_outbox_event() -> None:
         assert ev.payload == {"schema_version": 1}
         assert ev.secret_ciphertext is not None
         assert b"reset-password?token=" not in ev.secret_ciphertext
+
+
+def test_aes256gcm_encrypt_decrypt_roundtrip_and_tamper_detection() -> None:
+    key = "a" * 32
+    wrong_key = "b" * 32
+    link = "https://app.retailops.example/reset-password?token=secret-tok-123"
+
+    blob1 = encrypt_reset_secret(link, key)
+    blob2 = encrypt_reset_secret(link, key)
+
+    assert blob1[:1] == RESET_SECRET_VERSION
+    assert blob1 != blob2  # random 12-byte nonce per encryption
+    assert b"secret-tok-123" not in blob1
+    assert decrypt_reset_secret(blob1, key) == link
+
+    with pytest.raises(ValueError, match="authentication failed"):
+        decrypt_reset_secret(blob1, wrong_key)
+
+    tampered = bytearray(blob1)
+    tampered[-1] ^= 0xFF
+    with pytest.raises(ValueError, match="authentication failed"):
+        decrypt_reset_secret(bytes(tampered), key)
+
+
+def test_email_worker_handles_password_reset_valid_expired_and_inactive(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    sf = _make_sqlite_session_factory()
+    secret_key = "w" * 32
+    now_box = [datetime(2026, 11, 18, 10, 0, 0)]
+    adapter = OutboxPasswordResetEmailAdapter(secret_key=secret_key)
+    service = AuthResetService(
+        email_port=adapter,
+        reset_base_url="https://app.retailops.example/reset-password",
+        token_ttl_seconds=900,
+        password_hasher=PasswordHasher(work_factor=4),
+        clock=lambda: now_box[0].replace(tzinfo=UTC),
+    )
+
+    sent_transport = MagicMock()
+    handler = EmailEventHandler(
+        sf,
+        sent_transport,
+        clock=lambda: now_box[0],
+        secret_key=secret_key,
+    )
+
+    with sf() as s:
+        _seed_user(s, email="staff@example.com")
+        service.request_reset(s, email="staff@example.com")
+        ev1 = s.scalar(select(OutboxEvent))
+        assert ev1 is not None
+        ev1_id = ev1.id
+
+    # 1. Valid active token -> SENT with reset link, no token in logs
+    out1 = handler.handle(event_id=ev1_id)
+    assert out1.status == "SENT"
+    sent_transport.send.assert_called_once()
+    sent_email = sent_transport.send.call_args.kwargs["email"]
+    assert "https://app.retailops.example/reset-password?token=" in sent_email.text
+    assert "https://app.retailops.example/reset-password?token=" not in caplog.text
+
+    # 2. Replaced / inactive token -> FAILED (TOKEN_INACTIVE), transport not called
+    sent_transport.reset_mock()
+    with sf() as s:
+        service.request_reset(s, email="staff@example.com")
+        events = list(s.scalars(select(OutboxEvent).order_by(OutboxEvent.created_at)))
+        ev2_id = events[-1].id
+        # Replace ev2's token by issuing ev3
+        service.request_reset(s, email="staff@example.com")
+        events = list(s.scalars(select(OutboxEvent).order_by(OutboxEvent.created_at)))
+        ev3_id = events[-1].id
+
+    out2 = handler.handle(event_id=ev2_id)
+    assert out2.status == "FAILED"
+    sent_transport.send.assert_not_called()
+
+    # 3. Expired event -> FAILED (SECRET_EXPIRED), transport not called
+    now_box[0] = now_box[0] + timedelta(seconds=901)
+    out3 = handler.handle(event_id=ev3_id)
+    assert out3.status == "FAILED"
+    sent_transport.send.assert_not_called()

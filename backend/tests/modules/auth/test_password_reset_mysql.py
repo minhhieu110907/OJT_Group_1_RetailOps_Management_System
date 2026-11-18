@@ -131,9 +131,16 @@ def test_password_reset_full_lifecycle_and_outbox_in_mysql(
             ev = session.scalar(
                 select(OutboxEvent).where(OutboxEvent.subject_user_id == staff_id)
             )
-            assert ev is not None
+            tok = session.scalar(
+                select(PasswordResetToken).where(
+                    PasswordResetToken.user_id == staff_id,
+                    PasswordResetToken.used_at.is_(None),
+                )
+            )
+            assert ev is not None and tok is not None
             assert ev.event_type == "PASSWORD_RESET"
             assert ev.secret_ciphertext is not None
+            assert ev.secret_expires_at == tok.expires_at
 
         # Issue another reset via in-memory adapter to obtain raw token and test consume
         mem_adapter = FakeInMemoryPasswordResetEmailAdapter()
@@ -260,5 +267,112 @@ def test_reset_rollback_leaves_token_unused_on_mid_tx_failure(
             )
             assert tok is not None
             assert tok.used_at is None
+    finally:
+        ctx.cleanup()
+
+
+def test_concurrent_forgot_password_leaves_only_latest_token_active_in_mysql(
+    migrated_integration_engine: Engine,
+) -> None:
+    """Two concurrent forgot-password requests leave only one active token."""
+    ctx = PasswordResetRunContext(migrated_integration_engine)
+    hasher = PasswordHasher(work_factor=4)
+    outbox_adapter = OutboxPasswordResetEmailAdapter(secret_key="k" * 32)
+    service = AuthResetService(
+        email_port=outbox_adapter,
+        reset_base_url="https://app.retailops.example/reset-password",
+        password_hasher=hasher,
+    )
+    try:
+        with Session(migrated_integration_engine) as session:
+            staff = ctx.create_staff(session, password="OldPass!123")
+            staff_id = staff.id
+            staff_email = staff.email_normalized
+            session.commit()
+
+        barrier = threading.Barrier(2)
+        errors: list[Exception] = []
+
+        def _worker() -> None:
+            barrier.wait(timeout=10)
+            with Session(migrated_integration_engine) as s:
+                try:
+                    service.request_reset(s, email=staff_email)
+                except Exception as exc:  # pragma: no cover
+                    errors.append(exc)
+
+        t1 = threading.Thread(target=_worker)
+        t2 = threading.Thread(target=_worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=15)
+        t2.join(timeout=15)
+        assert not errors
+
+        with Session(migrated_integration_engine) as session:
+            all_tokens = list(
+                session.scalars(
+                    select(PasswordResetToken)
+                    .where(PasswordResetToken.user_id == staff_id)
+                    .order_by(PasswordResetToken.id.asc())
+                )
+            )
+            assert len(all_tokens) == 2
+            active_tokens = [t for t in all_tokens if t.used_at is None]
+            assert len(active_tokens) == 1
+            assert active_tokens[0].id == all_tokens[-1].id
+    finally:
+        ctx.cleanup()
+
+
+def test_forgot_password_outbox_failure_rolls_back_token_invalidation_in_mysql(
+    migrated_integration_engine: Engine,
+) -> None:
+    """If Outbox append fails, old token remains active and no new rows persist."""
+    ctx = PasswordResetRunContext(migrated_integration_engine)
+    mem_adapter = FakeInMemoryPasswordResetEmailAdapter()
+    good_service = AuthResetService(
+        email_port=mem_adapter,
+        reset_base_url="https://app.retailops.example/reset-password",
+        password_hasher=PasswordHasher(work_factor=4),
+    )
+
+    class _FailingEmailPort:
+        def send_reset_email(self, session, **kwargs) -> None:
+            raise RuntimeError("Simulated outbox write failure")
+
+    failing_service = AuthResetService(
+        email_port=_FailingEmailPort(),
+        reset_base_url="https://app.retailops.example/reset-password",
+        password_hasher=PasswordHasher(work_factor=4),
+    )
+
+    try:
+        with Session(migrated_integration_engine) as session:
+            staff = ctx.create_staff(session, password="OldPass!123")
+            staff_id = staff.id
+            staff_email = staff.email_normalized
+            session.commit()
+            good_service.request_reset(session, email=staff_email)
+
+        tok1_raw = mem_adapter.sent_emails[0].reset_link.split("token=", 1)[1]
+        tok1_hash = hash_reset_token(tok1_raw)
+
+        with Session(migrated_integration_engine) as session:
+            with pytest.raises(RuntimeError, match="Simulated outbox write failure"):
+                failing_service.request_reset(session, email=staff_email)
+            session.rollback()
+
+        with Session(migrated_integration_engine) as session:
+            tokens = list(
+                session.scalars(
+                    select(PasswordResetToken).where(
+                        PasswordResetToken.user_id == staff_id
+                    )
+                )
+            )
+            assert len(tokens) == 1
+            assert tokens[0].token_hash == tok1_hash
+            assert tokens[0].used_at is None
     finally:
         ctx.cleanup()

@@ -115,7 +115,9 @@ def build_password_reset_email_adapter(
             )
         return FakeInMemoryPasswordResetEmailAdapter()
 
-    secret = settings.jwt_secret
+    secret = settings.outbox_secret_key
     if secret is None:
-        raise DependencyUnavailableError("Thiếu khóa mã hóa cho outbox reset email.")
+        raise DependencyUnavailableError(
+            "Thiếu RETAILOPS_OUTBOX_SECRET_KEY cho outbox reset email."
+        )
     return OutboxPasswordResetEmailAdapter(secret_key=secret.get_secret_value())
