@@ -1152,10 +1152,10 @@ def test_reconciliation_cleanup_isolation_mysql(
                 operation="CHECKOUT",
                 key_digest=idem_b_key,
                 request_digest=idem_b_req,
-                response_status=None,
-                response_body=None,
+                response_status=200,
+                response_body={"ok": True},
+                completed_at=now_unaware,
                 created_at=now_unaware,
-                completed_at=None,
                 expires_at=None,
             )
             session.add(idem_b)
@@ -1376,10 +1376,10 @@ def test_reconciliation_cleanup_shared_admin_immunity_mysql(
             operation=op,
             key_digest=unique_key_digest,
             request_digest=unique_req_digest,
-            response_status=None,
-            response_body=None,
+            response_status=200,
+            response_body={"ok": True},
+            completed_at=now,
             created_at=now,
-            completed_at=None,
             expires_at=None,
         )
         session.add(admin_idem)
