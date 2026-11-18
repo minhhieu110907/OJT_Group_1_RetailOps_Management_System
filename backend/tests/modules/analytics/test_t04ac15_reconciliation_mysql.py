@@ -456,6 +456,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 sku_snapshot=prod_coca.sku,
                 product_name_snapshot=prod_coca.name,
                 quantity=120,
+                unit_cost_vnd=8_500,
                 line_total_vnd=120 * 8_500,
             )
             r_item_milk = PurchaseReceiptItem(
@@ -464,6 +465,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 sku_snapshot=prod_milk.sku,
                 product_name_snapshot=prod_milk.name,
                 quantity=50,
+                unit_cost_vnd=28_000,
                 line_total_vnd=50 * 28_000,
             )
             r_item_lays = PurchaseReceiptItem(
@@ -472,6 +474,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 sku_snapshot=prod_lays.sku,
                 product_name_snapshot=prod_lays.name,
                 quantity=5,
+                unit_cost_vnd=14_000,
                 line_total_vnd=5 * 14_000,
             )
             r_item_tuna = PurchaseReceiptItem(
@@ -480,6 +483,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 sku_snapshot=prod_tuna.sku,
                 product_name_snapshot=prod_tuna.name,
                 quantity=3,
+                unit_cost_vnd=32_000,
                 line_total_vnd=3 * 32_000,
             )
             session.add_all([r_item_coca, r_item_milk, r_item_lays, r_item_tuna])
@@ -495,6 +499,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=0,
                 quantity_after=120,
                 stock_version_after=1,
+                unit_cost_vnd=8_500,
                 actor_id=admin_id,
                 occurred_at=stocked_10d_ago,
             )
@@ -507,6 +512,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=0,
                 quantity_after=50,
                 stock_version_after=1,
+                unit_cost_vnd=28_000,
                 actor_id=admin_id,
                 occurred_at=stocked_10d_ago,
             )
@@ -519,6 +525,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=0,
                 quantity_after=5,
                 stock_version_after=1,
+                unit_cost_vnd=14_000,
                 actor_id=admin_id,
                 occurred_at=stocked_10d_ago,
             )
@@ -531,6 +538,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=0,
                 quantity_after=3,
                 stock_version_after=1,
+                unit_cost_vnd=32_000,
                 actor_id=admin_id,
                 occurred_at=stocked_10d_ago,
             )
@@ -594,6 +602,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=120,
                 quantity_after=118,
                 stock_version_after=2,
+                unit_cost_vnd=8_500,
                 actor_id=staff.id,
                 occurred_at=now_unaware,
             )
@@ -606,6 +615,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=50,
                 quantity_after=49,
                 stock_version_after=2,
+                unit_cost_vnd=28_000,
                 actor_id=staff.id,
                 occurred_at=now_unaware,
             )
@@ -660,6 +670,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=5,
                 quantity_after=2,
                 stock_version_after=2,
+                unit_cost_vnd=None,
                 actor_id=staff.id,
                 occurred_at=now_unaware,
             )
@@ -672,6 +683,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=3,
                 quantity_after=2,
                 stock_version_after=2,
+                unit_cost_vnd=None,
                 actor_id=staff.id,
                 occurred_at=now_unaware,
             )
@@ -697,6 +709,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=2,
                 quantity_after=5,
                 stock_version_after=3,
+                unit_cost_vnd=None,
                 actor_id=staff.id,
                 occurred_at=cancel_time_unaware,
             )
@@ -709,6 +722,7 @@ def test_demo_dataset_end_to_end_reconciliation_mysql(
                 quantity_before=2,
                 quantity_after=3,
                 stock_version_after=3,
+                unit_cost_vnd=None,
                 actor_id=staff.id,
                 occurred_at=cancel_time_unaware,
             )
