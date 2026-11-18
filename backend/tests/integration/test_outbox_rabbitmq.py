@@ -122,7 +122,12 @@ def cleanup_worker_events(engine: Engine) -> None:
         )
 
 
-def worker_environment(database_url: URL) -> dict[str, str]:
+def worker_environment(
+    database_url: URL,
+    *,
+    smtp_host: str = "127.0.0.1",
+    smtp_port: int = 1,
+) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
         {
@@ -135,8 +140,8 @@ def worker_environment(database_url: URL) -> dict[str, str]:
             "RETAILOPS_RABBITMQ_URL": required_environment(
                 "RETAILOPS_TEST_RABBITMQ_WORKER_URL"
             ),
-            "RETAILOPS_SMTP_HOST": "127.0.0.1",
-            "RETAILOPS_SMTP_PORT": "1",
+            "RETAILOPS_SMTP_HOST": smtp_host,
+            "RETAILOPS_SMTP_PORT": str(smtp_port),
             "RETAILOPS_SMTP_FROM_ADDRESS": "no-reply@retailops.local",
             "RETAILOPS_SMTP_STARTTLS": "false",
         }
@@ -178,9 +183,15 @@ def read_worker_log(worker_log: IO[bytes]) -> bytes:
 
 @contextmanager
 def running_worker(
-    database_url: URL, *, loglevel: str = "WARNING"
+    database_url: URL,
+    *,
+    loglevel: str = "WARNING",
+    smtp_host: str = "127.0.0.1",
+    smtp_port: int = 1,
 ) -> Iterator[WorkerHandle]:
-    environment = worker_environment(database_url)
+    environment = worker_environment(
+        database_url, smtp_host=smtp_host, smtp_port=smtp_port
+    )
     with tempfile.TemporaryFile() as worker_log:
         process = subprocess.Popen(
             [
@@ -700,3 +711,271 @@ def test_real_worker_invalid_envelope_is_parked(
             assert parked_message.headers["id"] == task_id
             assert "not-a-canonical-uuid" in message_body_text(parked_message)
             parked_message.ack()
+
+
+def mailpit_message_count_for_recipient(recipient: str) -> int:
+    http_port = int(required_environment("MAILPIT_HTTP_HOST_PORT"))
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{http_port}/api/v1/messages", timeout=10
+    ) as response:
+        data = json.loads(response.read())
+    messages = data.get("messages", [])
+    return sum(
+        1
+        for msg in messages
+        if any(
+            isinstance(to, dict) and to.get("Address") == recipient
+            for to in msg.get("To", [])
+        )
+    )
+
+
+def test_t04aa00_duplicate_delivery_is_idempotent(
+    migrated_integration_engine: Engine,
+    integration_database_url: URL,
+) -> None:
+    cleanup_worker_events(migrated_integration_engine)
+    event_id = create_event(migrated_integration_engine, delivery_attempts=0)
+    with Session(migrated_integration_engine) as session:
+        user_id = session.scalar(
+            select(OutboxEvent.subject_user_id).where(OutboxEvent.id == event_id)
+        )
+        recipient = session.scalar(
+            select(User.email_normalized).where(User.id == user_id)
+        )
+        assert recipient is not None
+    smtp_port = int(required_environment("MAILPIT_SMTP_HOST_PORT"))
+    try:
+        with running_worker(
+            integration_database_url, smtp_host="127.0.0.1", smtp_port=smtp_port
+        ):
+            publish_email_task(event_id)
+            publish_email_task(event_id)
+            event = wait_for_event(
+                migrated_integration_engine,
+                event_id,
+                lambda current: current.outcome == "SENT",
+            )
+            assert event.delivery_attempts == 1
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                queue = management_get("/api/queues/%2Fretailops/retailops.email.v1")
+                if isinstance(queue, dict) and queue.get("messages") == 0:
+                    break
+                time.sleep(0.2)
+            with Session(migrated_integration_engine) as session:
+                refreshed = session.get(OutboxEvent, event_id)
+                assert refreshed is not None
+                assert refreshed.delivery_attempts == 1
+                assert refreshed.outcome == "SENT"
+            assert mailpit_message_count_for_recipient(recipient) == 1
+    finally:
+        from kombu import pools
+
+        pools.reset()
+        cleanup_worker_events(migrated_integration_engine)
+
+
+def create_t04aa00_event(
+    engine: Engine,
+    *,
+    created_at: datetime,
+    available_at: datetime,
+    published_at: datetime | None,
+    delivery_attempts: int,
+    publish_attempts: int = 0,
+) -> bytes:
+    event_id = uuid4().bytes
+    with Session(engine) as session:
+        user = User(
+            email_normalized=f"{EMAIL_PREFIX}{uuid4().hex}@example.com",
+            password_hash="test-hash",
+            role="STAFF",
+            status="ACTIVE",
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            OutboxEvent(
+                id=event_id,
+                subject_user_id=user.id,
+                event_type="STAFF_APPROVED",
+                payload={
+                    "schema_version": 1,
+                    "approval_request_id": 1,
+                    "actor_id": 1,
+                },
+                secret_expires_at=None,
+                secret_ciphertext=None,
+                created_at=created_at,
+                available_at=available_at,
+                published_at=published_at,
+                publish_attempts=publish_attempts,
+                delivery_attempts=delivery_attempts,
+                outcome=None,
+                finished_at=None,
+                last_error_code=None,
+            )
+        )
+        session.commit()
+    return event_id
+
+
+def test_t04aa00_broker_outage_and_controlled_replay_recovery(
+    migrated_integration_engine: Engine,
+    integration_database_url: URL,
+) -> None:
+    from pydantic import SecretStr
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import Settings
+    from app.modules.outbox.broker import CeleryEventPublisher
+    from app.modules.outbox.publisher import OutboxPublisher
+    from app.modules.outbox.reconciler import (
+        AmqpQuiesceVerifier,
+        OutboxOperatorRecovery,
+        OutboxStuckDetector,
+    )
+
+    cleanup_worker_events(migrated_integration_engine)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
+    past_time = now_utc - timedelta(minutes=20)
+    event_id = create_t04aa00_event(
+        migrated_integration_engine,
+        created_at=past_time,
+        available_at=past_time,
+        published_at=None,
+        delivery_attempts=1,
+        publish_attempts=0,
+    )
+    session_factory = sessionmaker(
+        bind=migrated_integration_engine, autoflush=False, expire_on_commit=False
+    )
+    publisher_url = required_environment("RETAILOPS_TEST_RABBITMQ_PUBLISHER_URL")
+    smtp_port = int(required_environment("MAILPIT_SMTP_HOST_PORT"))
+
+    def build_isolated_settings(amqp_url: str) -> Settings:
+        return Settings(
+            db_host=integration_database_url.host or "127.0.0.1",
+            db_name=integration_database_url.database or "retailops_test",
+            db_user=integration_database_url.username or "unused",
+            db_password=SecretStr(integration_database_url.password or "unused"),
+            rabbitmq_url=SecretStr(amqp_url),
+        )
+
+    def build_isolated_celery(amqp_url: str) -> Celery:
+        app = Celery("t04aa00-publisher-test", broker=amqp_url)
+        app.conf.broker_transport_options = {"confirm_publish": True}
+        app.conf.task_queues = (LIVE_QUEUE,)
+        return app
+
+    try:
+        # 1. Real unreachable AMQP endpoint keeps Outbox intent unpublished
+        unreachable_url = "amqp://unused:unused@127.0.0.1:1/%2Fretailops"
+        unreachable_publisher = OutboxPublisher(
+            CeleryEventPublisher(
+                build_isolated_celery(unreachable_url),
+                build_isolated_settings(unreachable_url),
+            )
+        )
+        offline_result = unreachable_publisher.publish_due(
+            session_factory, batch_size=10
+        )
+        assert offline_result.failed == 1
+        with Session(migrated_integration_engine) as session:
+            ev = session.get(OutboxEvent, event_id)
+            assert ev is not None
+            assert ev.published_at is None
+            assert ev.last_error_code == "BROKER_PUBLISH_FAILED"
+
+        # 2. Simulate stuck/parked state after publish in the past
+        with Session(migrated_integration_engine) as session:
+            ev = session.get(OutboxEvent, event_id)
+            assert ev is not None
+            ev.published_at = past_time
+            ev.last_error_code = "SMTP_TRANSIENT"
+            session.commit()
+
+        detector = OutboxStuckDetector()
+        candidates = detector.detect(
+            session_factory, batch_size=10, stuck_after_seconds=900
+        )
+        assert [c.event_id for c in candidates] == [event_id]
+
+        bootstrap_url = required_environment("RETAILOPS_TEST_RABBITMQ_BOOTSTRAP_URL")
+        verifier = AmqpQuiesceVerifier(
+            amqp_url=bootstrap_url,
+            queue_name="retailops.email.v1",
+            management_url=required_environment(
+                "RETAILOPS_TEST_RABBITMQ_MANAGEMENT_URL"
+            ),
+            admin_user=required_environment("RABBITMQ_BOOTSTRAP_USER"),
+            admin_password=required_environment("RABBITMQ_BOOTSTRAP_PASSWORD"),
+            vhost="/retailops",
+            quiesced_users=(
+                required_environment("RABBITMQ_PUBLISHER_USER"),
+                required_environment("RABBITMQ_WORKER_USER"),
+            ),
+        )
+        recovery = OutboxOperatorRecovery(verifier)
+
+        # 3. Fail-closed while worker consumer is active
+        with running_worker(
+            integration_database_url, smtp_host="127.0.0.1", smtp_port=smtp_port
+        ):
+            blocked = recovery.replay(
+                session_factory,
+                event_id=event_id,
+                reason="t04aa00-active-worker-check",
+                execute=True,
+            )
+            assert blocked.status == "REPLAY_NOT_VERIFIABLE"
+
+        # 4. After worker and test publisher pool stop, replay succeeds
+        from kombu import pools
+
+        pools.reset()
+        quiesce_deadline = time.monotonic() + 10
+        while time.monotonic() < quiesce_deadline:
+            ok, _ = verifier.verify_quiesced()
+            if ok:
+                break
+            time.sleep(0.25)
+
+        replayed = recovery.replay(
+            session_factory,
+            event_id=event_id,
+            reason="t04aa00-quiesced-replay",
+            execute=True,
+        )
+        assert replayed.status == "REPLAY_QUEUED"
+        assert replayed.delivery_attempts == 1
+
+        # 5. Resume publisher + worker and verify terminal SENT
+        publisher = OutboxPublisher(
+            CeleryEventPublisher(
+                build_isolated_celery(publisher_url),
+                build_isolated_settings(publisher_url),
+            )
+        )
+        pub_result = publisher.publish_due(session_factory, batch_size=10)
+        assert pub_result.published >= 1
+
+        with running_worker(
+            integration_database_url, smtp_host="127.0.0.1", smtp_port=smtp_port
+        ):
+            delivered = wait_for_event(
+                migrated_integration_engine,
+                event_id,
+                lambda current: current.outcome == "SENT",
+            )
+            assert delivered.delivery_attempts == 2
+    finally:
+        from kombu import pools
+
+        pools.reset()
+        cleanup_worker_events(migrated_integration_engine)
