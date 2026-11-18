@@ -56,6 +56,51 @@ services:
     networks:
       - application
 
+  rabbitmq:
+    profiles: ["email"]
+    image: rabbitmq:4.4.0-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_BOOTSTRAP_USER:-}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_BOOTSTRAP_PASSWORD:-}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - application
+
+  mailpit:
+    profiles: ["email-local"]
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    networks:
+      - application
+
+  rabbitmq-bootstrap:
+    profiles: ["email"]
+    build:
+      context: ./backend
+    restart: "no"
+    command: ["python", "-m", "app.worker.rabbitmq_bootstrap"]
+    environment:
+      RETAILOPS_RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+      RABBITMQ_BOOTSTRAP_USER: ${RABBITMQ_BOOTSTRAP_USER:-}
+      RABBITMQ_BOOTSTRAP_PASSWORD: ${RABBITMQ_BOOTSTRAP_PASSWORD:-}
+      RABBITMQ_PUBLISHER_USER: ${RABBITMQ_PUBLISHER_USER:-}
+      RABBITMQ_PUBLISHER_PASSWORD: ${RABBITMQ_PUBLISHER_PASSWORD:-}
+      RABBITMQ_WORKER_USER: ${RABBITMQ_WORKER_USER:-}
+      RABBITMQ_WORKER_PASSWORD: ${RABBITMQ_WORKER_PASSWORD:-}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - application
+
   backend:
     build:
       context: ./backend
@@ -111,8 +156,76 @@ services:
       proxy:
         ipv4_address: ${BACKEND_PROXY_IP:-172.30.10.3}
 
+  outbox-publisher:
+    profiles: ["email"]
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker.publisher_main"]
+    environment:
+      RETAILOPS_DB_HOST: mysql
+      RETAILOPS_DB_PORT: 3306
+      RETAILOPS_DB_NAME: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
+      RETAILOPS_DB_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      RETAILOPS_DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      RETAILOPS_RABBITMQ_HOST: rabbitmq
+      RETAILOPS_RABBITMQ_PORT: 5672
+      RETAILOPS_RABBITMQ_VHOST: /retailops
+      RETAILOPS_RABBITMQ_USERNAME: ${RABBITMQ_PUBLISHER_USER:-}
+      RETAILOPS_RABBITMQ_PASSWORD: ${RABBITMQ_PUBLISHER_PASSWORD:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - application
+
+  email-worker:
+    profiles: ["email"]
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command:
+      [
+        "celery",
+        "-A",
+        "app.worker.celery_app:celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=1",
+        "--prefetch-multiplier=1",
+        "--queues=retailops.email.v1",
+      ]
+    environment:
+      RETAILOPS_ENVIRONMENT: ${RETAILOPS_ENVIRONMENT:-development}
+      RETAILOPS_DB_HOST: mysql
+      RETAILOPS_DB_PORT: 3306
+      RETAILOPS_DB_NAME: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
+      RETAILOPS_DB_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      RETAILOPS_DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      RETAILOPS_RABBITMQ_HOST: rabbitmq
+      RETAILOPS_RABBITMQ_PORT: 5672
+      RETAILOPS_RABBITMQ_VHOST: /retailops
+      RETAILOPS_RABBITMQ_USERNAME: ${RABBITMQ_WORKER_USER:-}
+      RETAILOPS_RABBITMQ_PASSWORD: ${RABBITMQ_WORKER_PASSWORD:-}
+      RETAILOPS_SMTP_HOST: ${RETAILOPS_SMTP_HOST:-mailpit}
+      RETAILOPS_SMTP_PORT: ${RETAILOPS_SMTP_PORT:-1025}
+      RETAILOPS_SMTP_USERNAME: ${RETAILOPS_SMTP_USERNAME:-}
+      RETAILOPS_SMTP_PASSWORD: ${RETAILOPS_SMTP_PASSWORD:-}
+      RETAILOPS_SMTP_FROM_ADDRESS: ${RETAILOPS_SMTP_FROM_ADDRESS:-no-reply@retailops.local}
+      RETAILOPS_SMTP_STARTTLS: ${RETAILOPS_SMTP_STARTTLS:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - application
+
 volumes:
   mysql_data:
+  rabbitmq_data:
 
 networks:
   application:

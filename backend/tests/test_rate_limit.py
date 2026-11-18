@@ -161,6 +161,31 @@ async def test_fixed_window_allows_limit_and_returns_atomic_ttl() -> None:
 
 
 @pytest.mark.anyio
+async def test_fixed_window_boundary_starts_a_new_bucket() -> None:
+    redis = FakeRedis([[2, 1], [1, 60]])
+    limiter = RedisFixedWindowRateLimiter(redis, "retailops:test")  # type: ignore[arg-type]
+
+    before_boundary = await limiter.check(
+        policy="business-user",
+        identity="7",
+        limit=2,
+        window_seconds=60,
+        now=59.9,
+    )
+    after_boundary = await limiter.check(
+        policy="business-user",
+        identity="7",
+        limit=2,
+        window_seconds=60,
+        now=60.0,
+    )
+
+    assert before_boundary.count == 2
+    assert after_boundary.count == 1
+    assert redis.calls[0][2] != redis.calls[1][2]
+
+
+@pytest.mark.anyio
 async def test_fourth_request_is_429_when_policy_configured_for_three() -> None:
     configured = settings(register_rate_limit=3)
     redis = FakeRedis([[1, 60], [2, 59], [3, 58], [4, 57]])
@@ -233,7 +258,10 @@ async def test_default_registration_policy_allows_five_then_returns_429() -> Non
 
 
 @pytest.mark.anyio
-async def test_login_ip_policy_allows_five_then_blocks_sixth() -> None:
+async def test_login_ip_policy_allows_five_then_blocks_sixth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.infrastructure.rate_limit.time.time", lambda: 120.0)
     configured = settings()
     redis = CountingRedis()
     service = RejectingLoginService()
@@ -460,7 +488,13 @@ def _business_test_app(configured: Settings, redis: object) -> FastAPI:
 
 
 @pytest.mark.anyio
-async def test_business_quota_is_per_active_user() -> None:
+async def test_business_quota_is_per_active_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Keep all three requests in one fixed window. Without this, a suite that
+    # reaches a wall-clock minute boundary between requests legitimately starts
+    # a new Redis bucket and makes this assertion nondeterministic.
+    monkeypatch.setattr("app.infrastructure.rate_limit.time.time", lambda: 120.0)
     configured = settings(business_rate_limit=2)
     application = _business_test_app(configured, CountingRedis())
     async with httpx.AsyncClient(

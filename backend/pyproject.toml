@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14.0,<2.0.0",
     "bcrypt>=4.2.0,<5.0.0",
+    "celery>=5.6.3,<5.7",
     "email-validator>=2.2.0,<3.0.0",
     "fastapi>=0.115.0,<1.0.0",
     "phonenumbers>=9.0.0,<10.0.0",
@@ -32,6 +33,7 @@ markers = [
     "integration: requires a dedicated MySQL test database",
     "redis_integration: requires a dedicated Redis test instance",
     "proxy_integration: requires Docker, Nginx, and Uvicorn",
+    "rabbitmq_integration: requires an isolated RabbitMQ broker and Mailpit",
 ]
 
 [tool.ruff]

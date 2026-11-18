@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+(
 set -euo pipefail
 
 identifier_pattern='^[A-Za-z0-9_]+$'
@@ -62,3 +63,4 @@ CREATE USER '${MYSQL_TEST_USER}'@'%' IDENTIFIED BY '${test_password_escaped}';
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, INDEX, REFERENCES
   ON \`${MYSQL_TEST_DATABASE}\`.* TO '${MYSQL_TEST_USER}'@'%';
 SQL
+)

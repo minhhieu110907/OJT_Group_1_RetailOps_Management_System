@@ -1,0 +1,1 @@
+"""RetailOps background process adapters."""
