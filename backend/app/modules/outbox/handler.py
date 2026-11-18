@@ -40,6 +40,10 @@ class EmailEventHandler:
     def handle(self, *, event_id: bytes) -> EmailOutcome:
         if not isinstance(event_id, bytes) or len(event_id) != 16:
             raise ValueError("Outbox event ID must contain exactly 16 bytes")
+        is_password_reset = False
+        reset_user_id: int | None = None
+        reset_secret_expires_at: datetime | None = None
+        reset_token_hash: str | None = None
         try:
             with self.session_factory() as session:
                 loaded = self.repository.load_event_and_user(session, event_id)
@@ -52,6 +56,9 @@ class EmailEventHandler:
                     raise PermanentEmailError("Secret email event is disabled")
                 recipient = user.email_normalized
                 if event.event_type == "PASSWORD_RESET":
+                    is_password_reset = True
+                    reset_user_id = user.id
+                    reset_secret_expires_at = event.secret_expires_at
                     now = self.clock()
                     if (
                         event.secret_expires_at is None
@@ -83,14 +90,17 @@ class EmailEventHandler:
                     raw_token = parse_qs(urlsplit(reset_link).query).get("token", [""])[
                         0
                     ]
-                    if (
-                        not raw_token
-                        or not self.repository.is_password_reset_token_active(
-                            session,
-                            user_id=user.id,
-                            token_hash=hash_reset_token(raw_token),
-                            now=now,
+                    if not raw_token:
+                        self._finish(
+                            event_id, outcome="FAILED", error_code="TOKEN_INACTIVE"
                         )
+                        return EmailOutcome(event_id=event_id, status="FAILED")
+                    reset_token_hash = hash_reset_token(raw_token)
+                    if not self.repository.is_password_reset_token_active(
+                        session,
+                        user_id=user.id,
+                        token_hash=reset_token_hash,
+                        now=now,
                     ):
                         self._finish(
                             event_id, outcome="FAILED", error_code="TOKEN_INACTIVE"
@@ -107,6 +117,33 @@ class EmailEventHandler:
                 return EmailOutcome(event_id=event_id, status="SKIPPED")
             if attempt == 0:
                 return EmailOutcome(event_id=event_id, status="FAILED")
+
+            # Re-verify token state right before SMTP dispatch (closing the short
+            # session before network I/O so no MySQL lock is held during SMTP).
+            if is_password_reset:
+                assert reset_user_id is not None
+                assert reset_token_hash is not None
+                dispatch_now = self.clock()
+                if (
+                    reset_secret_expires_at is None
+                    or reset_secret_expires_at <= dispatch_now
+                ):
+                    self._finish(
+                        event_id, outcome="FAILED", error_code="SECRET_EXPIRED"
+                    )
+                    return EmailOutcome(event_id=event_id, status="FAILED")
+                with self.session_factory() as session:
+                    still_active = self.repository.is_password_reset_token_active(
+                        session,
+                        user_id=reset_user_id,
+                        token_hash=reset_token_hash,
+                        now=dispatch_now,
+                    )
+                if not still_active:
+                    self._finish(
+                        event_id, outcome="FAILED", error_code="TOKEN_INACTIVE"
+                    )
+                    return EmailOutcome(event_id=event_id, status="FAILED")
         except (UnknownEventError, PermanentEmailError):
             raise
         except SQLAlchemyError as error:

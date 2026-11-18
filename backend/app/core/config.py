@@ -181,12 +181,13 @@ class Settings(BaseSettings):
     @field_validator("password_reset_base_url")
     @classmethod
     def validate_password_reset_base_url(cls, value: str) -> str:
-        """Require an explicit HTTP(S) base URL without query or fragment."""
+        """Require an explicit HTTP(S) base URL without query, fragment, or userinfo."""
         cleaned = value.strip()
         parsed = urlsplit(cleaned)
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.netloc
+            or not parsed.hostname
             or parsed.query
             or parsed.fragment
             or parsed.username
@@ -194,6 +195,29 @@ class Settings(BaseSettings):
         ):
             raise ValueError("password_reset_base_url must be a clean HTTP(S) URL")
         return cleaned.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_password_reset_base_url_environment(self) -> "Settings":
+        """Enforce HTTPS in production and loopback-only HTTP in non-production."""
+        parsed = urlsplit(self.password_reset_base_url)
+        env = self.environment.strip().lower()
+        if env == "production":
+            if (
+                "password_reset_base_url" in self.model_fields_set
+                and parsed.scheme != "https"
+            ):
+                raise ValueError(
+                    "RETAILOPS_PASSWORD_RESET_BASE_URL must use HTTPS in production"
+                )
+        elif parsed.scheme == "http" and (parsed.hostname or "").lower() not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            raise ValueError(
+                "Non-production HTTP password_reset_base_url must use a loopback host"
+            )
+        return self
 
     @model_validator(mode="after")
     def reject_memory_reset_adapter_in_production(self) -> "Settings":

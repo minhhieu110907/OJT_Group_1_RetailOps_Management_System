@@ -127,6 +127,7 @@ def worker_environment(
     *,
     smtp_host: str = "127.0.0.1",
     smtp_port: int = 1,
+    extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
@@ -146,6 +147,8 @@ def worker_environment(
             "RETAILOPS_SMTP_STARTTLS": "false",
         }
     )
+    if extra_env:
+        environment.update(extra_env)
     return environment
 
 
@@ -188,9 +191,10 @@ def running_worker(
     loglevel: str = "WARNING",
     smtp_host: str = "127.0.0.1",
     smtp_port: int = 1,
+    extra_env: dict[str, str] | None = None,
 ) -> Iterator[WorkerHandle]:
     environment = worker_environment(
-        database_url, smtp_host=smtp_host, smtp_port=smtp_port
+        database_url, smtp_host=smtp_host, smtp_port=smtp_port, extra_env=extra_env
     )
     with tempfile.TemporaryFile() as worker_log:
         process = subprocess.Popen(
@@ -978,4 +982,219 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
         from kombu import pools
 
         pools.reset()
+        cleanup_worker_events(migrated_integration_engine)
+
+
+def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
+    migrated_integration_engine: Engine,
+    integration_database_url: URL,
+) -> None:
+    from app.modules.auth.rate_limit import (
+        enforce_forgot_password_rate_limit,
+        enforce_reset_password_rate_limit,
+    )
+    from fastapi.testclient import TestClient
+    from pydantic import SecretStr
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import Settings
+    from app.infrastructure.dependencies import get_db_session, get_settings
+    from app.main import create_app
+    from app.modules.auth.models import AuthSession, PasswordResetToken
+    from app.modules.auth.security import PasswordHasher
+    from app.modules.outbox.broker import CeleryEventPublisher
+    from app.modules.outbox.publisher import OutboxPublisher
+
+    def build_isolated_settings(amqp_url: str) -> Settings:
+        return Settings(
+            _env_file=None,
+            db_host=integration_database_url.host or "127.0.0.1",
+            db_name=integration_database_url.database or "retailops_test",
+            db_user=integration_database_url.username or "unused",
+            db_password=SecretStr(integration_database_url.password or "unused"),
+            rabbitmq_url=SecretStr(amqp_url),
+        )
+
+    def build_isolated_celery(amqp_url: str) -> Celery:
+        isolated = Celery("t04aa1c-e2e-publisher-test", broker=amqp_url)
+        isolated.conf.broker_transport_options = {"confirm_publish": True}
+        isolated.conf.task_queues = (LIVE_QUEUE,)
+        return isolated
+
+    cleanup_worker_events(migrated_integration_engine)
+    smtp_port = int(required_environment("MAILPIT_SMTP_HOST_PORT"))
+    mailpit_http_port = int(required_environment("MAILPIT_HTTP_HOST_PORT"))
+    publisher_url = required_environment("RETAILOPS_TEST_RABBITMQ_PUBLISHER_URL")
+    secret_key = "e2e-outbox-secret-key-" + ("k" * 16)
+    staff_email = f"{EMAIL_PREFIX}reset-e2e-{uuid4().hex}@example.com"
+    old_password = "OldPassword!123"
+    new_password = "NewPassword!456"
+    hasher = PasswordHasher(work_factor=4)
+    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+    existing_session_id = uuid4().bytes
+
+    with Session(migrated_integration_engine) as session, session.begin():
+        staff = User(
+            email_normalized=staff_email,
+            password_hash=hasher.hash_password(old_password),
+            role="STAFF",
+            status="ACTIVE",
+            admin_slot=None,
+            last_reapplied_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(staff)
+        session.flush()
+        staff_id = staff.id
+        session.add(
+            AuthSession(
+                id=existing_session_id,
+                user_id=staff_id,
+                refresh_token_hash="r" * 64,
+                created_at=now,
+                expires_at=now + timedelta(hours=8),
+                revoked_at=None,
+                last_used_at=None,
+            )
+        )
+
+    session_factory = sessionmaker(
+        bind=migrated_integration_engine, expire_on_commit=False
+    )
+    api_settings = Settings(
+        _env_file=None,
+        environment="development",
+        db_host=integration_database_url.host or "127.0.0.1",
+        db_port=integration_database_url.port or 3306,
+        db_name=integration_database_url.database or "retailops_test",
+        db_user=integration_database_url.username or "retailops_test_runner",
+        db_password=SecretStr(integration_database_url.password or ""),
+        jwt_secret=SecretStr("j" * 32),
+        csrf_secret=SecretStr("c" * 32),
+        outbox_secret_key=SecretStr(secret_key),
+        password_reset_base_url="https://app.retailops.example/reset-password",
+        password_reset_email_adapter="outbox",
+    )
+    app = create_app(api_settings)
+
+    def _override_db():
+        with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_settings] = lambda: api_settings
+    app.dependency_overrides[get_db_session] = _override_db
+    app.dependency_overrides[enforce_forgot_password_rate_limit] = lambda: None
+    app.dependency_overrides[enforce_reset_password_rate_limit] = lambda: None
+
+    try:
+        with TestClient(app) as client:
+            forgot_resp = client.post(
+                "/api/v1/auth/forgot-password", json={"email": staff_email}
+            )
+            assert forgot_resp.status_code == 202
+
+        with Session(migrated_integration_engine) as session:
+            tok = session.scalar(
+                select(PasswordResetToken).where(PasswordResetToken.user_id == staff_id)
+            )
+            ev = session.scalar(
+                select(OutboxEvent).where(
+                    OutboxEvent.subject_user_id == staff_id,
+                    OutboxEvent.event_type == "PASSWORD_RESET",
+                )
+            )
+            assert tok is not None
+            assert ev is not None
+            assert ev.secret_ciphertext is not None
+            event_id = ev.id
+
+        publisher = OutboxPublisher(
+            CeleryEventPublisher(
+                build_isolated_celery(publisher_url),
+                build_isolated_settings(publisher_url),
+            )
+        )
+        pub_result = publisher.publish_due(session_factory, batch_size=10)
+        assert pub_result.published >= 1
+
+        worker_log = ""
+        with running_worker(
+            integration_database_url,
+            loglevel="INFO",
+            smtp_host="127.0.0.1",
+            smtp_port=smtp_port,
+            extra_env={"RETAILOPS_OUTBOX_SECRET_KEY": secret_key},
+        ) as worker:
+            delivered = wait_for_event(
+                migrated_integration_engine,
+                event_id,
+                lambda current: current.outcome == "SENT",
+            )
+            assert delivered.secret_ciphertext is None
+            worker_log = worker.read_log()
+
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{mailpit_http_port}/api/v1/messages", timeout=10
+        ) as resp:
+            messages_data = json.loads(resp.read())
+        matched = [
+            m
+            for m in messages_data.get("messages", [])
+            if any(
+                isinstance(to, dict) and to.get("Address") == staff_email
+                for to in m.get("To", [])
+            )
+        ]
+        assert len(matched) == 1
+        msg_id = matched[0]["ID"]
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{mailpit_http_port}/api/v1/message/{msg_id}", timeout=10
+        ) as resp:
+            full_msg = json.loads(resp.read())
+        email_text = full_msg.get("Text", "") or full_msg.get("HTML", "")
+        token_match = re.search(
+            r"https://app\.retailops\.example/reset-password\?token=([A-Za-z0-9_-]+)",
+            email_text,
+        )
+        assert token_match is not None, f"Reset link not found in email: {email_text}"
+        raw_token = token_match.group(1)
+        assert raw_token not in worker_log
+
+        with TestClient(app) as client:
+            reset_resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={"token": raw_token, "new_password": new_password},
+            )
+            assert reset_resp.status_code == 200
+
+            replay_resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={"token": raw_token, "new_password": "AnotherPassword!789"},
+            )
+            assert replay_resp.status_code == 400
+
+        with Session(migrated_integration_engine) as session:
+            refreshed_user = session.get(User, staff_id)
+            refreshed_session = session.get(AuthSession, existing_session_id)
+            assert refreshed_user is not None
+            assert hasher.verify_password(new_password, refreshed_user.password_hash)
+            assert refreshed_session is not None
+            assert refreshed_session.revoked_at is not None
+    finally:
+        from kombu import pools
+
+        pools.reset()
+        with Session(migrated_integration_engine) as session, session.begin():
+            user_ids = select(User.id).where(
+                User.email_normalized.like(f"{EMAIL_PREFIX}%")
+            )
+            session.execute(
+                delete(PasswordResetToken).where(
+                    PasswordResetToken.user_id.in_(user_ids)
+                )
+            )
+            session.execute(
+                delete(AuthSession).where(AuthSession.user_id.in_(user_ids))
+            )
         cleanup_worker_events(migrated_integration_engine)

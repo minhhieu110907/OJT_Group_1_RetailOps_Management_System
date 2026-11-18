@@ -188,6 +188,14 @@ def get_auth_reset_service(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AuthResetService:
     """Dependency provider for AuthResetService."""
+    if (
+        settings.environment.strip().lower() == "production"
+        and not settings.password_reset_base_url.startswith("https://")
+    ):
+        raise RuntimeError(
+            "RETAILOPS_PASSWORD_RESET_BASE_URL must be explicitly configured "
+            "with HTTPS in production"
+        )
     return AuthResetService(
         email_port=build_password_reset_email_adapter(settings),
         reset_base_url=settings.password_reset_base_url,

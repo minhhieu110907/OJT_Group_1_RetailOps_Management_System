@@ -516,3 +516,218 @@ def test_blank_outbox_secret_key_normalizes_to_none() -> None:
         outbox_secret_key="   ",
     )
     assert settings.outbox_secret_key is None
+
+
+def test_worker_pre_dispatch_race_and_no_db_during_smtp() -> None:
+    from contextlib import contextmanager
+
+    from app.modules.auth.models import PasswordResetToken
+    from app.modules.auth.reset_email import OutboxPasswordResetEmailAdapter
+    from app.modules.auth.reset_service import AuthResetService
+    from app.modules.auth.security import PasswordHasher
+    from app.modules.outbox.handler import EmailEventHandler
+    from app.modules.outbox.models import OutboxEvent
+
+    sf = _make_sqlite_session_factory()
+    secret_key = "w" * 32
+    now_box = [datetime.now(UTC).replace(microsecond=0, tzinfo=None)]
+    adapter = OutboxPasswordResetEmailAdapter(secret_key=secret_key)
+    service = AuthResetService(
+        email_port=adapter,
+        reset_base_url="https://app.retailops.example/reset-password",
+        token_ttl_seconds=900,
+        password_hasher=PasswordHasher(work_factor=4),
+        clock=lambda: now_box[0].replace(tzinfo=UTC),
+    )
+
+    open_sessions = 0
+
+    @contextmanager
+    def tracked_sf():
+        nonlocal open_sessions
+        open_sessions += 1
+        try:
+            with sf() as s:
+                yield s
+        finally:
+            open_sessions -= 1
+
+    with sf() as s:
+        _seed_user(s, email="staff@example.com")
+
+    # 1. Replaced right after _begin_attempt -> TOKEN_INACTIVE, SMTP not called
+    with sf() as s:
+        service.request_reset(s, email="staff@example.com")
+        ev1_id = s.scalars(
+            select(OutboxEvent.id).order_by(OutboxEvent.created_at)
+        ).all()[-1]
+
+    transport = MagicMock()
+    handler = EmailEventHandler(
+        tracked_sf, transport, clock=lambda: now_box[0], secret_key=secret_key
+    )
+    orig_begin_1 = handler._begin_attempt
+
+    def begin_then_replace(event_id: bytes) -> int | None:
+        attempt = orig_begin_1(event_id)
+        with sf() as s:
+            service.request_reset(s, email="staff@example.com")
+        return attempt
+
+    handler._begin_attempt = begin_then_replace  # type: ignore[method-assign]
+    out1 = handler.handle(event_id=ev1_id)
+    assert out1.status == "FAILED"
+    transport.send.assert_not_called()
+    with sf() as s:
+        ev1 = s.get(OutboxEvent, ev1_id)
+        assert ev1 is not None and ev1.last_error_code == "TOKEN_INACTIVE"
+
+    # 2. Consumed right after _begin_attempt -> TOKEN_INACTIVE, SMTP not called
+    ev2_id = (
+        sf().scalars(select(OutboxEvent.id).order_by(OutboxEvent.created_at)).all()[-1]
+    )
+    transport.reset_mock()
+    handler2 = EmailEventHandler(
+        tracked_sf, transport, clock=lambda: now_box[0], secret_key=secret_key
+    )
+    orig_begin_2 = handler2._begin_attempt
+
+    def begin_then_consume(event_id: bytes) -> int | None:
+        attempt = orig_begin_2(event_id)
+        with sf() as s:
+            tok = s.scalars(
+                select(PasswordResetToken).where(PasswordResetToken.used_at.is_(None))
+            ).one()
+            tok.used_at = now_box[0]
+            s.commit()
+        return attempt
+
+    handler2._begin_attempt = begin_then_consume  # type: ignore[method-assign]
+    out2 = handler2.handle(event_id=ev2_id)
+    assert out2.status == "FAILED"
+    transport.send.assert_not_called()
+
+    # 3. Expired right after _begin_attempt -> SECRET_EXPIRED, SMTP not called
+    with sf() as s:
+        service.request_reset(s, email="staff@example.com")
+        ev3_id = s.scalars(
+            select(OutboxEvent.id).order_by(OutboxEvent.created_at)
+        ).all()[-1]
+
+    transport.reset_mock()
+    handler3 = EmailEventHandler(
+        tracked_sf, transport, clock=lambda: now_box[0], secret_key=secret_key
+    )
+    orig_begin_3 = handler3._begin_attempt
+
+    def begin_then_expire(event_id: bytes) -> int | None:
+        attempt = orig_begin_3(event_id)
+        now_box[0] = now_box[0] + timedelta(seconds=901)
+        return attempt
+
+    handler3._begin_attempt = begin_then_expire  # type: ignore[method-assign]
+    out3 = handler3.handle(event_id=ev3_id)
+    assert out3.status == "FAILED"
+    transport.send.assert_not_called()
+    with sf() as s:
+        ev3 = s.get(OutboxEvent, ev3_id)
+        assert ev3 is not None and ev3.last_error_code == "SECRET_EXPIRED"
+
+    # 4. Valid token -> sent once, and zero DB sessions held open during SMTP send
+    with sf() as s:
+        service.request_reset(s, email="staff@example.com")
+        ev4_id = s.scalars(
+            select(OutboxEvent.id).order_by(OutboxEvent.created_at)
+        ).all()[-1]
+
+    sessions_during_send: list[int] = []
+
+    def check_no_db_during_send(*, recipient: str, email: object) -> None:
+        sessions_during_send.append(open_sessions)
+
+    transport.reset_mock()
+    transport.send.side_effect = check_no_db_during_send
+    handler4 = EmailEventHandler(
+        tracked_sf, transport, clock=lambda: now_box[0], secret_key=secret_key
+    )
+    out4 = handler4.handle(event_id=ev4_id)
+    assert out4.status == "SENT"
+    transport.send.assert_called_once()
+    assert sessions_during_send == [0]
+
+
+def test_password_reset_base_url_https_and_loopback_validation() -> None:
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    base_kwargs = {
+        "_env_file": None,
+        "db_host": "127.0.0.1",
+        "db_name": "retailops",
+        "db_user": "retailops",
+        "db_password": "secret",
+        "jwt_secret": "j" * 32,
+        "csrf_secret": "c" * 32,
+        "cookie_secure": True,
+    }
+
+    # Production + HTTP -> FAIL
+    with pytest.raises(ValidationError):
+        Settings(
+            **base_kwargs,
+            environment="production",
+            password_reset_base_url="http://app.retailops.example/reset-password",
+        )
+    with pytest.raises(ValidationError):
+        Settings(
+            **base_kwargs,
+            environment="production",
+            password_reset_base_url="http://127.0.0.1:5173/reset-password",
+        )
+
+    # Production + HTTPS -> PASS
+    prod = Settings(
+        **base_kwargs,
+        environment="production",
+        password_reset_base_url="https://app.retailops.example/reset-password/",
+    )
+    assert (
+        prod.password_reset_base_url == "https://app.retailops.example/reset-password"
+    )
+
+    # Development + HTTP loopback -> PASS
+    for loopback in (
+        "http://localhost:5173/reset-password",
+        "http://127.0.0.1:5173/reset-password",
+        "http://[::1]:5173/reset-password",
+    ):
+        dev = Settings(
+            **base_kwargs,
+            environment="development",
+            password_reset_base_url=loopback,
+        )
+        assert dev.password_reset_base_url == loopback
+
+    # Development + HTTP non-loopback -> FAIL
+    with pytest.raises(ValidationError):
+        Settings(
+            **base_kwargs,
+            environment="development",
+            password_reset_base_url="http://app.retailops.example/reset-password",
+        )
+
+    # Malformed URL, query/fragment, or userinfo -> FAIL
+    for bad_url in (
+        "not-a-url",
+        "http://:5173/reset-password",
+        "https://user:pass@app.retailops.example/reset-password",
+        "https://app.retailops.example/reset-password?x=1",
+        "https://app.retailops.example/reset-password#frag",
+    ):
+        with pytest.raises(ValidationError):
+            Settings(
+                **base_kwargs,
+                environment="production",
+                password_reset_base_url=bad_url,
+            )
