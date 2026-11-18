@@ -21,7 +21,8 @@ identity, verifies the authenticated principal reference, and refreshes the
 ACTIVE ADMIN user from the database on every call. One `ToolBudget` starts at
 binding time and serializes calls under a request-local lock.
 For non-HTTP orchestration, `bind_authenticated_request` accepts only a
-`CurrentPrincipal` already returned by the live Auth dependency.
+`CurrentPrincipal` already returned by the live Auth dependency; pass
+`settings=get_settings()` explicitly to honor environment-configured caps.
 The immutable `Settings` fields `ai_request_deadline_seconds`,
 `ai_max_tool_calls`, and `ai_max_tool_output_bytes` default to 15 seconds,
 3 calls, and 32 KiB respectively; configuration may only tighten these caps.
