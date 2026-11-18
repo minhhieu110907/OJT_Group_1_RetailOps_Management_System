@@ -881,7 +881,14 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
             )
             assert blocked.status == "REPLAY_NOT_VERIFIABLE"
 
-        # 4. After worker stops (quiesced), controlled replay succeeds
+        # 4. After worker stops (and Management stats refresh), replay succeeds
+        quiesce_deadline = time.monotonic() + 10
+        while time.monotonic() < quiesce_deadline:
+            ok, _ = verifier.verify_quiesced()
+            if ok:
+                break
+            time.sleep(0.25)
+
         replayed = recovery.replay(
             session_factory,
             event_id=event_id,
