@@ -28,12 +28,20 @@ The immutable `Settings` fields `ai_request_deadline_seconds`,
 3 calls, and 32 KiB respectively; configuration may only tighten these caps.
 The budget clock begins when the dependency is resolved, before model work.
 
-The AI route/orchestrator is not implemented in this PR. Its owner must apply
-AI-specific Redis rate limiting and concurrency control with fail-closed
-behavior before provider work, reuse this binding for all model tool calls,
-and enforce a provider timeout. The executor's lock protects budget accounting
-for concurrent calls within one request; the orchestrator still owns overall
-request concurrency policy.
+The AI route/orchestrator is T04AA86 (Dương) and is not implemented in this PR.
+It owns `/api/v1/ai/query`, LLM provider integration, evidence-based answers,
+full Auth -> AI -> Tool HTTP integration, and the overall request lifecycle.
+Before provider work it must enforce the AI-specific Redis limit of 10 requests
+per minute per user, one in-flight request per user, and a configurable global
+concurrency bound. Redis failure must fail closed. It must also reuse this
+binding for all model tool calls and enforce a provider timeout. The executor's
+lock protects budget accounting for concurrent calls within one request; the
+orchestrator still owns overall request concurrency policy.
+
+Current test evidence covers the FastAPI dependency wiring from
+`get_current_principal` into `get_bound_tool_request`. It does not cover the
+complete token/session authentication flow; that full HTTP integration remains
+part of T04AA86 and requires its dedicated MySQL/Redis fixtures.
 
 Errors: invalid model tool/arguments -> 422; tool/output quota -> 429;
 authorization -> 403; deadline, database or invalid service output -> 503.
@@ -48,5 +56,6 @@ so the guard can verify that the schema/user differ from development. Never
 point it at the demo database. Run `pytest -vv -x
 tests/modules/ai/test_tool_executor_mysql.py`; the test creates an ADMIN only
 if needed, rolls that fixture back, calls all four real read services, and
-records SQL to assert no writes during tool execution. Missing configuration
-is an explicit test failure, not a skip.
+records SQL to assert no writes during tool execution. It also seeds deterministic
+sales and inventory rows, validates non-empty contract output, and rejects STAFF.
+Missing configuration is an explicit test failure, not a skip.
