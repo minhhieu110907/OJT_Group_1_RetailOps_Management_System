@@ -21,8 +21,9 @@ Test Scenarios:
 4. Fail-Closed Rollback on External Reference Violation:
    - External OrderItem referencing tracked product raises RuntimeError.
    - Atomic transaction rollback guarantees 0 partial deletions.
-5. Shared ADMIN Immunity Defense-in-Depth:
-   - Shared ADMIN (admin_slot == 1) is never deleted even if user_ids contains admin_id.
+5. Shared ADMIN & IdempotencyRecord Immunity Defense-in-Depth:
+   - Shared ADMIN (admin_slot == 1) and its IdempotencyRecords are never deleted
+     even if user_ids contains admin_id.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -184,53 +185,68 @@ class TestRunContext:
                     )
 
             if self.user_ids:
-                # External Order referencing tracked users
-                ext_usr_order_filter = [
-                    or_(
-                        Order.created_by.in_(self.user_ids),
-                        Order.cancelled_by.in_(self.user_ids),
+                # Check disposable test users (exclude Shared Admin with admin_slot=1)
+                disposable_user_ids = list(
+                    session.scalars(
+                        select(User.id).where(
+                            User.id.in_(self.user_ids),
+                            User.admin_slot.is_(None),
+                        )
                     )
-                ]
-                if self.order_ids:
-                    ext_usr_order_filter.append(Order.id.not_in(self.order_ids))
-                ext_usr_order = session.scalar(
-                    select(Order.id).where(*ext_usr_order_filter).limit(1)
                 )
-                if ext_usr_order is not None:
-                    raise RuntimeError(
-                        "Fail-closed cleanup: tracked user(s) still referenced "
-                        f"by external Order (id={ext_usr_order})."
-                    )
 
-                # External PurchaseReceipt referencing tracked users
-                ext_usr_rcpt_filter = [PurchaseReceipt.created_by.in_(self.user_ids)]
-                if self.receipt_ids:
-                    ext_usr_rcpt_filter.append(
-                        PurchaseReceipt.id.not_in(self.receipt_ids)
+                if disposable_user_ids:
+                    # External Order referencing disposable test users
+                    ext_usr_order_filter = [
+                        or_(
+                            Order.created_by.in_(disposable_user_ids),
+                            Order.cancelled_by.in_(disposable_user_ids),
+                        )
+                    ]
+                    if self.order_ids:
+                        ext_usr_order_filter.append(Order.id.not_in(self.order_ids))
+                    ext_usr_order = session.scalar(
+                        select(Order.id).where(*ext_usr_order_filter).limit(1)
                     )
-                ext_usr_rcpt = session.scalar(
-                    select(PurchaseReceipt.id).where(*ext_usr_rcpt_filter).limit(1)
-                )
-                if ext_usr_rcpt is not None:
-                    raise RuntimeError(
-                        "Fail-closed cleanup: tracked user(s) still referenced "
-                        f"by external PurchaseReceipt (id={ext_usr_rcpt})."
-                    )
+                    if ext_usr_order is not None:
+                        raise RuntimeError(
+                            "Fail-closed cleanup: tracked user(s) still referenced "
+                            f"by external Order (id={ext_usr_order})."
+                        )
 
-                # External StockMovement referencing tracked users
-                ext_usr_sm_filter = [StockMovement.actor_id.in_(self.user_ids)]
-                if self.stock_movement_ids:
-                    ext_usr_sm_filter.append(
-                        StockMovement.id.not_in(self.stock_movement_ids)
+                    # External PurchaseReceipt referencing disposable test users
+                    ext_usr_rcpt_filter = [
+                        PurchaseReceipt.created_by.in_(disposable_user_ids)
+                    ]
+                    if self.receipt_ids:
+                        ext_usr_rcpt_filter.append(
+                            PurchaseReceipt.id.not_in(self.receipt_ids)
+                        )
+                    ext_usr_rcpt = session.scalar(
+                        select(PurchaseReceipt.id).where(*ext_usr_rcpt_filter).limit(1)
                     )
-                ext_usr_sm = session.scalar(
-                    select(StockMovement.id).where(*ext_usr_sm_filter).limit(1)
-                )
-                if ext_usr_sm is not None:
-                    raise RuntimeError(
-                        "Fail-closed cleanup: tracked user(s) still referenced "
-                        f"by external StockMovement (id={ext_usr_sm})."
+                    if ext_usr_rcpt is not None:
+                        raise RuntimeError(
+                            "Fail-closed cleanup: tracked user(s) still referenced "
+                            f"by external PurchaseReceipt (id={ext_usr_rcpt})."
+                        )
+
+                    # External StockMovement referencing disposable test users
+                    ext_usr_sm_filter = [
+                        StockMovement.actor_id.in_(disposable_user_ids)
+                    ]
+                    if self.stock_movement_ids:
+                        ext_usr_sm_filter.append(
+                            StockMovement.id.not_in(self.stock_movement_ids)
+                        )
+                    ext_usr_sm = session.scalar(
+                        select(StockMovement.id).where(*ext_usr_sm_filter).limit(1)
                     )
+                    if ext_usr_sm is not None:
+                        raise RuntimeError(
+                            "Fail-closed cleanup: tracked user(s) still referenced "
+                            f"by external StockMovement (id={ext_usr_sm})."
+                        )
 
             # 2. Deletions strictly by exact tracked IDs in reverse dependency order
             if self.stock_movement_ids:
@@ -245,13 +261,6 @@ class TestRunContext:
                     delete(OrderItem).where(OrderItem.order_id.in_(self.order_ids))
                 )
                 session.execute(delete(Order).where(Order.id.in_(self.order_ids)))
-
-            if self.user_ids:
-                session.execute(
-                    delete(IdempotencyRecord).where(
-                        IdempotencyRecord.user_id.in_(self.user_ids)
-                    )
-                )
 
             if self.receipt_ids:
                 session.execute(
@@ -1052,6 +1061,9 @@ def test_reconciliation_cleanup_isolation_mysql(
     admin_id = _ensure_shared_admin(migrated_integration_engine)
 
     now_unaware = datetime(2026, 10, 17, 5, 0, 0)
+    idem_b_key = uuid4().bytes + uuid4().bytes
+    idem_b_req = uuid4().bytes + uuid4().bytes
+    staff_b_id: int | None = None
 
     try:
         with (
@@ -1096,10 +1108,11 @@ def test_reconciliation_cleanup_isolation_mysql(
             session.flush()
             ctx_a.product_ids.append(prod_a.id)
 
-            # Seed Run B (Staff, Category, Supplier, Product)
+            # Seed Run B (Staff, Category, Supplier, Product, IdempotencyRecord)
             staff_b = _create_test_staff(
                 session, now_unaware=now_unaware, prefix=ctx_b.prefix
             )
+            staff_b_id = staff_b.id
             ctx_b.user_ids.append(staff_b.id)
 
             cat_b = Category(
@@ -1134,6 +1147,19 @@ def test_reconciliation_cleanup_isolation_mysql(
             session.flush()
             ctx_b.product_ids.append(prod_b.id)
 
+            idem_b = IdempotencyRecord(
+                user_id=staff_b.id,
+                operation="CHECKOUT",
+                key_digest=idem_b_key,
+                request_digest=idem_b_req,
+                response_status=None,
+                response_body=None,
+                created_at=now_unaware,
+                completed_at=None,
+                expires_at=None,
+            )
+            session.add(idem_b)
+
         # 1. First cleanup of Run A
         ctx_a.cleanup()
 
@@ -1147,11 +1173,16 @@ def test_reconciliation_cleanup_isolation_mysql(
             assert session.get(Product, prod_a.id) is None
             assert session.get(User, staff_a.id) is None
 
-            # Run B is completely preserved
+            # Run B is completely preserved including its IdempotencyRecord
             assert session.get(Category, cat_b.id) is not None
             assert session.get(Supplier, sup_b.id) is not None
             assert session.get(Product, prod_b.id) is not None
             assert session.get(User, staff_b.id) is not None
+            persisted_idem_b = session.get(
+                IdempotencyRecord, (staff_b.id, "CHECKOUT", idem_b_key)
+            )
+            assert persisted_idem_b is not None
+            assert persisted_idem_b.request_digest == idem_b_req
 
             # Shared ADMIN is strictly preserved
             admin = session.scalar(select(User).where(User.admin_slot == 1))
@@ -1159,6 +1190,19 @@ def test_reconciliation_cleanup_isolation_mysql(
             assert admin.id == admin_id
 
     finally:
+        # Explicitly clean up Run B's IdempotencyRecord before ctx_b cleanup
+        with (
+            Session(migrated_integration_engine, expire_on_commit=False) as session,
+            session.begin(),
+        ):
+            if staff_b_id is not None:
+                session.execute(
+                    delete(IdempotencyRecord).where(
+                        IdempotencyRecord.user_id == staff_b_id,
+                        IdempotencyRecord.operation == "CHECKOUT",
+                        IdempotencyRecord.key_digest == idem_b_key,
+                    )
+                )
         ctx_a.cleanup()
         ctx_b.cleanup()
 
@@ -1312,19 +1356,65 @@ def test_reconciliation_cleanup_fail_closed_on_external_reference_mysql(
 def test_reconciliation_cleanup_shared_admin_immunity_mysql(
     migrated_integration_engine: Engine,
 ) -> None:
-    """Bảo vệ Shared ADMIN: Ngay cả khi admin_id bị đưa nhầm vào ctx.user_ids,
-    cleanup() TUYỆT ĐỐI KHÔNG xóa tài khoản có admin_slot == 1.
+    """Bảo vệ Shared ADMIN & IdempotencyRecord: Ngay cả khi admin_id bị đưa
+    nhầm vào ctx.user_ids, cleanup() TUYỆT ĐỐI KHÔNG xóa tài khoản Shared ADMIN
+    (admin_slot == 1) và KHÔNG xóa bất kỳ IdempotencyRecord nào của Shared ADMIN.
     """
     admin_id = _ensure_shared_admin(migrated_integration_engine)
-    ctx_adm = TestRunContext(migrated_integration_engine, "adm_imm")
+    unique_key_digest = uuid4().bytes + uuid4().bytes  # 32 bytes
+    unique_req_digest = uuid4().bytes + uuid4().bytes  # 32 bytes
+    now = datetime(2026, 11, 20, 10, 0, 0)
+    op = "CHECKOUT"
 
-    # Deliberately put admin_id in user_ids to test defense-in-depth
-    ctx_adm.user_ids.append(admin_id)
+    # Step 1: Create a valid IdempotencyRecord belonging to Shared ADMIN
+    with (
+        Session(migrated_integration_engine, expire_on_commit=False) as session,
+        session.begin(),
+    ):
+        admin_idem = IdempotencyRecord(
+            user_id=admin_id,
+            operation=op,
+            key_digest=unique_key_digest,
+            request_digest=unique_req_digest,
+            response_status=None,
+            response_body=None,
+            created_at=now,
+            completed_at=None,
+            expires_at=None,
+        )
+        session.add(admin_idem)
 
-    # Calling cleanup() must not delete the Shared Admin
-    ctx_adm.cleanup()
+    try:
+        ctx_adm = TestRunContext(migrated_integration_engine, "adm_imm")
 
-    with Session(migrated_integration_engine) as session:
-        admin = session.scalar(select(User).where(User.admin_slot == 1))
-        assert admin is not None
-        assert admin.id == admin_id
+        # Step 2: Deliberately put admin_id in user_ids to test defense-in-depth
+        ctx_adm.user_ids.append(admin_id)
+
+        # Step 3: cleanup() must NOT delete Shared Admin or IdempotencyRecord
+        ctx_adm.cleanup()
+
+        with Session(migrated_integration_engine) as session:
+            # Shared ADMIN user is strictly preserved
+            admin = session.scalar(select(User).where(User.admin_slot == 1))
+            assert admin is not None
+            assert admin.id == admin_id
+
+            # Shared ADMIN IdempotencyRecord is untouched
+            persisted_idem = session.get(
+                IdempotencyRecord, (admin_id, op, unique_key_digest)
+            )
+            assert persisted_idem is not None
+            assert persisted_idem.request_digest == unique_req_digest
+    finally:
+        # Step 4: Clean up test's IdempotencyRecord by exact composite key
+        with (
+            Session(migrated_integration_engine, expire_on_commit=False) as session,
+            session.begin(),
+        ):
+            session.execute(
+                delete(IdempotencyRecord).where(
+                    IdempotencyRecord.user_id == admin_id,
+                    IdempotencyRecord.operation == op,
+                    IdempotencyRecord.key_digest == unique_key_digest,
+                )
+            )

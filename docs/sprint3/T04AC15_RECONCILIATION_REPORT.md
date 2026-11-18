@@ -101,7 +101,12 @@ Toàn bộ các phân hệ phụ thuộc đều đã được merge chính thứ
 
 ## 3. BẢNG ĐỐI SOÁT ĐA CHIỀU (RECONCILIATION LEDGER - EXPECTED VS ACTUAL)
 
-> **Lưu ý về Cơ chế Baseline Delta:** Trên môi trường MySQL Integration, các chỉ số thực tế được assert theo hiệu số biến thiên: `Giá trị Thực tế = (Giá trị đo sau test - Baseline đo trước test)`. Cơ chế này bảo đảm kết quả kiểm thử hoàn toàn độc lập và không bị ảnh hưởng bởi dữ liệu có sẵn từ các test suites khác trên shared database.
+> **Lưu ý về Cơ chế Baseline Delta & Phạm vi Cô lập:**
+> - Trên môi trường MySQL Integration, các chỉ số thực tế được assert theo hiệu số biến thiên: `Giá trị Thực tế = (Giá trị đo sau test - Baseline đo trước test)`.
+> - **Cơ chế Baseline Delta giúp loại trừ ảnh hưởng của dữ liệu nền ổn định** từ các test suites chạy trước.
+> - **Giới hạn kỹ thuật:** Baseline Delta **không bảo đảm isolation trước các concurrent writes** ghi đồng thời vào cùng chỉ số tổng hợp trong lúc test run đang thực thi.
+> - **Quy chuẩn CI & Môi trường:** Toàn bộ MySQL Integration Tests **bắt buộc phải chạy trên dedicated/isolated test database** theo CI contract (qua container MySQL 8.4 riêng biệt được khởi tạo bởi GitHub Actions CI).
+> - **Nguyên tắc an toàn dữ liệu:** Tuyệt đối **không sử dụng dữ liệu production** để chạy reconciliation tests.
 
 | Phân hệ / Chiều nghiệp vụ | Chỉ số kiểm chứng | Giá trị Kỳ vọng (Expected) | Giá trị Thực tế (Actual) | Độ lệch (Delta) | Điều kiện Baseline & Nguồn Kiểm chứng | Trạng thái |
 | :--- | :--- | :--- | :--- | :---: | :--- | :---: |
@@ -176,21 +181,32 @@ Nhằm bảo đảm tính tin cậy cao nhất của hệ thống, không làm �
     + Kiểm tra nếu có bất kỳ record ngoại lai nào tham chiếu đến tracked products, tracked categories, tracked suppliers, hoặc tracked users (ví dụ: `OrderItem` bên ngoài trỏ vào `product_ids`, `StockMovement` trỏ vào `product_ids`, v.v.).
     + Nếu phát hiện vi phạm tham chiếu $\rightarrow$ raise `RuntimeError("Fail-closed cleanup: ...")` ngay lập tức.
     + Khi exception xảy ra, transaction lập tức rollback 100%, **tuyệt đối không xảy ra hiện tượng xóa một phần (0 partial deletions)**.
-  - **Bảo vệ Vững chắc Shared ADMIN (Shared Admin Defense-in-Depth):**
+  - **Loại bỏ Hoàn toàn việc Xóa IdempotencyRecord theo user_id:**
+    + Task T04AC15 không sinh IdempotencyRecord trong luồng đối soát dữ liệu. Việc xóa broad theo `user_id` bị loại bỏ hoàn toàn để bảo đảm không bao giờ xóa dữ liệu ngoài quyền sở hữu của test run.
+    + Ràng buộc khóa ngoại (foreign key) của MySQL InnoDB được giữ nguyên để bảo vệ toàn vẹn các bản ghi tham chiếu đến User.
+  - **Bảo vệ Vững chắc Shared ADMIN & IdempotencyRecord:**
     + Shared Admin với `admin_slot == 1` không bao giờ được thêm vào `self.user_ids`.
-    + Lệnh DELETE của bảng `users` được ràng buộc chặt chẽ bằng điều kiện `User.admin_slot.is_(None)`. Ngay cả khi `admin_id` bị thêm nhầm vào `user_ids`, tài khoản Shared Admin vẫn được bảo toàn tuyệt đối.
+    + Lệnh DELETE của bảng `users` được ràng buộc chặt chẽ bằng điều kiện `User.admin_slot.is_(None)`. Ngay cả khi `admin_id` bị thêm nhầm vào `user_ids`, tài khoản Shared Admin và toàn bộ IdempotencyRecord của Shared Admin vẫn được bảo toàn tuyệt đối.
   - **Tính Idempotent Tuyệt đối:**
     + Sau khi transaction dọn dẹp commit thành công, toàn bộ danh sách ID được clear (`self.product_ids.clear()`, v.v.).
     + Lần gọi `cleanup()` thứ hai sẽ kiểm tra danh sách rỗng và return ngay lập tức, không sinh query, không sinh lỗi.
   - **Thứ tự Giải phóng Khóa ngoại (Strict Reverse FK Deletion Order):**
-    `StockMovement` $\rightarrow$ `OrderItem` $\rightarrow$ `Order` $\rightarrow$ `IdempotencyRecord` $\rightarrow$ `PurchaseReceiptItem` $\rightarrow$ `PurchaseReceipt` $\rightarrow$ `Inventory` $\rightarrow$ `Product` $\rightarrow$ `Supplier` $\rightarrow$ `Category` $\rightarrow$ `User (admin_slot IS NULL)`.
+    `StockMovement` $\rightarrow$ `OrderItem` $\rightarrow$ `Order` $\rightarrow$ `PurchaseReceiptItem` $\rightarrow$ `PurchaseReceipt` $\rightarrow$ `Inventory` $\rightarrow$ `Product` $\rightarrow$ `Supplier` $\rightarrow$ `Category` $\rightarrow$ `User (admin_slot IS NULL)`.
 - **Các kịch bản kiểm thử tích hợp (5 Kịch bản):**
   1. `test_demo_dataset_end_to_end_reconciliation_mysql`: Thực thi trọn vẹn luồng dữ liệu demo chuẩn trên MySQL InnoDB, đối soát đa chiều qua các Repository nghiệp vụ thật.
   2. `test_catalog_price_mutation_preserves_reconciled_analytics_mysql`: Thao tác trực tiếp cập nhật giá catalog trên database và xác minh doanh thu lịch sử không bị biến động.
-  3. `test_reconciliation_cleanup_isolation_mysql`: Thực nghiệm tạo dữ liệu song song (Run A và Run B gồm Users, Categories, Suppliers, Products). Xác nhận dọn dẹp Run A không làm mất bất kỳ dữ liệu nào của Run B, và gọi cleanup 2 lần liên tiếp an toàn tuyệt đối.
+  3. `test_reconciliation_cleanup_isolation_mysql`: Thực nghiệm tạo dữ liệu song song (Run A và Run B gồm Users, Categories, Suppliers, Products, IdempotencyRecord). Xác nhận dọn dẹp Run A không làm mất bất kỳ dữ liệu nào của Run B (kể cả IdempotencyRecord của Run B), và gọi cleanup 2 lần liên tiếp an toàn tuyệt đối.
   4. `test_reconciliation_cleanup_fail_closed_on_external_reference_mysql`: Tạo tình huống OrderItem ngoại lai tham chiếu sản phẩm của Run A. Xác nhận cleanup() phát hiện vi phạm, raise `RuntimeError`, rollback toàn bộ (product, inventory, category của Run A vẫn nguyên vẹn 100%). Sau khi dọn dẹp liên kết ngoại lai, cleanup() lần 2 thành công trọn vẹn.
-  5. `test_reconciliation_cleanup_shared_admin_immunity_mysql`: Cố tình đưa `admin_id` vào `ctx.user_ids` và gọi cleanup(). Xác nhận tài khoản Shared Admin (`admin_slot == 1`) vẫn tồn tại nguyên vẹn trong cơ sở dữ liệu.
-- **Trạng thái thu thập (Collect Status):** **5 test cases collected (0 errors, 0 warnings)**. Sẵn sàng thực thi trên GitHub Actions CI với dedicated MySQL container.
+  5. `test_reconciliation_cleanup_shared_admin_immunity_mysql`: Tạo IdempotencyRecord cho Shared Admin, cố tình đưa `admin_id` vào `ctx.user_ids` và gọi cleanup(). Xác nhận tài khoản Shared Admin (`admin_slot == 1`) và bản ghi IdempotencyRecord của Shared Admin đều tồn tại nguyên vẹn trong cơ sở dữ liệu.
+- **Trạng thái Thu thập & Bằng chứng Thực thi (Execution Evidence):**
+  - **Local Collection:** Đã thực hiện `pytest --collect-only` thành công thu thập **5/5 test cases (0 errors, 0 warnings)**.
+  - **Nguyên tắc môi trường:** Do môi trường local không có MySQL dedicated container chạy nền, tuân thủ nghiêm ngặt nguyên tắc an toàn dữ liệu, test integration không được chạy trên DB dùng chung mà được ủy quyền cho CI pipeline chuyên dụng.
+  - **CI Integration Status:** **COLLECTED & CI-EXECUTION PENDING** cho exact commit mới nhất. Job `MySQL integration tests` trong `.github/workflows/backend-ci.yml` khởi tạo dedicated MySQL 8.4 container và chạy lệnh:
+    ```bash
+    uv run --locked pytest -m "integration and not redis_integration and not proxy_integration"
+    ```
+    bao gồm toàn bộ 5 integration test cases của `test_t04ac15_reconciliation_mysql.py`.
+  - **Phạm vi cam kết:** Không suy diễn kết quả PASS khi chưa có test execution log độc lập từ CI runner; báo cáo không tuyên bố Browser E2E hay Final Release Sign-off đã hoàn tất.
 
 ---
 
