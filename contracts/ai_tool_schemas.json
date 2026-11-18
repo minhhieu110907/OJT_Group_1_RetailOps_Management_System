@@ -1,8 +1,8 @@
 {
-  "version": "CF-2.3-REVIEW",
-  "status": "PROPOSED_NEEDS_HIEU_DUONG_ACK",
+  "version": "CF-2.4-AI-ALIGNMENT-2026-11-18",
+  "status": "TECH_LEAD_DECISIONS_LOCKED_PENDING_DUONG_ACK_AND_RUNTIME_TESTS",
   "contract": "4 tool đọc dữ liệu, không nhận identity/SQL/url/path từ model. ToolContext lấy từ authenticated principal của request và kiểm ADMIN ở MỖI lần thực thi; fail-closed.",
-  "input_limits_status": "Đề xuất kỹ thuật giữ kế thừa CF-2.2: limit 1..20, days 1..90; phải ACK trước implementation. Timeout/tool-call budget ở tài liệu quyết định, không tự mặc định.",
+  "input_limits_status": "Tech Lead chot: days=1..90, limit=1..20, default top(days=7,limit=5), slow(limit=10), low_stock(limit=10), sales date default theo ngay VN; Dương phai ACK truoc khi goi contract APPROVED.",
   "tools": {
     "get_sales_summary": {
       "input": {
@@ -82,7 +82,8 @@
           }
         }
       },
-      "business_service": "SalesAnalyticsService.summary"
+      "business_service": "SalesAnalyticsService.summary",
+      "x_default_semantics": "Both omitted: today VN. Only end_date: start=end_date. Only start_date: end=today VN. Reject invalid range, future range per policy, >90 consecutive VN business dates, non-existent calendar dates. Convert inclusive VN date range to UTC [start,end+1 day)."
     },
     "get_top_products": {
       "input": {
@@ -92,12 +93,14 @@
           "days": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 90
+            "maximum": 90,
+            "default": 7
           },
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 20
+            "maximum": 20,
+            "default": 5
           }
         }
       },
@@ -197,7 +200,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 20
+            "maximum": 20,
+            "default": 10
           }
         }
       },
@@ -287,7 +291,8 @@
           }
         }
       },
-      "business_service": "ProductAnalyticsService.slow"
+      "business_service": "ProductAnalyticsService.slow",
+      "x_semantics": "Slow = existing business rule ACTIVE stocked >7d and sold <=2 units in trailing 30d; no input days; report business rule and observation period."
     },
     "get_low_stock": {
       "input": {
@@ -297,7 +302,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 20
+            "maximum": 20,
+            "default": 10
           }
         }
       },
@@ -373,7 +379,26 @@
           }
         }
       },
-      "business_service": "InventoryReadService.low_stock"
+      "business_service": "InventoryQueryService.get_low_stock",
+      "x_semantics": "Use DEFAULT_LOW_STOCK_THRESHOLD from inventory.schemas; don't infer threshold from model; output threshold must reflect actual constant; no cost_price or PII."
     }
+  },
+  "x_runtime_mapping": {
+    "get_sales_summary": "SalesAnalyticsService.summary(session, period=resolve_sales_period(...)); datetime UTC half-open; max 90 consecutive Vietnam business dates inclusive",
+    "get_top_products": "ProductAnalyticsService.top(session, period=resolve_days_period(days), page=1, page_size=limit) -> ProductAnalyticsPage; adapt items,total",
+    "get_slow_products": "ProductAnalyticsService.slow(session, page=1, page_size=limit) -> ProductAnalyticsPage; as_of_utc from backend clock",
+    "get_low_stock": "InventoryQueryService.get_low_stock(session, page=1, page_size=limit, threshold=DEFAULT_LOW_STOCK_THRESHOLD) -> LowStockPage; map runtime fields explicitly, do not invent threshold"
+  },
+  "x_request_policy": {
+    "admin_only": true,
+    "model_supplied_identity": false,
+    "max_tool_calls": 3,
+    "total_tool_payload_bytes": 32768,
+    "deadline_seconds": 15,
+    "limit_scope": "Shared per AI HTTP request; no reset on tool retry",
+    "rate_limit": "10 requests per minute per admin",
+    "concurrency": "one inflight AI request per user plus configured global cap; Redis failure => fail closed",
+    "ack_required": "Duong (consumer) + Hieu (provider), separately evidenced on PR",
+    "read_only": true
   }
 }
