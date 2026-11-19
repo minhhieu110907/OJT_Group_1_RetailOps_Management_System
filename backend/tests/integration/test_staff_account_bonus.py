@@ -1,8 +1,8 @@
 """MySQL 8 integration checks for Staff lock and authenticated password change."""
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
 from pydantic import SecretStr
