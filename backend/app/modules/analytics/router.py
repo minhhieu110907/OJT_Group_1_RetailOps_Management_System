@@ -3,7 +3,7 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainValidationError
@@ -98,6 +98,39 @@ def get_sales_analytics(
         completed_orders=summary.completed_orders,
         cancelled_orders=summary.cancelled_orders,
         aov_vnd=summary.aov_vnd,
+    )
+
+
+@router.get("/sales/daily/export/csv")
+def export_daily_sales_csv(
+    request: Request,
+    from_date: Annotated[date | None, Query(alias="from")] = None,
+    to_date: Annotated[date | None, Query(alias="to")] = None,
+    _admin: Annotated[User, Depends(require_active_admin)] = None,  # type: ignore[assignment]
+    session: Annotated[Session, Depends(get_db_session)] = None,  # type: ignore[assignment]
+    service: Annotated[
+        SalesAnalyticsService, Depends(get_sales_analytics_service)
+    ] = None,  # type: ignore[assignment]
+) -> Response:
+    """Retrieve daily sales analytics as CSV (ADMIN only)."""
+    effective_from = from_date
+    if effective_from is None and "from_date" in request.query_params:
+        try:
+            effective_from = date.fromisoformat(request.query_params["from_date"])
+        except ValueError as err:
+            raise DomainValidationError("Định dạng from_date không hợp lệ.") from err
+
+    effective_to = to_date
+    if effective_to is None and "to_date" in request.query_params:
+        try:
+            effective_to = date.fromisoformat(request.query_params["to_date"])
+        except ValueError as err:
+            raise DomainValidationError("Định dạng to_date không hợp lệ.") from err
+
+    return service.export_daily_sales_csv(
+        session,
+        from_date=effective_from,
+        to_date=effective_to,
     )
 
 

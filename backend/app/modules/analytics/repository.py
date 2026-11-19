@@ -87,6 +87,37 @@ class SalesAnalyticsRepository:
             "cancelled_orders": int(row.cancelled_orders or 0),
         }
 
+    def get_daily_sales_orders(
+        self,
+        session: Session,
+        *,
+        start_utc: datetime,
+        end_utc_exclusive: datetime,
+    ) -> list[tuple[datetime, str, int]]:
+        """Fetch sold_at, status, and total_vnd for completed and cancelled orders."""
+        start_utc_naive = (
+            start_utc.astimezone(UTC).replace(tzinfo=None)
+            if start_utc.tzinfo is not None
+            else start_utc
+        )
+        end_utc_exclusive_naive = (
+            end_utc_exclusive.astimezone(UTC).replace(tzinfo=None)
+            if end_utc_exclusive.tzinfo is not None
+            else end_utc_exclusive
+        )
+        stmt = (
+            select(Order.sold_at, Order.status, Order.total_vnd)
+            .where(
+                Order.sold_at >= start_utc_naive,
+                Order.sold_at < end_utc_exclusive_naive,
+                Order.status.in_(
+                    [OrderStatus.COMPLETED.value, OrderStatus.CANCELLED.value]
+                ),
+            )
+            .order_by(Order.sold_at.asc())
+        )
+        return list(session.execute(stmt).tuples().all())
+
     def get_top_products(
         self,
         session: Session,

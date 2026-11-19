@@ -3,10 +3,17 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, timezone
+from typing import Any
 from zoneinfo import ZoneInfo
 
+from fastapi import Response
 from sqlalchemy.orm import Session
 
+from app.core.csv_export import (
+    MAX_EXPORT_ROWS,
+    check_export_limit,
+    generate_csv_response,
+)
 from app.core.exceptions import (
     ConflictError,
     DomainValidationError,
@@ -524,3 +531,135 @@ class OrderReadService:
             raise ResourceNotFoundError("Không tìm thấy đơn hàng.")
 
         return self._to_order_read(order)
+
+    def export_csv(
+        self,
+        session: Session,
+        *,
+        filters: OrderQuery,
+    ) -> Response:
+        """Export filtered orders and their line items as a secure CSV document."""
+        if (
+            filters.from_date is not None
+            and filters.to_date is not None
+            and filters.from_date > filters.to_date
+        ):
+            raise DomainValidationError("from_date must not be greater than to_date")
+
+        sold_from_utc: datetime | None = None
+        if filters.from_date is not None:
+            sold_from_utc = (
+                datetime.combine(filters.from_date, time.min, tzinfo=VN_TZ)
+                .astimezone(UTC)
+                .replace(tzinfo=None)
+            )
+
+        sold_to_utc_exclusive: datetime | None = None
+        if filters.to_date is not None:
+            if filters.to_date >= date.max:
+                raise DomainValidationError("Giá trị to_date vượt giới hạn cho phép.")
+            try:
+                sold_to_utc_exclusive = (
+                    datetime.combine(
+                        filters.to_date + timedelta(days=1), time.min, tzinfo=VN_TZ
+                    )
+                    .astimezone(UTC)
+                    .replace(tzinfo=None)
+                )
+            except OverflowError as err:
+                raise DomainValidationError(
+                    "Khoảng ngày lọc vượt giới hạn cho phép."
+                ) from err
+
+        order_id_exact: int | None = None
+        sku_search: str | None = None
+        if filters.search is not None:
+            cleaned = filters.search.strip()
+            if cleaned:
+                sku_search = cleaned
+                if cleaned.isdigit():
+                    val = int(cleaned)
+                    if val <= MAX_SQL_BIGINT:
+                        order_id_exact = val
+
+        orders, total = self._repository.list_orders(
+            session,
+            status=filters.status,
+            sold_from_utc=sold_from_utc,
+            sold_to_utc_exclusive=sold_to_utc_exclusive,
+            order_id_exact=order_id_exact,
+            sku_search=sku_search,
+            offset=0,
+            limit=MAX_EXPORT_ROWS + 1,
+        )
+
+        check_export_limit(total, MAX_EXPORT_ROWS)
+
+        headers = [
+            "Mã đơn",
+            "Ngày bán (VN)",
+            "Trạng thái",
+            "SKU",
+            "Tên sản phẩm",
+            "Số lượng",
+            "Đơn giá (VNĐ)",
+            "Thành tiền (VNĐ)",
+            "Tổng đơn (VNĐ)",
+            "Người tạo",
+            "Lý do hủy",
+        ]
+
+        rows: list[list[Any]] = []
+        for order in orders:
+            sold_at_vn = (
+                order.sold_at.replace(tzinfo=UTC)
+                .astimezone(VN_TZ)
+                .strftime("%Y-%m-%d %H:%M:%S")
+                if order.sold_at
+                else ""
+            )
+            creator_name = (
+                order.creator.full_name
+                if order.creator is not None
+                else (str(order.created_by) if order.created_by else "")
+            )
+            cancel_reason = order.cancel_reason or ""
+
+            if order.items:
+                for item in order.items:
+                    rows.append(
+                        [
+                            order.id,
+                            sold_at_vn,
+                            order.status,
+                            item.sku_snapshot,
+                            item.product_name_snapshot,
+                            item.quantity,
+                            item.unit_price_vnd,
+                            item.line_total_vnd,
+                            order.total_vnd,
+                            creator_name,
+                            cancel_reason,
+                        ]
+                    )
+            else:
+                rows.append(
+                    [
+                        order.id,
+                        sold_at_vn,
+                        order.status,
+                        "",
+                        "",
+                        0,
+                        0,
+                        0,
+                        order.total_vnd,
+                        creator_name,
+                        cancel_reason,
+                    ]
+                )
+
+        check_export_limit(len(rows), MAX_EXPORT_ROWS)
+
+        filename = f"orders_export_{datetime.now(VN_TZ).strftime('%Y%m%d_%H%M%S')}.csv"
+        return generate_csv_response(headers=headers, rows=rows, filename=filename)
