@@ -33,11 +33,11 @@ def list_staff_accounts(
     session: Annotated[Session, Depends(get_db_session)],
     _admin: Annotated[User, Depends(require_active_admin)],
     service: Annotated[StaffAccountService, Depends(get_staff_account_service)],
+    response: Response,
     status: Annotated[Literal["ACTIVE", "LOCKED"] | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=120)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-    response: Response,
 ) -> StaffAccountPage:
     response.headers["Cache-Control"] = "no-store"
     # Staff account lists contain personal data; never cache their contents.
