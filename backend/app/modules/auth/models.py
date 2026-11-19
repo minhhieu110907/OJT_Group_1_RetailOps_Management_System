@@ -56,7 +56,7 @@ class User(Base):
             "AND status = 'ACTIVE') OR "
             "(role = 'STAFF' AND admin_slot IS NULL AND status IN "
             "('PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'LOCKED'))",
-            name="ck_users_role_status_admin_slot",
+            name="ck_users_role_status_admin_slot_v2",
         ),
     )
 
