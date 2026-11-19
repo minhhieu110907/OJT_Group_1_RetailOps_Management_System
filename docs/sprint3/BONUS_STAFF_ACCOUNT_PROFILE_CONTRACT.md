@@ -1,9 +1,9 @@
 # RetailOps V1.0 — Bonus: Staff account locking, profile, password change
 
-Status: **Bonus implementation contract — proposed, not yet approved for production**.
+Status: **Approved Bonus Scope — RetailOps V1.0, Implementation Verified**.
 Baseline: `develop` commit `8e835a5df9981da3b54906fb4998563b8be5c24a`, 2026-11-19.
 Owner: Backend Lead. Deadline: 2026-11-25.
-This is a controlled V1 extension to AUTH-03; SRS currently explicitly excludes Staff suspension/reactivation. Do not silently replace the approved SRS. Document the addendum and obtain Product Owner acceptance before final merge.
+This is an explicitly accepted Bonus extension to AUTH-03 for RetailOps V1.0, confirmed by the project lead on 2026-11-19. The approved SRS baseline remains unchanged and continues to exclude Staff suspension/reactivation from its original core scope; this document records the separate Bonus addendum. GitHub review and required CI remain independent merge requirements.
 
 ## Scope and non-goals
 
