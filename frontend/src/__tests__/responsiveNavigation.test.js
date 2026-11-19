@@ -540,4 +540,78 @@ describe('Responsive Navigation & Accessibility Suite [T04AA6A]', () => {
     unmount();
     assert.equal(document.body.style.overflow, 'auto', 'Unmount component phải phục hồi đúng overflow ban đầu');
   });
+
+  test('12. Nested Overlay & Viewport Resize: Mobile drawer -> Modal -> resize to desktop -> close Modal -> resize to mobile', async () => {
+    window.__setMobileViewport(true);
+    document.body.style.overflow = 'auto';
+
+    const { container } = render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/dashboard'] },
+        React.createElement(TestLayoutApp, {
+          authValue: createAuthValue(mockAdminUser),
+        })
+      )
+    );
+
+    const hamburger = container.querySelector('#mobile-nav-toggle-btn');
+    assert.ok(hamburger, 'Hamburger button phải tồn tại');
+
+    // 1. Mở Sidebar Drawer trên mobile
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'true');
+    assert.equal(document.body.style.overflow, 'hidden', 'Scroll phải bị khóa khi drawer mở');
+
+    // 2. Mở Logout Confirmation Modal
+    const logoutBtn = container.querySelector('button[aria-label="Đăng xuất"]');
+    assert.ok(logoutBtn, 'Nút Đăng xuất phải tồn tại');
+    act(() => {
+      fireEvent.click(logoutBtn);
+    });
+
+    const modalTitle = container.querySelector('#modal-title');
+    assert.ok(modalTitle, 'Logout Modal phải hiển thị');
+    assert.equal(document.body.style.overflow, 'hidden', 'Scroll vẫn phải bị khóa khi Modal mở');
+
+    // 3. Resize viewport sang desktop (>= 1024px) khi Modal vẫn mở
+    act(() => {
+      window.__setMobileViewport(false);
+    });
+
+    // Xác minh Modal vẫn hoạt động
+    const modalDialog = container.querySelector('[role="dialog"][aria-modal="true"]');
+    assert.ok(modalDialog, 'Modal vẫn phải tồn tại và hoạt động trên desktop');
+
+    // Focus không được tự ý chuyển về hamburger button đang ẩn
+    assert.notEqual(document.activeElement, hamburger, 'Focus không được chuyển về hamburger đang bị ẩn trên desktop');
+
+    // Scroll lock không bị mất khi Modal vẫn đang mở
+    assert.equal(document.body.style.overflow, 'hidden', 'Scroll lock không được bị mất khi Modal đang mở');
+
+    // 4. Đóng Modal (click nút Hủy)
+    const cancelBtn = container.querySelector('button[class*="cancelBtn"]');
+    assert.ok(cancelBtn, 'Nút Hủy modal phải tồn tại');
+    act(() => {
+      fireEvent.click(cancelBtn);
+    });
+
+    // Xác minh Modal đã đóng
+    assert.equal(container.querySelector('#modal-title'), null, 'Modal phải đóng sau khi nhấn Hủy');
+
+    // Chờ microtasks để đảm bảo cleanup hoàn tất
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Xác minh document.body.style.overflow được khôi phục đúng trạng thái ban đầu ('auto')
+    assert.equal(document.body.style.overflow, 'auto', 'document.body.style.overflow phải phục hồi về trạng thái ban đầu');
+
+    // 5. Resize về mobile: Drawer không tự mở lại
+    act(() => {
+      window.__setMobileViewport(true);
+    });
+
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'false', 'Drawer không được tự mở lại khi resize về mobile');
+  });
 });
