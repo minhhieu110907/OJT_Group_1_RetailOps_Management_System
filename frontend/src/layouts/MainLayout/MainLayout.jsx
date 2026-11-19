@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
@@ -13,6 +13,38 @@ export default function MainLayout() {
 
   const handleCloseMobileNav = useCallback(() => {
     setIsMobileNavOpen(false);
+  }, []);
+
+  // P2: Đồng bộ trạng thái khi viewport resize vượt breakpoint desktop (>= 1024px)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+
+    const mql = window.matchMedia('(min-width: 1024px)');
+
+    const handleBreakpointChange = (e) => {
+      // Khi chuyển sang desktop, đóng mobile drawer
+      if (e.matches) {
+        setIsMobileNavOpen(false);
+      }
+    };
+
+    if (mql.matches) {
+      setIsMobileNavOpen(false);
+    }
+
+    if (mql.addEventListener) {
+      mql.addEventListener('change', handleBreakpointChange);
+    } else if (mql.addListener) {
+      mql.addListener(handleBreakpointChange);
+    }
+
+    return () => {
+      if (mql.removeEventListener) {
+        mql.removeEventListener('change', handleBreakpointChange);
+      } else if (mql.removeListener) {
+        mql.removeListener(handleBreakpointChange);
+      }
+    };
   }, []);
 
   return (

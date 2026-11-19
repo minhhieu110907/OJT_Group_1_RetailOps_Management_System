@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Modal } from '../../components/common';
@@ -138,13 +138,121 @@ export default function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
-
-  // Đóng sidebar trên mobile khi chuyển route
-  useEffect(() => {
-    if (isOpen) {
-      onClose();
+  // Theo dõi breakpoint mobile/tablet (< 1024px) khởi tạo một cách an toàn
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(max-width: 1023px)').matches;
     }
-  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+    return false;
+  });
+
+  const sidebarRef = useRef(null);
+  const closeBtnRef = useRef(null);
+  const prevPathnameRef = useRef(location.pathname);
+  const isNavigatingRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mql = window.matchMedia('(max-width: 1023px)');
+
+    const handleMediaChange = (e) => {
+      setIsMobileViewport(e.matches);
+    };
+
+    if (mql.addEventListener) {
+      mql.addEventListener('change', handleMediaChange);
+    } else if (mql.addListener) {
+      mql.addListener(handleMediaChange);
+    }
+
+    return () => {
+      if (mql.removeEventListener) {
+        mql.removeEventListener('change', handleMediaChange);
+      } else if (mql.removeListener) {
+        mql.removeListener(handleMediaChange);
+      }
+    };
+  }, []);
+
+  // Section 5: Đóng sidebar khi route thực sự thay đổi
+  useEffect(() => {
+    if (prevPathnameRef.current !== location.pathname) {
+      prevPathnameRef.current = location.pathname;
+      if (isOpen) {
+        isNavigatingRef.current = true;
+        onClose();
+      }
+    }
+  }, [location.pathname, isOpen, onClose]);
+
+  // Section 2 P1 & P2: Escape key, Focus Trap & Scroll Lock khi mở mobile drawer
+  useEffect(() => {
+    if (!isOpen || !isMobileViewport) return;
+
+    // A. Focus management: focus vào nút đóng drawer khi mở
+    const initialFocusTimer = setTimeout(() => {
+      if (closeBtnRef.current) {
+        closeBtnRef.current.focus();
+      }
+    }, 50);
+
+    // B. Scroll Lock an toàn
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    // C. Keyboard Navigation: Escape & Focus Trap (Tab / Shift+Tab)
+    const handleKeyDown = (e) => {
+      // Ưu tiên không can thiệp nếu Modal Đăng xuất đang mở
+      if (isLogoutModalOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        if (!sidebarRef.current) return;
+        const focusableElements = sidebarRef.current.querySelectorAll(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusableElements.length === 0) return;
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      clearTimeout(initialFocusTimer);
+      document.body.style.overflow = originalOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+
+      // Trả lại focus cho nút hamburger toggle nếu không phải do route navigation
+      if (!isNavigatingRef.current) {
+        const toggleBtn = document.getElementById('mobile-nav-toggle-btn');
+        if (toggleBtn) {
+          toggleBtn.focus();
+        }
+      }
+      isNavigatingRef.current = false;
+    };
+  }, [isOpen, isMobileViewport, isLogoutModalOpen, onClose]);
 
   if (!user) return null;
 
@@ -162,10 +270,13 @@ export default function Sidebar({
     navigate('/login', { replace: true });
   };
 
+  // Drawer mobile đóng thì vô hiệu hóa focusable và ẩn khỏi accessibility tree
+  const isMobileClosed = isMobileViewport && !isOpen;
+
   return (
     <>
       {/* Backdrop mờ phía sau Sidebar khi mở trên Mobile / Tablet */}
-      {isOpen && (
+      {isOpen && isMobileViewport && (
         <div
           className={styles.sidebarBackdrop}
           onClick={onClose}
@@ -173,7 +284,15 @@ export default function Sidebar({
         />
       )}
 
-      <aside className={`${styles.sidebar} ${isOpen ? styles.sidebarMobileOpen : ''}`}>
+      <aside
+        id="main-sidebar-drawer"
+        ref={sidebarRef}
+        className={`${styles.sidebar} ${isOpen ? styles.sidebarMobileOpen : ''}`}
+        aria-label="Thanh điều hướng chính"
+        aria-hidden={isMobileClosed ? 'true' : undefined}
+        inert={isMobileClosed ? true : undefined}
+        {...(isMobileViewport && isOpen ? { role: 'dialog', 'aria-modal': 'true' } : {})}
+      >
         {/* 1. PHẦN ĐẦU: THƯƠNG HIỆU (Đồng nhất cho cả ADMIN và STAFF) */}
         <div className={styles.brandSection}>
           <div className={styles.brandTitleWrap}>
@@ -194,6 +313,7 @@ export default function Sidebar({
 
           {/* Nút đóng Sidebar trên Mobile */}
           <button
+            ref={closeBtnRef}
             type="button"
             className={styles.mobileCloseBtn}
             onClick={onClose}

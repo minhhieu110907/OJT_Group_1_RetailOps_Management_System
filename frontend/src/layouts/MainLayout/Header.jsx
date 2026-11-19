@@ -335,10 +335,13 @@ export default function Header({
         <div className={styles.headerLeftGroup}>
           <button
             type="button"
+            id="mobile-nav-toggle-btn"
             className={styles.mobileMenuToggle}
             onClick={onToggleMobileNav}
             aria-label={isMobileNavOpen ? 'Đóng thanh điều hướng' : 'Mở thanh điều hướng'}
             title={isMobileNavOpen ? 'Đóng menu' : 'Mở menu'}
+            aria-expanded={isMobileNavOpen}
+            aria-controls="main-sidebar-drawer"
           >
             {isMobileNavOpen ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
