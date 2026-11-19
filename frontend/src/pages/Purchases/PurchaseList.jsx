@@ -17,6 +17,7 @@ import {
 import { suppliersApi } from '../../api/suppliersApi';
 import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
+import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
 import styles from './PurchaseList.module.css';
 
 // Định dạng số tiền kiểu 2.500.000 đ
@@ -524,50 +525,54 @@ export default function PurchaseList() {
   }, []);
 
   // T3C9F16 — Nhận state.prefillDraft từ trang Trợ lý AI để mở sẵn Modal Tạo mới phiếu nhập
-  const handleApplyPrefillDraft = useCallback((prefillDraft) => {
-    if (!prefillDraft || typeof prefillDraft !== 'object') return;
+  // Dùng chung bộ validation buildPrefillDraftState (không âm thầm ép giá trị lỗi về 1 hoặc 0)
+  const handleApplyPrefillDraft = useCallback(
+    (prefillDraft) => {
+      if (!prefillDraft || typeof prefillDraft !== 'object') return;
 
-    const rawSupplierId = prefillDraft.supplier_id;
-    const normalizedSupplierId =
-      Number.isInteger(Number(rawSupplierId)) && Number(rawSupplierId) > 0
-        ? String(Number(rawSupplierId))
-        : '';
+      const rawItems = Array.isArray(prefillDraft.items) ? prefillDraft.items : [];
+      const selectedIds = rawItems.map((it) => it?.product_id);
+      const { prefillDraft: validatedPrefill, error } = buildPrefillDraftState({
+        supplierId:
+          prefillDraft.supplier_id !== undefined && prefillDraft.supplier_id !== null
+            ? prefillDraft.supplier_id
+            : '',
+        rows: rawItems,
+        selectedIds,
+      });
 
-    const rawItems = Array.isArray(prefillDraft.items) ? prefillDraft.items : [];
-    const validLines = rawItems
-      .filter((it) => Number.isInteger(Number(it?.product_id)) && Number(it.product_id) > 0)
-      .map((it) => ({
-        product_id: String(Number(it.product_id)),
-        quantity: Math.max(1, Math.trunc(Number(it.quantity) || 1)),
-        unit_cost_vnd: Math.max(0, Math.trunc(Number(it.unit_cost_vnd) || 0)),
-      }));
+      if (error || !validatedPrefill) {
+        toast.error(error || 'Dữ liệu khởi tạo phiếu nhập nháp không hợp lệ.');
+        return;
+      }
 
-    if (rawItems.length > 0) {
       setKnownProductsById((prev) => {
         const next = { ...prev };
-        rawItems.forEach((it) => {
-          const pid = Number(it?.product_id);
-          if (Number.isInteger(pid) && pid > 0 && (it.sku || it.name)) {
-            next[pid] = {
-              id: pid,
-              sku: String(it.sku || `SP-${pid}`),
-              name: String(it.name || `Sản phẩm #${pid}`),
-            };
-          }
+        validatedPrefill.items.forEach((it) => {
+          next[it.product_id] = {
+            id: it.product_id,
+            sku: it.sku,
+            name: it.name,
+          };
         });
         return next;
       });
-    }
 
-    setCreateSupplierId(normalizedSupplierId);
-    setCreateLines(
-      validLines.length > 0
-        ? validLines
-        : [{ product_id: '', quantity: 1, unit_cost_vnd: 0 }]
-    );
-    setProductSearchTerm('');
-    setIsCreateModalOpen(true);
-  }, []);
+      setCreateSupplierId(
+        validatedPrefill.supplier_id ? String(validatedPrefill.supplier_id) : ''
+      );
+      setCreateLines(
+        validatedPrefill.items.map((it) => ({
+          product_id: String(it.product_id),
+          quantity: it.quantity,
+          unit_cost_vnd: it.unit_cost_vnd,
+        }))
+      );
+      setProductSearchTerm('');
+      setIsCreateModalOpen(true);
+    },
+    [toast]
+  );
 
   // T3C9F16 — Nhận state.openReceiptId từ trang Trợ lý AI để tự mở chi tiết phiếu nháp sau khi tải danh sách
   const handleApplyOpenReceiptId = useCallback(
@@ -585,6 +590,15 @@ export default function PurchaseList() {
     },
     [handleOpenDetailModal, isLoading]
   );
+
+  useEffect(() => {
+    const detailGuard = detailGuardRef.current;
+    return () => {
+      pendingOpenReceiptIdRef.current = null;
+      hasLoadedListOnceRef.current = false;
+      detailGuard.invalidate();
+    };
+  }, []);
 
   // Load chi tiết phiếu nhập chỉ khi Modal Chi tiết ĐANG MỞ và khớp generation guard
   useEffect(() => {

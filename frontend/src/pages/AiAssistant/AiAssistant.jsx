@@ -15,6 +15,7 @@ import { suppliersApi } from '../../api/suppliersApi';
 import { useAuth } from '../../context/AuthContext';
 import {
   buildDraftReceiptPayload,
+  buildPrefillDraftState,
   buildReorderSuggestions,
 } from '../../utils/reorderSuggestions';
 import styles from './AiAssistant.module.css';
@@ -52,6 +53,14 @@ export default function AiAssistant() {
   // T3C9F16 — Smart Reorder Suggestions -> DRAFT Purchase Receipt state
   const [reorderRows, setReorderRows] = useState([]);
   const [reorderSuppliers, setReorderSuppliers] = useState([]);
+  const [reorderMeta, setReorderMeta] = useState({
+    lowStockTotal: 0,
+    lowStockLoaded: 0,
+    topProductsTotal: 0,
+    topProductsLoaded: 0,
+    topProductsFailed: false,
+    suppliersFailed: false,
+  });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [isReorderLoading, setIsReorderLoading] = useState(false);
@@ -308,15 +317,34 @@ export default function AiAssistant() {
           return;
         }
 
-        const lowItems = lowResult.value?.items || [];
-        const topItems =
-          topResult.status === 'fulfilled' ? topResult.value?.items || [] : [];
-        const activeSups =
-          supResult.status === 'fulfilled' ? supResult.value?.items || [] : [];
+        const lowData = lowResult.value || {};
+        const lowItems = lowData.items || [];
+        const lowTotal = Number(lowData.total) || lowItems.length;
 
-        const builtSuggestions = buildReorderSuggestions(lowItems, topItems);
+        const topFailed = topResult.status === 'rejected';
+        const topData = !topFailed ? topResult.value || {} : {};
+        const topItems = !topFailed ? topData.items || [] : [];
+        const topTotal = !topFailed
+          ? Number(topData.total) || topItems.length
+          : 0;
+
+        const supFailed = supResult.status === 'rejected';
+        const activeSups = !supFailed ? supResult.value?.items || [] : [];
+
+        const builtSuggestions = buildReorderSuggestions(
+          lowItems,
+          topFailed ? null : topItems
+        );
         setReorderRows(builtSuggestions);
         setReorderSuppliers(activeSups);
+        setReorderMeta({
+          lowStockTotal: Math.max(lowTotal, builtSuggestions.length),
+          lowStockLoaded: builtSuggestions.length,
+          topProductsTotal: Math.max(topTotal, topItems.length),
+          topProductsLoaded: topItems.length,
+          topProductsFailed: topFailed,
+          suppliersFailed: supFailed,
+        });
         setSelectedProductIds((prev) => {
           const validIdSet = new Set(builtSuggestions.map((r) => r.product_id));
           return prev.filter((id) => validIdSet.has(id));
@@ -370,9 +398,17 @@ export default function AiAssistant() {
     setReorderRows((prev) =>
       prev.map((row) => {
         if (row.product_id !== pid) return row;
+        const trimmed =
+          typeof rawValue === 'string' ? rawValue.trim() : String(rawValue ?? '');
+        const parsedValue =
+          trimmed === ''
+            ? ''
+            : /^-?\d+$/.test(trimmed)
+            ? Number(trimmed)
+            : rawValue;
         return {
           ...row,
-          [field]: rawValue === '' ? '' : Number(rawValue),
+          [field]: parsedValue,
         };
       })
     );
@@ -416,25 +452,16 @@ export default function AiAssistant() {
 
   const handleOpenPrefillPurchaseForm = (navigateFn) => {
     setDraftActionError('');
-    const selectedSet = new Set(selectedProductIds.map(Number));
-    const chosenRows = reorderRows.filter((r) =>
-      selectedSet.has(Number(r.product_id))
-    );
-    if (chosenRows.length === 0) {
-      setDraftActionError('Vui lòng chọn ít nhất 1 sản phẩm gợi ý.');
+    const { prefillDraft, error } = buildPrefillDraftState({
+      supplierId: selectedSupplierId,
+      rows: reorderRows,
+      selectedIds: selectedProductIds,
+    });
+
+    if (error || !prefillDraft) {
+      setDraftActionError(error || 'Dữ liệu sản phẩm gợi ý chưa hợp lệ.');
       return;
     }
-
-    const prefillDraft = {
-      supplier_id: selectedSupplierId ? Number(selectedSupplierId) : '',
-      items: chosenRows.map((r) => ({
-        product_id: Number(r.product_id),
-        sku: r.sku,
-        name: r.name,
-        quantity: Math.max(1, Math.trunc(Number(r.suggested_quantity) || 1)),
-        unit_cost_vnd: Math.max(0, Math.trunc(Number(r.unit_cost_vnd) || 0)),
-      })),
-    };
 
     if (typeof navigateFn === 'function') {
       navigateFn('/purchases', { state: { prefillDraft } });
@@ -467,9 +494,12 @@ export default function AiAssistant() {
             </span>
           </div>
           <p className={styles.reorderSubtitle}>
-            Tổng hợp sản phẩm tồn kho thấp (≤ 5) kết hợp tốc độ bán 30 ngày qua.
-            Phiếu sinh ra ở trạng thái DRAFT, chưa làm thay đổi tồn kho cho đến
-            khi Quản trị viên kiểm tra và xác nhận.
+            Gợi ý định lượng theo quy tắc tồn kho (
+            <code>max(2 × ngưỡng − tồn hiện tại, ⌈lượng bán Top 30 ngày / 2⌉, 5)</code>
+            ) từ danh sách tồn thấp (≤ 5) đối chiếu với Top sản phẩm bán chạy 30
+            ngày. Các mặt hàng ngoài danh sách Top được ghi rõ &ldquo;Chưa có dữ
+            liệu bán hàng đầy đủ&rdquo; và chỉ tính theo ngưỡng tồn. Phiếu sinh
+            ra ở trạng thái DRAFT, chưa cộng tồn kho.
           </p>
         </div>
 
@@ -504,6 +534,40 @@ export default function AiAssistant() {
           </button>
         </div>
       )}
+
+      {(reorderMeta.topProductsFailed || reorderMeta.suppliersFailed) && (
+        <div
+          className={styles.reorderEmptyBox}
+          role="status"
+          data-testid="reorder-degraded-notice"
+        >
+          <span>
+            {reorderMeta.topProductsFailed &&
+              'Chưa tải được dữ liệu Top sản phẩm bán chạy 30 ngày; hệ thống đang gợi ý thuần theo ngưỡng tồn kho (chưa có dữ liệu bán hàng đầy đủ). '}
+            {reorderMeta.suppliersFailed &&
+              'Chưa tải được danh sách nhà cung cấp hoạt động; bạn vẫn có thể chọn sản phẩm và bấm "Mở form tạo phiếu" để chọn nhà cung cấp tại trang Quản lý nhập hàng.'}
+          </span>
+        </div>
+      )}
+
+      {reorderRows.length > 0 &&
+        (reorderMeta.lowStockTotal > reorderRows.length ||
+          (!reorderMeta.topProductsFailed &&
+            reorderMeta.topProductsTotal > reorderMeta.topProductsLoaded)) && (
+          <div
+            className={styles.reorderEmptyBox}
+            role="status"
+            data-testid="reorder-pagination-notice"
+          >
+            <span>
+              {reorderMeta.lowStockTotal > reorderRows.length &&
+                `Đang hiển thị ${reorderRows.length}/${reorderMeta.lowStockTotal} sản phẩm tồn thấp. `}
+              {!reorderMeta.topProductsFailed &&
+                reorderMeta.topProductsTotal > reorderMeta.topProductsLoaded &&
+                `Dữ liệu bán hàng đối chiếu trên Top ${reorderMeta.topProductsLoaded}/${reorderMeta.topProductsTotal} sản phẩm bán chạy 30 ngày.`}
+            </span>
+          </div>
+        )}
 
       {draftActionError && (
         <div
@@ -645,7 +709,11 @@ export default function AiAssistant() {
                           {row.quantity} / {row.threshold}
                         </span>
                       </td>
-                      <td>{row.sold_units.toLocaleString('vi-VN')} SP</td>
+                      <td>
+                        {row.sold_units === null
+                          ? 'Chưa có dữ liệu bán hàng đầy đủ'
+                          : `${row.sold_units.toLocaleString('vi-VN')} SP`}
+                      </td>
                       <td className={styles.reasonText}>{row.reason}</td>
                       <td>
                         <input

@@ -31,10 +31,13 @@ const entryPath = path.join(outDir, 'aiHarnessEntry.jsx');
 fs.writeFileSync(
   entryPath,
   [
+    "import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';",
     "import AiAssistant from '../../src/pages/AiAssistant/AiAssistant.jsx';",
+    "import PurchaseList from '../../src/pages/Purchases/PurchaseList.jsx';",
+    "import { ToastProvider } from '../../src/components/common/index.js';",
     "import { AuthContext } from '../../src/context/AuthContext.jsx';",
     "import axiosClient from '../../src/api/axiosClient.js';",
-    'export { AiAssistant, AuthContext, axiosClient };',
+    'export { MemoryRouter, Routes, Route, useLocation, useNavigate, AiAssistant, PurchaseList, ToastProvider, AuthContext, axiosClient };',
     '',
   ].join('\n'),
   'utf8'
@@ -57,8 +60,19 @@ await build({
 });
 
 const harnessUrl = pathToFileURL(path.join(outDir, 'aiHarnessEntry.js')).href;
-const { AiAssistant, AuthContext, axiosClient } = await import(harnessUrl);
-const { render, screen, waitFor, fireEvent, cleanup } = await import(
+const {
+  MemoryRouter,
+  Routes,
+  Route,
+  useLocation,
+  useNavigate,
+  AiAssistant,
+  PurchaseList,
+  ToastProvider,
+  AuthContext,
+  axiosClient,
+} = await import(harnessUrl);
+const { render, screen, waitFor, fireEvent, act, cleanup } = await import(
   '@testing-library/react'
 );
 const React = await import('react');
@@ -466,6 +480,414 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
     assert.deepEqual(createdDraftBody, {
       supplier_id: 7,
       items: [{ product_id: 201, quantity: 15, unit_cost_vnd: 8000 }],
+    });
+
+    view.unmount();
+  });
+
+  test('T3C9F16 P1 & P2: shows unknown sales truthfully (never 0 SP), pagination notice, degraded notice, and unified prefill validation', async () => {
+    axiosClient.get = async (url) => {
+      if (url === '/inventory/low-stock') {
+        return {
+          data: {
+            items: [
+              {
+                product_id: 301,
+                sku: 'SKU-301',
+                name: 'Dầu ăn Tường An 1L',
+                quantity: 0,
+                threshold: 5,
+              },
+            ],
+            total: 35,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      }
+      if (url === '/analytics/products/top') {
+        // Top products does NOT include product 301, and total > loaded
+        return {
+          data: {
+            items: [
+              {
+                product_id: 999,
+                sku: 'SKU-999',
+                name: 'Sản phẩm khác',
+                sold_units: 40,
+                revenue_vnd: 400000,
+              },
+            ],
+            total: 42,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      }
+      if (url === '/suppliers') {
+        throw new Error('Suppliers service temporary failure');
+      }
+      return { data: {} };
+    };
+
+    const view = renderAiAssistant('ADMIN');
+
+    await waitFor(() => {
+      assert.ok(screen.getByText('SKU-301'));
+      assert.ok(screen.getByText('Chưa có dữ liệu bán hàng đầy đủ'));
+      assert.ok(
+        screen.getByText('Hết hàng (0/5) · Chưa có dữ liệu bán hàng đầy đủ')
+      );
+      assert.equal(screen.queryByText('0 SP'), null);
+    });
+
+    // Pagination notice for both Low Stock (1/35) and Top Products (1/42)
+    const pageNotice = screen.getByTestId('reorder-pagination-notice');
+    assert.match(pageNotice.textContent, /Đang hiển thị 1\/35 sản phẩm tồn thấp/);
+    assert.match(
+      pageNotice.textContent,
+      /Top 1\/42 sản phẩm bán chạy 30 ngày/
+    );
+
+    // Degraded notice for failed suppliers API
+    const degradedNotice = screen.getByTestId('reorder-degraded-notice');
+    assert.match(
+      degradedNotice.textContent,
+      /Chưa tải được danh sách nhà cung cấp hoạt động/
+    );
+
+    // Unified validation: selecting row and entering invalid quantity 0 blocks "Mở form tạo phiếu"
+    fireEvent.click(screen.getByLabelText('Chọn sản phẩm SKU-301'));
+    fireEvent.change(screen.getByLabelText('Số lượng nhập SKU-301'), {
+      target: { value: '0' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Mở form tạo phiếu' }));
+
+    await waitFor(() => {
+      const errBanner = screen.getByTestId('draft-action-error');
+      assert.match(errBanner.textContent, /Số lượng nhập/i);
+    });
+
+    view.unmount();
+  });
+
+  test('T3C9F16 P2 Router Navigation: prefillDraft and openReceiptId flows wait for list load and clear router state', async () => {
+    let resolveReceiptsList = null;
+    let detailFetchCount = 0;
+
+    axiosClient.get = async (url, config) => {
+      if (url === '/inventory/low-stock') {
+        return {
+          data: {
+            items: [
+              {
+                product_id: 201,
+                sku: 'SKU-201',
+                name: 'Coca Cola 330ml',
+                quantity: 1,
+                threshold: 5,
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      }
+      if (url === '/analytics/products/top') {
+        return {
+          data: {
+            items: [
+              {
+                product_id: 201,
+                sku: 'SKU-201',
+                name: 'Coca Cola 330ml',
+                sold_units: 20,
+                revenue_vnd: 200000,
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      }
+      if (url === '/suppliers') {
+        return {
+          data: {
+            items: [
+              {
+                id: 7,
+                name: 'Công ty Nước giải khát Việt',
+                status: 'ACTIVE',
+                contact_phone: '+84901234567',
+                contact_email: 'contact@nuocgiaikhat.vn',
+                created_at: '2026-11-10T01:00:00Z',
+                updated_at: '2026-11-10T01:00:00Z',
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 100,
+          },
+        };
+      }
+      if (url === '/products') {
+        return {
+          data: {
+            items: [
+              {
+                id: 201,
+                category_id: 1,
+                sku: 'SKU-201',
+                name: 'Coca Cola 330ml',
+                status: 'ACTIVE',
+                sale_price_vnd: 10000,
+                quantity: 1,
+                stock_version: 1,
+                created_at: '2026-11-10T01:00:00Z',
+                updated_at: '2026-11-10T01:00:00Z',
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 100,
+          },
+        };
+      }
+      if (url === '/purchase-receipts') {
+        // Only hold the main DRAFT list query (page_size=10) when resolveReceiptsList gate is active
+        if (resolveReceiptsList && config?.params?.page_size === 10) {
+          return new Promise((res) => {
+            const currentResolver = resolveReceiptsList;
+            resolveReceiptsList = null;
+            currentResolver(res);
+          });
+        }
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: config?.params?.page_size || 10,
+          },
+        };
+      }
+      if (url === '/purchase-receipts/88') {
+        detailFetchCount += 1;
+        return {
+          data: {
+            id: 88,
+            supplier_id: 7,
+            supplier_name_snapshot: 'Công ty Nước giải khát Việt',
+            status: 'DRAFT',
+            draft_version: 1,
+            total_vnd: 120000,
+            created_by: 1,
+            closed_by: null,
+            created_at: '2026-11-19T10:00:00Z',
+            updated_at: '2026-11-19T10:00:00Z',
+            closed_at: null,
+            items: [
+              {
+                product_id: 201,
+                sku_snapshot: 'SKU-201',
+                product_name_snapshot: 'Coca Cola 330ml',
+                quantity: 15,
+                unit_cost_vnd: 8000,
+                line_total_vnd: 120000,
+              },
+            ],
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    axiosClient.post = async (url) => {
+      assert.equal(url, '/purchase-receipts');
+      return {
+        data: {
+          id: 88,
+          supplier_id: 7,
+          supplier_name_snapshot: 'Công ty Nước giải khát Việt',
+          status: 'DRAFT',
+          draft_version: 1,
+          total_vnd: 120000,
+          created_by: 1,
+          closed_by: null,
+          created_at: '2026-11-19T10:00:00Z',
+          updated_at: '2026-11-19T10:00:00Z',
+          closed_at: null,
+          items: [
+            {
+              product_id: 201,
+              sku_snapshot: 'SKU-201',
+              product_name_snapshot: 'Coca Cola 330ml',
+              quantity: 15,
+              unit_cost_vnd: 8000,
+              line_total_vnd: 120000,
+            },
+          ],
+        },
+      };
+    };
+
+    let latestLocation = null;
+    let triggerNavigate = null;
+    function LocationProbe() {
+      latestLocation = useLocation();
+      triggerNavigate = useNavigate();
+      return null;
+    }
+
+    const view = render(
+      React.createElement(
+        AuthContext.Provider,
+        {
+          value: {
+            user: { id: 1, username: 'admin', role: 'ADMIN' },
+            isMockMode: false,
+          },
+        },
+        React.createElement(
+          ToastProvider,
+          null,
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ['/ai-assistant'] },
+            React.createElement(LocationProbe),
+            React.createElement(
+              Routes,
+              null,
+              React.createElement(Route, {
+                path: '/ai-assistant',
+                element: React.createElement(AiAssistant),
+              }),
+              React.createElement(Route, {
+                path: '/purchases',
+                element: React.createElement(PurchaseList),
+              })
+            )
+          )
+        )
+      )
+    );
+
+    // 1. Flow A: Select suggestion -> click "Mở form tạo phiếu" -> navigates to /purchases & opens Create Modal with prefilled data
+    await waitFor(() => {
+      assert.ok(screen.getByText('SKU-201'));
+    });
+
+    fireEvent.click(screen.getByLabelText('Chọn sản phẩm SKU-201'));
+    fireEvent.change(screen.getByLabelText('Số lượng nhập SKU-201'), {
+      target: { value: '14' },
+    });
+    fireEvent.change(screen.getByLabelText('Đơn giá dự kiến SKU-201'), {
+      target: { value: '7500' },
+    });
+    fireEvent.change(
+      screen.getByLabelText('Chọn nhà cung cấp cho phiếu nhập nháp'),
+      { target: { value: '7' } }
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mở form tạo phiếu' }));
+
+    await waitFor(() => {
+      assert.equal(latestLocation?.pathname, '/purchases');
+      // Router state must be cleared immediately after consumption
+      assert.equal(latestLocation?.state, null);
+      assert.ok(screen.getByText('Tạo mới phiếu nhập hàng'));
+    });
+
+    // Close Create modal, navigate back to /ai-assistant, then revisit /purchases without state -> modal must NOT reopen
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy bỏ' }));
+    await waitFor(() => {
+      assert.equal(screen.queryByText('Tạo mới phiếu nhập hàng'), null);
+    });
+
+    await act(async () => {
+      triggerNavigate('/ai-assistant');
+    });
+    await waitFor(() => {
+      assert.equal(latestLocation?.pathname, '/ai-assistant');
+      assert.ok(screen.getByText('SKU-201'));
+    });
+
+    // 2. Flow B: Create DRAFT receipt #88 -> click "Kiểm tra & Xác nhận phiếu nháp" -> waits for list load -> opens receipt #88
+    let finishListLoad = null;
+    resolveReceiptsList = (res) => {
+      finishListLoad = () =>
+        res({
+          data: {
+            items: [
+              {
+                id: 88,
+                supplier_id: 7,
+                supplier_name_snapshot: 'Công ty Nước giải khát Việt',
+                status: 'DRAFT',
+                draft_version: 1,
+                total_vnd: 120000,
+                created_by: 1,
+                closed_by: null,
+                created_at: '2026-11-19T10:00:00Z',
+                updated_at: '2026-11-19T10:00:00Z',
+                closed_at: null,
+                items: [
+                  {
+                    product_id: 201,
+                    sku_snapshot: 'SKU-201',
+                    product_name_snapshot: 'Coca Cola 330ml',
+                    quantity: 15,
+                    unit_cost_vnd: 8000,
+                    line_total_vnd: 120000,
+                  },
+                ],
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 10,
+          },
+        });
+    };
+
+    fireEvent.click(screen.getByLabelText('Chọn sản phẩm SKU-201'));
+    fireEvent.change(
+      screen.getByLabelText('Chọn nhà cung cấp cho phiếu nhập nháp'),
+      { target: { value: '7' } }
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Tạo phiếu nháp (1 sản phẩm)' })
+    );
+
+    await waitFor(() => {
+      assert.ok(
+        screen.getByRole('button', { name: 'Kiểm tra & Xác nhận phiếu nháp' })
+      );
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Kiểm tra & Xác nhận phiếu nháp' })
+    );
+
+    await waitFor(() => {
+      assert.equal(latestLocation?.pathname, '/purchases');
+      assert.equal(latestLocation?.state, null);
+      assert.ok(finishListLoad);
+    });
+
+    // While list is still loading, detail modal for #88 must NOT have fetched yet
+    assert.equal(detailFetchCount, 0);
+
+    // Finish list load -> detail modal for #88 automatically opens
+    await act(async () => {
+      finishListLoad();
+    });
+
+    await waitFor(() => {
+      assert.equal(detailFetchCount, 1);
+      assert.ok(screen.getByText(/Chi tiết phiếu nhập #88/));
     });
 
     view.unmount();
