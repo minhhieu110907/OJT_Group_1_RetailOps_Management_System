@@ -128,6 +128,37 @@ let activeLogoutPromise = null;
 let isRefreshing = false;
 let activeRefreshGeneration = -1;
 let failedQueue = [];
+// Credential mutations must not overlap an in-flight refresh using the same
+// HttpOnly cookie. Keep the replay-detection rule on the backend unchanged.
+let credentialMutationActive = false;
+let refreshNetworkCount = 0;
+let refreshDrainWaiters = [];
+
+function notifyRefreshDrained() {
+  if (refreshNetworkCount > 0 || isRefreshing) return;
+  const waiters = refreshDrainWaiters;
+  refreshDrainWaiters = [];
+  waiters.forEach((resolve) => resolve());
+}
+
+export async function runExclusiveCredentialMutation(operation) {
+  if (credentialMutationActive) {
+    throw new Error('Một yêu cầu cập nhật thông tin bảo mật đang được xử lý.');
+  }
+  const generation = currentSessionGeneration;
+  credentialMutationActive = true;
+  try {
+    if (refreshNetworkCount > 0 || isRefreshing) {
+      await new Promise((resolve) => refreshDrainWaiters.push(resolve));
+    }
+    if (generation !== currentSessionGeneration || !inMemoryToken) {
+      throw createStaleSessionError();
+    }
+    return await operation();
+  } finally {
+    credentialMutationActive = false;
+  }
+}
 
 let authTransport = axios;
 
@@ -451,7 +482,7 @@ export const apiClient = axiosClient;
 // ============================================================================
 // 4. HÀM GỌI REFRESH TOKEN & LOGOUT ĐỘC LẬP (TRÁNH INFINITE LOOP)
 // ============================================================================
-export async function callRefreshTokenApi(
+async function callRefreshTokenApiCore(
   expectedGeneration = currentSessionGeneration
 ) {
   if (USE_MOCK && isMockAllowed()) {
@@ -500,6 +531,21 @@ export async function callRefreshTokenApi(
   }
 
   return response;
+}
+
+export async function callRefreshTokenApi(
+  expectedGeneration = currentSessionGeneration
+) {
+  if (credentialMutationActive) {
+    throw new Error('Đang cập nhật mật khẩu; từ chối làm mới phiên đồng thời.');
+  }
+  refreshNetworkCount += 1;
+  try {
+    return await callRefreshTokenApiCore(expectedGeneration);
+  } finally {
+    refreshNetworkCount -= 1;
+    notifyRefreshDrained();
+  }
 }
 
 /**
@@ -798,6 +844,13 @@ axiosClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Do not send the old refresh cookie while a password change is pending.
+    // Respond with the original 401; do not mutate the current auth session.
+    if (credentialMutationActive) {
+      error.code = error.code || 'ERR_CREDENTIAL_MUTATION_IN_PROGRESS';
+      return Promise.reject(error);
+    }
+
     // 3. Kiểm tra cô lập thế hệ phiên (Session Generation Isolation):
     // Nếu request được gửi từ phiên cũ hoặc khi chưa đăng nhập -> Từ chối ngay,
     // TUYỆT ĐỐI KHÔNG refresh hoặc retry bằng token của phiên mới.
@@ -938,6 +991,7 @@ axiosClient.interceptors.response.use(
       if (activeRefreshGeneration === requestGeneration) {
         isRefreshing = false;
         activeRefreshGeneration = -1;
+        notifyRefreshDrained();
       }
     }
   }
