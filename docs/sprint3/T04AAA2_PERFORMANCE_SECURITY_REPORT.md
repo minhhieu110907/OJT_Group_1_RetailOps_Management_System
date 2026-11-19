@@ -6,7 +6,9 @@
 - Baseline: `origin/develop` at `0c03128165f90b8a404a76c19bf5bc076330744b`.
 - Benchmarked implementation: `77dec141c7838cd877bed1d8ca805d20c352c374`.
 - Branch: `feature/T04AAA2-performance-security-verification`.
-- AI HTTP query was not present in the baseline; no unmerged AI code was copied.
+- AI HTTP query was not present when the benchmark was executed. PR #86 merged
+  afterward and was merged into this branch as `4dcc1c3`; no unmerged AI code was
+  copied into the benchmark baseline.
 
 The final documentation commit is separate from the implementation commit above.
 It changes this report only; runtime and benchmark code are identical to the
@@ -117,17 +119,27 @@ rollback, lock timeout, and idempotency collisions.
 
 No Critical/High finding or new security failure was observed.
 
+### Low — PR #86 SQLite orchestrator tests depend on collection order
+
+Running `test_gemini_orchestrator.py` alone produced four SQLite `TINYINT`
+compiler failures. The full CI-shaped unit suite passed because another test module
+registers the compiler first. This is a test-isolation defect, not a runtime MySQL
+authorization failure. AI HTTP E2E passed against real MySQL/Redis with a controlled
+provider. Remediation should move SQLite compiler registration into a local fixture
+or shared `conftest.py`; it is not required to change production code in T04AAA2.
+
 ## Executed verification
 
 | Verification | Result |
 |---|---|
 | Ruff check + format (Python 3.12.16) | PASS — 234 files |
-| Full unit/API, excluding integration | PASS — 664 passed, 88 deselected; two pre-existing pytest warnings |
+| Full unit/API after PR #86 merge, excluding integration | PASS — 672 passed, 90 deselected; two pre-existing pytest warnings |
 | Scoped auth/CSRF/RBAC/revocation/idempotency/error suite | PASS — 134 passed |
 | Harness + rate-limit final regression | PASS — 27 passed |
 | MySQL integration/concurrency/rollback | PASS — 50 passed |
 | Redis fixed-window integration | PASS — 4 passed |
 | Real Nginx trusted-proxy/IP-spoofing integration | PASS — 1 passed |
+| AI HTTP MySQL/Redis E2E with controlled provider | PASS — 2 passed; not real Gemini latency |
 | c10 benchmark | PASS — 120/120 successful, zero errors |
 | c20 benchmark | FAIL — Product P95 353.410 ms; other 100/100 successful |
 | `git diff --check` | PASS |
