@@ -65,17 +65,13 @@ def cleanup_bonus_rows(migrated_integration_engine: Engine):
             )
         )
         sessions = list(
-            session.scalars(
-                select(AuthSession.id).where(AuthSession.user_id.in_(ids))
-            )
+            session.scalars(select(AuthSession.id).where(AuthSession.user_id.in_(ids)))
         )
         if sessions:
             session.execute(
                 delete(RefreshToken).where(RefreshToken.session_id.in_(sessions))
             )
-        session.execute(
-            delete(AuthSession).where(AuthSession.user_id.in_(ids))
-        )
+        session.execute(delete(AuthSession).where(AuthSession.user_id.in_(ids)))
         session.execute(
             delete(PasswordResetToken).where(PasswordResetToken.user_id.in_(ids))
         )
@@ -153,15 +149,18 @@ def test_lock_revoke_unlock_does_not_revive_old_session(
             service.live_user(session, new_login.response.access_token)[0].id
             == staff.id
         )
-        assert len(
-            list(
-                session.scalars(
-                    select(StaffAccountEvent).where(
-                        StaffAccountEvent.target_user_id == staff.id
+        assert (
+            len(
+                list(
+                    session.scalars(
+                        select(StaffAccountEvent).where(
+                            StaffAccountEvent.target_user_id == staff.id
+                        )
                     )
                 )
             )
-        ) == 2
+            == 2
+        )
 
 
 def test_change_password_keeps_only_current_session(
@@ -172,9 +171,7 @@ def test_change_password_keeps_only_current_session(
         _, staff = _accounts(session, "change")
         active = service.login(session, staff.email_normalized, OLD_PASSWORD)
         other = service.login(session, staff.email_normalized, OLD_PASSWORD)
-        _, current_session_id = service.live_user(
-            session, active.response.access_token
-        )
+        _, current_session_id = service.live_user(session, active.response.access_token)
         with pytest.raises(DomainValidationError):
             service.change_password(
                 session,
@@ -200,8 +197,7 @@ def test_change_password_keeps_only_current_session(
         )
         assert result.refresh_token != active.refresh_token
         assert (
-            service.live_user(session, result.response.access_token)[0].id
-            == staff.id
+            service.live_user(session, result.response.access_token)[0].id == staff.id
         )
         with pytest.raises(SessionInvalidError):
             service.live_user(session, other.response.access_token)
@@ -229,9 +225,7 @@ def test_login_serializes_with_account_row_lock(
                 return "DENIED"
 
     with Session(engine) as locker:
-        user = locker.scalar(
-            select(User).where(User.id == target_id).with_for_update()
-        )
+        user = locker.scalar(select(User).where(User.id == target_id).with_for_update())
         assert user is not None
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(simultaneous_login)
@@ -241,6 +235,9 @@ def test_login_serializes_with_account_row_lock(
             assert future.result(timeout=10) == "DENIED"
 
     with Session(engine) as verify:
-        assert verify.scalar(
-            select(AuthSession.id).where(AuthSession.user_id == target_id)
-        ) is None
+        assert (
+            verify.scalar(
+                select(AuthSession.id).where(AuthSession.user_id == target_id)
+            )
+            is None
+        )
