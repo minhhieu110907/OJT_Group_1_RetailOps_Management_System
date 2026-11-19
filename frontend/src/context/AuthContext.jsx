@@ -22,6 +22,7 @@ import axiosClient, {
   runHealthCheck,
   setupAxiosAuth,
   startAuthenticatedSession,
+  runExclusiveCredentialMutation,
   transitionAuthMode,
 } from '../api/axiosClient';
 import { useToast } from '../components/common';
@@ -563,20 +564,26 @@ export function AuthProvider({ children }) {
 
   const changeMyPassword = async (currentPassword, newPassword) => {
     if (isMockMode) throw new Error('Đổi mật khẩu cần kết nối API thật.');
-    const { body, csrfToken } = await accountApi.changePassword(
-      currentPassword, newPassword, isMockMode
-    );
-    const normalized = normalizeBackendUser(body?.user);
-    if (!body?.access_token || !csrfToken || !normalized ||
-      normalized.status !== 'APPROVED') {
-      throw new Error('Phản hồi đổi mật khẩu không hợp lệ. Vui lòng đăng nhập lại.');
-    }
-    // Rotation returns new refresh cookie; replace access + CSRF token as an
-    // indivisible client generation transition after the response has arrived.
-    startAuthenticatedSession(body.access_token, csrfToken);
-    setAccessToken(body.access_token);
-    setUser(normalized);
-    return true;
+    return runExclusiveCredentialMutation(async () => {
+      const { body, csrfToken } = await accountApi.changePassword(
+        currentPassword, newPassword, isMockMode
+      );
+      const normalized = normalizeBackendUser(body?.user);
+      if (!body?.access_token || !csrfToken || !normalized ||
+        normalized.status !== 'APPROVED') {
+        // The server may have committed a refresh rotation already; never
+        // retain a bearer token after an untrusted response.
+        invalidateSession();
+        setAccessToken(null);
+        setUser(null);
+        throw new Error('Phản hồi đổi mật khẩu không hợp lệ. Vui lòng đăng nhập lại.');
+      }
+      // Replace access/CSRF atomically within the credential mutation gate.
+      startAuthenticatedSession(body.access_token, csrfToken);
+      setAccessToken(body.access_token);
+      setUser(normalized);
+      return true;
+    });
   };
 
   // Helper lấy thông tin người dùng mẫu theo email: Cô lập hoàn toàn khỏi Real API mode
