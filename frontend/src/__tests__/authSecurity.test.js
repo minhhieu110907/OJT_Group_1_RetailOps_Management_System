@@ -25,6 +25,8 @@ import axiosClient, {
   invalidateSession,
   setupAxiosAuth,
   callLogoutApi,
+  callRefreshTokenApi,
+  runExclusiveCredentialMutation,
   setAuthTransport,
   normalizeBackendUser,
   evaluateRouteAccess,
@@ -78,6 +80,42 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
     clearVerifiedIdempotentEndpoints();
     setAuthTransport(null);
     invalidateSession();
+  });
+
+  it('Bonus: password rotation waits for pending refresh and rejects new refresh during mutation', async () => {
+    startAuthenticatedSession('current-token', 'csrf-token');
+    const generation = getSessionGeneration();
+    let finishRefresh;
+    let refreshStarted;
+    const started = new Promise((resolve) => { refreshStarted = resolve; });
+    const delayed = new Promise((resolve) => { finishRefresh = resolve; });
+    let requests = 0;
+    setAuthTransport({
+      post: async (url) => {
+        assert.ok(url.includes('/auth/refresh'));
+        requests += 1;
+        refreshStarted();
+        await delayed;
+        return { data: { access_token: 'rotated-token' }, headers: {} };
+      },
+    });
+    const flight = callRefreshTokenApi(generation);
+    await started;
+    let changed = false;
+    const mutation = runExclusiveCredentialMutation(async () => {
+      changed = true;
+      await assert.rejects(
+        callRefreshTokenApi(generation),
+        /Đang cập nhật mật khẩu/
+      );
+    });
+    await Promise.resolve();
+    assert.equal(changed, false);
+    finishRefresh();
+    await flight;
+    await mutation;
+    assert.equal(changed, true);
+    assert.equal(requests, 1);
   });
 
   // ==========================================================================
