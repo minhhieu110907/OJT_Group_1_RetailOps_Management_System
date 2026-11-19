@@ -226,3 +226,5 @@ describe('aiApi — T04AB25 OpenAPI contract & AI-04 fail-closed behavior', () =
     assert.doesNotMatch(appSource, /PlaceholderPage title="Trợ lý AI \(RetailOps AI\)"/);
   });
 });
+
+import './reorderSuggestions.test.js';

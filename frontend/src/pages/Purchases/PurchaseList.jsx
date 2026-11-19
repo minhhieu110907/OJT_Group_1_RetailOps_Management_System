@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useInRouterContext,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
@@ -12,6 +17,7 @@ import {
 import { suppliersApi } from '../../api/suppliersApi';
 import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
+import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
 import styles from './PurchaseList.module.css';
 
 // Định dạng số tiền kiểu 2.500.000 đ
@@ -49,10 +55,36 @@ const formatDate = (isoString) => {
   }
 };
 
+function PurchaseRouterStateConsumer({ onPrefillDraft, onOpenReceiptId }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const state = location?.state;
+    if (!state || typeof state !== 'object') return;
+
+    let consumed = false;
+    if (state.prefillDraft && typeof state.prefillDraft === 'object') {
+      onPrefillDraft(state.prefillDraft);
+      consumed = true;
+    } else if (state.openReceiptId !== undefined && state.openReceiptId !== null) {
+      onOpenReceiptId(state.openReceiptId);
+      consumed = true;
+    }
+
+    if (consumed) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location, navigate, onPrefillDraft, onOpenReceiptId]);
+
+  return null;
+}
+
 export default function PurchaseList() {
   const toast = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const inRouter = useInRouterContext();
 
   // 1. Tab điều hướng trên cùng & Trạng thái lọc
   const [topTab, setTopTab] = useState('RECEIPTS'); // 'RECEIPTS' (Phiếu nhập) | 'HISTORY' (Lịch sử)
@@ -74,6 +106,8 @@ export default function PurchaseList() {
   const [historyCount, setHistoryCount] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const hasLoadedListOnceRef = useRef(false);
+  const pendingOpenReceiptIdRef = useRef(null);
 
   const [pagination, setPagination] = useState({
     page: 1,
@@ -400,6 +434,18 @@ export default function PurchaseList() {
       } finally {
         if (currentRequestId === requestIdRef.current) {
           setIsLoading(false);
+          hasLoadedListOnceRef.current = true;
+          const pendingId = Number(pendingOpenReceiptIdRef.current);
+          if (Number.isInteger(pendingId) && pendingId > 0) {
+            pendingOpenReceiptIdRef.current = null;
+            setSelectedReceiptId(pendingId);
+            setSelectedReceipt(null);
+            setDetailError('');
+            setConflictError(null);
+            setIsEditingDraft(false);
+            setIsDetailLoading(true);
+            setIsDetailModalOpen(true);
+          }
         }
       }
     };
@@ -476,6 +522,82 @@ export default function PurchaseList() {
     setIsEditingDraft(false);
     setIsDetailLoading(true);
     setIsDetailModalOpen(true);
+  }, []);
+
+  // T3C9F16 — Nhận state.prefillDraft từ trang Trợ lý AI để mở sẵn Modal Tạo mới phiếu nhập
+  // Dùng chung bộ validation buildPrefillDraftState (không âm thầm ép giá trị lỗi về 1 hoặc 0)
+  const handleApplyPrefillDraft = useCallback(
+    (prefillDraft) => {
+      if (!prefillDraft || typeof prefillDraft !== 'object') return;
+
+      const rawItems = Array.isArray(prefillDraft.items) ? prefillDraft.items : [];
+      const selectedIds = rawItems.map((it) => it?.product_id);
+      const { prefillDraft: validatedPrefill, error } = buildPrefillDraftState({
+        supplierId:
+          prefillDraft.supplier_id !== undefined && prefillDraft.supplier_id !== null
+            ? prefillDraft.supplier_id
+            : '',
+        rows: rawItems,
+        selectedIds,
+      });
+
+      if (error || !validatedPrefill) {
+        toast.error(error || 'Dữ liệu khởi tạo phiếu nhập nháp không hợp lệ.');
+        return;
+      }
+
+      setKnownProductsById((prev) => {
+        const next = { ...prev };
+        validatedPrefill.items.forEach((it) => {
+          next[it.product_id] = {
+            id: it.product_id,
+            sku: it.sku,
+            name: it.name,
+          };
+        });
+        return next;
+      });
+
+      setCreateSupplierId(
+        validatedPrefill.supplier_id ? String(validatedPrefill.supplier_id) : ''
+      );
+      setCreateLines(
+        validatedPrefill.items.map((it) => ({
+          product_id: String(it.product_id),
+          quantity: it.quantity,
+          unit_cost_vnd: it.unit_cost_vnd,
+        }))
+      );
+      setProductSearchTerm('');
+      setIsCreateModalOpen(true);
+    },
+    [toast]
+  );
+
+  // T3C9F16 — Nhận state.openReceiptId từ trang Trợ lý AI để tự mở chi tiết phiếu nháp sau khi tải danh sách
+  const handleApplyOpenReceiptId = useCallback(
+    (receiptId) => {
+      const id = Number(receiptId);
+      if (!Number.isInteger(id) || id <= 0) return;
+      setTopTab('RECEIPTS');
+      setActiveTab('DRAFT');
+      if (hasLoadedListOnceRef.current && !isLoading) {
+        pendingOpenReceiptIdRef.current = null;
+        handleOpenDetailModal(id);
+      } else {
+        pendingOpenReceiptIdRef.current = id;
+      }
+    },
+    [handleOpenDetailModal, isLoading]
+  );
+
+  useEffect(() => {
+    const detailGuard = detailGuardRef.current;
+    return () => {
+      pendingOpenReceiptIdRef.current = null;
+      hasLoadedListOnceRef.current = false;
+      detailGuard.invalidate();
+    };
   }, []);
 
   // Load chi tiết phiếu nhập chỉ khi Modal Chi tiết ĐANG MỞ và khớp generation guard
@@ -1074,6 +1196,12 @@ export default function PurchaseList() {
 
   return (
     <div className={styles.container}>
+      {inRouter && (
+        <PurchaseRouterStateConsumer
+          onPrefillDraft={handleApplyPrefillDraft}
+          onOpenReceiptId={handleApplyOpenReceiptId}
+        />
+      )}
       {/* 1. Header Trang */}
       <div className={styles.header}>
         <div className={styles.titleGroup}>
