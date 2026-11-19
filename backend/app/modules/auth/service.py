@@ -198,6 +198,15 @@ class AuthService:
         if user is None or not password_matches:
             session.rollback()
             raise InvalidCredentialsError()
+        # Serialize creation of new sessions with lock/unlock, password changes
+        # and reset operations. Re-check credentials under the authoritative row
+        # lock: the hash may have changed after the initial bcrypt verification.
+        user = self.repository.lock_user_by_id(session, user.id)
+        if user is None or not self.password_hasher.verify(
+            password, user.password_hash
+        ):
+            session.rollback()
+            raise InvalidCredentialsError()
         if user.status == UserStatus.PENDING_APPROVAL:
             session.rollback()
             raise AccountPendingError()
@@ -263,6 +272,12 @@ class AuthService:
         if session_id != csrf_session_id:
             raise CsrfRejectedError()
 
+        # Canonical lock order: User -> AuthSession -> RefreshToken.
+        # Re-read the identity under FOR UPDATE to avoid a stale ACTIVE status.
+        user = self.repository.lock_user_by_id(session, record.session.user_id)
+        if user is None or user.status != UserStatus.ACTIVE:
+            session.rollback()
+            raise SessionInvalidError()
         auth_session = self.repository.lock_session(session, record.session_id)
         record = self.repository.lock_refresh(session, digest)
         now = utc_now_naive()
