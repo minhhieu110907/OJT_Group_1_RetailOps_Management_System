@@ -404,7 +404,9 @@ class AuthService:
             ):
                 raise SessionInvalidError()
             if not self.password_hasher.verify(current_password, user.password_hash):
-                raise InvalidCredentialsError()
+                # Bad current password is a validation failure, not a revoked
+                # bearer session: the SPA must not log out or auto-refresh.
+                raise DomainValidationError("Mật khẩu hiện tại không đúng.")
             if self.password_hasher.verify(new_password, user.password_hash):
                 raise DomainValidationError("Mật khẩu mới phải khác mật khẩu hiện tại.")
             try:
