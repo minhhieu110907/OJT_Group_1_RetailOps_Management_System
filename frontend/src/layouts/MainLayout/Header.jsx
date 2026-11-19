@@ -14,7 +14,10 @@ import fieldStyles from '../../components/ChangePasswordModal.module.css';
 import { MENU_ITEMS } from './Sidebar';
 import styles from './MainLayout.module.css';
 
-export default function Header() {
+export default function Header({
+  isMobileNavOpen = false,
+  onToggleMobileNav = () => {},
+}) {
   const { user, logout, isMockMode, getMyProfile, updateMyProfile } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
@@ -328,11 +331,37 @@ export default function Header() {
   return (
     <>
       <header className={styles.header}>
-        {/* Bên trái Header: Breadcrumb đơn giản */}
-        <div className={styles.breadcrumb}>
-          <span className={styles.breadcrumbRoot}>RetailOps v1.0</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{currentPageLabel}</span>
+        {/* Bên trái Header: Nút bật mở Sidebar trên Mobile/Tablet và Breadcrumb */}
+        <div className={styles.headerLeftGroup}>
+          <button
+            type="button"
+            id="mobile-nav-toggle-btn"
+            className={styles.mobileMenuToggle}
+            onClick={onToggleMobileNav}
+            aria-label={isMobileNavOpen ? 'Đóng thanh điều hướng' : 'Mở thanh điều hướng'}
+            title={isMobileNavOpen ? 'Đóng menu' : 'Mở menu'}
+            aria-expanded={isMobileNavOpen}
+            aria-controls="main-sidebar-drawer"
+          >
+            {isMobileNavOpen ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            )}
+          </button>
+
+          <div className={styles.breadcrumb}>
+            <span className={styles.breadcrumbRoot}>RetailOps v1.0</span>
+            <span className={styles.breadcrumbSeparator}>/</span>
+            <span className={styles.breadcrumbCurrent}>{currentPageLabel}</span>
+          </div>
         </div>
 
         {/* Bên phải Header: Trợ giúp (?), Chuông thông báo Admin, Cụm User Dropdown */}
