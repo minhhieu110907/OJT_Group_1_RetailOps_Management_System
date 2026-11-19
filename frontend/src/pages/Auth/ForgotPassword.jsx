@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   OWASP_FORGOT_PASSWORD_MESSAGE,
   validateEmail,
@@ -9,16 +10,18 @@ import {
 import styles from './Login.module.css';
 
 /**
- * Trang Quên mật khẩu (ForgotPassword - FIX-03):
- * - Real API mode: Không tự tạo reset token giả và không báo đã gửi email khi Backend Sprint 1 chưa có endpoint.
+ * Trang Quên mật khẩu (ForgotPassword - AUTH-02 / T04AA1C):
+ * - Real API mode: Gọi POST /api/v1/auth/forgot-password, nhận phản hồi HTTP 202 chung chống dò quét email (non-enumerating).
  * - Mock Demo mode: Cho phép mô phỏng luồng đặt lại mật khẩu phục vụ demo UI.
  */
 export default function ForgotPassword() {
-  const { isMockMode, canUseMock } = useAuth();
+  const { isMockMode, canUseMock, requestPasswordReset } = useAuth();
   const isMockActive = Boolean(isMockMode && canUseMock);
 
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [submitSuccessMessage, setSubmitSuccessMessage] = useState('');
   const [touched, setTouched] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -27,9 +30,13 @@ export default function ForgotPassword() {
   const handleChange = (e) => {
     const val = e.target.value;
     setEmail(val);
+    if (submitError) {
+      setSubmitError('');
+    }
     if (isSubmitted) {
       setIsSubmitted(false);
       setResetToken('');
+      setSubmitSuccessMessage('');
     }
     if (touched) {
       setEmailError(validateEmail(val));
@@ -43,7 +50,9 @@ export default function ForgotPassword() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setTouched(true);
+    setSubmitError('');
 
     const { isValid, errors } = validateForgotPasswordForm({ email });
     setEmailError(errors.email);
@@ -53,16 +62,37 @@ export default function ForgotPassword() {
     }
 
     setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 300));
 
     if (isMockActive) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
       setResetToken(`mock-token-${Date.now()}`);
-    } else {
-      setResetToken('');
+      setSubmitSuccessMessage(OWASP_FORGOT_PASSWORD_MESSAGE);
+      setIsSubmitting(false);
+      setIsSubmitted(true);
+      return;
     }
 
-    setIsSubmitting(false);
-    setIsSubmitted(true);
+    try {
+      const res = await requestPasswordReset(email);
+      setResetToken('');
+      setSubmitSuccessMessage(res?.message || OWASP_FORGOT_PASSWORD_MESSAGE);
+      setIsSubmitted(true);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 429) {
+        setSubmitError(
+          'Bạn đã gửi quá nhiều yêu cầu khôi phục mật khẩu. Vui lòng thử lại sau ít phút.'
+        );
+      } else {
+        setSubmitError(
+          getApiErrorMessage(err) ||
+            'Không thể gửi yêu cầu khôi phục mật khẩu tới máy chủ. Vui lòng thử lại.'
+        );
+      }
+      setIsSubmitted(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -75,9 +105,9 @@ export default function ForgotPassword() {
         </p>
       </div>
 
-      {/* 2. Kết quả xử lý: Phân tách rõ Real API Placeholder (Sprint 2) và Mock Demo */}
-      {isSubmitted && !isMockActive && (
-        <div className={styles.errorAlert} role="status">
+      {/* 2. Kết quả xử lý: Cảnh báo lỗi mạng/rate-limit hoặc phản hồi 202 chuẩn OWASP */}
+      {submitError && (
+        <div className={styles.errorAlert} role="alert">
           <span className={styles.errorIcon} aria-hidden="true">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
@@ -86,11 +116,26 @@ export default function ForgotPassword() {
             </svg>
           </span>
           <div className={styles.errorBody}>
-            <h3 className={styles.errorTitle}>
-              Chức năng đang phát triển (Sprint 2 Placeholder)
+            <h3 className={styles.errorTitle}>Không thể gửi yêu cầu</h3>
+            <p className={styles.errorDesc}>{submitError}</p>
+          </div>
+        </div>
+      )}
+
+      {isSubmitted && !isMockActive && (
+        <div className={styles.successAlert} role="status">
+          <span className={styles.successIcon} aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </span>
+          <div className={styles.errorBody}>
+            <h3 className={styles.successTitle}>
+              Đã tiếp nhận yêu cầu khôi phục mật khẩu
             </h3>
-            <p className={styles.errorDesc}>
-              Dịch vụ gửi email khôi phục mật khẩu tự động thuộc phạm vi Sprint 2 và hiện chưa được kích hoạt trên máy chủ. Chưa có email hay mã khôi phục nào được gửi đi. Vui lòng liên hệ Quản trị viên cửa hàng để được hỗ trợ trực tiếp.
+            <p className={styles.successDesc}>
+              {submitSuccessMessage || OWASP_FORGOT_PASSWORD_MESSAGE}
             </p>
           </div>
         </div>

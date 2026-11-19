@@ -749,6 +749,8 @@ axiosClient.interceptors.request.use(
     const isPublicOrAuthBootstrapRoute =
       requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/register') ||
+      requestUrl.includes('/auth/forgot-password') ||
+      requestUrl.includes('/auth/reset-password') ||
       requestUrl.includes('/auth/logout') ||
       requestUrl.includes('/health');
 
@@ -876,6 +878,8 @@ axiosClient.interceptors.response.use(
     const isAuthLifecycleRoute =
       requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/register') ||
+      requestUrl.includes('/auth/forgot-password') ||
+      requestUrl.includes('/auth/reset-password') ||
       requestUrl.includes('/auth/refresh') ||
       requestUrl.includes('/auth/csrf') ||
       requestUrl.includes('/auth/logout');

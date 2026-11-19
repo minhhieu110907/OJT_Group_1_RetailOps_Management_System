@@ -78,8 +78,11 @@ services:
     profiles: ["email-local"]
     image: axllent/mailpit:v1.27
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_HOST_PORT:-8025}:8025"
     networks:
       - application
+      - proxy
 
   rabbitmq-bootstrap:
     profiles: ["email"]
@@ -196,6 +199,9 @@ services:
         "--loglevel=INFO",
         "--concurrency=1",
         "--prefetch-multiplier=1",
+        "--without-gossip",
+        "--without-mingle",
+        "--without-heartbeat",
         "--queues=retailops.email.v1",
       ]
     environment:

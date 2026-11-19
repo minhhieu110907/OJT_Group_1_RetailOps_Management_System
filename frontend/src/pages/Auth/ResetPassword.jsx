@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
+import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   validateChangePasswordForm,
   validateResetPasswordByTokenForm,
@@ -20,8 +21,15 @@ export default function ResetPassword({ onClose, defaultEmail }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user, resetPassword, getUserByEmail, isMockMode, canUseMock } =
-    useAuth();
+  const {
+    user,
+    resetPassword,
+    confirmPasswordReset,
+    changeMyPassword,
+    getUserByEmail,
+    isMockMode,
+    canUseMock,
+  } = useAuth();
 
   const isMockDemoActive = Boolean(isMockMode && canUseMock);
   const isChangePasswordMode = Boolean(onClose);
@@ -121,14 +129,7 @@ export default function ResetPassword({ onClose, defaultEmail }) {
   // Xử lý nộp biểu mẫu cập nhật mật khẩu
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Chế độ Real API: Cô lập hoàn toàn, không đọc dữ liệu mẫu và không giả lập cập nhật thành công
-    if (!isMockDemoActive) {
-      toast.info(
-        'Chức năng Đổi / Đặt lại mật khẩu thuộc phạm vi Backend Sprint 2. Hiện chưa có thay đổi mật khẩu nào được thực hiện.'
-      );
-      return;
-    }
+    if (isSubmitting) return;
 
     setTouched({
       currentPassword: isChangePasswordMode,
@@ -136,6 +137,99 @@ export default function ResetPassword({ onClose, defaultEmail }) {
       confirmPassword: true,
     });
 
+    // 1. Luồng Real API Mode:
+    if (!isMockDemoActive) {
+      if (isChangePasswordMode) {
+        const currentErr = currentPassword.trim()
+          ? ''
+          : 'Vui lòng nhập mật khẩu hiện tại.';
+        const newErr = validateNewPassword(newPassword);
+        const confirmErr = validateConfirmPassword(newPassword, confirmPassword);
+        const diffErr =
+          !currentErr && !newErr && newPassword === currentPassword
+            ? 'Mật khẩu mới phải khác mật khẩu hiện tại.'
+            : '';
+
+        const nextErrors = {
+          token: '',
+          currentPassword: currentErr,
+          newPassword: newErr || diffErr,
+          confirmPassword: confirmErr,
+        };
+        setErrors(nextErrors);
+        if (currentErr || newErr || diffErr || confirmErr) {
+          return;
+        }
+
+        setIsSubmitting(true);
+        try {
+          await changeMyPassword(currentPassword, newPassword);
+          toast.success(
+            'Đã đổi mật khẩu thành công. Các phiên đăng nhập khác đã bị thu hồi.'
+          );
+          handleClose();
+        } catch (err) {
+          const msg =
+            getApiErrorMessage(err) ||
+            err?.message ||
+            'Không thể cập nhật mật khẩu.';
+          setErrors((prev) => ({
+            ...prev,
+            currentPassword: msg,
+          }));
+          toast.error(msg);
+        } finally {
+          setIsSubmitting(false);
+        }
+        return;
+      }
+
+      // Luồng Đặt lại mật khẩu qua Email Token (POST /api/v1/auth/reset-password)
+      const tokenValidation = validateResetPasswordByTokenForm({
+        token: resetTokenParam,
+        newPassword,
+        confirmPassword,
+      });
+
+      setErrors((prev) => ({
+        ...prev,
+        ...tokenValidation.errors,
+      }));
+
+      if (!tokenValidation.isValid) {
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        const res = await confirmPasswordReset(resetTokenParam, newPassword);
+        toast.success(
+          res?.message ||
+            'Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.'
+        );
+        handleClose();
+      } catch (err) {
+        const status = err?.response?.status;
+        const msg =
+          status === 429
+            ? 'Bạn đã thử đặt lại mật khẩu quá nhiều lần. Vui lòng thử lại sau ít phút.'
+            : status === 401
+              ? 'Liên kết đặt lại mật khẩu không hợp lệ, đã hết hạn hoặc đã được sử dụng.'
+              : getApiErrorMessage(err) ||
+                err?.message ||
+                'Không thể đặt lại mật khẩu. Vui lòng yêu cầu liên kết khôi phục mới.';
+        setErrors((prev) => ({
+          ...prev,
+          token: msg,
+        }));
+        toast.error(msg);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // 2. Luồng Mock Demo Mode:
     setIsSubmitting(true);
     await new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -210,17 +304,19 @@ export default function ResetPassword({ onClose, defaultEmail }) {
 
         {/* Thanh ghi chú tài khoản */}
         <div className={styles.accountBar}>
-          <span>Tài khoản:</span>
+          <span>{isChangePasswordMode || targetEmail ? 'Tài khoản:' : 'Xác thực:'}</span>
           <span className={styles.accountEmail}>
-            {targetEmail || 'Chưa xác định email'}
+            {targetEmail ||
+              (resetTokenParam
+                ? 'Liên kết khôi phục một lần (One-Time Token)'
+                : 'Thiếu mã xác thực đặt lại mật khẩu')}
           </span>
         </div>
 
-        {/* Cảnh báo lộ trình Sprint 2 khi ở chế độ Real API */}
-        {!isMockDemoActive && (
-          <div className={styles.errorMessage} role="status">
+        {!isChangePasswordMode && !resetTokenParam && !errors.token && (
+          <div className={styles.errorMessage} role="alert">
             <span>
-              Chức năng {isChangePasswordMode ? 'Đổi mật khẩu' : 'Đặt lại mật khẩu'} qua Backend API thuộc lộ trình <strong>Sprint 2</strong>. Ở chế độ Real API hiện tại, biểu mẫu chỉ phục vụ xem trước giao diện và không thay đổi mật khẩu.
+              Liên kết đặt lại mật khẩu thiếu mã xác thực (token). Vui lòng mở đúng liên kết từ email khôi phục hoặc gửi lại yêu cầu mới tại trang Quên mật khẩu.
             </span>
           </div>
         )}
