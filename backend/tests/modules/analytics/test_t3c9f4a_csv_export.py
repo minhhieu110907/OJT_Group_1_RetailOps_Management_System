@@ -16,6 +16,11 @@ import httpx
 import pytest
 from fastapi import FastAPI, Response
 from pydantic import SecretStr
+from sqlalchemy import BigInteger, create_engine, event
+from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings, get_settings
 from app.core.csv_export import (
@@ -25,8 +30,10 @@ from app.core.csv_export import (
     sanitize_csv_cell,
 )
 from app.core.exceptions import DomainValidationError, UnauthenticatedError
+from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import create_app
+from app.modules.analytics.repository import SalesAnalyticsRepository
 from app.modules.analytics.router import get_sales_analytics_service
 from app.modules.analytics.service import SalesAnalyticsService
 from app.modules.auth.dependencies import (
@@ -35,13 +42,51 @@ from app.modules.auth.dependencies import (
     get_current_principal,
 )
 from app.modules.auth.models import User, UserRole, UserStatus
+from app.modules.categories.models import Category
 from app.modules.inventory.router import get_inventory_service
 from app.modules.inventory.service import InventoryQueryService
-from app.modules.sales.models import OrderStatus
+from app.modules.products.models import Inventory, Product
+from app.modules.sales.models import Order, OrderItem, OrderStatus
 from app.modules.sales.router import get_order_read_service
-from app.modules.sales.service import OrderReadService
+from app.modules.sales.service import OrderQuery, OrderReadService
 
 VIETNAM_TIMEZONE = timezone(timedelta(hours=7), name="Asia/Ho_Chi_Minh")
+
+
+@compiles(TINYINT, "sqlite")
+def _compile_tinyint_sqlite(_type: object, _compiler: object, **_kw: object) -> str:
+    return "INTEGER"
+
+
+@compiles(BigInteger, "sqlite")
+def _compile_bigint_sqlite(_type: object, _compiler: object, **_kw: object) -> str:
+    return "INTEGER"
+
+
+def _make_sqlite_session() -> Session:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _register_collation(dbapi_conn: Any, _conn_record: Any) -> None:
+        dbapi_conn.create_collation("ascii_bin", lambda a, b: (a > b) - (a < b))
+        dbapi_conn.create_function("CHAR_LENGTH", 1, len)
+
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            User.__table__,
+            Category.__table__,
+            Product.__table__,
+            Inventory.__table__,
+            Order.__table__,
+            OrderItem.__table__,
+        ],
+    )
+    return Session(bind=engine, autoflush=False, expire_on_commit=False)
 
 
 # ==============================================================================
@@ -243,10 +288,33 @@ async def test_csv_export_inactive_admin_returns_403(endpoint: str) -> None:
 
 
 class FakeOrderRepo:
-    def __init__(self, orders: list[Any], total: int) -> None:
+    def __init__(
+        self,
+        orders: list[Any],
+        total: int,
+        export_rows_count: int | None = None,
+    ) -> None:
         self.orders = orders
         self.total = total
+        self.export_rows_count = (
+            export_rows_count
+            if export_rows_count is not None
+            else sum(len(o.items) if getattr(o, "items", None) else 1 for o in orders)
+        )
         self.last_filters: dict[str, Any] = {}
+        self.list_orders_called = False
+
+    def count_export_rows(
+        self,
+        session: object,
+        *,
+        status: str | None = None,
+        sold_from_utc: datetime | None = None,
+        sold_to_utc_exclusive: datetime | None = None,
+        order_id_exact: int | None = None,
+        sku_search: str | None = None,
+    ) -> int:
+        return self.export_rows_count
 
     def list_orders(
         self,
@@ -260,6 +328,7 @@ class FakeOrderRepo:
         offset: int = 0,
         limit: int = 20,
     ) -> tuple[list[Any], int]:
+        self.list_orders_called = True
         self.last_filters = {
             "status": status,
             "sold_from_utc": sold_from_utc,
@@ -386,7 +455,7 @@ async def test_orders_csv_export_content_and_flattening() -> None:
 @pytest.mark.anyio
 async def test_orders_csv_export_exceeding_limit_returns_422() -> None:
     """Orders CSV returns 422 when matching count > 5000."""
-    fake_repo = FakeOrderRepo([], total=5001)
+    fake_repo = FakeOrderRepo([], total=5001, export_rows_count=5001)
     order_service = OrderReadService(repository=fake_repo)  # type: ignore[arg-type]
     app = make_test_app(authenticated=True, order_service=order_service)
 
@@ -420,32 +489,38 @@ async def test_orders_csv_export_invalid_date_range_returns_422() -> None:
 
 
 class FakeAnalyticsRepo:
-    def __init__(self, orders: list[tuple[datetime, str, int]]) -> None:
-        self.orders = orders
+    def __init__(self, daily_summaries: list[dict[str, Any]]) -> None:
+        self.daily_summaries = daily_summaries
 
-    def get_daily_sales_orders(
+    def get_daily_sales_summary(
         self,
         session: object,
         *,
         start_utc: datetime,
         end_utc_exclusive: datetime,
-    ) -> list[tuple[datetime, str, int]]:
-        return self.orders
+    ) -> list[dict[str, Any]]:
+        return self.daily_summaries
 
 
 @pytest.mark.anyio
 async def test_daily_sales_csv_export_grouping_and_cancellation() -> None:
     """Daily sales CSV groups by VN date, excludes cancelled orders from revenue."""
-    # 2026-11-15 01:00 UTC = 2026-11-15 08:00 VN (COMPLETED 100,000)
-    # 2026-11-15 03:00 UTC = 2026-11-15 10:00 VN (CANCELLED 50,000 -> not in rev)
-    # 2026-11-16 02:00 UTC = 2026-11-16 09:00 VN (COMPLETED 200,000)
-    fake_orders = [
-        (datetime(2026, 11, 15, 1, 0, 0), OrderStatus.COMPLETED.value, 100_000),
-        (datetime(2026, 11, 15, 3, 0, 0), OrderStatus.CANCELLED.value, 50_000),
-        (datetime(2026, 11, 16, 2, 0, 0), OrderStatus.COMPLETED.value, 200_000),
+    fake_summaries = [
+        {
+            "vn_date": "2026-11-15",
+            "revenue_vnd": 100_000,
+            "completed_orders": 1,
+            "cancelled_orders": 1,
+        },
+        {
+            "vn_date": "2026-11-16",
+            "revenue_vnd": 200_000,
+            "completed_orders": 1,
+            "cancelled_orders": 0,
+        },
     ]
 
-    fake_repo = FakeAnalyticsRepo(fake_orders)
+    fake_repo = FakeAnalyticsRepo(fake_summaries)
     service = SalesAnalyticsService(repository=fake_repo)  # type: ignore[arg-type]
     app = make_test_app(authenticated=True, analytics_service=service)
 
@@ -603,3 +678,209 @@ async def test_inventory_csv_export_exceeding_limit_returns_422() -> None:
     assert res.status_code == 422
     assert res.json()["code"] == "VALIDATION_ERROR"
     assert "6000" in res.json()["message"]
+
+
+# ==============================================================================
+# 6. SQL AGGREGATION & DATA INTEGRITY TESTS (P1 & P2 FIXES)
+# ==============================================================================
+
+
+def test_daily_sales_sql_aggregation_matches_python_computation() -> None:
+    """SQL GROUP BY aggregation in repository matches Python manual calculation."""
+    session = _make_sqlite_session()
+    now_utc = datetime(2026, 11, 14, 0, 0, 0)
+    admin = User(
+        id=1,
+        email_normalized="admin@example.com",
+        password_hash="hash",
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+        admin_slot=1,
+        created_at=now_utc,
+        updated_at=now_utc,
+    )
+    session.add(admin)
+    session.flush()
+
+    # Day 1 (VN): 2026-11-15 03:00 UTC -> 10:00 VN
+    o1 = Order(
+        id=1,
+        status=OrderStatus.COMPLETED.value,
+        total_vnd=150_000,
+        created_by=1,
+        sold_at=datetime(2026, 11, 15, 3, 0, 0),
+    )
+    o2 = Order(
+        id=2,
+        status=OrderStatus.CANCELLED.value,
+        total_vnd=70_000,
+        created_by=1,
+        sold_at=datetime(2026, 11, 15, 4, 0, 0),
+        cancelled_by=1,
+        cancelled_at=datetime(2026, 11, 15, 4, 30, 0),
+        cancel_reason="Khách hủy",
+    )
+    # Day 2 (VN): 2026-11-16 02:00 UTC -> 09:00 VN
+    o3 = Order(
+        id=3,
+        status=OrderStatus.COMPLETED.value,
+        total_vnd=300_000,
+        created_by=1,
+        sold_at=datetime(2026, 11, 16, 2, 0, 0),
+    )
+    o4 = Order(
+        id=4,
+        status=OrderStatus.COMPLETED.value,
+        total_vnd=250_000,
+        created_by=1,
+        sold_at=datetime(2026, 11, 16, 5, 0, 0),
+    )
+    session.add_all([o1, o2, o3, o4])
+    session.commit()
+
+    repo = SalesAnalyticsRepository()
+    results = repo.get_daily_sales_summary(
+        session,
+        start_utc=datetime(2026, 11, 14, 17, 0, 0),  # 2026-11-15 00:00 VN
+        end_utc_exclusive=datetime(2026, 11, 16, 17, 0, 0),  # 2026-11-17 00:00 VN
+    )
+
+    # Manual Python summation
+    all_seeded = [o1, o2, o3, o4]
+    py_day1_completed = [
+        o for o in all_seeded if o.sold_at.day == 15 and o.status == "COMPLETED"
+    ]
+    py_day1_cancelled = [
+        o for o in all_seeded if o.sold_at.day == 15 and o.status == "CANCELLED"
+    ]
+    py_day2_completed = [
+        o for o in all_seeded if o.sold_at.day == 16 and o.status == "COMPLETED"
+    ]
+
+    assert len(results) == 2
+
+    # Day 15
+    res_15 = next(r for r in results if r["vn_date"] == "2026-11-15")
+    assert res_15["revenue_vnd"] == sum(o.total_vnd for o in py_day1_completed)
+    assert res_15["completed_orders"] == len(py_day1_completed)
+    assert res_15["cancelled_orders"] == len(py_day1_cancelled)
+
+    # Day 16
+    res_16 = next(r for r in results if r["vn_date"] == "2026-11-16")
+    assert res_16["revenue_vnd"] == sum(o.total_vnd for o in py_day2_completed)
+    assert res_16["completed_orders"] == len(py_day2_completed)
+    assert res_16["cancelled_orders"] == 0
+    session.close()
+
+
+def test_daily_sales_vn_midnight_boundary() -> None:
+    """16:59:59 UTC belongs to Day N VN, while 17:00:00 UTC belongs to Day N+1 VN."""
+    session = _make_sqlite_session()
+    now_utc = datetime(2026, 11, 14, 0, 0, 0)
+    admin = User(
+        id=1,
+        email_normalized="admin@example.com",
+        password_hash="hash",
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+        admin_slot=1,
+        created_at=now_utc,
+        updated_at=now_utc,
+    )
+    session.add(admin)
+    session.flush()
+
+    # 16:59:59 UTC on Nov 15 + 7h = 23:59:59 on Nov 15 VN
+    order_day_n = Order(
+        id=1,
+        status=OrderStatus.COMPLETED.value,
+        total_vnd=100_000,
+        created_by=1,
+        sold_at=datetime(2026, 11, 15, 16, 59, 59),
+    )
+    # 17:00:00 UTC on Nov 15 + 7h = 00:00:00 on Nov 16 VN
+    order_day_n_plus_1 = Order(
+        id=2,
+        status=OrderStatus.COMPLETED.value,
+        total_vnd=200_000,
+        created_by=1,
+        sold_at=datetime(2026, 11, 15, 17, 0, 0),
+    )
+    session.add_all([order_day_n, order_day_n_plus_1])
+    session.commit()
+
+    repo = SalesAnalyticsRepository()
+    results = repo.get_daily_sales_summary(
+        session,
+        start_utc=datetime(2026, 11, 15, 0, 0, 0),
+        end_utc_exclusive=datetime(2026, 11, 17, 0, 0, 0),
+    )
+
+    day_map = {r["vn_date"]: r for r in results}
+    assert "2026-11-15" in day_map
+    assert day_map["2026-11-15"]["revenue_vnd"] == 100_000
+    assert day_map["2026-11-15"]["completed_orders"] == 1
+
+    assert "2026-11-16" in day_map
+    assert day_map["2026-11-16"]["revenue_vnd"] == 200_000
+    assert day_map["2026-11-16"]["completed_orders"] == 1
+    session.close()
+
+
+@pytest.mark.anyio
+async def test_daily_sales_zero_order_days_populated() -> None:
+    """Days without any orders are populated with zeros in the CSV export."""
+    from datetime import date
+
+    # Only Nov 12 has sales
+    fake_summaries = [
+        {
+            "vn_date": "2026-11-12",
+            "revenue_vnd": 500_000,
+            "completed_orders": 2,
+            "cancelled_orders": 1,
+        }
+    ]
+    fake_repo = FakeAnalyticsRepo(fake_summaries)
+    service = SalesAnalyticsService(repository=fake_repo)  # type: ignore[arg-type]
+
+    response = service.export_daily_sales_csv(
+        session=MagicMock(),
+        from_date=date(2026, 11, 10),
+        to_date=date(2026, 11, 14),
+    )
+
+    content = response.body.decode("utf-8")
+    lines = content.strip().split("\r\n")
+
+    # Header + 5 days = 6 lines
+    assert len(lines) == 6
+    assert lines[1] == "2026-11-10,0,0,0,0"
+    assert lines[2] == "2026-11-11,0,0,0,0"
+    assert lines[3] == "2026-11-12,500000,2,1,250000"
+    assert lines[4] == "2026-11-13,0,0,0,0"
+    assert lines[5] == "2026-11-14,0,0,0,0"
+
+
+@pytest.mark.anyio
+async def test_orders_csv_count_export_rows_limit() -> None:
+    """Pre-count check allows <= 5000 and blocks > 5000 without loading orders."""
+    # Case 1: 5000 rows (e.g. 500 orders x 10 items) -> allowed
+    fake_repo_5000 = FakeOrderRepo([], total=500, export_rows_count=5000)
+    service_5000 = OrderReadService(repository=fake_repo_5000)  # type: ignore[arg-type]
+
+    filters = OrderQuery()
+    res = service_5000.export_csv(session=MagicMock(), filters=filters)
+    assert res.status_code == 200
+    assert fake_repo_5000.list_orders_called is True
+
+    # Case 2: 5001 rows (500 orders x 11 items = 5500 rows) -> rejected before fetch
+    fake_repo_5001 = FakeOrderRepo([], total=500, export_rows_count=5001)
+    service_5001 = OrderReadService(repository=fake_repo_5001)  # type: ignore[arg-type]
+
+    with pytest.raises(DomainValidationError) as exc_info:
+        service_5001.export_csv(session=MagicMock(), filters=filters)
+
+    assert "vượt quá giới hạn xuất tối đa 5000" in exc_info.value.message
+    # Critical memory-safety assertion: list_orders MUST NOT have been called!
+    assert fake_repo_5001.list_orders_called is False

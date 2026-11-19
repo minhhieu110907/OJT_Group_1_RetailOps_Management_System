@@ -282,7 +282,7 @@ export default function InventoryList() {
         () =>
           inventoryApi.exportInventoryCsv({
             categoryId: selectedCategoryId ? Number(selectedCategoryId) : null,
-            status: 'ACTIVE',
+            status: null,
             inStock: inStockParam,
             lowStockOnly,
           }),

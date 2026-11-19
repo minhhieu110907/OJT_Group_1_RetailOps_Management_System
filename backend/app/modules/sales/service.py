@@ -582,18 +582,16 @@ class OrderReadService:
                     if val <= MAX_SQL_BIGINT:
                         order_id_exact = val
 
-        orders, total = self._repository.list_orders(
+        total_rows = self._repository.count_export_rows(
             session,
             status=filters.status,
             sold_from_utc=sold_from_utc,
             sold_to_utc_exclusive=sold_to_utc_exclusive,
             order_id_exact=order_id_exact,
             sku_search=sku_search,
-            offset=0,
-            limit=MAX_EXPORT_ROWS + 1,
         )
 
-        check_export_limit(total, MAX_EXPORT_ROWS)
+        check_export_limit(total_rows, MAX_EXPORT_ROWS)
 
         headers = [
             "Mã đơn",
@@ -608,6 +606,23 @@ class OrderReadService:
             "Người tạo",
             "Lý do hủy",
         ]
+
+        if total_rows == 0:
+            filename = (
+                f"orders_export_{datetime.now(VN_TZ).strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            return generate_csv_response(headers=headers, rows=[], filename=filename)
+
+        orders, _ = self._repository.list_orders(
+            session,
+            status=filters.status,
+            sold_from_utc=sold_from_utc,
+            sold_to_utc_exclusive=sold_to_utc_exclusive,
+            order_id_exact=order_id_exact,
+            sku_search=sku_search,
+            offset=0,
+            limit=MAX_EXPORT_ROWS + 1,
+        )
 
         rows: list[list[Any]] = []
         for order in orders:

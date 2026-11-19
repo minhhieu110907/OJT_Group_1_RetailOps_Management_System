@@ -19,7 +19,6 @@ from app.core.exceptions import DomainValidationError
 from app.modules.analytics.repository import SalesAnalyticsRepository
 from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD, LowStockPage
 from app.modules.inventory.service import InventoryQueryService
-from app.modules.sales.models import OrderStatus
 
 VIETNAM_TIMEZONE = timezone(timedelta(hours=7), name="Asia/Ho_Chi_Minh")
 try:
@@ -253,7 +252,7 @@ class SalesAnalyticsService:
                 "Khoảng ngày lọc vượt giới hạn cho phép."
             ) from err
 
-        orders = self._repository.get_daily_sales_orders(
+        daily_rows = self._repository.get_daily_sales_summary(
             session,
             start_utc=start_utc,
             end_utc_exclusive=end_utc_exclusive,
@@ -269,14 +268,23 @@ class SalesAnalyticsService:
             }
             curr += timedelta(days=1)
 
-        for sold_at, status, total_vnd in orders:
-            sold_at_vn = sold_at.replace(tzinfo=UTC).astimezone(VN_TZ).date()
-            if sold_at_vn in daily_data:
-                if status == OrderStatus.COMPLETED.value:
-                    daily_data[sold_at_vn]["revenue_vnd"] += total_vnd
-                    daily_data[sold_at_vn]["completed_orders"] += 1
-                elif status == OrderStatus.CANCELLED.value:
-                    daily_data[sold_at_vn]["cancelled_orders"] += 1
+        for row in daily_rows:
+            raw_vn_date = row.get("vn_date")
+            if isinstance(raw_vn_date, str):
+                vn_d = date.fromisoformat(raw_vn_date)
+            elif isinstance(raw_vn_date, date):
+                vn_d = raw_vn_date
+            elif isinstance(raw_vn_date, datetime):
+                vn_d = raw_vn_date.date()
+            else:
+                continue
+
+            if vn_d in daily_data:
+                daily_data[vn_d] = {
+                    "revenue_vnd": int(row.get("revenue_vnd") or 0),
+                    "completed_orders": int(row.get("completed_orders") or 0),
+                    "cancelled_orders": int(row.get("cancelled_orders") or 0),
+                }
 
         headers = [
             "Ngày",

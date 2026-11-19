@@ -4,7 +4,6 @@ import {
   downloadCsvReport,
   extractFilenameFromHeader,
   parseBlobErrorMessage,
-  triggerBlobDownload,
 } from '../utils/csvDownload.js';
 import { ordersApi } from '../api/ordersApi.js';
 import { analyticsApi } from '../api/analyticsApi.js';
@@ -95,7 +94,7 @@ describe('T3C9F4A — CSV Export Utility & Integration Suite', () => {
 
       globalThis.window = {
         URL: {
-          createObjectURL: (blob) => {
+          createObjectURL: (_blob) => {
             createdUrl = 'blob:http://localhost/test-uuid';
             return createdUrl;
           },
