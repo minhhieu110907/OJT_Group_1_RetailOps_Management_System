@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Modal } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
@@ -130,10 +130,21 @@ export const MENU_ITEMS = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  isOpen = false,
+  onClose = () => {},
+}) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+
+  // Đóng sidebar trên mobile khi chuyển route
+  useEffect(() => {
+    if (isOpen) {
+      onClose();
+    }
+  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null;
 
@@ -153,22 +164,47 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className={styles.sidebar}>
+      {/* Backdrop mờ phía sau Sidebar khi mở trên Mobile / Tablet */}
+      {isOpen && (
+        <div
+          className={styles.sidebarBackdrop}
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside className={`${styles.sidebar} ${isOpen ? styles.sidebarMobileOpen : ''}`}>
         {/* 1. PHẦN ĐẦU: THƯƠNG HIỆU (Đồng nhất cho cả ADMIN và STAFF) */}
         <div className={styles.brandSection}>
-          <div className={styles.logoBox} aria-hidden="true">
-            {/* Icon cửa hàng màu trắng */}
+          <div className={styles.brandTitleWrap}>
+            <div className={styles.logoBox} aria-hidden="true">
+              {/* Icon cửa hàng màu trắng */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l1.5-5h15L21 9" />
+                <path d="M3 9c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3" />
+                <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8" />
+                <path d="M10 16h4v5h-4z" />
+              </svg>
+            </div>
+            <div className={styles.brandTitleGroup}>
+              <span className={styles.brandName}>RetailOps</span>
+              <span className={styles.versionBadge}>v1.0</span>
+            </div>
+          </div>
+
+          {/* Nút đóng Sidebar trên Mobile */}
+          <button
+            type="button"
+            className={styles.mobileCloseBtn}
+            onClick={onClose}
+            aria-label="Đóng thanh điều hướng"
+            title="Đóng menu"
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l1.5-5h15L21 9" />
-              <path d="M3 9c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3" />
-              <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8" />
-              <path d="M10 16h4v5h-4z" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </div>
-          <div className={styles.brandTitleGroup}>
-            <span className={styles.brandName}>RetailOps</span>
-            <span className={styles.versionBadge}>v1.0</span>
-          </div>
+          </button>
         </div>
 
         {/* 2. PHẦN GIỮA: DANH SÁCH MENU ĐIỀU HƯỚNG (Data-driven theo user.role) */}
