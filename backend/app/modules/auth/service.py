@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pymysql.constants import ER
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,8 @@ from app.core.exceptions import (
     AccountRejectedError,
     AppException,
     CsrfRejectedError,
-    InvalidCredentialsError,
     DomainValidationError,
+    InvalidCredentialsError,
     SessionInvalidError,
 )
 from app.modules.auth.models import (
