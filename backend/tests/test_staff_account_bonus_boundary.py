@@ -6,13 +6,21 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import SecretStr
+from redis.exceptions import RedisError
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import InvalidStateError
 from app.db.session import get_db_session
+from app.infrastructure.dependencies import get_rate_limiter
+from app.infrastructure.rate_limit import RateLimitResult
 from app.main import create_app
 from app.modules.auth.account_router import get_staff_account_service
-from app.modules.auth.dependencies import CurrentPrincipal, get_current_principal
+from app.modules.auth.dependencies import (
+    CurrentPrincipal,
+    get_auth_service,
+    get_current_principal,
+)
+from app.modules.auth.service import AuthService
 
 
 def _settings() -> Settings:
@@ -69,3 +77,48 @@ async def test_admin_account_conflicts_and_query_schema() -> None:
         assert invalid_status.status_code == 422
         invalid_id = await client.post("/api/v1/admin/staff/0/lock")
         assert invalid_id.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_change_password_requires_origin_csrf_and_fails_closed_on_redis() -> None:
+    settings = _settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_db_session] = lambda: object()
+    app.dependency_overrides[get_current_principal] = lambda: CurrentPrincipal(
+        user=SimpleNamespace(id=1, status="ACTIVE", role="STAFF"),
+        session_id=uuid4(),
+    )
+    app.dependency_overrides[get_auth_service] = lambda: AuthService(settings)
+
+    class Limiter:
+        fail = True
+
+        async def check(self, **_kwargs):
+            if self.fail:
+                raise RedisError("simulated dependency failure")
+            return RateLimitResult(allowed=True, count=1, retry_after=1)
+
+    limiter = Limiter()
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
+    url = "/api/v1/auth/change-password"
+    payload = {"current_password": "current-pass", "new_password": "new-pass"}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        unavailable = await client.post(url, json=payload)
+        assert unavailable.status_code == 503
+
+        limiter.fail = False
+        invalid_origin = await client.post(
+            url,
+            json=payload,
+            headers={"Origin": "http://untrusted.example"},
+        )
+        assert invalid_origin.status_code == 403
+        invalid_csrf = await client.post(
+            url,
+            json=payload,
+            headers={"Origin": "http://127.0.0.1:5173"},
+        )
+        assert invalid_csrf.status_code == 403
