@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     ai_max_tool_output_bytes: int = Field(
         default=AI_MAX_TOOL_OUTPUT_BYTES, ge=1, le=AI_MAX_TOOL_OUTPUT_BYTES
     )
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = Field(default="gemini-2.5-flash", min_length=1)
+    gemini_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    ai_rate_limit: int = Field(default=10, ge=1, le=100)
+    ai_rate_window_seconds: int = Field(default=60, ge=1, le=3_600)
+    ai_max_concurrent_requests: int = Field(default=5, ge=1, le=100)
+    ai_concurrency_lock_ttl_seconds: int = Field(default=30, ge=5, le=120)
     rabbitmq_url: SecretStr | None = None
     rabbitmq_host: str | None = None
     rabbitmq_port: int = Field(default=5672, ge=1, le=65_535)
@@ -99,6 +106,26 @@ class Settings(BaseSettings):
     smtp_from_address: str = "no-reply@retailops.local"
     smtp_starttls: bool = False
     smtp_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+
+    @field_validator("gemini_api_key", mode="before")
+    @classmethod
+    def normalize_blank_gemini_api_key(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | str | None:
+        """Treat empty env var (e.g. Docker Compose `${VAR:-}`) as unset."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, SecretStr) and not value.get_secret_value().strip():
+            return None
+        return value
+
+    @field_validator("gemini_model")
+    @classmethod
+    def validate_gemini_model(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or any(ch.isspace() for ch in cleaned):
+            raise ValueError("gemini_model must be a non-empty model identifier")
+        return cleaned
 
     @field_validator("cors_origins")
     @classmethod

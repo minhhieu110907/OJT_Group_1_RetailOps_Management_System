@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.infrastructure.rate_limit import RedisFixedWindowRateLimiter
 from app.infrastructure.redis import create_redis_client
+from app.modules.ai.concurrency import RedisAIConcurrencyGuard
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -20,6 +21,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         redis = create_redis_client(resolved_settings)
         application.state.rate_limiter = RedisFixedWindowRateLimiter(
+            redis, resolved_settings.rate_limit_namespace
+        )
+        application.state.ai_concurrency_guard = RedisAIConcurrencyGuard(
             redis, resolved_settings.rate_limit_namespace
         )
         try:
