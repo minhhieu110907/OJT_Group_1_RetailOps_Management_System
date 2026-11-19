@@ -268,19 +268,23 @@ def publish_envelope(envelope: object, task_id: str) -> None:
     )
     app.conf.broker_transport_options = {"confirm_publish": True}
     app.conf.task_queues = (LIVE_QUEUE,)
-    app.send_task(
-        "retailops.email.deliver_v1",
-        kwargs={"envelope": envelope},
-        task_id=task_id,
-        queue=LIVE_QUEUE.name,
-        exchange="retailops.email",
-        routing_key="email.deliver.v1",
-        serializer="json",
-        delivery_mode=2,
-        mandatory=True,
-        declare=(),
-        retry=False,
-    )
+    # A scoped connection must close before the quiescence/replay acceptance test.
+    # Celery's implicit producer pool may otherwise keep a publisher connected.
+    with app.connection_for_write() as connection:
+        app.send_task(
+            "retailops.email.deliver_v1",
+            kwargs={"envelope": envelope},
+            task_id=task_id,
+            queue=LIVE_QUEUE.name,
+            exchange="retailops.email",
+            routing_key="email.deliver.v1",
+            serializer="json",
+            delivery_mode=2,
+            mandatory=True,
+            declare=(),
+            retry=False,
+            connection=connection,
+        )
 
 
 def wait_for_event(
@@ -465,19 +469,22 @@ def test_real_celery_protocol_retry_acl_and_secret_free_body() -> None:
     app = Celery("t04a90f-test", broker=publisher_url)
     app.conf.broker_transport_options = {"confirm_publish": True}
     app.conf.task_queues = (LIVE_QUEUE,)
-    app.send_task(
-        "retailops.email.deliver_v1",
-        kwargs={"envelope": {"event_id": event_id, "schema_version": 1}},
-        task_id=event_id,
-        queue=LIVE_QUEUE.name,
-        exchange="retailops.email",
-        routing_key="email.deliver.v1",
-        serializer="json",
-        delivery_mode=2,
-        mandatory=True,
-        declare=(),
-        retry=False,
-    )
+    # Do not leak a pooled test publisher into later broker-quiescence checks.
+    with app.connection_for_write() as connection:
+        app.send_task(
+            "retailops.email.deliver_v1",
+            kwargs={"envelope": {"event_id": event_id, "schema_version": 1}},
+            task_id=event_id,
+            queue=LIVE_QUEUE.name,
+            exchange="retailops.email",
+            routing_key="email.deliver.v1",
+            serializer="json",
+            delivery_mode=2,
+            mandatory=True,
+            declare=(),
+            retry=False,
+            connection=connection,
+        )
 
     with receive_message(worker_url, LIVE_QUEUE) as message:
         body = message_body_text(message)
