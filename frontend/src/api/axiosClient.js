@@ -134,6 +134,20 @@ let credentialMutationActive = false;
 let refreshNetworkCount = 0;
 let refreshDrainWaiters = [];
 
+// Same-origin Web Locks serialize refresh/password-change cookie rotation
+// across tabs on browsers that support the API. The in-tab gate below is
+// still required for session generation checks and non-supporting browsers.
+async function withCredentialCookieLock(operation) {
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request(
+      'retailops-auth-cookie-rotation',
+      { mode: 'exclusive' },
+      operation
+    );
+  }
+  return operation();
+}
+
 function notifyRefreshDrained() {
   if (refreshNetworkCount > 0 || isRefreshing) return;
   const waiters = refreshDrainWaiters;
@@ -154,7 +168,12 @@ export async function runExclusiveCredentialMutation(operation) {
     if (generation !== currentSessionGeneration || !inMemoryToken) {
       throw createStaleSessionError();
     }
-    return await operation();
+    return await withCredentialCookieLock(async () => {
+      if (generation !== currentSessionGeneration || !inMemoryToken) {
+        throw createStaleSessionError();
+      }
+      return operation();
+    });
   } finally {
     credentialMutationActive = false;
   }
@@ -543,7 +562,12 @@ export async function callRefreshTokenApi(
   }
   refreshNetworkCount += 1;
   try {
-    return await callRefreshTokenApiCore(expectedGeneration);
+    return await withCredentialCookieLock(() => {
+      if (credentialMutationActive) {
+        throw new Error('Đang cập nhật mật khẩu; từ chối làm mới phiên đồng thời.');
+      }
+      return callRefreshTokenApiCore(expectedGeneration);
+    });
   } finally {
     refreshNetworkCount -= 1;
     notifyRefreshDrained();
