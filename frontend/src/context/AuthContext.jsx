@@ -586,6 +586,36 @@ export function AuthProvider({ children }) {
     });
   };
 
+  // Gửi yêu cầu đặt lại mật khẩu qua Email (POST /api/v1/auth/forgot-password)
+  const requestPasswordReset = async (email) => {
+    if (getUseMock() && isMockAllowed()) {
+      return {
+        accepted: true,
+        isMock: true,
+        message: null,
+      };
+    }
+    const res = await accountApi.requestPasswordReset(email, false);
+    return {
+      accepted: true,
+      isMock: false,
+      message: res?.message || null,
+    };
+  };
+
+  // Xác nhận đặt lại mật khẩu bằng one-time token (POST /api/v1/auth/reset-password)
+  const confirmPasswordReset = async (token, newPassword) => {
+    if (getUseMock() && isMockAllowed()) {
+      throw new Error('Xác nhận token API chỉ hoạt động ở chế độ Real API.');
+    }
+    const res = await accountApi.confirmPasswordReset(token, newPassword, false);
+    return {
+      success: true,
+      message:
+        res?.message || 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
+    };
+  };
+
   // Helper lấy thông tin người dùng mẫu theo email: Cô lập hoàn toàn khỏi Real API mode
   const getUserByEmail = (searchEmail) => {
     if (!getUseMock() || !isMockAllowed()) {
@@ -615,6 +645,8 @@ export function AuthProvider({ children }) {
         register,
         logout,
         resetPassword,
+        requestPasswordReset,
+        confirmPasswordReset,
         getMyProfile,
         updateMyProfile,
         changeMyPassword,

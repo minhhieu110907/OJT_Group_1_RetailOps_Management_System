@@ -72,4 +72,23 @@ export const accountApi = {
       csrfToken: response.headers?.['x-csrf-token'] || null,
     };
   },
+
+  async requestPasswordReset(email, isMockMode = false) {
+    assertRealApiMode(isMockMode);
+    const trimmedEmail = String(email || '').trim().toLowerCase();
+    const { data } = await axiosClient.post('/auth/forgot-password', {
+      email: trimmedEmail,
+    });
+    return data;
+  },
+
+  async confirmPasswordReset(token, newPassword, isMockMode = false) {
+    assertRealApiMode(isMockMode);
+    const trimmedToken = String(token || '').trim();
+    const { data } = await axiosClient.post('/auth/reset-password', {
+      token: trimmedToken,
+      new_password: String(newPassword || ''),
+    });
+    return data;
+  },
 };
