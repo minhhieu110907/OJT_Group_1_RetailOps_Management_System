@@ -25,9 +25,13 @@ import axiosClient, {
   invalidateSession,
   setupAxiosAuth,
   callLogoutApi,
+  callRefreshTokenApi,
+  runExclusiveCredentialMutation,
+  withCredentialCookieLock,
   setAuthTransport,
   normalizeBackendUser,
   evaluateRouteAccess,
+  getApiErrorMessage,
 } from '../api/axiosClient.js';
 import {
   validateChangePasswordForm,
@@ -78,6 +82,189 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
     clearVerifiedIdempotentEndpoints();
     setAuthTransport(null);
     invalidateSession();
+  });
+
+  it('Bonus: password rotation waits for pending refresh and rejects new refresh during mutation', async () => {
+    startAuthenticatedSession('current-token', 'csrf-token');
+    const generation = getSessionGeneration();
+    let finishRefresh;
+    let refreshStarted;
+    const started = new Promise((resolve) => { refreshStarted = resolve; });
+    const delayed = new Promise((resolve) => { finishRefresh = resolve; });
+    let requests = 0;
+    setAuthTransport({
+      post: async (url) => {
+        assert.ok(url.includes('/auth/refresh'));
+        requests += 1;
+        refreshStarted();
+        await delayed;
+        return { data: { access_token: 'rotated-token' }, headers: {} };
+      },
+    });
+    const flight = callRefreshTokenApi(generation);
+    await started;
+    let changed = false;
+    const mutation = runExclusiveCredentialMutation(async () => {
+      changed = true;
+      await assert.rejects(
+        callRefreshTokenApi(generation),
+        /Đang cập nhật mật khẩu/
+      );
+    });
+    await Promise.resolve();
+    assert.equal(changed, false);
+    finishRefresh();
+    await flight;
+    await mutation;
+    assert.equal(changed, true);
+    assert.equal(requests, 1);
+  });
+
+  it('Bonus: propagates credential-operation failures exactly once through Web Locks', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        locks: {
+          request: async (_name, _options, operation) => operation(),
+        },
+      },
+    });
+    try {
+      const failures = [
+        Object.assign(new Error('HTTP 401'), { response: { status: 401 } }),
+        Object.assign(new Error('HTTP 403'), { response: { status: 403 } }),
+        new Error('network failure'),
+        Object.assign(new Error('request timeout'), { code: 'ECONNABORTED' }),
+      ];
+      for (const failure of failures) {
+        let calls = 0;
+        await assert.rejects(
+          withCredentialCookieLock(async () => {
+            calls += 1;
+            throw failure;
+          }),
+          (error) => error === failure
+        );
+        assert.equal(calls, 1);
+      }
+    } finally {
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete globalThis.navigator;
+      }
+    }
+  });
+
+  it('Bonus: fail-closes without Web Locks and never starts credential rotation', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    let calls = 0;
+    let storageTouches = 0;
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { locks: undefined },
+    });
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: new Proxy({}, {
+        get() {
+          storageTouches += 1;
+          throw new Error('localStorage must not coordinate credentials');
+        },
+      }),
+    });
+    try {
+      await assert.rejects(
+        withCredentialCookieLock(async () => {
+          calls += 1;
+        }),
+        /không hỗ trợ đồng bộ phiên an toàn/i
+      );
+      assert.equal(calls, 0);
+      assert.equal(storageTouches, 0);
+    } finally {
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete globalThis.navigator;
+      }
+      if (storageDescriptor) {
+        Object.defineProperty(globalThis, 'localStorage', storageDescriptor);
+      } else {
+        delete globalThis.localStorage;
+      }
+    }
+  });
+
+  it('Bonus: presents the Web Locks fail-closed reason instead of a backend outage', () => {
+    const failure = Object.assign(
+      new Error('Trình duyệt không hỗ trợ đồng bộ phiên an toàn giữa các tab.'),
+      { code: 'CROSS_TAB_LOCK_UNAVAILABLE' }
+    );
+    assert.equal(getApiErrorMessage(failure), failure.message);
+  });
+
+  it('Bonus: Web Locks serializes adversarial multi-tab failures and a suspended holder', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    let tail = Promise.resolve();
+    const lockManager = {
+      request: (_name, _options, operation) => {
+        const result = tail.then(operation, operation);
+        tail = result.catch(() => undefined);
+        return result;
+      },
+    };
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { locks: lockManager },
+    });
+    let releaseSuspended;
+    const suspended = new Promise((resolve) => {
+      releaseSuspended = resolve;
+    });
+    let active = 0;
+    let maxActive = 0;
+    let secondStarted = false;
+    try {
+      const first = withCredentialCookieLock(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await suspended;
+        active -= 1;
+      });
+      const second = withCredentialCookieLock(async () => {
+        secondStarted = true;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        active -= 1;
+        throw new Error('tab operation failed');
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(secondStarted, false);
+      releaseSuspended();
+      await first;
+      await assert.rejects(second, /tab operation failed/);
+
+      await Promise.all(
+        Array.from({ length: 8 }, (_, index) =>
+          withCredentialCookieLock(async () => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            await new Promise((resolve) => setTimeout(resolve, index % 3));
+            active -= 1;
+          })
+        )
+      );
+      assert.equal(maxActive, 1);
+    } finally {
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete globalThis.navigator;
+      }
+    }
   });
 
   // ==========================================================================

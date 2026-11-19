@@ -18,6 +18,122 @@ tags:
 - name: dashboard
 - name: ai
 paths:
+  /admin/staff:
+    get:
+      tags: [staff-accounts]
+      operationId: listStaffAccounts
+      summary: ADMIN xem tài khoản Staff đang ACTIVE hoặc LOCKED
+      x-implementation-status: BONUS_IMPLEMENTING
+      security:
+      - bearerAuth: []
+      parameters:
+      - {name: status, in: query, schema: {type: string, enum: [ACTIVE, LOCKED]}}
+      - {name: search, in: query, schema: {type: string, maxLength: 120}}
+      - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+      - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: Trang tài khoản Staff
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StaffAccountPage'}
+        '401': {description: Chưa xác thực}
+        '403': {description: Không phải ADMIN}
+  /admin/staff/{user_id}/lock:
+    post:
+      tags: [staff-accounts]
+      operationId: lockStaffAccount
+      summary: ADMIN khóa tài khoản Staff ACTIVE và thu hồi mọi phiên
+      x-implementation-status: BONUS_IMPLEMENTING
+      security:
+      - bearerAuth: []
+      parameters:
+      - {name: user_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Đã khóa và thu hồi phiên trong một transaction
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StaffAccountRead'}
+        '401': {description: Chưa xác thực}
+        '403': {description: Không phải ADMIN}
+        '404': {description: Không có Staff}
+        '409': {description: Trạng thái không hợp lệ}
+  /admin/staff/{user_id}/unlock:
+    post:
+      tags: [staff-accounts]
+      operationId: unlockStaffAccount
+      summary: ADMIN mở tài khoản Staff LOCKED nhưng không khôi phục phiên cũ
+      x-implementation-status: BONUS_IMPLEMENTING
+      security:
+      - bearerAuth: []
+      parameters:
+      - {name: user_id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Đã mở khóa
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StaffAccountRead'}
+        '401': {description: Chưa xác thực}
+        '403': {description: Không phải ADMIN}
+        '404': {description: Không có Staff}
+        '409': {description: Trạng thái không hợp lệ}
+  /users/me:
+    get:
+      tags: [self-profile]
+      operationId: getMyProfile
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Hồ sơ người dùng hiện tại
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProfileRead'}
+        '401': {description: Phiên không hợp lệ}
+    patch:
+      tags: [self-profile]
+      operationId: patchMyProfile
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProfileUpdateRequest'}
+      responses:
+        '200':
+          description: Đã cập nhật họ tên
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProfileRead'}
+        '401': {description: Phiên không hợp lệ}
+        '422': {description: Họ tên không hợp lệ}
+  /auth/change-password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      summary: Đổi mật khẩu khi đăng nhập; giữ phiên hiện tại và rotate refresh cookie
+      x-implementation-status: BONUS_IMPLEMENTING
+      security:
+      - bearerAuth: []
+      parameters:
+      - {name: X-CSRF-Token, in: header, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
+      responses:
+        '200':
+          description: Trả access token mới và thiết lập refresh cookie mới
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TokenResponse'}
+        '401': {description: Phiên không hợp lệ}
+        '403': {description: Origin hoặc CSRF không hợp lệ}
+        '422': {description: Sai mật khẩu cũ hoặc mật khẩu mới không hợp lệ}
   /staff-approvals:
     get:
       tags:
@@ -2493,7 +2609,7 @@ components:
           enum: [ADMIN, STAFF]
         status:
           type: string
-          enum: [PENDING_APPROVAL, ACTIVE, REJECTED]
+          enum: [PENDING_APPROVAL, ACTIVE, REJECTED, LOCKED]
         last_reapplied_at:
           type: string
           format: date-time
@@ -2530,7 +2646,7 @@ components:
           enum: [ADMIN, STAFF]
         status:
           type: string
-          enum: [PENDING_APPROVAL, ACTIVE, REJECTED]
+          enum: [PENDING_APPROVAL, ACTIVE, REJECTED, LOCKED]
       required:
       - id
       - email_normalized
@@ -3664,4 +3780,51 @@ components:
           type: integer
           minimum: 1
           maximum: 100
+    StaffAccountRead:
+      type: object
+      additionalProperties: false
+      required: [id, email_normalized, full_name, status, created_at, updated_at]
+      properties:
+        id: {type: integer, minimum: 1}
+        email_normalized: {type: string, format: email}
+        full_name: {type: string, maxLength: 120, nullable: true}
+        status: {type: string, enum: [ACTIVE, LOCKED]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    StaffAccountPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/StaffAccountRead'}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1, maximum: 100}
+    ProfileRead:
+      type: object
+      additionalProperties: false
+      required: [id, email_normalized, full_name, role, status, created_at, updated_at]
+      properties:
+        id: {type: integer, minimum: 1}
+        email_normalized: {type: string, format: email}
+        full_name: {type: string, maxLength: 120, nullable: true}
+        role: {type: string, enum: [ADMIN, STAFF]}
+        status: {type: string, enum: [ACTIVE]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ProfileUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [full_name]
+      properties:
+        full_name: {type: string, maxLength: 120, nullable: true}
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: {type: string, minLength: 1, maxLength: 72}
+        new_password: {type: string, minLength: 1, maxLength: 72}
 x-source-commit-reviewed: cd1a6d3451a88bd890e76c14944a98329152c325

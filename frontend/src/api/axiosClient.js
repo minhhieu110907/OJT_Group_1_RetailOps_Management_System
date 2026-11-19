@@ -97,6 +97,10 @@ export function getApiErrorMessage(error) {
     return '';
   }
 
+  if (error?.code === 'CROSS_TAB_LOCK_UNAVAILABLE') {
+    return error.message;
+  }
+
   if (error?.code === 'ECONNABORTED') {
     return 'Yêu cầu tới máy chủ quá thời gian chờ. Vui lòng kiểm tra kết nối và thử lại.';
   }
@@ -128,6 +132,66 @@ let activeLogoutPromise = null;
 let isRefreshing = false;
 let activeRefreshGeneration = -1;
 let failedQueue = [];
+// Credential mutations must not overlap an in-flight refresh using the same
+// HttpOnly cookie. Keep the replay-detection rule on the backend unchanged.
+let credentialMutationActive = false;
+let refreshNetworkCount = 0;
+let refreshDrainWaiters = [];
+
+// Same-origin Web Locks provide a browser-managed, origin-scoped exclusive
+// lock for refresh/password-change cookie rotation. The browser releases the
+// lock when the callback settles (success or failure), so operation exceptions
+// propagate unchanged and can never trigger an implicit retry here.
+//
+// localStorage cannot implement an atomic compare-and-swap or fencing token.
+// IndexedDB can atomically acquire a lease, but cannot keep its transaction
+// alive across an HTTP operation; expiry after a suspended tab has the same
+// stale-owner problem. Without Web Locks we therefore fail closed before any
+// credential mutation instead of pretending to provide mutual exclusion.
+export async function withCredentialCookieLock(operation) {
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request(
+      'retailops-auth-cookie-rotation',
+      { mode: 'exclusive' },
+      operation
+    );
+  }
+  throw Object.assign(
+    new Error('Trình duyệt không hỗ trợ đồng bộ phiên an toàn giữa các tab.'),
+    { code: 'CROSS_TAB_LOCK_UNAVAILABLE' }
+  );
+}
+
+function notifyRefreshDrained() {
+  if (refreshNetworkCount > 0 || isRefreshing) return;
+  const waiters = refreshDrainWaiters;
+  refreshDrainWaiters = [];
+  waiters.forEach((resolve) => resolve());
+}
+
+export async function runExclusiveCredentialMutation(operation) {
+  if (credentialMutationActive) {
+    throw new Error('Một yêu cầu cập nhật thông tin bảo mật đang được xử lý.');
+  }
+  const generation = currentSessionGeneration;
+  credentialMutationActive = true;
+  try {
+    if (refreshNetworkCount > 0 || isRefreshing) {
+      await new Promise((resolve) => refreshDrainWaiters.push(resolve));
+    }
+    if (generation !== currentSessionGeneration || !inMemoryToken) {
+      throw createStaleSessionError();
+    }
+    return await withCredentialCookieLock(async () => {
+      if (generation !== currentSessionGeneration || !inMemoryToken) {
+        throw createStaleSessionError();
+      }
+      return operation();
+    });
+  } finally {
+    credentialMutationActive = false;
+  }
+}
 
 let authTransport = axios;
 
@@ -273,6 +337,7 @@ export function invalidateSession() {
   inMemoryCsrfToken = null;
   isRefreshing = false;
   activeRefreshGeneration = -1;
+  notifyRefreshDrained();
   processQueue(
     createStaleSessionError(
       null,
@@ -294,6 +359,7 @@ export function startAuthenticatedSession(accessToken, csrfToken = null) {
   inMemoryCsrfToken = csrfToken || null;
   isRefreshing = false;
   activeRefreshGeneration = -1;
+  notifyRefreshDrained();
   processQueue(
     createStaleSessionError(
       null,
@@ -451,7 +517,7 @@ export const apiClient = axiosClient;
 // ============================================================================
 // 4. HÀM GỌI REFRESH TOKEN & LOGOUT ĐỘC LẬP (TRÁNH INFINITE LOOP)
 // ============================================================================
-export async function callRefreshTokenApi(
+async function callRefreshTokenApiCore(
   expectedGeneration = currentSessionGeneration
 ) {
   if (USE_MOCK && isMockAllowed()) {
@@ -500,6 +566,26 @@ export async function callRefreshTokenApi(
   }
 
   return response;
+}
+
+export async function callRefreshTokenApi(
+  expectedGeneration = currentSessionGeneration
+) {
+  if (credentialMutationActive) {
+    throw new Error('Đang cập nhật mật khẩu; từ chối làm mới phiên đồng thời.');
+  }
+  refreshNetworkCount += 1;
+  try {
+    return await withCredentialCookieLock(() => {
+      if (credentialMutationActive) {
+        throw new Error('Đang cập nhật mật khẩu; từ chối làm mới phiên đồng thời.');
+      }
+      return callRefreshTokenApiCore(expectedGeneration);
+    });
+  } finally {
+    refreshNetworkCount -= 1;
+    notifyRefreshDrained();
+  }
 }
 
 /**
@@ -798,6 +884,13 @@ axiosClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Do not send the old refresh cookie while a password change is pending.
+    // Respond with the original 401; do not mutate the current auth session.
+    if (credentialMutationActive) {
+      error.code = error.code || 'ERR_CREDENTIAL_MUTATION_IN_PROGRESS';
+      return Promise.reject(error);
+    }
+
     // 3. Kiểm tra cô lập thế hệ phiên (Session Generation Isolation):
     // Nếu request được gửi từ phiên cũ hoặc khi chưa đăng nhập -> Từ chối ngay,
     // TUYỆT ĐỐI KHÔNG refresh hoặc retry bằng token của phiên mới.
@@ -938,6 +1031,7 @@ axiosClient.interceptors.response.use(
       if (activeRefreshGeneration === requestGeneration) {
         isRefreshing = false;
         activeRefreshGeneration = -1;
+        notifyRefreshDrained();
       }
     }
   }
@@ -953,6 +1047,7 @@ const VALID_BACKEND_STATUSES = new Set([
   'PENDING_APPROVAL',
   'PENDING',
   'REJECTED',
+  'LOCKED',
 ]);
 
 /**

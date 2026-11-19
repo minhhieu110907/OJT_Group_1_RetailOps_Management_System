@@ -10,16 +10,23 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import (
+    enforce_change_password_rate_limit,
     enforce_forgot_password_rate_limit,
     enforce_login_rate_limit,
     enforce_refresh_rate_limit,
     enforce_registration_rate_limit,
     enforce_reset_password_rate_limit,
 )
-from app.modules.auth.dependencies import bearer_scheme, get_auth_service
+from app.modules.auth.dependencies import (
+    CurrentPrincipal,
+    bearer_scheme,
+    get_auth_service,
+    get_current_principal,
+)
 from app.modules.auth.reset_email import build_password_reset_email_adapter
 from app.modules.auth.reset_service import AuthResetService
 from app.modules.auth.schemas import (
+    ChangePasswordRequest,
     CsrfResponse,
     ForgotPasswordRequest,
     GenericMessageResponse,
@@ -241,3 +248,39 @@ def reset_password(
         new_password=payload.new_password,
     )
     return GenericMessageResponse(message=ack.message)
+
+
+@router.post(
+    "/change-password",
+    response_model=TokenResponse,
+    dependencies=[Depends(enforce_change_password_rate_limit)],
+)
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_db_session)],
+    principal: Annotated[CurrentPrincipal, Depends(get_current_principal)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    origin: Annotated[str | None, Header()] = None,
+    csrf_header: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+) -> TokenResponse:
+    """Authenticated change: validate cookie+CSRF, rotate current refresh.
+
+    The new access token must replace the caller's in-memory token. No
+    automatic retry of this mutation is permitted by the frontend client.
+    """
+    result = service.change_password(
+        session,
+        actor_id=principal.user.id,
+        session_id=principal.session_id,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+        refresh_token=request.cookies.get(settings.refresh_cookie_name),
+        csrf_header=csrf_header,
+        csrf_cookie=request.cookies.get(settings.csrf_cookie_name),
+        origin=origin,
+    )
+    _set_auth_cookies(response, result, settings)
+    return result.response

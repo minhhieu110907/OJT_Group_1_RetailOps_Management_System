@@ -9,12 +9,13 @@ import {
   formatNotificationTimeVN,
   notificationsApi,
 } from '../../api/notificationsApi';
-import ResetPassword from '../../pages/Auth/ResetPassword';
+import ChangePasswordModal from '../../components/ChangePasswordModal';
+import fieldStyles from '../../components/ChangePasswordModal.module.css';
 import { MENU_ITEMS } from './Sidebar';
 import styles from './MainLayout.module.css';
 
 export default function Header() {
-  const { user, logout, isMockMode } = useAuth();
+  const { user, logout, isMockMode, getMyProfile, updateMyProfile } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
   const location = useLocation();
@@ -24,8 +25,58 @@ export default function Header() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileFullName, setProfileFullName] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isProfileModalOpen) return undefined;
+    let current = true;
+    Promise.resolve().then(() => {
+      if (!current) return;
+      setProfileFullName(user?.full_name || '');
+      setProfileError('');
+      setProfileLoading(!isMockMode);
+    });
+    if (!isMockMode) {
+      getMyProfile()
+        .then((profile) => {
+          if (current) setProfileFullName(profile.full_name || '');
+        })
+        .catch((err) => {
+          if (current) setProfileError(getApiErrorMessage(err));
+        })
+        .finally(() => {
+          if (current) setProfileLoading(false);
+        });
+    }
+    return () => { current = false; };
+    // Loading a profile once when the modal opens is deliberate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProfileModalOpen, isMockMode, user?.id]);
+
+  const handleSaveProfile = async () => {
+    if (profileSaving || isMockMode) return;
+    const normalizedName = profileFullName.trim();
+    if (profileFullName.length && !normalizedName) {
+      setProfileError('Họ và tên không được chỉ chứa khoảng trắng.');
+      return;
+    }
+    setProfileError('');
+    setProfileSaving(true);
+    try {
+      await updateMyProfile(normalizedName || null);
+      toast.success('Đã cập nhật thông tin cá nhân.');
+      setIsProfileModalOpen(false);
+    } catch (err) {
+      setProfileError(getApiErrorMessage(err) || err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   // State dữ liệu Thông báo xét duyệt nhân viên (AUTH-05 — Real API)
   const [notifications, setNotifications] = useState([]);
@@ -819,16 +870,40 @@ export default function Header() {
         title="Thông tin cá nhân"
         maxWidth="460px"
         footer={
-          <button
-            type="button"
-            className={modalStyles.cancelBtn}
-            onClick={() => setIsProfileModalOpen(false)}
-          >
-            Đóng
-          </button>
+          <>
+            <button
+              type="button"
+              className={modalStyles.cancelBtn}
+              disabled={profileSaving}
+              onClick={() => setIsProfileModalOpen(false)}
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              className={modalStyles.confirmBtn}
+              disabled={profileSaving || profileLoading || isMockMode}
+              onClick={handleSaveProfile}
+            >
+              {profileSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+            </button>
+          </>
         }
       >
         <div className={styles.profileModalContent}>
+          <label className={fieldStyles.label} htmlFor="profile-full-name">Họ và tên</label>
+          <input
+            id="profile-full-name"
+            className={fieldStyles.input}
+            value={profileFullName}
+            onChange={(event) => setProfileFullName(event.target.value)}
+            maxLength={120}
+            disabled={profileSaving || profileLoading || isMockMode}
+            placeholder="Nhập họ và tên"
+          />
+          {profileLoading && <p role="status">Đang tải hồ sơ...</p>}
+          {isMockMode && <p role="status">Chỉnh sửa hồ sơ chỉ hoạt động với API thật.</p>}
+          {profileError && <p role="alert" className={fieldStyles.error}>{profileError}</p>}
           <div className={styles.profileSummaryHeader}>
             <div className={styles.profileAvatarLarge}>{avatarInitials}</div>
             <div className={styles.profileSummaryMeta}>
@@ -963,9 +1038,8 @@ export default function Header() {
 
       {/* MODAL ĐỔI MẬT KHẨU (TRẠNG THÁI 4A, 4B, 4C) KHI BẤM TỪ DROPDOWN HEADER */}
       {isChangePasswordOpen && (
-        <ResetPassword
+        <ChangePasswordModal
           onClose={() => setIsChangePasswordOpen(false)}
-          defaultEmail={user?.email}
         />
       )}
     </>

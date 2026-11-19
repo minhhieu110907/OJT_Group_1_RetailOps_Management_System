@@ -17,6 +17,23 @@ class AuthRepository:
     def find_user_by_email(self, session: Session, email: str) -> User | None:
         return session.scalar(select(User).where(User.email_normalized == email))
 
+    def lock_user_by_id(self, session: Session, user_id: int) -> User | None:
+        """Acquire canonical identity lock before auth-session/refresh mutations."""
+        return session.scalar(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+    def lock_user_by_email(self, session: Session, email: str) -> User | None:
+        return session.scalar(
+            select(User)
+            .where(User.email_normalized == email)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
     def find_sole_admin(self, session: Session) -> User | None:
         return session.scalar(select(User).where(User.admin_slot == 1))
 

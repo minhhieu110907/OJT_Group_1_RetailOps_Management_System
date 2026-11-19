@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
@@ -469,6 +469,9 @@ export default function StaffApprovalList() {
         </div>
 
         <div className={styles.headerActions}>
+          <Link to="/staff/accounts" className={styles.refreshBtn}>
+            Tài khoản nhân viên
+          </Link>
           <div className={styles.policyBadge}>
             <svg
               width="16"

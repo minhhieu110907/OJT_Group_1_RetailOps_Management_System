@@ -33,6 +33,7 @@ class UserStatus(StrEnum):
     PENDING_APPROVAL = "PENDING_APPROVAL"
     ACTIVE = "ACTIVE"
     REJECTED = "REJECTED"
+    LOCKED = "LOCKED"
 
 
 class ApprovalStatus(StrEnum):
@@ -54,8 +55,8 @@ class User(Base):
             "(role = 'ADMIN' AND admin_slot IS NOT NULL AND admin_slot = 1 "
             "AND status = 'ACTIVE') OR "
             "(role = 'STAFF' AND admin_slot IS NULL AND status IN "
-            "('PENDING_APPROVAL', 'ACTIVE', 'REJECTED'))",
-            name="ck_users_role_status_admin_slot",
+            "('PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'LOCKED'))",
+            name="ck_users_role_status_admin_slot_v2",
         ),
     )
 
@@ -214,4 +215,34 @@ class PasswordResetToken(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6))
+    created_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)
+
+
+class StaffAccountEvent(Base):
+    """Append-only record of administrator Staff account lock/unlock events."""
+
+    __tablename__ = "staff_account_events"
+    __table_args__ = (
+        Index(
+            "ix_staff_account_events_target_time",
+            "target_user_id",
+            "created_at",
+            "id",
+        ),
+        CheckConstraint(
+            "action IN ('LOCK', 'UNLOCK')",
+            name="ck_staff_account_events_action",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    actor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", name="fk_staff_account_events_actor"),
+        nullable=False,
+    )
+    target_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", name="fk_staff_account_events_target"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(6), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)

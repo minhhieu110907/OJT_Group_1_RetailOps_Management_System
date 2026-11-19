@@ -179,3 +179,45 @@ class GenericMessageResponse(BaseModel):
     """Generic acknowledgement response that never leaks account state."""
 
     message: str
+
+
+class StaffAccountRead(OrmReadModel):
+    """Admin-visible account fields, never approval-request or credential data."""
+
+    id: int
+    email_normalized: EmailStr
+    full_name: str | None
+    status: UserStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class StaffAccountPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[StaffAccountRead]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+
+
+class ProfileRead(StaffAccountRead):
+    """Minimal self-profile; role is never client mutable."""
+
+    role: UserRole
+
+
+class ProfileUpdateRequest(StrictRequest):
+    """Only full_name may be edited; explicit null clears a legacy name."""
+
+    full_name: str | None = Field(max_length=120)
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        return normalize_full_name(value)
+
+
+class ChangePasswordRequest(StrictRequest):
+    current_password: str = Field(min_length=1, max_length=72)
+    new_password: str = Field(min_length=1, max_length=72)
