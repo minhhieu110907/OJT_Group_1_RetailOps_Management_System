@@ -6,6 +6,8 @@ from fastapi import APIRouter, status
 
 from app.modules.analytics.router import dashboard_router
 from app.modules.analytics.router import router as analytics_router
+from app.modules.auth.account_router import admin_router as staff_accounts_router
+from app.modules.auth.account_router import profile_router as profile_router
 from app.modules.auth.approval_router import router as staff_approval_router
 from app.modules.auth.router import router as auth_router
 from app.modules.categories.router import category_router
@@ -31,6 +33,8 @@ class HealthResponse(TypedDict):
 api_router = APIRouter()
 api_router.include_router(auth_router)
 api_router.include_router(staff_approval_router)
+api_router.include_router(staff_accounts_router)
+api_router.include_router(profile_router)
 api_router.include_router(notifications_router)
 api_router.include_router(category_router)
 api_router.include_router(inventory_router)
