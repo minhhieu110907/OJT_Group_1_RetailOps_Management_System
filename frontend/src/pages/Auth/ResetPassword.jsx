@@ -210,14 +210,24 @@ export default function ResetPassword({ onClose, defaultEmail }) {
         handleClose();
       } catch (err) {
         const status = err?.response?.status;
-        const msg =
-          status === 429
-            ? 'Bạn đã thử đặt lại mật khẩu quá nhiều lần. Vui lòng thử lại sau ít phút.'
-            : status === 401
-              ? 'Liên kết đặt lại mật khẩu không hợp lệ, đã hết hạn hoặc đã được sử dụng.'
-              : getApiErrorMessage(err) ||
-                err?.message ||
-                'Không thể đặt lại mật khẩu. Vui lòng yêu cầu liên kết khôi phục mới.';
+        let msg;
+        if (status === 429) {
+          msg =
+            'Bạn đã thử đặt lại mật khẩu quá nhiều lần. Vui lòng thử lại sau ít phút.';
+        } else if (status === 401) {
+          msg =
+            'Liên kết đặt lại mật khẩu không hợp lệ, đã hết hạn hoặc đã được sử dụng.';
+        } else if (status === 422 || status === 400) {
+          msg =
+            'Mật khẩu mới hoặc mã xác thực không đáp ứng định dạng hợp lệ của hệ thống.';
+        } else if (status >= 500 || !err?.response) {
+          msg =
+            'Không thể kết nối máy chủ hoặc dịch vụ tạm thời gián đoạn. Vui lòng thử lại sau.';
+        } else {
+          msg =
+            getApiErrorMessage(err) ||
+            'Không thể đặt lại mật khẩu. Vui lòng yêu cầu liên kết khôi phục mới.';
+        }
         setErrors((prev) => ({
           ...prev,
           token: msg,

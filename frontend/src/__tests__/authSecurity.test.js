@@ -1693,81 +1693,111 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
     });
 
     it('T04AA1C: Forgot & Reset Password Real API contracts (/auth/forgot-password & /auth/reset-password)', async () => {
-      // 1. Verify static integration in ForgotPassword.jsx and ResetPassword.jsx
-      const forgotPath = path.resolve(__dirname, '../pages/Auth/ForgotPassword.jsx');
-      const resetPath = path.resolve(__dirname, '../pages/Auth/ResetPassword.jsx');
-      const forgotContent = fs.readFileSync(forgotPath, 'utf8');
-      const resetContent = fs.readFileSync(resetPath, 'utf8');
+      const savedAdapter = axiosClient.defaults.adapter;
+      try {
+        // 1. Verify static integration in ForgotPassword.jsx and ResetPassword.jsx
+        const forgotPath = path.resolve(__dirname, '../pages/Auth/ForgotPassword.jsx');
+        const resetPath = path.resolve(__dirname, '../pages/Auth/ResetPassword.jsx');
+        const forgotContent = fs.readFileSync(forgotPath, 'utf8');
+        const resetContent = fs.readFileSync(resetPath, 'utf8');
 
-      assert.ok(forgotContent.includes('requestPasswordReset'));
-      assert.ok(resetContent.includes('confirmPasswordReset'));
-      assert.equal(
-        forgotContent.includes('Chức năng đang phát triển (Sprint 2 Placeholder)'),
-        false
-      );
+        assert.ok(forgotContent.includes('requestPasswordReset'));
+        assert.ok(resetContent.includes('confirmPasswordReset'));
+        assert.equal(
+          forgotContent.includes('Chức năng đang phát triển (Sprint 2 Placeholder)'),
+          false
+        );
 
-      // 2. Verify accountApi.requestPasswordReset sends POST /auth/forgot-password without Authorization header even if a token exists in RAM
-      startAuthenticatedSession('stale-token-should-not-be-sent', 'csrf-123');
-      let capturedForgotConfig = null;
-      let capturedResetConfig = null;
+        // 2. Verify both public endpoints do NOT send Authorization header and do NOT trigger /auth/refresh on 401
+        startAuthenticatedSession('stale-token-should-not-be-sent', 'csrf-123');
+        let refreshCalls = 0;
+        setAuthTransport({
+          get: async () => ({ data: {}, headers: {} }),
+          post: async () => {
+            refreshCalls += 1;
+            return { status: 200, data: { access_token: 'unexpected-refresh' }, headers: {} };
+          },
+        });
 
-      axiosClient.defaults.adapter = async (config) => {
-        if (config.url === '/auth/forgot-password') {
-          capturedForgotConfig = config;
-          return {
-            status: 202,
-            statusText: 'Accepted',
-            headers: {},
-            config,
-            data: {
-              message:
-                'Nếu email hợp lệ, hướng dẫn đặt lại mật khẩu đã được gửi.',
-            },
-          };
-        }
-        if (config.url === '/auth/reset-password') {
-          capturedResetConfig = config;
-          return {
-            status: 200,
-            statusText: 'OK',
-            headers: {},
-            config,
-            data: {
-              message:
-                'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
-            },
-          };
-        }
-        throw new Error(`Unexpected request to ${config.url}`);
-      };
+        let capturedForgotConfig = null;
+        let capturedResetConfig = null;
+        let forceReset401 = false;
 
-      const forgotRes = await accountApi.requestPasswordReset(
-        '  Staff.Active@RetailOps.Local  ',
-        false
-      );
-      assert.equal(
-        forgotRes.message,
-        'Nếu email hợp lệ, hướng dẫn đặt lại mật khẩu đã được gửi.'
-      );
-      assert.equal(capturedForgotConfig.headers?.Authorization, undefined);
-      assert.deepEqual(JSON.parse(capturedForgotConfig.data), {
-        email: 'staff.active@retailops.local',
-      });
+        axiosClient.defaults.adapter = async (config) => {
+          if (config.url === '/auth/forgot-password') {
+            capturedForgotConfig = config;
+            return {
+              status: 202,
+              statusText: 'Accepted',
+              headers: {},
+              config,
+              data: {
+                message:
+                  'Nếu email hợp lệ, hướng dẫn đặt lại mật khẩu đã được gửi.',
+              },
+            };
+          }
+          if (config.url === '/auth/reset-password') {
+            capturedResetConfig = config;
+            if (forceReset401) {
+              throw createHttpError(401, config, {
+                code: 'UNAUTHENTICATED',
+                message: 'Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.',
+              });
+            }
+            return {
+              status: 200,
+              statusText: 'OK',
+              headers: {},
+              config,
+              data: {
+                message:
+                  'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
+              },
+            };
+          }
+          throw new Error(`Unexpected request to ${config.url}`);
+        };
 
-      const resetRes = await accountApi.confirmPasswordReset(
-        '  opaque-one-time-token-123  ',
-        'NewStrongPass123',
-        false
-      );
-      assert.equal(
-        resetRes.message,
-        'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.'
-      );
-      assert.equal(capturedResetConfig.headers?.Authorization, undefined);
-      assert.deepEqual(JSON.parse(capturedResetConfig.data), {
-        token: 'opaque-one-time-token-123',
-        new_password: 'NewStrongPass123',
-      });
+        const forgotRes = await accountApi.requestPasswordReset(
+          '  Staff.Active@RetailOps.Local  ',
+          false
+        );
+        assert.equal(
+          forgotRes.message,
+          'Nếu email hợp lệ, hướng dẫn đặt lại mật khẩu đã được gửi.'
+        );
+        assert.equal(capturedForgotConfig.headers?.Authorization, undefined);
+        assert.deepEqual(JSON.parse(capturedForgotConfig.data), {
+          email: 'staff.active@retailops.local',
+        });
+
+        const resetRes = await accountApi.confirmPasswordReset(
+          '  opaque-one-time-token-123  ',
+          'NewStrongPass123',
+          false
+        );
+        assert.equal(
+          resetRes.message,
+          'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.'
+        );
+        assert.equal(capturedResetConfig.headers?.Authorization, undefined);
+        assert.deepEqual(JSON.parse(capturedResetConfig.data), {
+          token: 'opaque-one-time-token-123',
+          new_password: 'NewStrongPass123',
+        });
+
+        forceReset401 = true;
+        await assert.rejects(
+          accountApi.confirmPasswordReset('expired-token', 'NewStrongPass123', false),
+          (err) => err?.response?.status === 401
+        );
+        assert.equal(refreshCalls, 0);
+      } finally {
+        axiosClient.defaults.adapter = savedAdapter;
+        setAuthTransport(null);
+        invalidateSession();
+      }
     });
   });
 });
