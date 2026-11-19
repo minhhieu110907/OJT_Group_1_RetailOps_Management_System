@@ -104,9 +104,9 @@ class Settings(BaseSettings):
     password_reset_ttl_seconds: int = Field(default=900, ge=60, le=3600)
     password_reset_base_url: str = "http://127.0.0.1:5173/reset-password"
     password_reset_email_adapter: Literal["outbox", "memory"] = "outbox"
-    forgot_password_ip_rate_limit: int = Field(default=5, ge=1, le=10_000)
-    forgot_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
-    forgot_password_account_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    forgot_password_ip_rate_limit: int = Field(default=3, ge=1, le=10_000)
+    forgot_password_ip_rate_window_seconds: int = Field(default=3_600, ge=1, le=86_400)
+    forgot_password_account_rate_limit: int = Field(default=3, ge=1, le=10_000)
     forgot_password_account_rate_window_seconds: int = Field(
         default=3_600, ge=1, le=86_400
     )

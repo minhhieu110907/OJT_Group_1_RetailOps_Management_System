@@ -1,0 +1,80 @@
+{
+  "dataset": "Dedicated retailops_test database; active product 1 has at least 100 units and sale_price_vnd 10000; active supplier 1 exists; synthetic accounts only.",
+  "timeout_seconds": 30,
+  "scenarios": [
+    {
+      "name": "product-list",
+      "group": "product-read",
+      "token_env": "RETAILOPS_BENCHMARK_STAFF_TOKEN",
+      "target_p95_ms": 300,
+      "requests": 20,
+      "warmup_requests": 3,
+      "request": {"method": "GET", "path": "/api/v1/products?page=1&page_size=20", "expected_statuses": [200]}
+    },
+    {
+      "name": "inventory-list",
+      "group": "inventory-read",
+      "token_env": "RETAILOPS_BENCHMARK_STAFF_TOKEN",
+      "target_p95_ms": 300,
+      "requests": 20,
+      "warmup_requests": 3,
+      "request": {"method": "GET", "path": "/api/v1/inventory?page=1&page_size=20", "expected_statuses": [200]}
+    },
+    {
+      "name": "category-list",
+      "group": "category-read",
+      "token_env": "RETAILOPS_BENCHMARK_STAFF_TOKEN",
+      "target_p95_ms": 300,
+      "requests": 20,
+      "warmup_requests": 3,
+      "request": {"method": "GET", "path": "/api/v1/categories?page=1&page_size=20", "expected_statuses": [200]}
+    },
+    {
+      "name": "checkout",
+      "group": "checkout-write",
+      "token_env": "RETAILOPS_BENCHMARK_STAFF_TOKEN",
+      "target_p95_ms": 800,
+      "requests": 20,
+      "write_safe": true,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/orders/checkout",
+        "headers": {"Idempotency-Key": "{{request_id}}"},
+        "body": {"items": [{"product_id": 1, "quantity": 1, "viewed_unit_price_vnd": 10000}]},
+        "expected_statuses": [201]
+      }
+    },
+    {
+      "name": "receipt-confirm",
+      "group": "receipt-confirm-write",
+      "token_env": "RETAILOPS_BENCHMARK_ADMIN_TOKEN",
+      "target_p95_ms": 800,
+      "requests": 20,
+      "setup": {
+        "request": {
+          "method": "POST",
+          "path": "/api/v1/purchase-receipts",
+          "body": {"supplier_id": 1, "items": [{"product_id": 1, "quantity": 1, "unit_cost_vnd": 5000}]},
+          "expected_statuses": [201]
+        },
+        "extract": {"receipt_id": "id", "draft_version": "draft_version"}
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/purchase-receipts/{{receipt_id}}/confirm",
+        "headers": {"Idempotency-Key": "{{request_id}}"},
+        "body": {"expected_draft_version": "{{draft_version}}"},
+        "expected_statuses": [200]
+      }
+    },
+    {
+      "name": "dashboard",
+      "group": "dashboard-read",
+      "token_env": "RETAILOPS_BENCHMARK_ADMIN_TOKEN",
+      "target_p95_ms": 1500,
+      "requests": 20,
+      "warmup_requests": 3,
+      "request": {"method": "GET", "path": "/api/v1/dashboard", "expected_statuses": [200]}
+    }
+  ]
+}
