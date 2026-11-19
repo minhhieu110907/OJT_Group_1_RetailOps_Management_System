@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Modal } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
@@ -130,10 +130,175 @@ export const MENU_ITEMS = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  isOpen = false,
+  onClose = () => {},
+}) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  // Theo dõi breakpoint mobile/tablet (< 1024px) khởi tạo một cách an toàn
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(max-width: 1023px)').matches;
+    }
+    return false;
+  });
+
+  const sidebarRef = useRef(null);
+  const closeBtnRef = useRef(null);
+  const logoutBtnRef = useRef(null);
+  const prevPathnameRef = useRef(location.pathname);
+  const prevIsOpenRef = useRef(isOpen);
+  const isNavigatingRef = useRef(false);
+  const isDesktopResizingRef = useRef(false);
+  const drawerOriginalOverflowRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mql = window.matchMedia('(max-width: 1023px)');
+
+    const handleMediaChange = (e) => {
+      if (!e.matches && isOpen) {
+        // Chuyển sang desktop: đánh dấu cờ để không trả focus về hamburger đang bị ẩn
+        isDesktopResizingRef.current = true;
+      }
+      setIsMobileViewport(e.matches);
+    };
+
+    if (mql.addEventListener) {
+      mql.addEventListener('change', handleMediaChange);
+    } else if (mql.addListener) {
+      mql.addListener(handleMediaChange);
+    }
+
+    return () => {
+      if (mql.removeEventListener) {
+        mql.removeEventListener('change', handleMediaChange);
+      } else if (mql.removeListener) {
+        mql.removeListener(handleMediaChange);
+      }
+    };
+  }, [isOpen]);
+
+  // Section 5: Đóng sidebar khi route thực sự thay đổi
+  useEffect(() => {
+    if (prevPathnameRef.current !== location.pathname) {
+      prevPathnameRef.current = location.pathname;
+      if (isOpen) {
+        isNavigatingRef.current = true;
+        onClose();
+      }
+    }
+  }, [location.pathname, isOpen, onClose]);
+
+  // Trách nhiệm 1: Focus restoration CHỈ khi drawer thực sự chuyển từ Mở -> Đóng
+  useEffect(() => {
+    const wasOpen = prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+
+    // Khi drawer đóng lại thực sự
+    if (wasOpen && !isOpen) {
+      if (!isNavigatingRef.current && !isDesktopResizingRef.current) {
+        const toggleBtn = document.getElementById('mobile-nav-toggle-btn');
+        if (toggleBtn) {
+          toggleBtn.focus();
+        }
+      }
+      isNavigatingRef.current = false;
+      isDesktopResizingRef.current = false;
+    } else if (!wasOpen && isOpen && isMobileViewport) {
+      // Khi drawer vừa mở: focus vào nút đóng drawer
+      const initialFocusTimer = setTimeout(() => {
+        if (closeBtnRef.current) {
+          closeBtnRef.current.focus();
+        }
+      }, 50);
+      return () => clearTimeout(initialFocusTimer);
+    }
+  }, [isOpen, isMobileViewport]);
+
+  // Trách nhiệm 2: Scroll lock an toàn cho drawer trên mobile
+  useEffect(() => {
+    if (!isOpen || !isMobileViewport) {
+      // Khi drawer đóng hoặc unmount/chuyển desktop: khôi phục overflow ban đầu nếu drawer từng khóa
+      if (drawerOriginalOverflowRef.current !== null) {
+        document.body.style.overflow = drawerOriginalOverflowRef.current;
+        drawerOriginalOverflowRef.current = null;
+      }
+      return;
+    }
+
+    // Khi drawer mở: chỉ chụp overflow một lần nếu chưa từng chụp
+    if (drawerOriginalOverflowRef.current === null) {
+      drawerOriginalOverflowRef.current = document.body.style.overflow;
+    }
+    document.body.style.overflow = 'hidden';
+
+    // Cleanup khi unmount component
+    return () => {
+      if (drawerOriginalOverflowRef.current !== null) {
+        document.body.style.overflow = drawerOriginalOverflowRef.current;
+        drawerOriginalOverflowRef.current = null;
+      }
+    };
+  }, [isOpen, isMobileViewport]);
+
+  // Trách nhiệm 3: Keyboard Navigation & Focus Trap trong Drawer
+  useEffect(() => {
+    if (!isOpen || !isMobileViewport) return;
+
+    const handleKeyDown = (e) => {
+      // Khi Logout Modal đang mở: drawer nhường quyền xử lý hoàn toàn cho Modal
+      if (isLogoutModalOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        if (!sidebarRef.current) return;
+        const focusableElements = sidebarRef.current.querySelectorAll(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusableElements.length === 0) return;
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            e.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            e.preventDefault();
+            firstElement.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, isMobileViewport, isLogoutModalOpen, onClose]);
+
+  // Khi đóng Logout Modal mà drawer vẫn mở: trả focus về nút mở Logout
+  const handleCloseLogoutModal = () => {
+    setIsLogoutModalOpen(false);
+    setTimeout(() => {
+      if (logoutBtnRef.current) {
+        logoutBtnRef.current.focus();
+      }
+    }, 50);
+  };
 
   if (!user) return null;
 
@@ -151,24 +316,61 @@ export default function Sidebar() {
     navigate('/login', { replace: true });
   };
 
+  // Drawer mobile đóng thì vô hiệu hóa focusable và ẩn khỏi accessibility tree
+  const isMobileClosed = isMobileViewport && !isOpen;
+
   return (
     <>
-      <aside className={styles.sidebar}>
+      {/* Backdrop mờ phía sau Sidebar khi mở trên Mobile / Tablet */}
+      {isOpen && isMobileViewport && (
+        <div
+          className={styles.sidebarBackdrop}
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        id="main-sidebar-drawer"
+        ref={sidebarRef}
+        className={`${styles.sidebar} ${isOpen ? styles.sidebarMobileOpen : ''}`}
+        aria-label="Thanh điều hướng chính"
+        aria-hidden={isMobileClosed ? 'true' : undefined}
+        inert={isMobileClosed ? true : undefined}
+        {...(isMobileViewport && isOpen ? { role: 'dialog', 'aria-modal': 'true' } : {})}
+      >
         {/* 1. PHẦN ĐẦU: THƯƠNG HIỆU (Đồng nhất cho cả ADMIN và STAFF) */}
         <div className={styles.brandSection}>
-          <div className={styles.logoBox} aria-hidden="true">
-            {/* Icon cửa hàng màu trắng */}
+          <div className={styles.brandTitleWrap}>
+            <div className={styles.logoBox} aria-hidden="true">
+              {/* Icon cửa hàng màu trắng */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l1.5-5h15L21 9" />
+                <path d="M3 9c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3" />
+                <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8" />
+                <path d="M10 16h4v5h-4z" />
+              </svg>
+            </div>
+            <div className={styles.brandTitleGroup}>
+              <span className={styles.brandName}>RetailOps</span>
+              <span className={styles.versionBadge}>v1.0</span>
+            </div>
+          </div>
+
+          {/* Nút đóng Sidebar trên Mobile */}
+          <button
+            ref={closeBtnRef}
+            type="button"
+            className={styles.mobileCloseBtn}
+            onClick={onClose}
+            aria-label="Đóng thanh điều hướng"
+            title="Đóng menu"
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l1.5-5h15L21 9" />
-              <path d="M3 9c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3c0 1.66 1.34 3 3 3s3-1.34 3-3" />
-              <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8" />
-              <path d="M10 16h4v5h-4z" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </div>
-          <div className={styles.brandTitleGroup}>
-            <span className={styles.brandName}>RetailOps</span>
-            <span className={styles.versionBadge}>v1.0</span>
-          </div>
+          </button>
         </div>
 
         {/* 2. PHẦN GIỮA: DANH SÁCH MENU ĐIỀU HƯỚNG (Data-driven theo user.role) */}
@@ -216,6 +418,7 @@ export default function Sidebar() {
 
             {/* Bên phải: Nút icon Đăng xuất -> Bật Modal xác nhận */}
             <button
+              ref={logoutBtnRef}
               type="button"
               onClick={() => setIsLogoutModalOpen(true)}
               className={styles.logoutButton}
@@ -235,7 +438,7 @@ export default function Sidebar() {
       {/* MODAL XÁC NHẬN ĐĂNG XUẤT */}
       <Modal
         isOpen={isLogoutModalOpen}
-        onClose={() => setIsLogoutModalOpen(false)}
+        onClose={handleCloseLogoutModal}
         title="Xác nhận đăng xuất"
         maxWidth="420px"
         footer={
@@ -243,7 +446,7 @@ export default function Sidebar() {
             <button
               type="button"
               className={modalStyles.cancelBtn}
-              onClick={() => setIsLogoutModalOpen(false)}
+              onClick={handleCloseLogoutModal}
             >
               Hủy
             </button>
