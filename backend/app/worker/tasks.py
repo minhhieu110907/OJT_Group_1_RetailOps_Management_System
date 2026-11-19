@@ -17,9 +17,15 @@ from app.worker.celery_app import celery_app
 
 def build_handler() -> EmailEventHandler:
     settings = get_settings()
+    secret_key = (
+        settings.outbox_secret_key.get_secret_value()
+        if settings.outbox_secret_key is not None
+        else None
+    )
     return EmailEventHandler(
         get_session_factory(),
         SmtpEmailTransport(settings),
+        secret_key=secret_key,
     )
 
 

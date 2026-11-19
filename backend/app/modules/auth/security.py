@@ -9,6 +9,8 @@ from uuid import UUID, uuid4
 
 import bcrypt
 import jwt
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from email_validator import EmailNotValidError, validate_email
 from jwt import InvalidTokenError
 
@@ -232,3 +234,52 @@ class CsrfService:
             expected_session_id=expected,
         )
         return expected
+
+
+def generate_reset_token() -> str:
+    """Return a URL-safe CSPRNG password reset token with 256 bits of entropy."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(raw_token: str) -> str:
+    """Return the 64-character lowercase SHA-256 hex digest of a reset token."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+RESET_SECRET_VERSION = b"\x01"
+RESET_SECRET_NONCE_BYTES = 12
+RESET_SECRET_TAG_BYTES = 16
+RESET_SECRET_AAD = b"retailops-password-reset-v1"
+
+
+def _derive_reset_aes_key(key_material: str) -> bytes:
+    if not key_material or len(key_material.encode()) < 32:
+        raise ValueError("Outbox secret key must be at least 32 bytes")
+    return hashlib.sha256(
+        f"retailops-outbox-aes256gcm-v1:{key_material}".encode()
+    ).digest()
+
+
+def encrypt_reset_secret(plaintext: str, key_material: str) -> bytes:
+    """Encrypt reset secret using AES-256-GCM: version(1) || nonce(12) || ct+tag."""
+    aes_key = _derive_reset_aes_key(key_material)
+    nonce = secrets.token_bytes(RESET_SECRET_NONCE_BYTES)
+    ct_and_tag = AESGCM(aes_key).encrypt(
+        nonce, plaintext.encode("utf-8"), RESET_SECRET_AAD
+    )
+    return RESET_SECRET_VERSION + nonce + ct_and_tag
+
+
+def decrypt_reset_secret(blob: bytes, key_material: str) -> str:
+    """Decrypt and authenticate an AES-256-GCM reset secret payload."""
+    min_len = 1 + RESET_SECRET_NONCE_BYTES + RESET_SECRET_TAG_BYTES
+    if len(blob) < min_len or blob[:1] != RESET_SECRET_VERSION:
+        raise ValueError("Invalid reset secret envelope")
+    aes_key = _derive_reset_aes_key(key_material)
+    nonce = blob[1 : 1 + RESET_SECRET_NONCE_BYTES]
+    ct_and_tag = blob[1 + RESET_SECRET_NONCE_BYTES :]
+    try:
+        plaintext_bytes = AESGCM(aes_key).decrypt(nonce, ct_and_tag, RESET_SECRET_AAD)
+    except InvalidTag as err:
+        raise ValueError("Reset secret authentication failed") from err
+    return plaintext_bytes.decode("utf-8")

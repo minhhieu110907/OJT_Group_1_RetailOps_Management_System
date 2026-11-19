@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote, urlsplit
 
 from pydantic import (
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr | None = None
     csrf_secret: SecretStr | None = None
     idempotency_secret: SecretStr | None = None
+    outbox_secret_key: SecretStr | None = None
     jwt_issuer: str = "retailops-api"
     jwt_audience: str = "retailops-api"
     access_token_ttl_seconds: int = 900
@@ -106,6 +108,29 @@ class Settings(BaseSettings):
     smtp_from_address: str = "no-reply@retailops.local"
     smtp_starttls: bool = False
     smtp_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    password_reset_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    password_reset_base_url: str = "http://127.0.0.1:5173/reset-password"
+    password_reset_email_adapter: Literal["outbox", "memory"] = "outbox"
+    forgot_password_ip_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    forgot_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    forgot_password_account_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    forgot_password_account_rate_window_seconds: int = Field(
+        default=3_600, ge=1, le=86_400
+    )
+    reset_password_ip_rate_limit: int = Field(default=10, ge=1, le=10_000)
+    reset_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
+
+    @field_validator("outbox_secret_key", mode="before")
+    @classmethod
+    def normalize_blank_outbox_secret_key(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | str | None:
+        """Treat empty env var (e.g. Docker Compose `${VAR:-}`) as unset."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, SecretStr) and not value.get_secret_value().strip():
+            return None
+        return value
 
     @field_validator("gemini_api_key", mode="before")
     @classmethod
@@ -192,6 +217,56 @@ class Settings(BaseSettings):
             raise ValueError("Email retry delays must be exactly 30,120,300 seconds")
         return value
 
+    @field_validator("password_reset_base_url")
+    @classmethod
+    def validate_password_reset_base_url(cls, value: str) -> str:
+        """Require an explicit HTTP(S) base URL without query, fragment, or userinfo."""
+        cleaned = value.strip()
+        parsed = urlsplit(cleaned)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or not parsed.hostname
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("password_reset_base_url must be a clean HTTP(S) URL")
+        return cleaned.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_password_reset_base_url_environment(self) -> "Settings":
+        """Enforce HTTPS in production and loopback-only HTTP in non-production."""
+        parsed = urlsplit(self.password_reset_base_url)
+        env = self.environment.strip().lower()
+        if env == "production":
+            if parsed.scheme != "https":
+                raise ValueError(
+                    "RETAILOPS_PASSWORD_RESET_BASE_URL must use HTTPS in production"
+                )
+        elif parsed.scheme == "http" and (parsed.hostname or "").lower() not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            raise ValueError(
+                "Non-production HTTP password_reset_base_url must use a loopback host"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def reject_memory_reset_adapter_in_production(self) -> "Settings":
+        """Ensure fake in-memory reset email adapter cannot run in production."""
+        if (
+            self.environment.strip().lower() == "production"
+            and self.password_reset_email_adapter == "memory"
+        ):
+            raise ValueError(
+                "In-memory password reset email adapter is forbidden in production"
+            )
+        return self
+
     @field_validator("smtp_from_address")
     @classmethod
     def validate_smtp_header_safety(cls, value: str) -> str:
@@ -222,6 +297,12 @@ class Settings(BaseSettings):
             if len(secret_value.encode()) < 32 or secret_value.startswith("CHANGE_ME"):
                 raise ValueError(
                     "Idempotency secret must be a non-placeholder of at least 32 bytes"
+                )
+        if self.outbox_secret_key is not None:
+            secret_value = self.outbox_secret_key.get_secret_value()
+            if len(secret_value.encode()) < 32 or secret_value.startswith("CHANGE_ME"):
+                raise ValueError(
+                    "Outbox secret key must be a non-placeholder of at least 32 bytes"
                 )
         if self.environment.casefold() == "production":
             if self.jwt_secret is None or self.csrf_secret is None:

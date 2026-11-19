@@ -40,3 +40,15 @@ class EmailTemplateRegistry:
             )
         except KeyError as error:
             raise ValueError("Unsupported email event type") from error
+
+    def render_password_reset(self, *, reset_link: str) -> RenderedEmail:
+        """Render password reset email containing the one-time reset link."""
+        return RenderedEmail(
+            subject="Đặt lại mật khẩu tài khoản RetailOps",
+            text=(
+                "Bạn đã yêu cầu đặt lại mật khẩu tài khoản RetailOps.\n"
+                "Vui lòng truy cập liên kết một lần sau để đặt mật khẩu mới:\n"
+                f"{reset_link}\n"
+                "Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email này."
+            ),
+        )
