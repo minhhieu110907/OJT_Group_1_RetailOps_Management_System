@@ -31,6 +31,7 @@ import axiosClient, {
   setAuthTransport,
   normalizeBackendUser,
   evaluateRouteAccess,
+  getApiErrorMessage,
 } from '../api/axiosClient.js';
 import {
   validateChangePasswordForm,
@@ -195,6 +196,14 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
         delete globalThis.localStorage;
       }
     }
+  });
+
+  it('Bonus: presents the Web Locks fail-closed reason instead of a backend outage', () => {
+    const failure = Object.assign(
+      new Error('Trình duyệt không hỗ trợ đồng bộ phiên an toàn giữa các tab.'),
+      { code: 'CROSS_TAB_LOCK_UNAVAILABLE' }
+    );
+    assert.equal(getApiErrorMessage(failure), failure.message);
   });
 
   it('Bonus: Web Locks serializes adversarial multi-tab failures and a suspended holder', async () => {

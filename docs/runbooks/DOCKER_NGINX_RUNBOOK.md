@@ -10,6 +10,17 @@
 
 - Sao chép `.env.example` thành `.env` và thay toàn bộ giá trị `CHANGE_ME_*` bằng chuỗi ngẫu nhiên (JWT/CSRF/Idempotency secret tối thiểu 32 bytes).
 - Cấu hình `RETAILOPS_CORS_ORIGINS` khớp chính xác với origin công khai của Nginx (ví dụ `http://127.0.0.1` hoặc `https://demo.example.com`) để `/api/v1/auth/refresh` và `/api/v1/auth/logout` vượt qua kiểm tra `Origin`/CSRF.
+
+### 1.1. Origin tương thích với xác thực nhiều tab
+
+Luồng refresh token và đổi mật khẩu dùng Web Locks để tuần tự hóa việc xoay cookie giữa các tab cùng origin. Do Web Locks chỉ được cung cấp trong secure context:
+
+- Demo cục bộ dùng `http://localhost:<port>` hoặc `http://127.0.0.1:<port>`. Các trình duyệt hỗ trợ xem hai host loopback này là potentially trustworthy và cung cấp Web Locks.
+- Demo qua máy khác trong LAN **không dùng** `http://<LAN-IP>:<port>`. Trang có thể tải nhưng origin này không phải secure context; client sẽ cố ý fail-closed trước refresh/đổi mật khẩu và không gửi credential-rotation request.
+- Khi cần truy cập từ LAN hoặc Internet, đặt Nginx sau một HTTPS origin có chứng chỉ được trình duyệt tin cậy, cấu hình cookie `Secure` và `RETAILOPS_CORS_ORIGINS` đúng origin đó. Cấu hình Compose/Nginx mặc định chỉ lắng nghe HTTP và không tự cấp chứng chỉ TLS.
+- Trước demo, mở DevTools Console tại origin dự kiến và xác nhận `window.isSecureContext === true` cùng `Boolean(navigator.locks?.request) === true`. Việc trang login tải thành công không thay thế kiểm tra này.
+
+Không bật lại lease bằng `localStorage` hoặc bỏ qua lock để làm HTTP LAN hoạt động; hành vi thiếu Web Locks phải tiếp tục fail-closed.
 - Phân biệt 3 chế độ:
   - **Local HTTP development:** `RETAILOPS_ENVIRONMENT=development`, `RETAILOPS_COOKIE_SECURE=false` (mặc định).
   - **Demo / Production (sau HTTPS / Cloudflare Tunnel):** `RETAILOPS_ENVIRONMENT=production`, `RETAILOPS_COOKIE_SECURE=true`. Khi `RETAILOPS_ENVIRONMENT=production`, backend bắt buộc có `RETAILOPS_JWT_SECRET`, `RETAILOPS_CSRF_SECRET` hợp lệ và từ chối `RETAILOPS_COOKIE_SECURE=false`.

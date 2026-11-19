@@ -97,6 +97,10 @@ export function getApiErrorMessage(error) {
     return '';
   }
 
+  if (error?.code === 'CROSS_TAB_LOCK_UNAVAILABLE') {
+    return error.message;
+  }
+
   if (error?.code === 'ECONNABORTED') {
     return 'Yêu cầu tới máy chủ quá thời gian chờ. Vui lòng kiểm tra kết nối và thử lại.';
   }
