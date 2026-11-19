@@ -14,6 +14,7 @@ import AccountStatus from './pages/Auth/AccountStatus';
 import ProductList from './pages/Products/ProductList';
 import InventoryList from './pages/Inventory/InventoryList';
 import StaffApprovalList from './pages/Staff/StaffApprovalList';
+import StaffAccounts from './pages/Staff/StaffAccounts';
 import CategoryList from './pages/Categories/CategoryList';
 import SupplierList from './pages/Suppliers/SupplierList';
 import PurchaseList from './pages/Purchases/PurchaseList';
@@ -116,6 +117,7 @@ export default function App() {
                     }
                   />
                   <Route path="/staff" element={<StaffApprovalList />} />
+                  <Route path="/staff/accounts" element={<StaffAccounts />} />
                   <Route path="/ai-assistant" element={<AiAssistant />} />
                 </Route>
               </Route>
