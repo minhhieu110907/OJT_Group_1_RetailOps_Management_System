@@ -398,17 +398,9 @@ export default function AiAssistant() {
     setReorderRows((prev) =>
       prev.map((row) => {
         if (row.product_id !== pid) return row;
-        const trimmed =
-          typeof rawValue === 'string' ? rawValue.trim() : String(rawValue ?? '');
-        const parsedValue =
-          trimmed === ''
-            ? ''
-            : /^-?\d+$/.test(trimmed)
-            ? Number(trimmed)
-            : rawValue;
         return {
           ...row,
-          [field]: parsedValue,
+          [field]: rawValue ?? '',
         };
       })
     );

@@ -8,6 +8,7 @@ import {
   buildDraftReceiptPayload,
   buildPrefillDraftState,
   buildReorderSuggestions,
+  parseStrictInteger,
   validateSelectedReorderLines,
 } from '../utils/reorderSuggestions.js';
 
@@ -237,6 +238,183 @@ describe('T3C9F16 — Reorder Suggestions & Draft Receipt Payload Suite', () => 
     });
     assert.equal(overflowRes.payload, null);
     assert.match(overflowRes.error, /vượt quá giới hạn/i);
+  });
+
+  test('P1: rejects unsafe integers (Number.MAX_SAFE_INTEGER + 1, "9007199254740993"), NaN, Infinity, decimals, and receipt BIGINT total overflow', () => {
+    // 1. Number.MAX_SAFE_INTEGER is accepted for unit_cost_vnd (with quantity 1), supplier_id, product_id, but rejected for quantity (> MAX_SQL_INT)
+    assert.equal(parseStrictInteger(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+    assert.equal(parseStrictInteger(String(Number.MAX_SAFE_INTEGER)), Number.MAX_SAFE_INTEGER);
+
+    const maxSafeCostRes = buildDraftReceiptPayload({
+      supplierId: Number.MAX_SAFE_INTEGER,
+      rows: [
+        {
+          product_id: Number.MAX_SAFE_INTEGER,
+          sku: 'SKU-SAFE-MAX',
+          suggested_quantity: 1,
+          unit_cost_vnd: String(Number.MAX_SAFE_INTEGER),
+        },
+      ],
+      selectedIds: [Number.MAX_SAFE_INTEGER],
+    });
+    assert.equal(maxSafeCostRes.error, null);
+    assert.equal(maxSafeCostRes.payload.supplier_id, Number.MAX_SAFE_INTEGER);
+    assert.equal(maxSafeCostRes.payload.items[0].product_id, Number.MAX_SAFE_INTEGER);
+    assert.equal(maxSafeCostRes.payload.items[0].unit_cost_vnd, Number.MAX_SAFE_INTEGER);
+
+    const maxSafeQtyRes = buildDraftReceiptPayload({
+      supplierId: 1,
+      rows: [
+        {
+          product_id: 101,
+          sku: 'SKU-101',
+          suggested_quantity: Number.MAX_SAFE_INTEGER,
+          unit_cost_vnd: 0,
+        },
+      ],
+      selectedIds: [101],
+    });
+    assert.equal(maxSafeQtyRes.payload, null);
+    assert.match(maxSafeQtyRes.error, /Số lượng nhập/i);
+
+    // 2. Number.MAX_SAFE_INTEGER + 1 (9007199254740992) and string "9007199254740993" MUST be rejected without rounding
+    const unsafeNum = Number.MAX_SAFE_INTEGER + 1;
+    const unsafeStr = '9007199254740993';
+    for (const unsafeVal of [
+      unsafeNum,
+      String(unsafeNum),
+      unsafeStr,
+      '-9007199254740993',
+      NaN,
+      Infinity,
+      -Infinity,
+      1.5,
+      '1.5',
+      '',
+      '   ',
+    ]) {
+      assert.equal(parseStrictInteger(unsafeVal), null, `Expected null for ${String(unsafeVal)}`);
+
+      // Rejected for unit_cost_vnd in both Direct Create and Pre-fill
+      const badCostRows = [
+        {
+          product_id: 101,
+          sku: 'SKU-101',
+          suggested_quantity: 1,
+          unit_cost_vnd: unsafeVal,
+        },
+      ];
+      const dCost = buildDraftReceiptPayload({
+        supplierId: 1,
+        rows: badCostRows,
+        selectedIds: [101],
+      });
+      const pCost = buildPrefillDraftState({
+        supplierId: 1,
+        rows: badCostRows,
+        selectedIds: [101],
+      });
+      assert.equal(dCost.payload, null);
+      assert.equal(pCost.prefillDraft, null);
+      assert.equal(dCost.error, pCost.error);
+
+      // Rejected for quantity in both Direct Create and Pre-fill
+      const badQtyRows = [
+        {
+          product_id: 101,
+          sku: 'SKU-101',
+          suggested_quantity: unsafeVal,
+          unit_cost_vnd: 1000,
+        },
+      ];
+      const dQty = buildDraftReceiptPayload({
+        supplierId: 1,
+        rows: badQtyRows,
+        selectedIds: [101],
+      });
+      const pQty = buildPrefillDraftState({
+        supplierId: 1,
+        rows: badQtyRows,
+        selectedIds: [101],
+      });
+      assert.equal(dQty.payload, null);
+      assert.equal(pQty.prefillDraft, null);
+      assert.equal(dQty.error, pQty.error);
+
+      // Rejected for supplierId in Direct Create (and Pre-fill when non-empty)
+      const dSup = buildDraftReceiptPayload({
+        supplierId: unsafeVal,
+        rows: [{ product_id: 101, sku: 'SKU-101', suggested_quantity: 1, unit_cost_vnd: 1000 }],
+        selectedIds: [101],
+      });
+      assert.equal(dSup.payload, null);
+      if (unsafeVal !== '' && unsafeVal !== null && unsafeVal !== undefined) {
+        const pSup = buildPrefillDraftState({
+          supplierId: unsafeVal,
+          rows: [{ product_id: 101, sku: 'SKU-101', suggested_quantity: 1, unit_cost_vnd: 1000 }],
+          selectedIds: [101],
+        });
+        assert.equal(pSup.prefillDraft, null);
+      }
+
+      // Rejected for product_id in both Direct Create and Pre-fill
+      const dProd = buildDraftReceiptPayload({
+        supplierId: 1,
+        rows: [
+          {
+            product_id: unsafeVal,
+            sku: 'SKU-UNSAFE',
+            suggested_quantity: 1,
+            unit_cost_vnd: 1000,
+          },
+        ],
+        selectedIds: [unsafeVal],
+      });
+      const pProd = buildPrefillDraftState({
+        supplierId: 1,
+        rows: [
+          {
+            product_id: unsafeVal,
+            sku: 'SKU-UNSAFE',
+            suggested_quantity: 1,
+            unit_cost_vnd: 1000,
+          },
+        ],
+        selectedIds: [unsafeVal],
+      });
+      assert.equal(dProd.payload, null);
+      assert.equal(pProd.prefillDraft, null);
+    }
+
+    // 3. Receipt-wide SQL BIGINT total overflow across multiple valid lines rejected by both
+    const multiLineOverflowRows = [
+      {
+        product_id: 101,
+        sku: 'SKU-101',
+        suggested_quantity: 600,
+        unit_cost_vnd: Number.MAX_SAFE_INTEGER,
+      },
+      {
+        product_id: 102,
+        sku: 'SKU-102',
+        suggested_quantity: 600,
+        unit_cost_vnd: Number.MAX_SAFE_INTEGER,
+      },
+    ];
+    const dTotalOverflow = buildDraftReceiptPayload({
+      supplierId: 1,
+      rows: multiLineOverflowRows,
+      selectedIds: [101, 102],
+    });
+    const pTotalOverflow = buildPrefillDraftState({
+      supplierId: 1,
+      rows: multiLineOverflowRows,
+      selectedIds: [101, 102],
+    });
+    assert.equal(dTotalOverflow.payload, null);
+    assert.equal(pTotalOverflow.prefillDraft, null);
+    assert.match(dTotalOverflow.error, /Tổng tiền phiếu nhập vượt quá giới hạn BIGINT/i);
+    assert.equal(dTotalOverflow.error, pTotalOverflow.error);
   });
 
   test('AiAssistant.jsx and PurchaseList.jsx integrate DRAFT-only AI reorder workflow without auto-confirming', () => {

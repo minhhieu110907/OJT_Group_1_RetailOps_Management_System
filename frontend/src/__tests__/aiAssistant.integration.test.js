@@ -556,17 +556,32 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
       /Chưa tải được danh sách nhà cung cấp hoạt động/
     );
 
-    // Unified validation: selecting row and entering invalid quantity 0 blocks "Mở form tạo phiếu"
+    // Unified validation: selecting row and entering invalid quantity 0 blocks "Mở form tạo phiếu" and preserves raw input
     fireEvent.click(screen.getByLabelText('Chọn sản phẩm SKU-301'));
-    fireEvent.change(screen.getByLabelText('Số lượng nhập SKU-301'), {
+    const qtyInput = screen.getByLabelText('Số lượng nhập SKU-301');
+    fireEvent.change(qtyInput, {
       target: { value: '0' },
     });
+    assert.equal(qtyInput.value, '0');
     fireEvent.click(screen.getByRole('button', { name: 'Mở form tạo phiếu' }));
 
     await waitFor(() => {
       const errBanner = screen.getByTestId('draft-action-error');
       assert.match(errBanner.textContent, /Số lượng nhập/i);
     });
+
+    // Unsafe integer string "9007199254740993" in unit cost is preserved verbatim (never rounded to 9007199254740992) and rejected
+    fireEvent.change(qtyInput, { target: { value: '5' } });
+    const costInput = screen.getByLabelText('Đơn giá dự kiến SKU-301');
+    fireEvent.change(costInput, { target: { value: '9007199254740993' } });
+    assert.equal(costInput.value, '9007199254740993');
+    fireEvent.click(screen.getByRole('button', { name: 'Mở form tạo phiếu' }));
+
+    await waitFor(() => {
+      const errBanner = screen.getByTestId('draft-action-error');
+      assert.match(errBanner.textContent, /Đơn giá nhập/i);
+    });
+    assert.equal(costInput.value, '9007199254740993');
 
     view.unmount();
   });

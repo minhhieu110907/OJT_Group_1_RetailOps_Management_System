@@ -1,26 +1,40 @@
 import { DEFAULT_LOW_STOCK_THRESHOLD } from '../api/inventoryApi.js';
 
 export const MAX_SQL_INT = 2_147_483_647;
+export const MAX_SAFE_JS_INT = Number.MAX_SAFE_INTEGER;
+export const MAX_SAFE_JS_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 export const MAX_SQL_BIGINT = 9_223_372_036_854_775_807n;
 
 /**
- * Kiểm tra giá trị có phải là số nguyên hợp lệ (chấp nhận number hoặc chuỗi số nguyên thuần).
- * Từ chối chuỗi rỗng, boolean, NaN, số thập phân.
+ * Kiểm tra giá trị có phải là số nguyên an toàn tuyệt đối (Number.isSafeInteger).
+ * - Với number: chỉ chấp nhận Number.isSafeInteger(raw).
+ * - Với string: kiểm tra cú pháp /^-?\d+$/, đối chiếu qua BigInt trong phạm vi
+ *   [-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER] trước khi chuyển sang Number
+ *   để ngăn chặn triệt để hiện tượng làm tròn IEEE-754 (VD: "9007199254740993").
+ * - Từ chối chuỗi rỗng, boolean, NaN, Infinity, số thập phân và số vượt MAX_SAFE_INTEGER.
  */
-function parseStrictInteger(raw) {
+export function parseStrictInteger(raw) {
   if (raw === '' || raw === null || raw === undefined || typeof raw === 'boolean') {
     return null;
   }
   if (typeof raw === 'number') {
-    return Number.isInteger(raw) ? raw : null;
+    return Number.isSafeInteger(raw) ? raw : null;
   }
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (!/^-?\d+$/.test(trimmed)) {
       return null;
     }
-    const num = Number(trimmed);
-    return Number.isSafeInteger(num) ? num : null;
+    try {
+      const big = BigInt(trimmed);
+      if (big < -MAX_SAFE_JS_BIGINT || big > MAX_SAFE_JS_BIGINT) {
+        return null;
+      }
+      const num = Number(trimmed);
+      return Number.isSafeInteger(num) && BigInt(num) === big ? num : null;
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -160,20 +174,25 @@ export function validateSelectedReorderLines({ rows = [], selectedIds = [] } = {
       ? selectedIds
       : [];
 
-  const selectedSet = new Set();
-  for (const rawId of rawSelected) {
-    const pid = parseStrictInteger(rawId);
-    if (pid !== null && pid > 0) {
-      selectedSet.add(pid);
-    }
-  }
-
-  if (selectedSet.size === 0) {
+  if (rawSelected.length === 0) {
     return {
       items: null,
       richItems: null,
       error: 'Vui lòng chọn ít nhất 1 sản phẩm gợi ý để tạo phiếu nhập nháp.',
     };
+  }
+
+  const selectedSet = new Set();
+  for (const rawId of rawSelected) {
+    const pid = parseStrictInteger(rawId);
+    if (pid === null || pid <= 0) {
+      return {
+        items: null,
+        richItems: null,
+        error: 'Mã sản phẩm trong danh sách gợi ý không hợp lệ.',
+      };
+    }
+    selectedSet.add(pid);
   }
 
   const chosenRows = safeRows.filter((row) => {
