@@ -21,9 +21,11 @@ import axiosClient, {
   normalizeBackendUser,
   runHealthCheck,
   setupAxiosAuth,
+  startAuthenticatedSession,
   transitionAuthMode,
 } from '../api/axiosClient';
 import { useToast } from '../components/common';
+import { accountApi } from '../api/accountApi';
 
 // 1. Tạo Context lưu trữ thông tin xác thực
 export const AuthContext = createContext(null);
@@ -537,6 +539,46 @@ export function AuthProvider({ children }) {
     return true;
   };
 
+  // Account Bonus uses real API only. Guard async state with session generation
+  // so stale requests cannot replace a later login/logout session.
+  const getMyProfile = async () => {
+    if (isMockMode) throw new Error('Hồ sơ cá nhân cần kết nối API thật.');
+    return accountApi.getProfile(isMockMode);
+  };
+
+  const updateMyProfile = async (fullName) => {
+    if (isMockMode) throw new Error('Không thể sửa hồ sơ ở chế độ Mock.');
+    const generation = getSessionGeneration();
+    const profile = await accountApi.updateProfile(fullName, isMockMode);
+    if (generation !== getSessionGeneration()) {
+      throw new Error('Phiên đã thay đổi, không thể cập nhật hồ sơ.');
+    }
+    const normalized = normalizeBackendUser(profile);
+    if (!normalized || normalized.status !== 'APPROVED') {
+      throw new Error('Phản hồi hồ sơ từ máy chủ không hợp lệ.');
+    }
+    setUser(normalized);
+    return profile;
+  };
+
+  const changeMyPassword = async (currentPassword, newPassword) => {
+    if (isMockMode) throw new Error('Đổi mật khẩu cần kết nối API thật.');
+    const { body, csrfToken } = await accountApi.changePassword(
+      currentPassword, newPassword, isMockMode
+    );
+    const normalized = normalizeBackendUser(body?.user);
+    if (!body?.access_token || !csrfToken || !normalized ||
+      normalized.status !== 'APPROVED') {
+      throw new Error('Phản hồi đổi mật khẩu không hợp lệ. Vui lòng đăng nhập lại.');
+    }
+    // Rotation returns new refresh cookie; replace access + CSRF token as an
+    // indivisible client generation transition after the response has arrived.
+    startAuthenticatedSession(body.access_token, csrfToken);
+    setAccessToken(body.access_token);
+    setUser(normalized);
+    return true;
+  };
+
   // Helper lấy thông tin người dùng mẫu theo email: Cô lập hoàn toàn khỏi Real API mode
   const getUserByEmail = (searchEmail) => {
     if (!getUseMock() || !isMockAllowed()) {
@@ -566,6 +608,9 @@ export function AuthProvider({ children }) {
         register,
         logout,
         resetPassword,
+        getMyProfile,
+        updateMyProfile,
+        changeMyPassword,
         getUserByEmail,
       }}
     >
