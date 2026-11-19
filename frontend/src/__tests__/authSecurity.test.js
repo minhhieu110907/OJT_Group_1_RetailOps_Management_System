@@ -119,34 +119,70 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
     assert.equal(requests, 1);
   });
 
-  it('Bonus: serializes cross-tab cookie rotation with storage fallback when Web Locks is unavailable', async () => {
+  it('Bonus: propagates credential-operation failures exactly once through Web Locks', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        locks: {
+          request: async (_name, _options, operation) => operation(),
+        },
+      },
+    });
+    try {
+      const failures = [
+        Object.assign(new Error('HTTP 401'), { response: { status: 401 } }),
+        Object.assign(new Error('HTTP 403'), { response: { status: 403 } }),
+        new Error('network failure'),
+        Object.assign(new Error('request timeout'), { code: 'ECONNABORTED' }),
+      ];
+      for (const failure of failures) {
+        let calls = 0;
+        await assert.rejects(
+          withCredentialCookieLock(async () => {
+            calls += 1;
+            throw failure;
+          }),
+          (error) => error === failure
+        );
+        assert.equal(calls, 1);
+      }
+    } finally {
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete globalThis.navigator;
+      }
+    }
+  });
+
+  it('Bonus: fail-closes without Web Locks and never starts credential rotation', async () => {
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-    const values = new Map();
+    let calls = 0;
+    let storageTouches = 0;
     Object.defineProperty(globalThis, 'navigator', {
       configurable: true,
       value: { locks: undefined },
     });
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
-      value: {
-        getItem: (key) => values.get(key) ?? null,
-        setItem: (key, value) => values.set(key, String(value)),
-        removeItem: (key) => values.delete(key),
-      },
-    });
-    let active = 0;
-    let maxActive = 0;
-    const operation = () => withCredentialCookieLock(async () => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await new Promise((resolve) => setTimeout(resolve, 35));
-      active -= 1;
+      value: new Proxy({}, {
+        get() {
+          storageTouches += 1;
+          throw new Error('localStorage must not coordinate credentials');
+        },
+      }),
     });
     try {
-      await Promise.all([operation(), operation()]);
-      assert.equal(maxActive, 1);
-      assert.equal(values.size, 0);
+      await assert.rejects(
+        withCredentialCookieLock(async () => {
+          calls += 1;
+        }),
+        /không hỗ trợ đồng bộ phiên an toàn/i
+      );
+      assert.equal(calls, 0);
+      assert.equal(storageTouches, 0);
     } finally {
       if (navigatorDescriptor) {
         Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
@@ -157,6 +193,67 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
         Object.defineProperty(globalThis, 'localStorage', storageDescriptor);
       } else {
         delete globalThis.localStorage;
+      }
+    }
+  });
+
+  it('Bonus: Web Locks serializes adversarial multi-tab failures and a suspended holder', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    let tail = Promise.resolve();
+    const lockManager = {
+      request: (_name, _options, operation) => {
+        const result = tail.then(operation, operation);
+        tail = result.catch(() => undefined);
+        return result;
+      },
+    };
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { locks: lockManager },
+    });
+    let releaseSuspended;
+    const suspended = new Promise((resolve) => {
+      releaseSuspended = resolve;
+    });
+    let active = 0;
+    let maxActive = 0;
+    let secondStarted = false;
+    try {
+      const first = withCredentialCookieLock(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await suspended;
+        active -= 1;
+      });
+      const second = withCredentialCookieLock(async () => {
+        secondStarted = true;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        active -= 1;
+        throw new Error('tab operation failed');
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(secondStarted, false);
+      releaseSuspended();
+      await first;
+      await assert.rejects(second, /tab operation failed/);
+
+      await Promise.all(
+        Array.from({ length: 8 }, (_, index) =>
+          withCredentialCookieLock(async () => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            await new Promise((resolve) => setTimeout(resolve, index % 3));
+            active -= 1;
+          })
+        )
+      );
+      assert.equal(maxActive, 1);
+    } finally {
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete globalThis.navigator;
       }
     }
   });

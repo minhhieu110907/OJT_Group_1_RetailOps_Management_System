@@ -134,62 +134,16 @@ let credentialMutationActive = false;
 let refreshNetworkCount = 0;
 let refreshDrainWaiters = [];
 
-// Same-origin Web Locks serialize refresh/password-change cookie rotation
-// across tabs on browsers that support the API. The in-tab gate below is
-// still required for session generation checks and non-supporting browsers.
-const COOKIE_ROTATION_LOCK_KEY = 'retailops-auth-cookie-rotation-lock';
-// Keep the lease beyond the longest credential request timeout so a slow but
-// still-live request cannot be overtaken by another tab.
-const COOKIE_ROTATION_LOCK_TTL_MS = timeout + 5000;
-const COOKIE_ROTATION_LOCK_WAIT_MS = 20;
-
-function createCookieLockOwner() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-async function withStorageCredentialCookieLock(operation) {
-  if (typeof localStorage === 'undefined') return operation();
-  const owner = createCookieLockOwner();
-  const deadline = Date.now() + COOKIE_ROTATION_LOCK_TTL_MS * 2;
-
-  while (Date.now() < deadline) {
-    const now = Date.now();
-    let current = null;
-    try {
-      current = JSON.parse(localStorage.getItem(COOKIE_ROTATION_LOCK_KEY));
-    } catch {
-      current = null;
-    }
-    if (!current?.owner || current.expiresAt <= now) {
-      localStorage.setItem(
-        COOKIE_ROTATION_LOCK_KEY,
-        JSON.stringify({ owner, expiresAt: now + COOKIE_ROTATION_LOCK_TTL_MS })
-      );
-      await new Promise((resolve) => setTimeout(resolve, COOKIE_ROTATION_LOCK_WAIT_MS));
-      try {
-        const confirmed = JSON.parse(localStorage.getItem(COOKIE_ROTATION_LOCK_KEY));
-        if (confirmed?.owner === owner) {
-          try {
-            return await operation();
-          } finally {
-            const latest = JSON.parse(localStorage.getItem(COOKIE_ROTATION_LOCK_KEY));
-            if (latest?.owner === owner) {
-              localStorage.removeItem(COOKIE_ROTATION_LOCK_KEY);
-            }
-          }
-        }
-      } catch {
-        // Retry until the bounded deadline; never run a cookie mutation unlocked.
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, COOKIE_ROTATION_LOCK_WAIT_MS));
-  }
-  throw new Error('Không thể đồng bộ thao tác phiên giữa các tab.');
-}
-
+// Same-origin Web Locks provide a browser-managed, origin-scoped exclusive
+// lock for refresh/password-change cookie rotation. The browser releases the
+// lock when the callback settles (success or failure), so operation exceptions
+// propagate unchanged and can never trigger an implicit retry here.
+//
+// localStorage cannot implement an atomic compare-and-swap or fencing token.
+// IndexedDB can atomically acquire a lease, but cannot keep its transaction
+// alive across an HTTP operation; expiry after a suspended tab has the same
+// stale-owner problem. Without Web Locks we therefore fail closed before any
+// credential mutation instead of pretending to provide mutual exclusion.
 export async function withCredentialCookieLock(operation) {
   if (typeof navigator !== 'undefined' && navigator.locks?.request) {
     return navigator.locks.request(
@@ -198,7 +152,10 @@ export async function withCredentialCookieLock(operation) {
       operation
     );
   }
-  return withStorageCredentialCookieLock(operation);
+  throw Object.assign(
+    new Error('Trình duyệt không hỗ trợ đồng bộ phiên an toàn giữa các tab.'),
+    { code: 'CROSS_TAB_LOCK_UNAVAILABLE' }
+  );
 }
 
 function notifyRefreshDrained() {
