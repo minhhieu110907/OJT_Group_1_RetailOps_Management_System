@@ -469,6 +469,9 @@ export default function StaffApprovalList() {
         </div>
 
         <div className={styles.headerActions}>
+          <Link to="/staff/accounts" className={styles.refreshBtn}>
+            Tài khoản nhân viên
+          </Link>
           <div className={styles.policyBadge}>
             <svg
               width="16"
