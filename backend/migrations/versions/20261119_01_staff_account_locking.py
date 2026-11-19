@@ -35,9 +35,7 @@ OLD_USER_STATUS_CHECK = (
 
 
 def upgrade() -> None:
-    op.drop_constraint(
-        "ck_users_role_status_admin_slot", "users", type_="check"
-    )
+    op.drop_constraint("ck_users_role_status_admin_slot", "users", type_="check")
     op.create_check_constraint(
         "ck_users_role_status_admin_slot", "users", USER_STATUS_CHECK
     )
@@ -69,9 +67,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    count = bind.scalar(
-        sa.text("SELECT COUNT(*) FROM users WHERE status = 'LOCKED'")
-    )
+    count = bind.scalar(sa.text("SELECT COUNT(*) FROM users WHERE status = 'LOCKED'"))
     if count:
         raise RuntimeError(
             "Cannot downgrade: unlock all LOCKED accounts through the "
@@ -80,9 +76,7 @@ def downgrade() -> None:
     # The composite index backs the target_user_id FK on MySQL. Dropping
     # the table removes its indexes and constraints atomically.
     op.drop_table("staff_account_events")
-    op.drop_constraint(
-        "ck_users_role_status_admin_slot", "users", type_="check"
-    )
+    op.drop_constraint("ck_users_role_status_admin_slot", "users", type_="check")
     op.create_check_constraint(
         "ck_users_role_status_admin_slot", "users", OLD_USER_STATUS_CHECK
     )
