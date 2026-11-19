@@ -10,6 +10,11 @@ failures, and other responses are reported separately and make the scenario fail
 
 1. Use a dedicated `retailops_test` schema and Docker project/volumes. Never aim
    write scenarios at production or a shared demo database.
+   Configure `RETAILOPS_ENVIRONMENT=test`, a unique
+   `RETAILOPS_BENCHMARK_ATTESTATION_SECRET` (at least 32 random bytes), and
+   `RETAILOPS_BENCHMARK_ISOLATED_DATABASE` in that stack. Export the same secret
+   only in the benchmark runner process. The server signs a fresh challenge only
+   after its actual `SELECT DATABASE()` value matches the configured isolated DB.
 2. Copy `workloads.example.json`, verify actual product/supplier IDs and prices,
    and ensure enough inventory for both concurrency runs.
 3. Obtain synthetic ACTIVE Staff and Admin access tokens through the real login
@@ -28,10 +33,14 @@ From `backend/`, after starting the isolated Compose stack and exporting tokens:
 ```powershell
 $env:RETAILOPS_BENCHMARK_STAFF_TOKEN = '<synthetic staff access token>'
 $env:RETAILOPS_BENCHMARK_ADMIN_TOKEN = '<synthetic admin access token>'
+$env:RETAILOPS_BENCHMARK_ATTESTATION_SECRET = '<test-stack-only secret>'
 uv run python -m performance.benchmark `
   --config performance/workloads.local.json `
   --base-url http://127.0.0.1:8080 `
   --concurrency 10 `
+  --samples 100 `
+  --trial-id c10-trial-1 `
+  --environment-label local-isolated-c10 `
   --output ../artifacts/T04AAA2-c10.json `
   --isolated-test-data
 ```
@@ -46,10 +55,13 @@ rate, status distribution, target, and verdict. `server_p95_ms` is populated onl
 when the server emits `Server-Timing-Ms`; otherwise client latency remains the
 authoritative measurement and the field is `null`.
 
-The example uses 20 measured requests per scenario. Receipt drafts are prepared
+The workload file defaults to 20 measured requests per scenario; `--samples`
+overrides that count without changing concurrency. Receipt drafts are prepared
 outside the timed interval, one per confirmation, and extracted IDs/versions are
 then used by the timed request. Every checkout and confirm uses a unique
-`Idempotency-Key`. Read-only warm-up requests are also outside the timed interval.
+`Idempotency-Key`. Read and write warm-up requests (including write fixture setup)
+run before the timed interval. Each invocation records one independent trial;
+never combine trials to calculate a more favorable percentile.
 
 ## Validation commands
 

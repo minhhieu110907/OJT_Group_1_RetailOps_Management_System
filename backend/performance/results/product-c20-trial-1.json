@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "generated_at": "2026-11-19T11:17:43.017676+00:00",
+    "commit_sha": "d2504019724aa0cc5398a0238299e5b588e67db9",
+    "base_url": "http://127.0.0.1:38080",
+    "hostname": "HieuNguyen",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.2",
+    "dataset": "Existing isolated T04AAA2 Docker dataset; one ACTIVE product with inventory.",
+    "trial_id": "c20-trial-1",
+    "environment_label": "t04aaa2c20-only",
+    "concurrency_levels": [
+      20
+    ],
+    "sample_override": 100,
+    "isolated_test_data_acknowledged": false,
+    "isolated_target_attestation_verified": false
+  },
+  "results": [
+    {
+      "name": "product-list",
+      "group": "product-read",
+      "concurrency": 20,
+      "configured_samples": 100,
+      "warmup_requests": 10,
+      "requests": 100,
+      "successful_requests": 100,
+      "status_distribution": {
+        "business_success": 100
+      },
+      "p50_ms": 93.72,
+      "p95_ms": 150.333,
+      "p99_ms": 173.609,
+      "server_p95_ms": null,
+      "throughput_rps": 192.182,
+      "error_rate": 0.0,
+      "target_p95_ms": 300,
+      "verdict": "PASS"
+    }
+  ]
+}
