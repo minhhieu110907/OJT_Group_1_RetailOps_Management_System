@@ -152,20 +152,9 @@ class AuthResetService:
         now_naive = now_aware.replace(tzinfo=None)
         token_hash = hash_reset_token(clean_token)
 
-        # Atomic one-time consume: MySQL locks the unique token_hash row during UPDATE.
-        consume_result = session.execute(
-            update(PasswordResetToken)
-            .where(
-                PasswordResetToken.token_hash == token_hash,
-                PasswordResetToken.used_at.is_(None),
-                PasswordResetToken.expires_at > now_naive,
-            )
-            .values(used_at=now_naive)
-        )
-        if consume_result.rowcount != 1:
-            session.rollback()
-            raise UnauthenticatedError()
-
+        # Discover token owner without mutation, then acquire the canonical
+        # User lock BEFORE consuming the token or touching AuthSession rows.
+        # A second conditional update below remains the one-time replay guard.
         user_id = session.scalar(
             select(PasswordResetToken.user_id).where(
                 PasswordResetToken.token_hash == token_hash
@@ -175,12 +164,31 @@ class AuthResetService:
             session.rollback()
             raise UnauthenticatedError()
 
-        user = session.scalar(select(User).where(User.id == user_id).with_for_update())
+        user = session.scalar(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if (
             user is None
             or str(user.role) != UserRole.STAFF.value
             or str(user.status) != UserStatus.ACTIVE.value
         ):
+            session.rollback()
+            raise UnauthenticatedError()
+
+        consume_result = session.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.expires_at > now_naive,
+            )
+            .values(used_at=now_naive)
+        )
+        if consume_result.rowcount != 1:
             session.rollback()
             raise UnauthenticatedError()
 
