@@ -953,6 +953,7 @@ const VALID_BACKEND_STATUSES = new Set([
   'PENDING_APPROVAL',
   'PENDING',
   'REJECTED',
+  'LOCKED',
 ]);
 
 /**
