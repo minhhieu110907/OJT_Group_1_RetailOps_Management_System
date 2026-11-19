@@ -98,7 +98,6 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
     category_ids: list[int] = []
     product_ids: list[int] = []
     order_ids: list[int] = []
-    order_item_ids: list[int] = []
 
     try:
         with Session(migrated_integration_engine) as session, session.begin():
@@ -193,7 +192,6 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
             )
             session.add(item)
             session.flush()
-            order_item_ids.append(item.id)
 
         sf = sessionmaker(
             bind=migrated_integration_engine, autoflush=False, expire_on_commit=False
@@ -285,11 +283,10 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 assert r3.status_code == 429
     finally:
         with Session(migrated_integration_engine) as session, session.begin():
-            if order_item_ids:
-                session.execute(
-                    delete(OrderItem).where(OrderItem.id.in_(order_item_ids))
-                )
             if order_ids:
+                session.execute(
+                    delete(OrderItem).where(OrderItem.order_id.in_(order_ids))
+                )
                 session.execute(delete(Order).where(Order.id.in_(order_ids)))
             if product_ids:
                 session.execute(

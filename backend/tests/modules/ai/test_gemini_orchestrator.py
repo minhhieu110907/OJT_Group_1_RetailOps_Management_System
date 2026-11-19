@@ -584,15 +584,15 @@ async def test_ai_query_http_security_validation_and_redis_fail_closed() -> None
     fake_guard = RedisAIConcurrencyGuard(_InMemoryFakeRedis(), "ns")  # type: ignore[arg-type]
     stub_provider = _StubProvider([])
 
-    # 1. Anonymous (no auth override) -> 401
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        r_anon = await client.post("/api/v1/ai/query", json={"message": "Xin chào"})
-        assert r_anon.status_code == 401
+    from app.db.session import get_db_session
 
-    # 2. STAFF -> 403
+    def _override_db():
+        with sf() as session:
+            yield session
+
+    # 1. Anonymous (no auth override) -> 401
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_current_principal] = lambda: staff_principal
+    app.dependency_overrides[get_db_session] = _override_db
     app.dependency_overrides[get_rate_limiter] = lambda: fake_limiter
     app.dependency_overrides[get_ai_concurrency_guard] = lambda: fake_guard
     app.dependency_overrides[get_ai_session_factory] = lambda: sf
@@ -601,6 +601,13 @@ async def test_ai_query_http_security_validation_and_redis_fail_closed() -> None
         provider_factory=lambda: stub_provider,
         gemini_timeout_seconds=10.0,
     )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r_anon = await client.post("/api/v1/ai/query", json={"message": "Xin chào"})
+        assert r_anon.status_code == 401
+
+    # 2. STAFF -> 403
+    app.dependency_overrides[get_current_principal] = lambda: staff_principal
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         r_staff = await client.post("/api/v1/ai/query", json={"message": "Xin chào"})
         assert r_staff.status_code == 403
