@@ -8,7 +8,11 @@ from redis.exceptions import RedisError
 from app.core.config import Settings, get_settings
 from app.core.exceptions import DependencyUnavailableError, RateLimitedError
 from app.infrastructure.rate_limit import RateLimitResult, RedisFixedWindowRateLimiter
-from app.modules.auth.dependencies import get_auth_service
+from app.modules.auth.dependencies import (
+    CurrentPrincipal,
+    get_auth_service,
+    get_current_principal,
+)
 from app.modules.auth.schemas import ForgotPasswordRequest, LoginRequest
 from app.modules.auth.security import normalize_email
 from app.modules.auth.service import AuthService
@@ -165,6 +169,25 @@ async def enforce_reset_password_rate_limit(
         identity=_client_ip(request),
         limit=settings.reset_password_ip_rate_limit,
         window_seconds=settings.reset_password_ip_rate_window_seconds,
+    )
+    if not result.allowed:
+        raise RateLimitedError(result.retry_after)
+
+
+async def enforce_change_password_rate_limit(
+    principal: Annotated[CurrentPrincipal, Depends(get_current_principal)],
+    limiter: Annotated[RedisFixedWindowRateLimiter, Depends(get_rate_limiter)],
+) -> None:
+    """Credential verification is expensive: 5 attempts per user per hour.
+
+    Unlike business reads, credential changes fail closed on Redis failure.
+    """
+    result = await _check_fail_closed(
+        limiter,
+        policy="auth-change-password-user",
+        identity=str(principal.user.id),
+        limit=5,
+        window_seconds=3600,
     )
     if not result.allowed:
         raise RateLimitedError(result.retry_after)
