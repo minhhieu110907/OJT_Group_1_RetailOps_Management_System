@@ -180,8 +180,17 @@ class WorkerHandle:
 
 
 def read_worker_log(worker_log: IO[bytes]) -> bytes:
-    # pread never moves the file offset shared with the running child process.
-    return os.pread(worker_log.fileno(), os.fstat(worker_log.fileno()).st_size, 0)
+    worker_log.flush()
+    with open(worker_log.name, "rb") as snapshot:
+        return snapshot.read()
+
+
+@contextmanager
+def portable_worker_log() -> Iterator[IO[bytes]]:
+    with tempfile.TemporaryDirectory() as log_directory:
+        log_path = os.path.join(log_directory, "worker.log")
+        with open(log_path, "w+b") as worker_log:
+            yield worker_log
 
 
 @contextmanager
@@ -196,7 +205,7 @@ def running_worker(
     environment = worker_environment(
         database_url, smtp_host=smtp_host, smtp_port=smtp_port, extra_env=extra_env
     )
-    with tempfile.TemporaryFile() as worker_log:
+    with portable_worker_log() as worker_log:
         process = subprocess.Popen(
             [
                 sys.executable,
