@@ -1,8 +1,8 @@
 """MySQL 8 integration checks for Staff lock and authenticated password change."""
 
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from datetime import UTC, datetime
-from time import sleep
 
 import pytest
 from pydantic import SecretStr
@@ -24,6 +24,7 @@ from app.modules.auth.models import (
     StaffAccountEvent,
     User,
 )
+from app.modules.auth.repository import AuthRepository
 from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import AuthService
 
@@ -216,6 +217,17 @@ def test_login_serializes_with_account_row_lock(
         target_email = staff.email_normalized
         target_id = staff.id
 
+    lock_attempted = Event()
+
+    class SignalingRepository(AuthRepository):
+        def lock_user_by_id(self, session: Session, user_id: int) -> User | None:
+            # This event fires at the actual SELECT FOR UPDATE boundary, not
+            # before bcrypt verification or the preliminary non-locking read.
+            lock_attempted.set()
+            return super().lock_user_by_id(session, user_id)
+
+    service.repository = SignalingRepository()
+
     def simultaneous_login() -> str:
         with Session(engine) as worker:
             try:
@@ -229,7 +241,7 @@ def test_login_serializes_with_account_row_lock(
         assert user is not None
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(simultaneous_login)
-            sleep(0.12)
+            assert lock_attempted.wait(timeout=5), "Login did not reach FOR UPDATE"
             user.status = "LOCKED"
             locker.commit()
             assert future.result(timeout=10) == "DENIED"
