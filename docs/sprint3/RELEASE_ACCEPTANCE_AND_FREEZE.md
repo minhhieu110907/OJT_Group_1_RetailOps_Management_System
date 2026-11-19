@@ -40,10 +40,11 @@ Tài liệu này là hồ sơ tổng hợp bằng chứng nghiệm thu kỹ thu�
 4. Ghi nhận trung thực các hạng mục còn đang chờ (`PENDING`) như Benchmark (`T04AAA2`), đối soát báo cáo PR #78 (`T04AC15`), Browser E2E (`T04AC2F`) và Cold-start demo deployment (`T04AB8D`, `T04ABA7`).
 5. Thiết lập khung chữ ký bàn giao kỹ thuật để Tech Lead / Repository Owner (**Nguyễn Minh Hiếu**) xem xét và quyết định Final Release SHA.
 
-### 1.2. Trạng thái Baseline Snapshot & Các PR Liên Quan
-- **Baseline Snapshot tại thời điểm lập báo cáo:** Commit **`4a2623c`** trên nhánh `develop` (sau khi sáp nhập PR #77 — Outbox Recovery & Reconciliation).
-- **Lưu ý về Final Release SHA:** `4a2623c` **không phải là Final Release SHA**. Sau thời điểm tách nhánh này, `origin/develop` đã tiếp tục tiếp nhận các PR mới (như PR #75 `a060507` — `T04ABDD`, PR #80 `5541c8e` — `T04A9E6`), và vẫn còn các PR/nhánh đang trong quá trình hoàn thiện/review (như PR #78 `T04AC15`, `T04AA1C`, `T04AC2F`, `T04AAA2`). Tech Lead sẽ chốt **Final Release SHA** tại Mục 7 sau khi toàn bộ các gates đạt điều kiện.
-- **Trạng thái hiện tại:** **`READY_FOR_LEAD_REVIEW — PENDING_FINAL_GATES_AND_SIGN_OFF`**.
+### 1.2. Phân Biệt Historical Baseline, Current Verification Snapshot & Final Release Candidate
+- **Historical Baseline Snapshot (`4a2623c`):** Commit `4a2623c` trên nhánh `develop` là mốc tách nhánh của PR #79 (sau khi merge PR #77). Tại thời điểm snapshot này, các PR như PR #75 (`T04ABDD`), PR #76 (`T04AA1C`), PR #78 (`T04AC15`), PR #80 (`T04A9E6`) và PR #82 (`T04AB25`) chưa được merge vào `develop`.
+- **Current Verification Snapshot (cập nhật ngày `19/11/2026`):** `origin/develop` hiện ở commit **`8e835a5`**. So với baseline `4a2623c`, các PR đã **MERGED** vào `origin/develop` gồm: PR #75 (`a060507` — `T04ABDD`), PR #80 (`5541c8e` — `T04A9E6`), PR #82 (`e06a661` — `T04AB25`), PR #78 (`973b3cf` — `T04AC15` Reconciliation & Reporting) và PR #76 (`8e835a5` — `T04AA1C` Staff Password Reset). Các hạng mục còn **`PENDING`** gồm: Browser E2E (`T04AC2F`), Manual UAT sign-off, Performance Benchmark (`T04AAA2`), Security Audit (`T04AB3F`) và Deployment cold-start verification (`T04AB8D`, `T04ABA7`).
+- **Final Release Candidate:** `4a2623c` và `8e835a5` **không phải là Final Release SHA**. **Final Release SHA** do Tech Lead Nguyễn Minh Hiếu quyết định tại Mục 7; bắt buộc có GitHub Actions CI PASS tại đúng SHA đó cùng đầy đủ bằng chứng Manual UAT, E2E, Security, Performance và Deployment.
+- **Trạng thái Hồ sơ:** **`READY_FOR_LEAD_REVIEW — PENDING_FINAL_GATES_AND_SIGN_OFF`**.
 
 ---
 
@@ -57,24 +58,27 @@ Căn cứ Phần 1.3 và Phần 5 của [RetailOps_SRS_Approved.md](../requireme
 |:---|:---|:---|:---:|
 | **P0 — Bắt buộc hoàn thành (Core Scope)** | • `AUTH-01 .. AUTH-05` (Xác thực, phân quyền, duyệt staff)<br>• `PROD-01 .. PROD-04`, `CAT-01`, `SUP-01` (Catalog master data)<br>• `PUR-01 .. PUR-05` (Quản lý nhập hàng, draft, confirm, cancel)<br>• `INV-01 .. INV-04` (Tồn kho real-time, kiểm kê thực tế, biến động, tồn thấp)<br>• `SALE-01 .. SALE-05`, `ORD-01 .. ORD-03` (Giỏ POS, checkout, hủy đơn, idempotency)<br>• `ANA-01 .. ANA-04` (Doanh thu, top/slow products, Dashboard)<br>• `INF-01 .. INF-05` (Reverse proxy, rate limit, Outbox, RabbitMQ, Celery) | Bắt buộc mã nguồn đã merge vào `develop`, không còn lỗi Critical/High mở, có đầy đủ bằng chứng Unit/Integration, Benchmark (`T04AAA2`), E2E/UAT và Deployment verification. | **CORE_IMPLEMENTED**<br>*(Chờ hoàn tất `GATE-E2E`, `DEPLOY` & Lead Sign-off)* |
 | **P1 — Mở rộng sau Quality Gate** | • `INV-05`: Cấu hình ngưỡng tồn kho thấp tùy chỉnh theo từng sản phẩm.<br>• `ANA-05`: Xuất báo cáo thống kê ra file định dạng CSV an toàn.<br>• `ENG-10`: Tối ưu hóa truy vấn chuyên sâu và loại bỏ N+1 query. | Không bắt buộc hoàn thành trước phiên nghiệm thu V1.0 / demo; chỉ triển khai sau khi P0 đạt Quality Gates. | **P1 DEFERRED (ĐÚNG SRS)** |
-| **Ngoài phạm vi V1 (Out-of-Scope)** | • Google / Social Login; tạm khóa/kích hoạt lại tài khoản Staff (suspension/reactivation).<br>• Trả hàng / hoàn tiền (Returns / Refunds), Purchase Reversal.<br>• Đa chi nhánh / đa kho (Multi-store / Multi-warehouse).<br>• Cổng thanh toán trực tuyến thực tế (Payment Gateway integration).<br>• Thuế, chiết khấu, chương trình khuyến mãi, đa tiền tệ.<br>• Kế toán tài chính tổng hợp, tự động dự báo nhu cầu (Forecasting).<br>• Thao tác ghi dữ liệu từ Trợ lý AI (AI Write Path). | Không đưa vào phạm vi V1.0; giữ trợ lý AI ở chế độ chỉ đọc và mô hình 1 cửa hàng / 1 kho. | **TUÂN THỦ PHẠM VI** |
+| **Ngoài phạm vi V1 (Out-of-Scope)** | • Google / Social Login.<br>• Khóa / mở khóa hoặc tạm khóa / kích hoạt lại tài khoản Staff (`AUTH-03`: ngoài phạm vi baseline V1; bonus `T3C9EE2` cần nghiệm thu riêng).<br>• ADMIN Self-service Password Recovery (phục hồi tài khoản Admin là thao tác vận hành thủ công theo `AUTH-02`).<br>• Trả hàng / hoàn tiền (Returns / Refunds), Purchase Reversal.<br>• Đa chi nhánh / đa kho (Multi-store / Multi-warehouse).<br>• Cổng thanh toán trực tuyến thực tế (Payment Gateway integration).<br>• Thuế, chiết khấu, chương trình khuyến mãi, đa tiền tệ.<br>• Kế toán tài chính tổng hợp, tự động dự báo nhu cầu (Forecasting).<br>• Thao tác ghi dữ liệu từ Trợ lý AI (AI Write Path). | Không đưa vào phạm vi baseline V1.0; giữ trợ lý AI ở chế độ chỉ đọc và mô hình 1 cửa hàng / 1 kho. | **TUÂN THỦ PHẠM VI** |
 
 ---
 
 ### 2.2. Ma trận Đối soát Chi tiết Các Nhóm Chức năng P0 Cốt lõi
 
-*Lưu ý cấp độ kiểm chứng: Bảng dưới đây phản ánh trạng thái triển khai mã nguồn và bằng chứng kiểm thử tự động (Unit/API/MySQL Integration) tính đến baseline `4a2623c`, không thay thế cho biên bản Manual UAT hay Final PO Sign-off.*
+*Lưu ý cấp độ kiểm chứng: Bảng dưới đây phản ánh trạng thái triển khai mã nguồn và bằng chứng kiểm thử tự động (Unit/API/MySQL Integration), không thay thế cho biên bản Manual UAT, Browser E2E hay Final PO Sign-off.*
 
-> [!NOTE]
-> **Phạm vi Password Reset (Đặt lại mật khẩu) trong Nhóm Auth (`AUTH-02`, `INF-04`, `FE-02`):**
-> - **Password Reset dành cho `ACTIVE` `STAFF` thuộc phạm vi V1:** sử dụng token một lần, có hạn sử dụng, lưu dạng hash trong DB; gửi email qua adapter/worker theo contract.
-> - **Phục hồi tài khoản `ADMIN`:** thực hiện bằng thao tác vận hành thủ công trên đúng tài khoản Admin hiện có (không qua luồng self-service reset công khai).
-> - **Trạng thái triển khai/kiểm chứng:** tính năng Password Reset của Staff đang phụ thuộc **PR #76 (`T04AA1C`)**; chưa tự đánh dấu `ACCEPTED` hoặc `PASSED` cho luồng này khi chưa có bằng chứng merge và kiểm thử hoàn tất.
+#### Phân loại Chi tiết Phạm vi Password Reset & Quản lý Tài khoản (`AUTH-02`, `AUTH-03`, `FE-02`, `INF-04`)
+
+| Chức năng | Phạm vi theo SRS | Ghi chú Kiểm chứng & Trạng thái |
+|:---|:---|:---|
+| **Staff Forgot Password** | **P0 — `AUTH-02`** | Yêu cầu gửi email đặt lại mật khẩu cho `ACTIVE` `STAFF`; tách biệt hoàn toàn với Change Password của người dùng đã đăng nhập. |
+| **Staff Reset Password bằng token email** | **P0 — `AUTH-02` / `FE-02` / `INF-04`** | Token dùng một lần, có TTL, lưu dạng hash (`hash-only`), chống replay và thu hồi session (`session revocation`); gửi email qua adapter/worker theo contract. PR #76 (`T04AA1C`) đã **MERGED** vào `origin/develop` (`8e835a5`), chưa xác nhận E2E PASSED. |
+| **ADMIN Self-service Password Recovery** | **Ngoài phạm vi; recovery thủ công** | Theo `AUTH-02`, phục hồi tài khoản Admin là thao tác vận hành thủ công trên đúng Admin hiện có. |
+| **ADMIN Lock/Unlock Staff** | **Ngoài phạm vi baseline V1; bonus `T3C9EE2` cần nghiệm thu riêng** | Theo `AUTH-03`, baseline V1 không triển khai khóa/mở khóa Staff (`suspension/reactivation`); tách biệt với Password Reset. |
 
 | Mã SRS / Task | Tên Chức Năng Nghiệp Vụ | Yêu Cầu Cốt Lõi Theo SRS | Hiện Trạng Triển Khai Thực Tế | Bằng Chứng Kiểm Chứng (Automated / Module Tests) | Trạng Thái Sơ Bộ (Chờ E2E & Sign-off) |
 |:---|:---|:---|:---|:---|:---:|
 | **AUTH-01** (`T04A61F`) | Đăng ký Staff | Đăng ký công khai, email chuẩn hóa duy nhất, sinh hồ sơ `PENDING_APPROVAL`, trả `202 Accepted`. | Đã triển khai tại `auth/router.py`, trả HTTP 202. Chặn đăng ký trùng email. | `test_staff_registration.py`<br>`authSecurity.test.js` | **MODULE_VERIFIED** |
-| **AUTH-02** (`T04A61F`, `T04AA1C`) | Đăng nhập, Quản lý phiên & Password Reset | 1 Admin seed duy nhất (phục hồi thủ công); JWT 15m; Refresh cookie HttpOnly; revoke server-side; ACTIVE Staff đặt lại mật khẩu bằng email token một lần, có hạn dùng, lưu hash qua adapter/worker. | Login/Session/Logout đã merge (`T04A61F`). Luồng Password Reset cho ACTIVE Staff (`T04AA1C`) đang mở tại **PR #76** (chưa merge vào baseline `4a2623c`). | Login/Session: `test_auth_api.py`, `test_auth_tokens_csrf.py`<br>Password Reset: *Pending PR #76 (`T04AA1C`)* | **PARTIALLY_VERIFIED**<br>*(Login/Session verified; Reset pending PR #76)* |
+| **AUTH-02** (`T04A61F`, `T04AA1C`) | Đăng nhập, Quản lý phiên & Password Reset | 1 Admin seed duy nhất (recovery thủ công); JWT 15m; Refresh cookie HttpOnly; revoke server-side; ACTIVE Staff Forgot/Reset Password bằng token email một lần, có TTL, hash-only, replay protection, thu hồi session và gửi email qua adapter/worker. | Login/Session/Logout đã merge (`T04A61F`). Staff Password Reset (`T04AA1C`) đã **MERGED** vào `origin/develop` tại **PR #76** (`8e835a5`). | Login/Session: `test_auth_api.py`, `test_auth_tokens_csrf.py`<br>Password Reset (trên `origin/develop` `8e835a5`): `test_password_reset_api.py`, `test_password_reset_mysql.py` *(chưa chạy E2E)* | **PARTIALLY_VERIFIED**<br>*(Module/MySQL tests merged; E2E/UAT pending)* |
 | **AUTH-03** (`T04A61F`) | Duyệt / Từ chối Staff | Admin duyệt/từ chối; chuyển trạng thái nguyên tử; ghi nhận Transactional Outbox gửi email trong cùng transaction. | Endpoint `POST /api/v1/auth/staff-approval/{id}/approve` (hoặc reject). Ghi sự kiện outbox. | `test_staff_approval.py`<br>SHA: `b0d4dc9` | **MODULE_VERIFIED** |
 | **AUTH-04** (`T04A61F`) | Phân quyền vai trò (RBAC) | Chỉ tài khoản `ACTIVE` được truy cập; Staff không xem giá vốn; Dashboard/Analytics chỉ dành cho Admin. | Dependency `require_active_admin` và `require_active_user` chặn từ tầng router. Trả `403 Forbidden`. | `test_cors.py`<br>`test_staff_approval_api.py` | **MODULE_VERIFIED** |
 | **AUTH-05** (`T04A61F`) | Thông báo Admin in-app | Tạo 1 thông báo in-app cho Admin khi có Staff đăng ký mới trong cùng transaction. | Bảng `admin_notifications` ghi nhận thông báo nguyên tử; chống sinh trùng lặp. | `test_api.py` (notifications)<br>`test_models_mysql.py` | **MODULE_VERIFIED** |
@@ -143,17 +147,22 @@ Các bất biến nghiệp vụ cốt lõi dưới đây đã có lớp bảo v�
 | **Transactional Outbox & Celery Worker** | Nguyễn Minh Hiếu | `T04A90F`<br>`T04AA00` | **4 test suites** | Passed trong PR #73 & PR #77 (`test_outbox_delivery_mysql.py`, `test_outbox_rabbitmq.py`, `test_runtime.py`) | PR #73 (`00b6c56`), PR #77 (`4a2623c`) |
 | **Frontend CI Suite (Node Test Runner)** | Đội ngũ Frontend | — | **211 tests** (45 suites) | Passed trong workflow cấu hình tại CI (oxlint, tsc, Vite build, node test) | [frontend-ci.yml](../../.github/workflows/frontend-ci.yml) |
 | **Backend CI Pipeline (GitHub Actions)** | Toàn đội ngũ | — | **3 Jobs** (`lint-and-unit`, `mysql-integration`, `rabbitmq-integration`) | Passed trên các commit đã merge vào `develop` tính đến `4a2623c`; cần run mới cho Final Release SHA | [backend-ci.yml](../../.github/workflows/backend-ci.yml) |
-| **Reconciliation & Reporting (PR #78)** | Phạm Thị Na Na | `T04AC15` | **PENDING MERGE** | PR #78 đang trong quá trình hoàn thiện, chưa merge vào `develop` tại baseline `4a2623c`. | `origin/feature/T04AC15-reconciliation-and-reporting` |
+| **Reconciliation & Reporting (PR #78)** | Phạm Thị Na Na | `T04AC15` | **API + MySQL Reconciliation** | **MERGED ON DEVELOP (`973b3cf`, 19/11/2026)**: `docs/sprint3/T04AC15_RECONCILIATION_REPORT.md`, `test_t04ac15_reconciliation_api.py`, `test_t04ac15_reconciliation_mysql.py` *(nằm trên `origin/develop`, sau baseline `4a2623c`)* | `origin/develop` (`973b3cf`) |
+| **Staff Password Reset (PR #76)** | Nguyễn Cao Kỳ Dương | `T04AA1C` | **API + MySQL + Email Adapter** | **MERGED ON DEVELOP (`8e835a5`, 19/11/2026)**: `test_password_reset_api.py`, `test_password_reset_mysql.py` *(Module/MySQL verified; E2E/UAT pending)* | `origin/develop` (`8e835a5`) |
 
 ---
 
 ### 4.2. Thông tin Alembic Migrations & Độ Sạch Schema
 
 Thông tin xác minh trực tiếp từ thư mục `backend/migrations/versions/` và workflow [backend-ci.yml](../../.github/workflows/backend-ci.yml):
-- **Số migration revisions trong mã nguồn:** **12 revisions** (chuỗi tuyến tính từ `20261105_01_initial_baseline.py` đến `20261116_01_profile_product_enrichment.py`).
-- **Số Alembic heads:** **1 head duy nhất** (được kiểm tra tự động qua step `Check single Alembic head` trong CI: `alembic heads | grep -c " (head)"` == 1).
-- **Code migration head:** **`20261116_01`** (`20261116_01_profile_product_enrichment.py`).
-- **Database revision hiện tại:** Phụ thuộc từng môi trường thực thi; trong CI, job `Backend / MySQL integration` kiểm chứng nâng cấp từ trống lên `head` thông qua `tests/integration/test_migrations.py`. Trên môi trường demo/staging thực tế, cần chạy `alembic current` sau cold-start để xác nhận database đạt `20261116_01 (head)`.
+- **Tại Historical Baseline (`4a2623c`):**
+  - **Số migration revisions:** **12 revisions** (chuỗi tuyến tính từ `20261105_01_initial_baseline.py` đến `20261116_01_profile_product_enrichment.py`).
+  - **Số Alembic heads:** **1 head duy nhất** (`20261116_01`).
+- **Tại Current Verification Snapshot (`origin/develop` `8e835a5`, 19/11/2026):**
+  - **Số migration revisions:** **13 revisions** (bổ sung `20261118_01_password_reset_tokens.py` từ PR #76 `T04AA1C`).
+  - **Số Alembic heads:** **1 head duy nhất** (kiểm tra tự động qua step `Check single Alembic head` trong CI: `alembic heads | grep -c " (head)"` == 1).
+  - **Code migration head:** **`20261118_01`** (`20261118_01_password_reset_tokens.py`).
+- **Database revision hiện tại:** Phụ thuộc từng môi trường thực thi; trong CI, job `Backend / MySQL integration` kiểm chứng nâng cấp từ trống lên `head` thông qua `tests/integration/test_migrations.py`. Trên môi trường demo/staging thực tế, cần chạy `alembic current` sau cold-start để xác nhận database đạt `head` mới nhất.
 
 ---
 
@@ -193,9 +202,15 @@ Tổng hợp **14 lỗi kỹ thuật và sai lệch tài liệu** đã ghi nhậ
 | **`DEF-014`** | Frontend Theme (`T3C9F30`) | **Low** | Rò rỉ màu nền trắng trên table header và modal input khi người dùng kích hoạt Dark Theme (Night Mode). | Thiết lập biến màu CSS scoped, chuẩn hóa nền tối cho toàn bộ component giao diện. | `26ee520` | Tân | **FIXED & VERIFIED** |
 
 > [!NOTE]
-> **Phạm vi Đánh giá Sổ cái Lỗi:**
-> - Trong phạm vi **14 lỗi đã ghi nhận tại bảng trên**, tất cả **14/14** đều đã ở trạng thái `FIXED & VERIFIED` (9 lỗi code/test) hoặc `DOCS_CORRECTED` (5 lỗi tài liệu); không còn lỗi Critical hoặc High đang mở trong ledger này.
-> - **Lưu ý trung thực:** Kết luận trên áp dụng cho 14 lỗi đã theo dõi tại ledger; không suy diễn thành toàn bộ repository không còn vấn đề, vì các PR đang mở (như PR #78 `T04AC15`, PR #79 `T04ABC3`, `T04AA1C`) vẫn đang trong quá trình review/hoàn thiện findings.
+> **Phạm vi Đánh giá Sổ cái Lỗi (Tracked Ledger vs Repository-Wide Open Defects):**
+> - **Resolved in tracked ledger (`14/14`):** Trong phạm vi 14 lỗi lịch sử đã ghi nhận tại bảng trên, tất cả 14/14 đều đã ở trạng thái `FIXED & VERIFIED` (9 lỗi code/test) hoặc `DOCS_CORRECTED` (5 lỗi tài liệu).
+> - **Repository-wide open defects (`CHƯA ĐÓNG SỔ TOÀN HỆ THỐNG`):** 14/14 lỗi đã xử lý trong ledger lịch sử **không đồng nghĩa** toàn bộ repository không còn lỗi Critical/High. Trước **Final Release Sign-off**, bắt buộc rà soát và cập nhật đầy đủ các nguồn sau (mỗi defect mới phát sinh phải có ID, severity, owner, trạng thái và evidence):
+>   1. Findings từ các PR reviews mới nhất (bao gồm PR #76, #78, #79, #80, #82).
+>   2. Kết quả Security Audit (`T04AB3F`, `T04AAA2`).
+>   3. Kết quả Browser E2E (`T04AC2F`).
+>   4. Kết quả Manual UAT.
+>   5. Kết quả Performance Benchmark (`T04AAA2` / `DEC-14`).
+>   6. Kết quả Deployment / Cold-start Verification (`T04AB8D`, `T04ABA7`).
 
 ---
 
@@ -224,13 +239,14 @@ Căn cứ trên các tiêu chí kiểm soát tại [RetailOps_SRS_Approved.md](.
 
 | Cổng Kiểm Soát (Gate) | Trạng Thái Hiện Tại | Bằng Chứng Đã Có | Điều Kiện Còn Thiếu Để Chốt `PASSED` | Người Chịu Trách Nhiệm Sign-off |
 |:---:|:---:|:---|:---|:---|
-| **`GATE-CI`** | **PASSED ON BASELINE**<br>*(Pending Final Release SHA CI)* | Backend CI (`lint-and-unit`, `mysql-integration`, `rabbitmq-integration`) và Frontend CI (`Lint + Build`, 211 tests) đã pass trên `develop` tại các commit đã merge tính đến baseline `4a2623c`. | Cần chạy và xác nhận GitHub Actions CI PASS trực tiếp trên **Final Release SHA** sau khi toàn bộ PR Sprint 3 còn lại được merge (không dùng CI của feature PR làm bằng chứng cho SHA khác). | **Nguyễn Minh Hiếu**<br>*(Tech Lead)* |
-| **`GATE-E2E`** | **PARTIALLY VERIFIED / PENDING FINAL ACCEPTANCE** | Đã có Unit/API tests và MySQL/RabbitMQ integration tests cho các module P0 (`T3C9972`, `T3C9978`, `T3C9970`, `T04AABC`, `T04AAD7`, PR #73, PR #77). | 1. Kết quả đối soát dữ liệu & báo cáo của PR #78 (`T04AC15` — đang hoàn thiện).<br>2. Bằng chứng Browser E2E (`T04AC2F`).<br>3. Biên bản Manual UAT sign-off.<br>4. Kết quả Benchmark & Security Audit (`T04AAA2`). | **Vũ Hoàng Lan Anh** *(QA)*<br>**Nguyễn Minh Hiếu** *(Tech Lead / PO)* |
-| **`DEPLOY`** | **PARTIALLY VERIFIED** | Đã xác minh tĩnh cấu hình `compose.yaml`, `compose.ci.yaml`, Nginx reverse proxy và tài liệu runbooks (`DOCKER_NGINX_RUNBOOK.md`, `OUTBOX_RECOVERY_RUNBOOK.md`). | Chưa có run log cold-start đầy đủ (4 container healthy, `alembic current` tại `20261116_01 (head)`, seed 3 modules, `/api/v1/health` 200 OK) trên môi trường demo/staging thực tế (`T04AB8D`, `T04ABA7`). | **Nguyễn Minh Hiếu**<br>*(Tech Lead / Release Owner)* |
-| **`PERF (DEC-14)`** | **PENDING** | Đã khóa chỉ tiêu mục tiêu trong SRS (`DEC-14`: Read $\le$ 300ms, Write $\le$ 800ms, Dashboard $\le$ 1500ms với 10–20 concurrent users). | Chưa có kịch bản tải và benchmark logs thực tế từ task `T04AAA2`. | **Nguyễn Minh Hiếu**<br>*(Tech Lead)* |
+| **`GATE-CI`** | **PASSED ON BASELINE**<br>*(Pending Final Release SHA CI)* | Backend CI (`lint-and-unit`, `mysql-integration`, `rabbitmq-integration`) và Frontend CI (`Lint + Build`, 211 tests) đã pass trên `develop` tại các commit đã merge tính đến baseline `4a2623c` (và tiếp tục được cập nhật trên `origin/develop` `8e835a5`). | Cần chạy và xác nhận GitHub Actions CI PASS trực tiếp trên **exact Final Release SHA** sau khi toàn bộ PR Sprint 3 còn lại được merge (không dùng CI của feature PR làm bằng chứng cho SHA khác). | **Nguyễn Minh Hiếu**<br>*(Tech Lead)* |
+| **`GATE-E2E`** | **PARTIALLY VERIFIED / PENDING FINAL ACCEPTANCE** | Đã có Unit/API tests và MySQL/RabbitMQ integration tests cho các module P0 (`T3C9972`, `T3C9978`, `T3C9970`, `T04AABC`, `T04AAD7`, PR #73, PR #77); PR #78 (`T04AC15`, `973b3cf`) và PR #76 (`T04AA1C`, `8e835a5`) đã merge vào `origin/develop`. | 1. Bằng chứng Browser E2E (`T04AC2F`, bao gồm luồng Password Reset E2E).<br>2. Biên bản Manual UAT sign-off.<br>3. Đối soát tổng thể sau khi hoàn tất các cổng Security/Performance. | **Vũ Hoàng Lan Anh** *(QA)*<br>**Nguyễn Minh Hiếu** *(Tech Lead / PO)* |
+| **`DEPLOY`** | **PARTIALLY VERIFIED** | Đã xác minh tĩnh cấu hình `compose.yaml`, `compose.ci.yaml`, Nginx reverse proxy và tài liệu runbooks (`DOCKER_NGINX_RUNBOOK.md`, `OUTBOX_RECOVERY_RUNBOOK.md`). | Chưa có run log cold-start đầy đủ (4 container healthy, `alembic current` tại head mới nhất, seed 3 modules, `/api/v1/health` 200 OK) trên môi trường demo/staging thực tế (`T04AB8D`, `T04ABA7`). | **Nguyễn Minh Hiếu**<br>*(Tech Lead / Release Owner)* |
+| **`PERF / DEC-14`** | **PENDING** | Đã khóa chỉ tiêu mục tiêu trong SRS (`DEC-14`: Read $\le$ 300ms, Write $\le$ 800ms, Dashboard $\le$ 1500ms với 10–20 concurrent users). | Chưa có kịch bản tải và benchmark logs / P95 thực tế từ task `T04AAA2`. | **Nguyễn Minh Hiếu**<br>*(Tech Lead)* |
+| **`SECURITY`** | **PENDING** | Đã có unit/integration tests cho JWT, CSRF, RBAC, rate-limit và log sanitization ở mức module. | Chưa có báo cáo Security Audit tổng hợp kiểm tra Auth, RBAC, CSRF, secrets và các vấn đề bảo mật liên quan (`T04AB3F`, `T04AAA2`). | **Nguyễn Minh Hiếu**<br>*(Tech Lead)* |
 
 ### KẾT LUẬN TRẠNG THÁI RELEASE CANDIDATE
-- **Đánh giá hiện tại:** Hồ sơ kỹ thuật đã tổng hợp đầy đủ hiện trạng thực tế, đối soát trung thực phần đã kiểm chứng và phần còn `PENDING`. Tài liệu **chưa tự tuyên bố đóng băng chính thức** khi các điều kiện ở `GATE-E2E`, `DEPLOY` và `PERF (DEC-14)` chưa hoàn tất.
+- **Đánh giá hiện tại:** Hồ sơ kỹ thuật đã tổng hợp đầy đủ hiện trạng thực tế, đối soát trung thực phần đã kiểm chứng và phần còn `PENDING`. PR #79 là hồ sơ chuẩn bị nghiệm thu, **không phải lệnh phát hành chính thức** và **chưa đánh dấu Release Freeze APPROVED** khi các điều kiện ở `GATE-CI` (trên Final SHA), `GATE-E2E`, `DEPLOY`, `PERF / DEC-14` và `SECURITY` chưa hoàn tất.
 - **Trạng thái đề xuất:** **`READY_FOR_LEAD_REVIEW`** (Kính chuyển Tech Lead Nguyễn Minh Hiếu rà soát, theo dõi hoàn tất các cổng còn thiếu và ký duyệt Final Release SHA tại Mục 7).
 
 ---
@@ -249,10 +265,10 @@ Căn cứ trên các tiêu chí kiểm soát tại [RetailOps_SRS_Approved.md](.
    - Xác nhận:
      Tôi xác nhận toàn bộ số liệu kiểm thử, đối soát SRS, kiểm chứng bất biến,
      hiện trạng Defect Ledger và các hạng mục còn PENDING trong tài liệu này được
-     tổng hợp trung thực dựa trên bằng chứng thực tế trên repository tính đến
-     baseline snapshot 4a2623c.
+     tổng hợp trung thực dựa trên bằng chứng thực tế trên repository tại
+     Historical Baseline 4a2623c và Current Verification Snapshot 8e835a5 (19/11/2026).
    - Chữ ký xác nhận: Vũ Hoàng Lan Anh
-   - Ngày lập hồ sơ: 18/11/2026 (Phục vụ mốc Sprint 24/11/2026)
+   - Ngày cập nhật hồ sơ: 19/11/2026 (Phục vụ mốc Sprint 24/11/2026)
 
 ----------------------------------------------------------------------------------------
 
