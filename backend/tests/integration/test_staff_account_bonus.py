@@ -16,7 +16,7 @@ from app.core.exceptions import (
     InvalidCredentialsError,
     SessionInvalidError,
 )
-from app.modules.auth.account_service import SelfProfileService, StaffAccountService
+from app.modules.auth.account_service import StaffAccountService
 from app.modules.auth.models import (
     AuthSession,
     PasswordResetToken,
@@ -149,7 +149,10 @@ def test_lock_revoke_unlock_does_not_revive_old_session(
         with pytest.raises(SessionInvalidError):
             service.live_user(session, login.response.access_token)
         new_login = service.login(session, staff.email_normalized, OLD_PASSWORD)
-        assert service.live_user(session, new_login.response.access_token)[0].id == staff.id
+        assert (
+            service.live_user(session, new_login.response.access_token)[0].id
+            == staff.id
+        )
         assert len(
             list(
                 session.scalars(
@@ -196,7 +199,10 @@ def test_change_password_keeps_only_current_session(
             origin=ORIGIN,
         )
         assert result.refresh_token != active.refresh_token
-        assert service.live_user(session, result.response.access_token)[0].id == staff.id
+        assert (
+            service.live_user(session, result.response.access_token)[0].id
+            == staff.id
+        )
         with pytest.raises(SessionInvalidError):
             service.live_user(session, other.response.access_token)
         with pytest.raises(InvalidCredentialsError):
