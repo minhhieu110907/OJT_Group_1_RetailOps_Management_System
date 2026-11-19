@@ -410,6 +410,7 @@ def test_production_api_does_not_require_smtp() -> None:
         cookie_secure=True,
         jwt_secret="j" * 32,
         csrf_secret="c" * 32,
+        password_reset_base_url="https://app.retailops.example/reset-password",
     )
     assert settings.smtp_host is None
 
@@ -433,6 +434,7 @@ def test_production_worker_rejects_unsafe_smtp(overrides: dict[str, object]) -> 
         cookie_secure=True,
         jwt_secret="j" * 32,
         csrf_secret="c" * 32,
+        password_reset_base_url="https://app.retailops.example/reset-password",
         **overrides,
     )
     with pytest.raises(RuntimeError):
@@ -445,6 +447,7 @@ def test_production_worker_accepts_tls_provider_configuration() -> None:
         cookie_secure=True,
         jwt_secret="j" * 32,
         csrf_secret="c" * 32,
+        password_reset_base_url="https://app.retailops.example/reset-password",
         smtp_host="smtp.provider.example",
         smtp_starttls=True,
         smtp_from_address="no-reply@example.com",

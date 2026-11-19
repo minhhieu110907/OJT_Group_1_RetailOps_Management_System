@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import Select, select, update
 from sqlalchemy.orm import Session
 
-from app.modules.auth.models import User
+from app.modules.auth.models import PasswordResetToken, User
 from app.modules.outbox.contracts import StuckEventCandidate
 from app.modules.outbox.models import OutboxEvent
 
@@ -13,6 +13,7 @@ ENABLED_EMAIL_EVENTS = (
     "STAFF_REGISTERED",
     "STAFF_APPROVED",
     "STAFF_REJECTED",
+    "PASSWORD_RESET",
 )
 SECRET_EMAIL_EVENTS = ("PASSWORD_RESET", "STAFF_REAPPLY_PROOF")
 
@@ -162,6 +163,25 @@ class OutboxRepository:
             )
         )
         return result.rowcount
+
+    def is_password_reset_token_active(
+        self,
+        session: Session,
+        *,
+        user_id: int,
+        token_hash: str,
+        now: datetime,
+    ) -> bool:
+        """Return True iff the reset token exists, is unused, and has not expired."""
+        found = session.scalar(
+            select(PasswordResetToken.id).where(
+                PasswordResetToken.user_id == user_id,
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.expires_at > now,
+            )
+        )
+        return found is not None
 
     def find_stuck_events(
         self,

@@ -127,6 +127,7 @@ def worker_environment(
     *,
     smtp_host: str = "127.0.0.1",
     smtp_port: int = 1,
+    extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
@@ -146,6 +147,8 @@ def worker_environment(
             "RETAILOPS_SMTP_STARTTLS": "false",
         }
     )
+    if extra_env:
+        environment.update(extra_env)
     return environment
 
 
@@ -188,9 +191,10 @@ def running_worker(
     loglevel: str = "WARNING",
     smtp_host: str = "127.0.0.1",
     smtp_port: int = 1,
+    extra_env: dict[str, str] | None = None,
 ) -> Iterator[WorkerHandle]:
     environment = worker_environment(
-        database_url, smtp_host=smtp_host, smtp_port=smtp_port
+        database_url, smtp_host=smtp_host, smtp_port=smtp_port, extra_env=extra_env
     )
     with tempfile.TemporaryFile() as worker_log:
         process = subprocess.Popen(
@@ -979,3 +983,447 @@ def test_t04aa00_broker_outage_and_controlled_replay_recovery(
 
         pools.reset()
         cleanup_worker_events(migrated_integration_engine)
+
+
+def _cleanup_password_reset_run(
+    engine: Engine,
+    *,
+    user_id: int | None,
+    session_ids: tuple[bytes, ...] = (),
+    token_ids: tuple[int, ...] = (),
+    event_ids: tuple[bytes, ...] = (),
+) -> None:
+    """Delete only exact records owned by a run; fail closed on foreign refs."""
+    if user_id is None:
+        return
+    from app.modules.auth.models import AuthSession, PasswordResetToken
+
+    tracked_sessions = set(session_ids)
+    tracked_tokens = set(token_ids)
+    tracked_events = set(event_ids)
+
+    with Session(engine) as session, session.begin():
+        found_tokens = set(
+            session.scalars(
+                select(PasswordResetToken.id).where(
+                    PasswordResetToken.user_id == user_id
+                )
+            )
+        )
+        found_sessions = set(
+            session.scalars(
+                select(AuthSession.id).where(AuthSession.user_id == user_id)
+            )
+        )
+        found_events = set(
+            session.scalars(
+                select(OutboxEvent.id).where(OutboxEvent.subject_user_id == user_id)
+            )
+        )
+
+        foreign_tokens = found_tokens - tracked_tokens
+        foreign_sessions = found_sessions - tracked_sessions
+        foreign_events = found_events - tracked_events
+        if foreign_tokens or foreign_sessions or foreign_events:
+            raise AssertionError(
+                "Refusing run cleanup due to unexpected external references "
+                f"(tokens={len(foreign_tokens)}, sessions={len(foreign_sessions)}, "
+                f"events={len(foreign_events)})"
+            )
+
+        if tracked_tokens:
+            session.execute(
+                delete(PasswordResetToken).where(
+                    PasswordResetToken.id.in_(tracked_tokens)
+                )
+            )
+        if tracked_sessions:
+            session.execute(
+                delete(AuthSession).where(AuthSession.id.in_(tracked_sessions))
+            )
+        if tracked_events:
+            session.execute(
+                delete(OutboxEvent).where(OutboxEvent.id.in_(tracked_events))
+            )
+        session.execute(delete(User).where(User.id == user_id))
+
+
+def test_password_reset_e2e_api_outbox_rabbitmq_worker_mailpit_and_reset(
+    migrated_integration_engine: Engine,
+    integration_database_url: URL,
+) -> None:
+    from fastapi.testclient import TestClient
+    from pydantic import SecretStr
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import Settings, get_settings
+    from app.db.session import get_db_session
+    from app.infrastructure.dependencies import (
+        enforce_forgot_password_rate_limit,
+        enforce_reset_password_rate_limit,
+    )
+    from app.main import create_app
+    from app.modules.auth.models import AuthSession, PasswordResetToken
+    from app.modules.auth.security import PasswordHasher
+    from app.modules.outbox.broker import CeleryEventPublisher
+    from app.modules.outbox.publisher import OutboxPublisher
+
+    def build_isolated_settings(amqp_url: str) -> Settings:
+        return Settings(
+            _env_file=None,
+            db_host=integration_database_url.host or "127.0.0.1",
+            db_name=integration_database_url.database or "retailops_test",
+            db_user=integration_database_url.username or "unused",
+            db_password=SecretStr(integration_database_url.password or "unused"),
+            rabbitmq_url=SecretStr(amqp_url),
+        )
+
+    def build_isolated_celery(amqp_url: str) -> Celery:
+        isolated = Celery("t04aa1c-e2e-publisher-test", broker=amqp_url)
+        isolated.conf.broker_transport_options = {"confirm_publish": True}
+        isolated.conf.task_queues = (LIVE_QUEUE,)
+        return isolated
+
+    smtp_port = int(required_environment("MAILPIT_SMTP_HOST_PORT"))
+    mailpit_http_port = int(required_environment("MAILPIT_HTTP_HOST_PORT"))
+    publisher_url = required_environment("RETAILOPS_TEST_RABBITMQ_PUBLISHER_URL")
+    secret_key = "e2e-outbox-secret-key-" + ("k" * 16)
+    staff_email = f"{EMAIL_PREFIX}reset-e2e-{uuid4().hex}@example.com"
+    old_password = "OldPassword!123"
+    new_password = "NewPassword!456"
+    hasher = PasswordHasher(work_factor=4)
+    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+    existing_session_id = uuid4().bytes
+
+    staff_id: int | None = None
+    tracked_session_ids: list[bytes] = []
+    tracked_token_ids: list[int] = []
+    tracked_event_ids: list[bytes] = []
+
+    try:
+        with Session(migrated_integration_engine) as session, session.begin():
+            staff = User(
+                email_normalized=staff_email,
+                password_hash=hasher.hash(old_password),
+                role="STAFF",
+                status="ACTIVE",
+                admin_slot=None,
+                last_reapplied_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(staff)
+            session.flush()
+            staff_id = staff.id
+            session.add(
+                AuthSession(
+                    id=existing_session_id,
+                    user_id=staff_id,
+                    created_at=now,
+                    expires_at=now + timedelta(hours=8),
+                    revoked_at=None,
+                )
+            )
+            tracked_session_ids.append(existing_session_id)
+
+        session_factory = sessionmaker(
+            bind=migrated_integration_engine, expire_on_commit=False
+        )
+        api_settings = Settings(
+            _env_file=None,
+            environment="development",
+            db_host=integration_database_url.host or "127.0.0.1",
+            db_port=integration_database_url.port or 3306,
+            db_name=integration_database_url.database or "retailops_test",
+            db_user=integration_database_url.username or "retailops_test_runner",
+            db_password=SecretStr(integration_database_url.password or ""),
+            jwt_secret=SecretStr("j" * 32),
+            csrf_secret=SecretStr("c" * 32),
+            outbox_secret_key=SecretStr(secret_key),
+            password_reset_base_url="https://app.retailops.example/reset-password",
+            password_reset_email_adapter="outbox",
+        )
+        app = create_app(api_settings)
+
+        def _override_db():
+            with session_factory() as session:
+                yield session
+
+        app.dependency_overrides[get_settings] = lambda: api_settings
+        app.dependency_overrides[get_db_session] = _override_db
+        app.dependency_overrides[enforce_forgot_password_rate_limit] = lambda: None
+        app.dependency_overrides[enforce_reset_password_rate_limit] = lambda: None
+
+        with TestClient(app) as client:
+            forgot_resp = client.post(
+                "/api/v1/auth/forgot-password", json={"email": staff_email}
+            )
+            assert forgot_resp.status_code == 202
+
+        with Session(migrated_integration_engine) as session:
+            tok = session.scalar(
+                select(PasswordResetToken).where(PasswordResetToken.user_id == staff_id)
+            )
+            ev = session.scalar(
+                select(OutboxEvent).where(
+                    OutboxEvent.subject_user_id == staff_id,
+                    OutboxEvent.event_type == "PASSWORD_RESET",
+                )
+            )
+            assert tok is not None
+            assert ev is not None
+            tracked_token_ids.append(tok.id)
+            tracked_event_ids.append(ev.id)
+            assert ev.secret_ciphertext is not None
+            event_id = ev.id
+
+        publisher = OutboxPublisher(
+            CeleryEventPublisher(
+                build_isolated_celery(publisher_url),
+                build_isolated_settings(publisher_url),
+            )
+        )
+        pub_result = publisher.publish_due(session_factory, batch_size=10)
+        assert pub_result.published >= 1
+
+        worker_log = ""
+        with running_worker(
+            integration_database_url,
+            loglevel="INFO",
+            smtp_host="127.0.0.1",
+            smtp_port=smtp_port,
+            extra_env={"RETAILOPS_OUTBOX_SECRET_KEY": secret_key},
+        ) as worker:
+            delivered = wait_for_event(
+                migrated_integration_engine,
+                event_id,
+                lambda current: current.outcome == "SENT",
+            )
+            assert delivered.secret_ciphertext is None
+            worker_log = worker.read_log()
+
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{mailpit_http_port}/api/v1/messages", timeout=10
+        ) as resp:
+            messages_data = json.loads(resp.read())
+        matched = [
+            m
+            for m in messages_data.get("messages", [])
+            if any(
+                isinstance(to, dict) and to.get("Address") == staff_email
+                for to in m.get("To", [])
+            )
+        ]
+        assert len(matched) == 1
+        msg_id = matched[0]["ID"]
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{mailpit_http_port}/api/v1/message/{msg_id}", timeout=10
+        ) as resp:
+            full_msg = json.loads(resp.read())
+        email_text = full_msg.get("Text", "") or full_msg.get("HTML", "")
+        token_match = re.search(
+            r"https://app\.retailops\.example/reset-password\?token=([A-Za-z0-9_-]+)",
+            email_text,
+        )
+        assert token_match is not None, (
+            "Password reset link not found in captured email"
+        )
+        raw_token = token_match.group(1)
+        assert raw_token not in worker_log
+
+        with TestClient(app) as client:
+            reset_resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={"token": raw_token, "new_password": new_password},
+            )
+            assert reset_resp.status_code == 200
+
+            replay_resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={"token": raw_token, "new_password": "AnotherPassword!789"},
+            )
+            assert replay_resp.status_code == 401
+
+        with Session(migrated_integration_engine) as session:
+            refreshed_user = session.get(User, staff_id)
+            refreshed_session = session.get(AuthSession, existing_session_id)
+            assert refreshed_user is not None
+            assert hasher.verify(new_password, refreshed_user.password_hash)
+            assert refreshed_session is not None
+            assert refreshed_session.revoked_at is not None
+    finally:
+        from kombu import pools
+
+        pools.reset()
+        _cleanup_password_reset_run(
+            migrated_integration_engine,
+            user_id=staff_id,
+            session_ids=tuple(tracked_session_ids),
+            token_ids=tuple(tracked_token_ids),
+            event_ids=tuple(tracked_event_ids),
+        )
+
+
+def test_password_reset_run_scoped_cleanup_isolation_and_fail_closed(
+    migrated_integration_engine: Engine,
+) -> None:
+    from app.modules.auth.models import AuthSession, PasswordResetToken
+    from app.modules.auth.security import PasswordHasher
+
+    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+    pw_hash = PasswordHasher(work_factor=4).hash("CleanupPass!123")
+    email_a = f"{EMAIL_PREFIX}run-a-{uuid4().hex}@example.com"
+    email_b = f"{EMAIL_PREFIX}run-b-{uuid4().hex}@example.com"
+    sess_a = uuid4().bytes
+    sess_b = uuid4().bytes
+    ev_a = uuid4().bytes
+    ev_b = uuid4().bytes
+    user_a_id: int | None = None
+    user_b_id: int | None = None
+    tok_a_id: int | None = None
+    tok_b_id: int | None = None
+
+    try:
+        with Session(migrated_integration_engine) as session, session.begin():
+            user_a = User(
+                email_normalized=email_a,
+                password_hash=pw_hash,
+                role="STAFF",
+                status="ACTIVE",
+                admin_slot=None,
+                last_reapplied_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            user_b = User(
+                email_normalized=email_b,
+                password_hash=pw_hash,
+                role="STAFF",
+                status="ACTIVE",
+                admin_slot=None,
+                last_reapplied_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add_all([user_a, user_b])
+            session.flush()
+            user_a_id, user_b_id = user_a.id, user_b.id
+
+            tok_a = PasswordResetToken(
+                user_id=user_a_id,
+                token_hash=uuid4().hex + uuid4().hex,
+                expires_at=now + timedelta(minutes=15),
+                used_at=None,
+                created_at=now,
+            )
+            tok_b = PasswordResetToken(
+                user_id=user_b_id,
+                token_hash=uuid4().hex + uuid4().hex,
+                expires_at=now + timedelta(minutes=15),
+                used_at=None,
+                created_at=now,
+            )
+            session.add_all(
+                [
+                    tok_a,
+                    tok_b,
+                    AuthSession(
+                        id=sess_a,
+                        user_id=user_a_id,
+                        created_at=now,
+                        expires_at=now + timedelta(hours=8),
+                        revoked_at=None,
+                    ),
+                    AuthSession(
+                        id=sess_b,
+                        user_id=user_b_id,
+                        created_at=now,
+                        expires_at=now + timedelta(hours=8),
+                        revoked_at=None,
+                    ),
+                    OutboxEvent(
+                        id=ev_a,
+                        subject_user_id=user_a_id,
+                        event_type="PASSWORD_RESET",
+                        payload={"schema_version": 1},
+                        secret_expires_at=now + timedelta(minutes=15),
+                        secret_ciphertext=b"cipher-a",
+                        created_at=now,
+                        available_at=now,
+                        published_at=None,
+                        publish_attempts=0,
+                        delivery_attempts=0,
+                        outcome=None,
+                        finished_at=None,
+                        last_error_code=None,
+                    ),
+                    OutboxEvent(
+                        id=ev_b,
+                        subject_user_id=user_b_id,
+                        event_type="PASSWORD_RESET",
+                        payload={"schema_version": 1},
+                        secret_expires_at=now + timedelta(minutes=15),
+                        secret_ciphertext=b"cipher-b",
+                        created_at=now,
+                        available_at=now,
+                        published_at=None,
+                        publish_attempts=0,
+                        delivery_attempts=0,
+                        outcome=None,
+                        finished_at=None,
+                        last_error_code=None,
+                    ),
+                ]
+            )
+            session.flush()
+            tok_a_id, tok_b_id = tok_a.id, tok_b.id
+
+        # 1. Partial/uncreated setup (user_id=None) -> safe no-op
+        _cleanup_password_reset_run(migrated_integration_engine, user_id=None)
+
+        # 2. Fail-closed on unexpected external ref -> raises & rolls back cleanly
+        with pytest.raises(AssertionError, match="unexpected external references"):
+            _cleanup_password_reset_run(
+                migrated_integration_engine,
+                user_id=user_a_id,
+                session_ids=(sess_a,),
+                token_ids=(),  # omit tok_a_id to simulate unexpected external token
+                event_ids=(ev_a,),
+            )
+        with Session(migrated_integration_engine) as session:
+            assert session.get(User, user_a_id) is not None
+            assert session.get(AuthSession, sess_a) is not None
+            assert session.get(OutboxEvent, ev_a) is not None
+            assert session.get(PasswordResetToken, tok_a_id) is not None
+
+        # 3. Clean up Run A -> deletes Run A only, preserves Run B completely
+        _cleanup_password_reset_run(
+            migrated_integration_engine,
+            user_id=user_a_id,
+            session_ids=(sess_a,),
+            token_ids=(tok_a_id,),
+            event_ids=(ev_a,),
+        )
+        user_a_id = None
+        with Session(migrated_integration_engine) as session:
+            assert session.get(User, user_b_id) is not None
+            assert session.get(AuthSession, sess_b) is not None
+            assert session.get(OutboxEvent, ev_b) is not None
+            assert session.get(PasswordResetToken, tok_b_id) is not None
+    finally:
+        if user_a_id is not None and tok_a_id is not None:
+            _cleanup_password_reset_run(
+                migrated_integration_engine,
+                user_id=user_a_id,
+                session_ids=(sess_a,),
+                token_ids=(tok_a_id,),
+                event_ids=(ev_a,),
+            )
+        if user_b_id is not None and tok_b_id is not None:
+            _cleanup_password_reset_run(
+                migrated_integration_engine,
+                user_id=user_b_id,
+                session_ids=(sess_b,),
+                token_ids=(tok_b_id,),
+                event_ids=(ev_b,),
+            )

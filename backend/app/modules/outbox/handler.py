@@ -2,10 +2,12 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.modules.auth.security import decrypt_reset_secret, hash_reset_token
 from app.modules.outbox.contracts import EmailOutcome
 from app.modules.outbox.errors import (
     DatabaseUnavailableError,
@@ -26,16 +28,22 @@ class EmailEventHandler:
         repository: OutboxRepository | None = None,
         templates: EmailTemplateRegistry | None = None,
         clock: Callable[[], datetime] | None = None,
+        secret_key: str | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.transport = transport
         self.repository = repository or OutboxRepository()
         self.templates = templates or EmailTemplateRegistry()
         self.clock = clock or (lambda: datetime.now(UTC).replace(tzinfo=None))
+        self.secret_key = secret_key
 
     def handle(self, *, event_id: bytes) -> EmailOutcome:
         if not isinstance(event_id, bytes) or len(event_id) != 16:
             raise ValueError("Outbox event ID must contain exactly 16 bytes")
+        is_password_reset = False
+        reset_user_id: int | None = None
+        reset_secret_expires_at: datetime | None = None
+        reset_token_hash: str | None = None
         try:
             with self.session_factory() as session:
                 loaded = self.repository.load_event_and_user(session, event_id)
@@ -47,13 +55,95 @@ class EmailEventHandler:
                 if event.event_type not in ENABLED_EMAIL_EVENTS:
                     raise PermanentEmailError("Secret email event is disabled")
                 recipient = user.email_normalized
-                rendered = self.templates.render(event)
+                if event.event_type == "PASSWORD_RESET":
+                    is_password_reset = True
+                    reset_user_id = user.id
+                    reset_secret_expires_at = event.secret_expires_at
+                    now = self.clock()
+                    if (
+                        event.secret_expires_at is None
+                        or event.secret_expires_at <= now
+                        or event.secret_ciphertext is None
+                    ):
+                        self._finish(
+                            event_id, outcome="FAILED", error_code="SECRET_EXPIRED"
+                        )
+                        return EmailOutcome(event_id=event_id, status="FAILED")
+                    if self.secret_key is None:
+                        self._finish(
+                            event_id,
+                            outcome="FAILED",
+                            error_code="SECRET_DECRYPT_FAILED",
+                        )
+                        return EmailOutcome(event_id=event_id, status="FAILED")
+                    try:
+                        reset_link = decrypt_reset_secret(
+                            event.secret_ciphertext, self.secret_key
+                        )
+                    except ValueError:
+                        self._finish(
+                            event_id,
+                            outcome="FAILED",
+                            error_code="SECRET_DECRYPT_FAILED",
+                        )
+                        return EmailOutcome(event_id=event_id, status="FAILED")
+                    raw_token = parse_qs(urlsplit(reset_link).query).get("token", [""])[
+                        0
+                    ]
+                    if not raw_token:
+                        self._finish(
+                            event_id, outcome="FAILED", error_code="TOKEN_INACTIVE"
+                        )
+                        return EmailOutcome(event_id=event_id, status="FAILED")
+                    reset_token_hash = hash_reset_token(raw_token)
+                    if not self.repository.is_password_reset_token_active(
+                        session,
+                        user_id=user.id,
+                        token_hash=reset_token_hash,
+                        now=now,
+                    ):
+                        self._finish(
+                            event_id, outcome="FAILED", error_code="TOKEN_INACTIVE"
+                        )
+                        return EmailOutcome(event_id=event_id, status="FAILED")
+                    rendered = self.templates.render_password_reset(
+                        reset_link=reset_link
+                    )
+                else:
+                    rendered = self.templates.render(event)
 
             attempt = self._begin_attempt(event_id)
             if attempt is None:
                 return EmailOutcome(event_id=event_id, status="SKIPPED")
             if attempt == 0:
                 return EmailOutcome(event_id=event_id, status="FAILED")
+
+            # Re-verify token state right before SMTP dispatch (closing the short
+            # session before network I/O so no MySQL lock is held during SMTP).
+            if is_password_reset:
+                assert reset_user_id is not None
+                assert reset_token_hash is not None
+                dispatch_now = self.clock()
+                if (
+                    reset_secret_expires_at is None
+                    or reset_secret_expires_at <= dispatch_now
+                ):
+                    self._finish(
+                        event_id, outcome="FAILED", error_code="SECRET_EXPIRED"
+                    )
+                    return EmailOutcome(event_id=event_id, status="FAILED")
+                with self.session_factory() as session:
+                    still_active = self.repository.is_password_reset_token_active(
+                        session,
+                        user_id=reset_user_id,
+                        token_hash=reset_token_hash,
+                        now=dispatch_now,
+                    )
+                if not still_active:
+                    self._finish(
+                        event_id, outcome="FAILED", error_code="TOKEN_INACTIVE"
+                    )
+                    return EmailOutcome(event_id=event_id, status="FAILED")
         except (UnknownEventError, PermanentEmailError):
             raise
         except SQLAlchemyError as error:

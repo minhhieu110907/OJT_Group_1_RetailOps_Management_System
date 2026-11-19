@@ -9,7 +9,7 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import DependencyUnavailableError, RateLimitedError
 from app.infrastructure.rate_limit import RateLimitResult, RedisFixedWindowRateLimiter
 from app.modules.auth.dependencies import get_auth_service
-from app.modules.auth.schemas import LoginRequest
+from app.modules.auth.schemas import ForgotPasswordRequest, LoginRequest
 from app.modules.auth.security import normalize_email
 from app.modules.auth.service import AuthService
 
@@ -122,6 +122,49 @@ async def enforce_refresh_rate_limit(
         identity=identity,
         limit=settings.refresh_rate_limit,
         window_seconds=settings.refresh_rate_window_seconds,
+    )
+    if not result.allowed:
+        raise RateLimitedError(result.retry_after)
+
+
+async def enforce_forgot_password_rate_limit(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    limiter: Annotated[RedisFixedWindowRateLimiter, Depends(get_rate_limiter)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    """Fail closed while applying IP and normalized-email quotas on forgot-password."""
+    ip_result = await _check_fail_closed(
+        limiter,
+        policy="auth-forgot-password-ip",
+        identity=_client_ip(request),
+        limit=settings.forgot_password_ip_rate_limit,
+        window_seconds=settings.forgot_password_ip_rate_window_seconds,
+    )
+    account_result = await _check_fail_closed(
+        limiter,
+        policy="auth-forgot-password-account",
+        identity=normalize_email(str(payload.email)),
+        limit=settings.forgot_password_account_rate_limit,
+        window_seconds=settings.forgot_password_account_rate_window_seconds,
+    )
+    blocked = [result for result in (ip_result, account_result) if not result.allowed]
+    if blocked:
+        raise RateLimitedError(max(result.retry_after for result in blocked))
+
+
+async def enforce_reset_password_rate_limit(
+    request: Request,
+    limiter: Annotated[RedisFixedWindowRateLimiter, Depends(get_rate_limiter)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    """Fail closed while applying IP rate limiting on reset-password."""
+    result = await _check_fail_closed(
+        limiter,
+        policy="auth-reset-password-ip",
+        identity=_client_ip(request),
+        limit=settings.reset_password_ip_rate_limit,
+        window_seconds=settings.reset_password_ip_rate_window_seconds,
     )
     if not result.allowed:
         raise RateLimitedError(result.retry_after)

@@ -175,3 +175,43 @@ class RefreshToken(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6))
 
     session: Mapped[AuthSession] = relationship(back_populates="refresh_tokens")
+
+
+class PasswordResetToken(Base):
+    """Hash-only one-time password reset token for ACTIVE STAFF accounts."""
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash",
+            name="uq_password_reset_tokens_token_hash",
+        ),
+        Index(
+            "ix_password_reset_tokens_user_active",
+            "user_id",
+            "used_at",
+            "expires_at",
+        ),
+        CheckConstraint(
+            "expires_at > created_at AND (used_at IS NULL OR used_at >= created_at)",
+            name="ck_password_reset_tokens_lifecycle",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "users.id",
+            name="fk_password_reset_tokens_user_id_users",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64, collation="ascii_bin"),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6))
+    created_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False)

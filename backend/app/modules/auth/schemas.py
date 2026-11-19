@@ -160,3 +160,22 @@ class RegisterRequest(StrictRequest):
 
 class RegisterResponse(BaseModel):
     message: str
+
+
+class ForgotPasswordRequest(StrictRequest):
+    """Public request body for initiating STAFF password reset."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(StrictRequest):
+    """Public request body for consuming a one-time password reset token."""
+
+    token: str = Field(min_length=1, max_length=512)
+    new_password: str = Field(min_length=1, max_length=72)
+
+
+class GenericMessageResponse(BaseModel):
+    """Generic acknowledgement response that never leaks account state."""
+
+    message: str
