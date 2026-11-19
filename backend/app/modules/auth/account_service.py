@@ -62,9 +62,7 @@ class StaffAccountService:
                         User.full_name.ilike(pattern, escape="\\"),
                     )
                 )
-        total = int(
-            session.scalar(select(func.count(User.id)).where(*criteria)) or 0
-        )
+        total = int(session.scalar(select(func.count(User.id)).where(*criteria)) or 0)
         users = session.scalars(
             select(User)
             .where(*criteria)
@@ -110,9 +108,7 @@ class StaffAccountService:
             if user.status != expected:
                 raise InvalidStateError("Trạng thái Staff không cho phép thao tác.")
             now = utc_now_naive()
-            user.status = (
-                UserStatus.LOCKED if action == "LOCK" else UserStatus.ACTIVE
-            )
+            user.status = UserStatus.LOCKED if action == "LOCK" else UserStatus.ACTIVE
             user.updated_at = now
             if action == "LOCK":
                 session.execute(
