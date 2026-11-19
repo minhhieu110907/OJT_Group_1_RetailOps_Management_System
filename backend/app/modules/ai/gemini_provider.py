@@ -37,7 +37,7 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
     "get_slow_products": (
         "Lấy danh sách sản phẩm bán chậm hoặc tồn kho lâu chưa bán được "
-        "(days: 1..90, limit: 1..20)."
+        "(limit: 1..20, mặc định 10)."
     ),
     "get_low_stock": (
         "Lấy danh sách sản phẩm có tồn kho thấp hơn hoặc bằng ngưỡng cảnh báo "

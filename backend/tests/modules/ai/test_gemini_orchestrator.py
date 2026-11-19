@@ -197,13 +197,29 @@ def test_settings_gemini_env_normalization_and_validation() -> None:
 
 
 def test_function_declarations_match_only_four_approved_tools() -> None:
+    import json
+
+    from app.core.config import PROJECT_ROOT
+
+    contract = json.loads(
+        (PROJECT_ROOT / "contracts" / "ai_tool_schemas.json").read_text(
+            encoding="utf-8"
+        )
+    )
     decls = build_gemini_function_declarations()
+    assert len(decls) == 4
     assert tuple(d.name for d in decls) == APPROVED_TOOL_NAMES
     for decl in decls:
+        assert decl.name is not None
+        assert decl.parameters_json_schema == contract["tools"][decl.name]["input"]
         schema_str = str(decl.parameters_json_schema).lower()
         assert "sql" not in schema_str
         assert "user_id" not in schema_str
         assert "database" not in schema_str
+
+    slow_decl = next(d for d in decls if d.name == "get_slow_products")
+    assert "days" not in (slow_decl.parameters_json_schema or {}).get("properties", {})
+    assert "days" not in (slow_decl.description or "").lower()
 
 
 @pytest.mark.anyio
@@ -649,3 +665,140 @@ async def test_ai_query_http_security_validation_and_redis_fail_closed() -> None
             "/api/v1/ai/query", json={"message": "Xem tồn kho thấp"}
         )
         assert r_redis_down.status_code == 503
+
+
+@pytest.mark.anyio
+async def test_orchestrator_enforces_global_15s_deadline_across_all_paths() -> None:
+    sf = _make_sqlite_session_factory()
+    admin_id, _ = _seed_admin_and_data(sf, with_sales=True, with_low_stock=True)
+    principal = _load_principal(sf, admin_id)
+
+    # 1. Expired before greeting / direct -> raises DependencyUnavailableError (503)
+    orch_basic = AIOrchestrator(
+        session_factory=sf,
+        provider_factory=lambda: _StubProvider([]),
+        gemini_timeout_seconds=10.0,
+    )
+    b_greet = bind_authenticated_request(principal, request_id="req-exp-greet")
+    b_greet.budget.started_at -= b_greet.budget.deadline_seconds + 1.0
+    with pytest.raises(DependencyUnavailableError):
+        await orch_basic.handle_query(message="Xin chào", bound=b_greet)
+
+    b_direct = bind_authenticated_request(principal, request_id="req-exp-direct")
+    b_direct.budget.started_at -= b_direct.budget.deadline_seconds + 1.0
+    with pytest.raises(DependencyUnavailableError):
+        await orch_basic.handle_query(message="Xem tồn kho thấp", bound=b_direct)
+
+    # 2. Gemini first turn exceeds deadline -> fails before calling Executor
+    class _ExpiringFirstTurnProvider:
+        def __init__(self, bound_ref) -> None:
+            self.bound = bound_ref
+            self.timeouts_seen: list[float] = []
+
+        async def generate_turn(
+            self, user_message: str, *, timeout_seconds: float
+        ) -> ProviderTurnResponse:
+            self.timeouts_seen.append(timeout_seconds)
+            self.bound.budget.started_at -= self.bound.budget.deadline_seconds + 1.0
+            return ProviderTurnResponse(
+                text=None,
+                function_calls=(
+                    ProviderFunctionCall(name="get_low_stock", arguments={"limit": 5}),
+                ),
+                conversation_state=["t1"],
+            )
+
+        async def submit_tool_results(self, *_args: Any, **_kwargs: Any):
+            raise AssertionError("Should not reach submit_tool_results after expiry")
+
+    b_t1 = bind_authenticated_request(principal, request_id="req-exp-t1")
+    p_t1 = _ExpiringFirstTurnProvider(b_t1)
+    orch_t1 = AIOrchestrator(
+        session_factory=sf, provider_factory=lambda: p_t1, gemini_timeout_seconds=10.0
+    )
+    with pytest.raises(DependencyUnavailableError):
+        await orch_t1.handle_query(message="Phân tích tồn kho", bound=b_t1)
+    assert b_t1.budget.calls == 0
+
+    # 3. Tool execution exhausts budget -> submit_tool_results is NOT called
+    b_tool = bind_authenticated_request(principal, request_id="req-exp-tool")
+    submit_called = False
+
+    class _ToolExpiresBudgetProvider:
+        async def generate_turn(
+            self, user_message: str, *, timeout_seconds: float
+        ) -> ProviderTurnResponse:
+            assert timeout_seconds <= 10.0
+            return ProviderTurnResponse(
+                text=None,
+                function_calls=(
+                    ProviderFunctionCall(name="get_low_stock", arguments={"limit": 5}),
+                ),
+                conversation_state=["t1"],
+            )
+
+        async def submit_tool_results(self, *_args: Any, **_kwargs: Any):
+            nonlocal submit_called
+            submit_called = True
+            raise AssertionError("submit_tool_results must not run after deadline")
+
+    @contextmanager
+    def expiring_sf():
+        with sf() as s:
+            yield s
+        b_tool.budget.started_at -= b_tool.budget.deadline_seconds + 1.0
+
+    orch_tool = AIOrchestrator(
+        session_factory=expiring_sf,
+        provider_factory=_ToolExpiresBudgetProvider,
+        gemini_timeout_seconds=10.0,
+    )
+    with pytest.raises(DependencyUnavailableError):
+        await orch_tool.handle_query(message="Phân tích tồn kho", bound=b_tool)
+    assert not submit_called
+
+    # 4. Final Gemini turn exceeds deadline -> does NOT return AIAskResponse (200)
+    b_final = bind_authenticated_request(principal, request_id="req-exp-final")
+    b_final.budget.started_at -= 12.0  # only ~3s remaining
+
+    class _ExpiringFinalTurnProvider:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        async def generate_turn(
+            self, user_message: str, *, timeout_seconds: float
+        ) -> ProviderTurnResponse:
+            self.timeouts.append(timeout_seconds)
+            assert timeout_seconds <= 3.5
+            return ProviderTurnResponse(
+                text=None,
+                function_calls=(
+                    ProviderFunctionCall(name="get_low_stock", arguments={"limit": 5}),
+                ),
+                conversation_state=["t1"],
+            )
+
+        async def submit_tool_results(
+            self,
+            conversation_state: Any,
+            tool_responses: tuple[ToolResponseItem, ...],
+            *,
+            timeout_seconds: float,
+        ) -> ProviderTurnResponse:
+            self.timeouts.append(timeout_seconds)
+            assert timeout_seconds <= 3.5
+            b_final.budget.started_at -= b_final.budget.deadline_seconds + 1.0
+            return ProviderTurnResponse(
+                text="Tồn kho thấp gồm 1 sản phẩm.",
+                function_calls=(),
+                conversation_state=["t2"],
+            )
+
+    p_final = _ExpiringFinalTurnProvider()
+    orch_final = AIOrchestrator(
+        session_factory=sf,
+        provider_factory=lambda: p_final,
+        gemini_timeout_seconds=10.0,
+    )
+    with pytest.raises(DependencyUnavailableError):
+        await orch_final.handle_query(message="Phân tích tồn kho", bound=b_final)

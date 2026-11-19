@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -27,7 +27,7 @@ from app.modules.auth.models import (
     UserRole,
     UserStatus,
 )
-from app.modules.auth.security import PasswordHasher
+from app.modules.auth.security import JwtService, PasswordHasher
 from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.sales.models import Order, OrderItem, OrderStatus
@@ -76,6 +76,50 @@ class _ControlledE2EGeminiProvider:
         )
 
 
+def _cleanup_ai_e2e_run(
+    engine: Engine,
+    *,
+    order_ids: tuple[int, ...] = (),
+    product_ids: tuple[int, ...] = (),
+    category_ids: tuple[int, ...] = (),
+    owned_session_ids: tuple[bytes, ...] = (),
+    owned_user_ids: tuple[int, ...] = (),
+) -> None:
+    """Delete only exact records owned by a single E2E run in FK order."""
+    with Session(engine) as session, session.begin():
+        if order_ids:
+            session.execute(delete(OrderItem).where(OrderItem.order_id.in_(order_ids)))
+            session.execute(delete(Order).where(Order.id.in_(order_ids)))
+        if product_ids:
+            session.execute(
+                delete(Inventory).where(Inventory.product_id.in_(product_ids))
+            )
+            session.execute(delete(Product).where(Product.id.in_(product_ids)))
+        if category_ids:
+            session.execute(delete(Category).where(Category.id.in_(category_ids)))
+
+        all_owned_sessions = set(owned_session_ids)
+        if owned_user_ids:
+            all_owned_sessions.update(
+                session.scalars(
+                    select(AuthSession.id).where(
+                        AuthSession.user_id.in_(owned_user_ids)
+                    )
+                )
+            )
+        if all_owned_sessions:
+            session.execute(
+                delete(RefreshToken).where(
+                    RefreshToken.session_id.in_(all_owned_sessions)
+                )
+            )
+            session.execute(
+                delete(AuthSession).where(AuthSession.id.in_(all_owned_sessions))
+            )
+        if owned_user_ids:
+            session.execute(delete(User).where(User.id.in_(owned_user_ids)))
+
+
 @pytest.mark.anyio
 async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
     migrated_integration_engine: Engine,
@@ -87,14 +131,16 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
 
     run_id = uuid4().hex[:12]
     now = datetime(2026, 11, 18, 10, 0)
-    test_started_at = datetime.now(UTC).replace(tzinfo=None)
+    now_utc = datetime.now(UTC)
     hasher = PasswordHasher(work_factor=4)
     password = "AiE2ePassword!123"
     staff_email = f"ai-e2e-staff-{run_id}@example.com"
 
     owned_user_ids: list[int] = []
-    reused_admin_id: int | None = None
-    original_admin_password_hash: str | None = None
+    owned_session_ids: list[bytes] = []
+    shared_admin_id: int | None = None
+    shared_admin_hash_before: str | None = None
+    shared_admin_sessions_before: set[bytes] = set()
     category_ids: list[int] = []
     product_ids: list[int] = []
     order_ids: list[int] = []
@@ -119,14 +165,32 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 session.add(admin)
                 session.flush()
                 admin_id = admin.id
-                admin_email = admin.email_normalized
+                admin_email: str | None = admin.email_normalized
                 owned_user_ids.append(admin_id)
             else:
-                reused_admin_id = existing_admin.id
-                original_admin_password_hash = existing_admin.password_hash
-                existing_admin.password_hash = hasher.hash(password)
+                # Never mutate Shared ADMIN credentials or pre-existing sessions.
+                shared_admin_id = existing_admin.id
+                shared_admin_hash_before = existing_admin.password_hash
+                shared_admin_sessions_before = set(
+                    session.scalars(
+                        select(AuthSession.id).where(
+                            AuthSession.user_id == shared_admin_id
+                        )
+                    )
+                )
                 admin_id = existing_admin.id
-                admin_email = existing_admin.email_normalized
+                admin_email = None
+                run_admin_session_id = uuid4().bytes
+                session.add(
+                    AuthSession(
+                        id=run_admin_session_id,
+                        user_id=admin_id,
+                        created_at=now_utc.replace(tzinfo=None),
+                        expires_at=(now_utc + timedelta(hours=1)).replace(tzinfo=None),
+                        revoked_at=None,
+                    )
+                )
+                owned_session_ids.append(run_admin_session_id)
 
             staff = User(
                 email_normalized=staff_email,
@@ -232,12 +296,20 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://127.0.0.1"
             ) as client:
-                admin_login = await client.post(
-                    "/api/v1/auth/login",
-                    json={"email": admin_email, "password": password},
-                )
-                assert admin_login.status_code == 200
-                admin_token = admin_login.json()["access_token"]
+                if admin_email is not None:
+                    admin_login = await client.post(
+                        "/api/v1/auth/login",
+                        json={"email": admin_email, "password": password},
+                    )
+                    assert admin_login.status_code == 200
+                    admin_token = admin_login.json()["access_token"]
+                else:
+                    admin_token, _ = JwtService(settings).issue(
+                        user_id=admin_id,
+                        session_id=UUID(bytes=owned_session_ids[0]),
+                        session_expires_at=now_utc + timedelta(hours=1),
+                        now=now_utc,
+                    )
 
                 staff_login = await client.post(
                     "/api/v1/auth/login",
@@ -282,56 +354,109 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 )
                 assert r3.status_code == 429
     finally:
-        with Session(migrated_integration_engine) as session, session.begin():
-            if order_ids:
-                session.execute(
-                    delete(OrderItem).where(OrderItem.order_id.in_(order_ids))
-                )
-                session.execute(delete(Order).where(Order.id.in_(order_ids)))
-            if product_ids:
-                session.execute(
-                    delete(Inventory).where(Inventory.product_id.in_(product_ids))
-                )
-                session.execute(delete(Product).where(Product.id.in_(product_ids)))
-            if category_ids:
-                session.execute(delete(Category).where(Category.id.in_(category_ids)))
-            if reused_admin_id is not None:
-                reused_admin = session.get(User, reused_admin_id)
-                if (
-                    reused_admin is not None
-                    and original_admin_password_hash is not None
-                ):
-                    reused_admin.password_hash = original_admin_password_hash
-                reused_session_ids = list(
+        _cleanup_ai_e2e_run(
+            migrated_integration_engine,
+            order_ids=tuple(order_ids),
+            product_ids=tuple(product_ids),
+            category_ids=tuple(category_ids),
+            owned_session_ids=tuple(owned_session_ids),
+            owned_user_ids=tuple(owned_user_ids),
+        )
+        if shared_admin_id is not None:
+            with Session(migrated_integration_engine) as session:
+                shared_admin = session.get(User, shared_admin_id)
+                assert shared_admin is not None
+                assert shared_admin.password_hash == shared_admin_hash_before
+                sessions_after = set(
                     session.scalars(
                         select(AuthSession.id).where(
-                            AuthSession.user_id == reused_admin_id,
-                            AuthSession.created_at >= test_started_at,
+                            AuthSession.user_id == shared_admin_id
                         )
                     )
                 )
-                if reused_session_ids:
-                    session.execute(
-                        delete(RefreshToken).where(
-                            RefreshToken.session_id.in_(reused_session_ids)
-                        )
-                    )
-                    session.execute(
-                        delete(AuthSession).where(
-                            AuthSession.id.in_(reused_session_ids)
-                        )
-                    )
-            if owned_user_ids:
-                session.execute(
-                    delete(RefreshToken).where(
-                        RefreshToken.session_id.in_(
-                            select(AuthSession.id).where(
-                                AuthSession.user_id.in_(owned_user_ids)
-                            )
-                        )
-                    )
-                )
-                session.execute(
-                    delete(AuthSession).where(AuthSession.user_id.in_(owned_user_ids))
-                )
-                session.execute(delete(User).where(User.id.in_(owned_user_ids)))
+                assert shared_admin_sessions_before <= sessions_after
+
+
+def test_ai_e2e_run_scoped_cleanup_isolation_and_idempotency(
+    migrated_integration_engine: Engine,
+) -> None:
+    now = datetime(2026, 11, 18, 10, 0)
+    pw_hash = PasswordHasher(work_factor=4).hash("CleanupPass!123")
+    run_a = uuid4().hex[:10]
+    run_b = uuid4().hex[:10]
+    sess_a = uuid4().bytes
+    sess_b = uuid4().bytes
+    u_a: int | None = None
+    u_b: int | None = None
+
+    try:
+        with Session(migrated_integration_engine) as session, session.begin():
+            user_a = User(
+                email_normalized=f"ai-run-a-{run_a}@example.com",
+                password_hash=pw_hash,
+                role=UserRole.STAFF,
+                status=UserStatus.ACTIVE,
+                admin_slot=None,
+                created_at=now,
+                updated_at=now,
+            )
+            user_b = User(
+                email_normalized=f"ai-run-b-{run_b}@example.com",
+                password_hash=pw_hash,
+                role=UserRole.STAFF,
+                status=UserStatus.ACTIVE,
+                admin_slot=None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add_all([user_a, user_b])
+            session.flush()
+            u_a, u_b = user_a.id, user_b.id
+            session.add_all(
+                [
+                    AuthSession(
+                        id=sess_a,
+                        user_id=u_a,
+                        created_at=now,
+                        expires_at=now + timedelta(hours=1),
+                        revoked_at=None,
+                    ),
+                    AuthSession(
+                        id=sess_b,
+                        user_id=u_b,
+                        created_at=now,
+                        expires_at=now + timedelta(hours=1),
+                        revoked_at=None,
+                    ),
+                ]
+            )
+
+        # Clean up Run A twice (idempotent) -> Run B remains untouched
+        _cleanup_ai_e2e_run(
+            migrated_integration_engine,
+            owned_session_ids=(sess_a,),
+            owned_user_ids=(u_a,),
+        )
+        _cleanup_ai_e2e_run(
+            migrated_integration_engine,
+            owned_session_ids=(sess_a,),
+            owned_user_ids=(u_a,),
+        )
+        u_a = None
+
+        with Session(migrated_integration_engine) as session:
+            assert session.get(User, u_b) is not None
+            assert session.get(AuthSession, sess_b) is not None
+    finally:
+        if u_a is not None:
+            _cleanup_ai_e2e_run(
+                migrated_integration_engine,
+                owned_session_ids=(sess_a,),
+                owned_user_ids=(u_a,),
+            )
+        if u_b is not None:
+            _cleanup_ai_e2e_run(
+                migrated_integration_engine,
+                owned_session_ids=(sess_b,),
+                owned_user_ids=(u_b,),
+            )

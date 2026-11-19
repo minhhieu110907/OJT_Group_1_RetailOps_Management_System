@@ -246,10 +246,12 @@ class AIOrchestrator:
         message: str,
         bound: BoundToolRequest,
     ) -> AIAskResponse:
+        bound.budget.check_deadline()
         normalized = _normalize_text(message)
 
         # 1. Fixed non-data intents: zero Gemini tokens, zero DB work
         if normalized in _GREETING_EXACT:
+            bound.budget.check_deadline()
             return AIAskResponse(
                 answer=(
                     "Xin chào! Tôi có thể hỗ trợ tra cứu doanh thu, sản phẩm bán chạy, "
@@ -259,6 +261,7 @@ class AIOrchestrator:
                 insufficient_data=False,
             )
         if normalized in _HELP_EXACT:
+            bound.budget.check_deadline()
             return AIAskResponse(
                 answer=(
                     "Tôi hỗ trợ 4 nhóm tra cứu dữ liệu thực tế: tổng hợp doanh thu "
@@ -272,13 +275,16 @@ class AIOrchestrator:
         direct = _match_direct_tool(normalized, now_vn=self._clock_vn())
         if direct is not None:
             tool_id, arguments = direct
+            bound.budget.check_deadline()
             result, _payload = await run_in_threadpool(
                 self._execute_tool_sync,
                 bound,
                 tool_id=tool_id,
                 arguments=arguments,
             )
+            bound.budget.check_deadline()
             answer, insufficient = _format_direct_answer(result)
+            bound.budget.check_deadline()
             return AIAskResponse(
                 answer=answer,
                 evidence=[_build_evidence(result)],
@@ -291,6 +297,7 @@ class AIOrchestrator:
         turn = await provider.generate_turn(
             message, timeout_seconds=self._remaining_provider_timeout(bound)
         )
+        bound.budget.check_deadline()
 
         max_rounds = bound.budget.max_calls
         rounds = 0
@@ -300,6 +307,7 @@ class AIOrchestrator:
                 break
             tool_responses: list[ToolResponseItem] = []
             for call in turn.function_calls:
+                bound.budget.check_deadline()
                 if call.name not in _ALLOWED_TOOLS:
                     raise DomainValidationError(
                         "Công cụ do AI đề xuất không nằm trong danh sách được phép."
@@ -316,6 +324,7 @@ class AIOrchestrator:
                     tool_id=validated_tool,
                     arguments=call.arguments,
                 )
+                bound.budget.check_deadline()
                 collected_results.append(result)
                 tool_responses.append(
                     ToolResponseItem(name=validated_tool, payload=payload)
@@ -327,6 +336,7 @@ class AIOrchestrator:
                 tuple(tool_responses),
                 timeout_seconds=self._remaining_provider_timeout(bound),
             )
+            bound.budget.check_deadline()
 
         if turn.function_calls:
             raise GeminiProviderError(
@@ -334,6 +344,7 @@ class AIOrchestrator:
             )
 
         if not collected_results:
+            bound.budget.check_deadline()
             return AIAskResponse(
                 answer=(
                     "Chưa có dữ liệu thực tế từ hệ thống để trả lời câu hỏi này. "
@@ -350,6 +361,7 @@ class AIOrchestrator:
 
         evidence = [_build_evidence(res) for res in collected_results]
         insufficient = all(_is_insufficient_result(res) for res in collected_results)
+        bound.budget.check_deadline()
         return AIAskResponse(
             answer=answer_text,
             evidence=evidence,
