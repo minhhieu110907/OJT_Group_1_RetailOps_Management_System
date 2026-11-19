@@ -179,6 +179,17 @@ def test_change_password_keeps_only_current_session(
         with pytest.raises(DomainValidationError):
             service.change_password(
                 session,
+                current_user=staff,
+                session_id=current_session_id,
+                current_password=OLD_PASSWORD,
+                new_password=OLD_PASSWORD,
+                csrf_header=active.csrf_token,
+                csrf_cookie=active.csrf_token,
+                origin=ORIGIN,
+            )
+        with pytest.raises(DomainValidationError):
+            service.change_password(
+                session,
                 actor_id=staff.id,
                 session_id=current_session_id,
                 current_password="incorrect-password",
