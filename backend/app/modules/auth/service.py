@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pymysql.constants import ER
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,11 +17,13 @@ from app.core.exceptions import (
     AppException,
     CsrfRejectedError,
     InvalidCredentialsError,
+    DomainValidationError,
     SessionInvalidError,
 )
 from app.modules.auth.models import (
     ApprovalStatus,
     AuthSession,
+    PasswordResetToken,
     RefreshToken,
     StaffApprovalRequest,
     User,
@@ -348,6 +351,108 @@ class AuthService:
         if auth_session is not None and auth_session.revoked_at is None:
             auth_session.revoked_at = utc_now_naive()
         session.commit()
+
+    def change_password(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        session_id: UUID,
+        current_password: str,
+        new_password: str,
+        refresh_token: str | None,
+        csrf_header: str | None,
+        csrf_cookie: str | None,
+        origin: str | None,
+    ) -> AuthResult:
+        """Rotate current refresh, revoke other sessions, update password atomically.
+
+        Requires live bearer + authenticated refresh cookie + bound CSRF proof.
+        All credential mutations use canonical User -> Session -> Refresh locks.
+        """
+        self._validate_origin(origin)
+        if not refresh_token or not csrf_header or not csrf_cookie:
+            raise CsrfRejectedError()
+        try:
+            self.csrf.verify_pair(
+                header_token=csrf_header,
+                cookie_token=csrf_cookie,
+                expected_session_id=session_id,
+            )
+        except ValueError as error:
+            raise CsrfRejectedError() from error
+        digest = self._safe_digest(refresh_token)
+        try:
+            # The owning principal may have been locked/revoked after bearer auth.
+            user = self.repository.lock_user_by_id(session, actor_id)
+            if user is None or user.status != UserStatus.ACTIVE:
+                raise SessionInvalidError()
+            current_session = self.repository.lock_session(session, session_id.bytes)
+            now = utc_now_naive()
+            if (
+                current_session is None
+                or current_session.user_id != user.id
+                or current_session.revoked_at is not None
+                or current_session.expires_at <= now
+            ):
+                raise SessionInvalidError()
+            token = self.repository.lock_refresh(session, digest)
+            if (
+                token is None
+                or token.session_id != current_session.id
+                or token.consumed_at is not None
+            ):
+                raise SessionInvalidError()
+            if not self.password_hasher.verify(current_password, user.password_hash):
+                raise InvalidCredentialsError()
+            if self.password_hasher.verify(new_password, user.password_hash):
+                raise DomainValidationError("Mật khẩu mới phải khác mật khẩu hiện tại.")
+            try:
+                password_hash = self.password_hasher.hash(new_password)
+            except InvalidPasswordError as error:
+                raise DomainValidationError(
+                    "Mật khẩu mới không đáp ứng yêu cầu bảo mật."
+                ) from error
+
+            user.password_hash = password_hash
+            user.updated_at = now
+            # Invalidate existing public-reset links so an old email token
+            # cannot silently change the newly selected password.
+            session.execute(
+                update(PasswordResetToken)
+                .where(
+                    PasswordResetToken.user_id == user.id,
+                    PasswordResetToken.used_at.is_(None),
+                )
+                .values(used_at=now)
+            )
+            session.execute(
+                update(AuthSession)
+                .where(
+                    AuthSession.user_id == user.id,
+                    AuthSession.id != current_session.id,
+                    AuthSession.revoked_at.is_(None),
+                )
+                .values(revoked_at=now)
+            )
+            token.consumed_at = now
+            next_token = generate_refresh_token()
+            session.add(
+                RefreshToken(
+                    token_digest=digest_refresh_token(next_token),
+                    session_id=current_session.id,
+                    generation=token.generation + 1,
+                    issued_at=now,
+                    consumed_at=None,
+                )
+            )
+            session.commit()
+            return self._auth_result(
+                user, session_id, current_session.expires_at, next_token, now
+            )
+        except Exception:
+            session.rollback()
+            raise
 
     def live_user(self, session: Session, access_token: str) -> tuple[User, UUID]:
         try:
