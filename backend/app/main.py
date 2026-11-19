@@ -32,6 +32,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await redis.aclose()
 
     application = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
+    application.state.settings = resolved_settings
     register_exception_handlers(application)
     application.add_middleware(
         CORSMiddleware,

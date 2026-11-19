@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr | None = None
     csrf_secret: SecretStr | None = None
     idempotency_secret: SecretStr | None = None
+    benchmark_attestation_secret: SecretStr | None = None
+    benchmark_isolated_database: str | None = None
     outbox_secret_key: SecretStr | None = None
     jwt_issuer: str = "retailops-api"
     jwt_audience: str = "retailops-api"
@@ -111,9 +113,9 @@ class Settings(BaseSettings):
     password_reset_ttl_seconds: int = Field(default=900, ge=60, le=3600)
     password_reset_base_url: str = "http://127.0.0.1:5173/reset-password"
     password_reset_email_adapter: Literal["outbox", "memory"] = "outbox"
-    forgot_password_ip_rate_limit: int = Field(default=5, ge=1, le=10_000)
-    forgot_password_ip_rate_window_seconds: int = Field(default=60, ge=1, le=86_400)
-    forgot_password_account_rate_limit: int = Field(default=5, ge=1, le=10_000)
+    forgot_password_ip_rate_limit: int = Field(default=3, ge=1, le=10_000)
+    forgot_password_ip_rate_window_seconds: int = Field(default=3_600, ge=1, le=86_400)
+    forgot_password_account_rate_limit: int = Field(default=3, ge=1, le=10_000)
     forgot_password_account_rate_window_seconds: int = Field(
         default=3_600, ge=1, le=86_400
     )
@@ -131,6 +133,24 @@ class Settings(BaseSettings):
         if isinstance(value, SecretStr) and not value.get_secret_value().strip():
             return None
         return value
+
+    @field_validator("benchmark_attestation_secret", mode="before")
+    @classmethod
+    def normalize_blank_benchmark_attestation_secret(
+        cls, value: SecretStr | str | None
+    ) -> SecretStr | str | None:
+        """Treat an empty optional benchmark secret as disabled."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, SecretStr) and not value.get_secret_value().strip():
+            return None
+        return value
+
+    @field_validator("benchmark_isolated_database", mode="before")
+    @classmethod
+    def normalize_blank_benchmark_database(cls, value: str | None) -> str | None:
+        """Treat an empty optional benchmark database identity as disabled."""
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     @field_validator("gemini_api_key", mode="before")
     @classmethod
@@ -309,6 +329,29 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires JWT and CSRF secrets")
             if self.cookie_secure is False:
                 raise ValueError("Production auth cookies must be Secure")
+        return self
+
+    @model_validator(mode="after")
+    def validate_benchmark_attestation_configuration(self) -> "Settings":
+        """Allow attestation only for an explicitly configured test stack."""
+        secret = self.benchmark_attestation_secret
+        database = self.benchmark_isolated_database
+        if secret is None and database is None:
+            return self
+        if secret is None or database is None:
+            raise ValueError(
+                "Benchmark attestation requires both secret and isolated database"
+            )
+        secret_value = secret.get_secret_value()
+        if len(secret_value.encode()) < 32 or secret_value.startswith("CHANGE_ME"):
+            raise ValueError(
+                "Benchmark attestation secret must be a non-placeholder of at least "
+                "32 bytes"
+            )
+        if self.environment.strip().casefold() != "test":
+            raise ValueError(
+                "Benchmark attestation is allowed only in test environment"
+            )
         return self
 
     def require_rabbitmq_url(self) -> str:

@@ -17,9 +17,14 @@ from starlette.requests import Request
 
 from app.core.config import Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
-from app.core.exceptions import DependencyUnavailableError, InvalidCredentialsError
+from app.core.exceptions import (
+    DependencyUnavailableError,
+    InvalidCredentialsError,
+    RateLimitedError,
+)
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import (
+    enforce_forgot_password_rate_limit,
     enforce_registration_rate_limit,
     get_rate_limiter,
 )
@@ -30,7 +35,12 @@ from app.modules.auth.dependencies import (
     get_auth_service,
     get_current_principal,
 )
-from app.modules.auth.schemas import AuthenticatedUser, RegisterResponse, TokenResponse
+from app.modules.auth.schemas import (
+    AuthenticatedUser,
+    ForgotPasswordRequest,
+    RegisterResponse,
+    TokenResponse,
+)
 from app.modules.auth.security import CsrfService
 from app.modules.auth.service import REGISTER_ACCEPTED_MESSAGE, AuthResult
 
@@ -255,6 +265,43 @@ async def test_default_registration_policy_allows_five_then_returns_429() -> Non
     ]
     assert int(responses[-1].headers["retry-after"]) > 0
     assert service.calls == 5
+
+
+@pytest.mark.anyio
+async def test_default_forgot_password_has_independent_three_per_hour_quotas() -> None:
+    configured = settings()
+    redis = FakeRedis(
+        [
+            [1, 3_600],
+            [1, 3_600],
+            [2, 3_599],
+            [2, 3_599],
+            [3, 3_598],
+            [3, 3_598],
+            [4, 3_597],
+            [4, 3_597],
+        ]
+    )
+    limiter = RedisFixedWindowRateLimiter(redis, "retailops:test")  # type: ignore[arg-type]
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/auth/forgot-password",
+            "headers": [],
+            "client": ("203.0.113.10", 4321),
+        }
+    )
+    payload = ForgotPasswordRequest(email="staff@example.com")
+
+    for _ in range(3):
+        await enforce_forgot_password_rate_limit(payload, request, limiter, configured)
+    with pytest.raises(RateLimitedError):
+        await enforce_forgot_password_rate_limit(payload, request, limiter, configured)
+
+    keys = [str(call[2]) for call in redis.calls]
+    assert sum("auth-forgot-password-ip" in key for key in keys) == 4
+    assert sum("auth-forgot-password-account" in key for key in keys) == 4
 
 
 @pytest.mark.anyio
@@ -701,6 +748,10 @@ def test_rate_limit_configuration_validation() -> None:
     assert settings().login_account_rate_limit == 20
     assert settings().refresh_rate_limit == 10
     assert settings().business_rate_limit == 120
+    assert settings().forgot_password_ip_rate_limit == 3
+    assert settings().forgot_password_ip_rate_window_seconds == 3_600
+    assert settings().forgot_password_account_rate_limit == 3
+    assert settings().forgot_password_account_rate_window_seconds == 3_600
 
 
 def test_missing_lifespan_rate_limiter_fails_closed() -> None:
