@@ -169,11 +169,14 @@ def test_change_password_keeps_only_current_session(
         _, staff = _accounts(session, "change")
         active = service.login(session, staff.email_normalized, OLD_PASSWORD)
         other = service.login(session, staff.email_normalized, OLD_PASSWORD)
+        _, current_session_id = service.live_user(
+            session, active.response.access_token
+        )
         with pytest.raises(DomainValidationError):
             service.change_password(
                 session,
                 actor_id=staff.id,
-                session_id=active.response.user.id,  # type: ignore[arg-type]
+                session_id=current_session_id,
                 current_password="incorrect-password",
                 new_password=NEW_PASSWORD,
                 refresh_token=active.refresh_token,
@@ -181,8 +184,6 @@ def test_change_password_keeps_only_current_session(
                 csrf_cookie=active.csrf_token,
                 origin=ORIGIN,
             )
-        # Supply the actual server-side session UUID from the bearer JWT.
-        _, current_session_id = service.live_user(session, active.response.access_token)
         result = service.change_password(
             session,
             actor_id=staff.id,
