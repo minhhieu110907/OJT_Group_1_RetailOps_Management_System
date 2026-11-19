@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -87,12 +87,14 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
 
     run_id = uuid4().hex[:12]
     now = datetime(2026, 11, 18, 10, 0)
+    test_started_at = datetime.now(UTC).replace(tzinfo=None)
     hasher = PasswordHasher(work_factor=4)
     password = "AiE2ePassword!123"
-    admin_email = f"ai-e2e-admin-{run_id}@retailops.local"
     staff_email = f"ai-e2e-staff-{run_id}@retailops.local"
 
-    user_ids: list[int] = []
+    owned_user_ids: list[int] = []
+    reused_admin_id: int | None = None
+    original_admin_password_hash: str | None = None
     category_ids: list[int] = []
     product_ids: list[int] = []
     order_ids: list[int] = []
@@ -100,15 +102,33 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
 
     try:
         with Session(migrated_integration_engine) as session, session.begin():
-            admin = User(
-                email_normalized=admin_email,
-                password_hash=hasher.hash(password),
-                role=UserRole.ADMIN,
-                status=UserStatus.ACTIVE,
-                admin_slot=None,
-                created_at=now,
-                updated_at=now,
+            existing_admin = session.scalar(
+                select(User).where(
+                    User.role == UserRole.ADMIN, User.status == UserStatus.ACTIVE
+                )
             )
+            if existing_admin is None:
+                admin = User(
+                    email_normalized=f"ai-e2e-admin-{run_id}@retailops.local",
+                    password_hash=hasher.hash(password),
+                    role=UserRole.ADMIN,
+                    status=UserStatus.ACTIVE,
+                    admin_slot=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(admin)
+                session.flush()
+                admin_id = admin.id
+                admin_email = admin.email_normalized
+                owned_user_ids.append(admin_id)
+            else:
+                reused_admin_id = existing_admin.id
+                original_admin_password_hash = existing_admin.password_hash
+                existing_admin.password_hash = hasher.hash(password)
+                admin_id = existing_admin.id
+                admin_email = existing_admin.email_normalized
+
             staff = User(
                 email_normalized=staff_email,
                 password_hash=hasher.hash(password),
@@ -121,11 +141,12 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
             cat = Category(
                 name=f"AI-E2E-Cat-{run_id}",
                 description="E2E category",
+                status=CatalogStatus.ACTIVE,
                 created_at=now,
             )
-            session.add_all([admin, staff, cat])
+            session.add_all([staff, cat])
             session.flush()
-            user_ids.extend([admin.id, staff.id])
+            owned_user_ids.append(staff.id)
             category_ids.append(cat.id)
 
             prod = Product(
@@ -147,7 +168,7 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 order_code=f"ORD-AIE2E-{run_id}",
                 status=OrderStatus.COMPLETED,
                 total_vnd=75000,
-                created_by=admin.id,
+                created_by=admin_id,
                 created_at=datetime(2026, 11, 18, 9, 0),
             )
             session.add(order)
@@ -268,17 +289,36 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 session.execute(delete(Product).where(Product.id.in_(product_ids)))
             if category_ids:
                 session.execute(delete(Category).where(Category.id.in_(category_ids)))
-            if user_ids:
+            if reused_admin_id is not None:
+                reused_admin = session.get(User, reused_admin_id)
+                if (
+                    reused_admin is not None
+                    and original_admin_password_hash is not None
+                ):
+                    reused_admin.password_hash = original_admin_password_hash
+                reused_sessions = select(AuthSession.id).where(
+                    AuthSession.user_id == reused_admin_id,
+                    AuthSession.created_at >= test_started_at,
+                )
+                session.execute(
+                    delete(RefreshToken).where(
+                        RefreshToken.session_id.in_(reused_sessions)
+                    )
+                )
+                session.execute(
+                    delete(AuthSession).where(AuthSession.id.in_(reused_sessions))
+                )
+            if owned_user_ids:
                 session.execute(
                     delete(RefreshToken).where(
                         RefreshToken.session_id.in_(
                             select(AuthSession.id).where(
-                                AuthSession.user_id.in_(user_ids)
+                                AuthSession.user_id.in_(owned_user_ids)
                             )
                         )
                     )
                 )
                 session.execute(
-                    delete(AuthSession).where(AuthSession.user_id.in_(user_ids))
+                    delete(AuthSession).where(AuthSession.user_id.in_(owned_user_ids))
                 )
-                session.execute(delete(User).where(User.id.in_(user_ids)))
+                session.execute(delete(User).where(User.id.in_(owned_user_ids)))

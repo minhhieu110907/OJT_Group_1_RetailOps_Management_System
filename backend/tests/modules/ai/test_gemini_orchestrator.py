@@ -15,7 +15,7 @@ import pytest
 from google.genai import errors as genai_errors
 from pydantic import SecretStr, ValidationError
 from redis.exceptions import ConnectionError as RedisConnectionError
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -66,6 +66,11 @@ def _make_sqlite_session_factory():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def _register_collation(dbapi_conn, _conn_record):
+        dbapi_conn.create_collation("ascii_bin", lambda a, b: (a > b) - (a < b))
+
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
