@@ -35,6 +35,7 @@
       "token_env": "RETAILOPS_BENCHMARK_STAFF_TOKEN",
       "target_p95_ms": 800,
       "requests": 20,
+      "warmup_requests": 3,
       "write_safe": true,
       "request": {
         "method": "POST",
@@ -50,6 +51,7 @@
       "token_env": "RETAILOPS_BENCHMARK_ADMIN_TOKEN",
       "target_p95_ms": 800,
       "requests": 20,
+      "warmup_requests": 3,
       "setup": {
         "request": {
           "method": "POST",

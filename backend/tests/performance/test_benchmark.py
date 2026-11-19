@@ -1,13 +1,18 @@
+import hashlib
+import hmac
 import json
 
+import httpx
 import pytest
 
 from performance.benchmark import (
+    attest_isolated_target,
     classify_status,
     percentile,
     render,
     resolve_path,
     validate_run_safety,
+    verify_attestation,
 )
 
 
@@ -54,6 +59,56 @@ def test_safety_requires_real_concurrency_and_fresh_fixture_per_write_run() -> N
         validate_run_safety(config, [10, 20])
     with pytest.raises(ValueError, match="fewer requests"):
         validate_run_safety(config, [20, 21])
+    with pytest.raises(ValueError, match="fewer requests"):
+        validate_run_safety(config, [20], samples=19)
+
+
+def test_attestation_rejects_missing_malformed_and_wrong_signature() -> None:
+    secret = "s" * 32
+    challenge = "a" * 64
+    digest = hashlib.sha256(b"isolated-db").hexdigest()
+    payload = f"v1:{challenge}:{digest}"
+    signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    assert verify_attestation(challenge, f"v1:{digest}:{signature}", secret)
+    assert not verify_attestation(challenge, None, secret)
+    assert not verify_attestation(challenge, "invalid", secret)
+    assert not verify_attestation(challenge, f"v1:{digest}:{'0' * 64}", secret)
+
+
+@pytest.mark.anyio
+async def test_attestation_fails_closed_when_target_is_unverified() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "ok"})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://testserver"
+    ) as client:
+        with pytest.raises(ValueError, match="did not prove"):
+            await attest_isolated_target(client, "s" * 32)
+
+
+@pytest.mark.anyio
+async def test_attestation_accepts_challenge_bound_server_proof() -> None:
+    secret = "s" * 32
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        challenge = request.headers["X-RetailOps-Benchmark-Challenge"]
+        digest = hashlib.sha256(b"isolated-db").hexdigest()
+        payload = f"v1:{challenge}:{digest}"
+        signature = hmac.new(
+            secret.encode(), payload.encode(), hashlib.sha256
+        ).hexdigest()
+        return httpx.Response(
+            200,
+            json={"status": "ok"},
+            headers={"X-RetailOps-Benchmark-Attestation": (f"v1:{digest}:{signature}")},
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://testserver"
+    ) as client:
+        await attest_isolated_target(client, secret)
 
 
 def test_windows_utf8_bom_configuration_is_accepted(tmp_path) -> None:

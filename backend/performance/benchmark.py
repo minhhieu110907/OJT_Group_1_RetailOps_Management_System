@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import hmac
 import json
 import math
 import os
@@ -22,6 +24,9 @@ from urllib.parse import urlsplit
 import httpx
 
 SUCCESS_CLASS = "business_success"
+ATTESTATION_SECRET_ENV = "RETAILOPS_BENCHMARK_ATTESTATION_SECRET"
+ATTESTATION_CHALLENGE_HEADER = "X-RetailOps-Benchmark-Challenge"
+ATTESTATION_RESPONSE_HEADER = "X-RetailOps-Benchmark-Attestation"
 
 
 def percentile(values: list[float], percent: int) -> float | None:
@@ -67,14 +72,17 @@ def render(value: Any, context: dict[str, Any]) -> Any:
     return value
 
 
-def validate_run_safety(config: dict[str, Any], concurrency_levels: list[int]) -> None:
+def validate_run_safety(
+    config: dict[str, Any], concurrency_levels: list[int], samples: int | None = None
+) -> None:
     """Reject configurations that cannot exercise or safely isolate the load."""
     scenarios = config.get("scenarios", [])
     if not scenarios:
         raise ValueError("At least one benchmark scenario is required")
     for concurrency in concurrency_levels:
         for scenario in scenarios:
-            if scenario["requests"] < concurrency:
+            request_count = samples if samples is not None else scenario["requests"]
+            if request_count < concurrency:
                 raise ValueError(
                     f"{scenario['name']} has fewer requests than concurrency "
                     f"{concurrency}"
@@ -95,6 +103,37 @@ class Observation:
     status_code: int
     classification: str
     server_ms: float | None
+
+
+def verify_attestation(challenge: str, value: str | None, secret: str) -> bool:
+    """Verify a server proof bound to this challenge and its actual database."""
+    if not value:
+        return False
+    parts = value.split(":")
+    if len(parts) != 3 or parts[0] != "v1":
+        return False
+    _, database_digest, signature = parts
+    if len(database_digest) != 64 or len(signature) != 64:
+        return False
+    payload = f"v1:{challenge}:{database_digest}"
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+async def attest_isolated_target(client: httpx.AsyncClient, secret: str) -> None:
+    """Fail closed unless the target proves test mode and its actual isolated DB."""
+    if len(secret.encode()) < 32:
+        raise ValueError("Benchmark attestation secret must be at least 32 bytes")
+    challenge = os.urandom(32).hex()
+    response = await client.get(
+        "/api/v1/health", headers={ATTESTATION_CHALLENGE_HEADER: challenge}
+    )
+    response.raise_for_status()
+    proof = response.headers.get(ATTESTATION_RESPONSE_HEADER)
+    if not verify_attestation(challenge, proof, secret):
+        raise ValueError(
+            "Target did not prove an isolated test environment and actual database"
+        )
 
 
 async def request_once(
@@ -132,6 +171,7 @@ async def run_scenario(
     client: httpx.AsyncClient,
     scenario: dict[str, Any],
     concurrency: int,
+    samples: int | None = None,
 ) -> dict[str, Any]:
     token_env = scenario["token_env"]
     token = os.environ.get(token_env, "")
@@ -146,25 +186,16 @@ async def run_scenario(
     ):
         raise ValueError(f"Write scenario {scenario['name']} must declare write_safe")
 
-    for warmup_index in range(scenario.get("warmup_requests", 0)):
-        if setup:
-            break
-        context = {"request_id": f"warmup-{warmup_index}-{uuid.uuid4().hex}"}
-        observation, _ = await request_once(
-            client, request, context, token, timed=False
-        )
-        if observation.classification != SUCCESS_CLASS:
-            raise RuntimeError(
-                f"Warm-up failed for {scenario['name']}: {observation.status_code}"
-            )
-
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def prepare(sequence: int) -> tuple[dict[str, Any], Observation | None]:
+    async def prepare(
+        sequence: int, *, warmup: bool = False
+    ) -> tuple[dict[str, Any], Observation | None]:
         async with semaphore:
+            prefix = "warmup" if warmup else "bench"
             context: dict[str, Any] = {
                 "sequence": sequence,
-                "request_id": f"bench-{sequence}-{uuid.uuid4().hex}",
+                "request_id": f"{prefix}-{sequence}-{uuid.uuid4().hex}",
             }
             if setup:
                 setup_observation, setup_response = await request_once(
@@ -179,9 +210,26 @@ async def run_scenario(
                     context[key] = resolve_path(payload, path)
             return context, None
 
-    prepared = await asyncio.gather(
-        *(prepare(index) for index in range(scenario["requests"]))
+    warmup_count = scenario.get("warmup_requests", 0)
+    warmups = await asyncio.gather(
+        *(prepare(index, warmup=True) for index in range(warmup_count))
     )
+    for context, setup_error in warmups:
+        if setup_error is not None:
+            raise RuntimeError(
+                f"Warm-up setup failed for {scenario['name']}: "
+                f"{setup_error.status_code}"
+            )
+        observation, _ = await request_once(
+            client, request, context, token, timed=False
+        )
+        if observation.classification != SUCCESS_CLASS:
+            raise RuntimeError(
+                f"Warm-up failed for {scenario['name']}: {observation.status_code}"
+            )
+
+    request_count = samples if samples is not None else scenario["requests"]
+    prepared = await asyncio.gather(*(prepare(index) for index in range(request_count)))
 
     async def execute(context: dict[str, Any]) -> Observation:
         async with semaphore:
@@ -209,6 +257,8 @@ async def run_scenario(
         "name": scenario["name"],
         "group": scenario["group"],
         "concurrency": concurrency,
+        "configured_samples": request_count,
+        "warmup_requests": warmup_count,
         "requests": len(observations),
         "successful_requests": len(successful),
         "status_distribution": dict(sorted(distribution.items())),
@@ -236,10 +286,14 @@ def git_sha() -> str:
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
     config = json.loads(args.config.read_text(encoding="utf-8-sig"))
-    validate_run_safety(config, args.concurrency)
+    validate_run_safety(config, args.concurrency, args.samples)
     parsed = urlsplit(args.base_url)
     is_loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
-    if not args.isolated_test_data:
+    has_writes = any(
+        scenario["request"]["method"].upper() != "GET"
+        for scenario in config["scenarios"]
+    )
+    if has_writes and not args.isolated_test_data:
         raise ValueError("Refusing writes without --isolated-test-data")
     if not is_loopback and not args.allow_remote_test_target:
         raise ValueError("Remote targets require --allow-remote-test-target")
@@ -247,10 +301,22 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     async with httpx.AsyncClient(
         base_url=args.base_url.rstrip("/"), timeout=timeout
     ) as client:
+        attestation_verified = False
+        if has_writes:
+            attestation_secret = os.environ.get(args.attestation_secret_env, "")
+            if not attestation_secret:
+                raise ValueError(
+                    "Write workloads require benchmark attestation secret environment "
+                    f"variable: {args.attestation_secret_env}"
+                )
+            await attest_isolated_target(client, attestation_secret)
+            attestation_verified = True
         results = []
         for concurrency in args.concurrency:
             for scenario in config["scenarios"]:
-                results.append(await run_scenario(client, scenario, concurrency))
+                results.append(
+                    await run_scenario(client, scenario, concurrency, args.samples)
+                )
     return {
         "metadata": {
             "generated_at": datetime.now(UTC).isoformat(),
@@ -260,7 +326,12 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "platform": platform.platform(),
             "python": platform.python_version(),
             "dataset": config["dataset"],
-            "isolated_test_data_acknowledged": True,
+            "trial_id": args.trial_id,
+            "environment_label": args.environment_label,
+            "concurrency_levels": args.concurrency,
+            "sample_override": args.samples,
+            "isolated_test_data_acknowledged": args.isolated_test_data,
+            "isolated_target_attestation_verified": attestation_verified,
         },
         "results": results,
     }
@@ -276,6 +347,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--isolated-test-data", action="store_true")
     parser.add_argument("--allow-remote-test-target", action="store_true")
+    parser.add_argument("--samples", type=int, choices=range(1, 100_001))
+    parser.add_argument("--trial-id", required=True)
+    parser.add_argument("--environment-label", required=True)
+    parser.add_argument("--attestation-secret-env", default=ATTESTATION_SECRET_ENV)
     return parser.parse_args()
 
 

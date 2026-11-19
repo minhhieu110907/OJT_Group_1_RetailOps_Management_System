@@ -1,0 +1,19 @@
+{
+  "dataset": "Existing isolated T04AAA2 Docker dataset; one ACTIVE product with inventory.",
+  "timeout_seconds": 30,
+  "scenarios": [
+    {
+      "name": "product-list",
+      "group": "product-read",
+      "token_env": "RETAILOPS_BENCHMARK_STAFF_TOKEN",
+      "target_p95_ms": 300,
+      "requests": 100,
+      "warmup_requests": 10,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/products?page=1&page_size=20",
+        "expected_statuses": [200]
+      }
+    }
+  ]
+}
