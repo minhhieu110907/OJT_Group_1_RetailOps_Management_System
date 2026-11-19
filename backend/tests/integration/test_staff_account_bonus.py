@@ -173,6 +173,9 @@ def test_change_password_keeps_only_current_session(
         active = service.login(session, staff.email_normalized, OLD_PASSWORD)
         other = service.login(session, staff.email_normalized, OLD_PASSWORD)
         _, current_session_id = service.live_user(session, active.response.access_token)
+        current_before = session.get(AuthSession, current_session_id.bytes)
+        assert current_before is not None
+        absolute_expiry = current_before.expires_at
         with pytest.raises(DomainValidationError):
             service.change_password(
                 session,
@@ -197,9 +200,33 @@ def test_change_password_keeps_only_current_session(
             origin=ORIGIN,
         )
         assert result.refresh_token != active.refresh_token
-        assert (
-            service.live_user(session, result.response.access_token)[0].id == staff.id
+        live_user, live_session_id = service.live_user(
+            session, result.response.access_token
         )
+        assert live_user.id == staff.id
+        assert live_session_id == current_session_id
+        current_after = session.get(AuthSession, current_session_id.bytes)
+        assert current_after is not None
+        assert current_after.revoked_at is None
+        assert current_after.expires_at == absolute_expiry
+        current_refreshes = list(
+            session.scalars(
+                select(RefreshToken)
+                .where(RefreshToken.session_id == current_session_id.bytes)
+                .order_by(RefreshToken.generation)
+            )
+        )
+        assert [token.generation for token in current_refreshes] == [0, 1]
+        assert current_refreshes[0].consumed_at is not None
+        assert current_refreshes[1].consumed_at is None
+        other_session = session.scalar(
+            select(AuthSession)
+            .where(AuthSession.user_id == staff.id)
+            .where(AuthSession.id != current_session_id.bytes)
+            .order_by(AuthSession.created_at.desc())
+        )
+        assert other_session is not None
+        assert other_session.revoked_at is not None
         with pytest.raises(SessionInvalidError):
             service.live_user(session, other.response.access_token)
         with pytest.raises(InvalidCredentialsError):

@@ -27,6 +27,7 @@ import axiosClient, {
   callLogoutApi,
   callRefreshTokenApi,
   runExclusiveCredentialMutation,
+  withCredentialCookieLock,
   setAuthTransport,
   normalizeBackendUser,
   evaluateRouteAccess,
@@ -116,6 +117,48 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
     await mutation;
     assert.equal(changed, true);
     assert.equal(requests, 1);
+  });
+
+  it('Bonus: serializes cross-tab cookie rotation with storage fallback when Web Locks is unavailable', async () => {
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const values = new Map();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { locks: undefined },
+    });
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, String(value)),
+        removeItem: (key) => values.delete(key),
+      },
+    });
+    let active = 0;
+    let maxActive = 0;
+    const operation = () => withCredentialCookieLock(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      active -= 1;
+    });
+    try {
+      await Promise.all([operation(), operation()]);
+      assert.equal(maxActive, 1);
+      assert.equal(values.size, 0);
+    } finally {
+      if (navigatorDescriptor) {
+        Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      } else {
+        delete globalThis.navigator;
+      }
+      if (storageDescriptor) {
+        Object.defineProperty(globalThis, 'localStorage', storageDescriptor);
+      } else {
+        delete globalThis.localStorage;
+      }
+    }
   });
 
   // ==========================================================================
