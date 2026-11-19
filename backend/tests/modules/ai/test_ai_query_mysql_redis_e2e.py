@@ -143,6 +143,7 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 description="E2E category",
                 status=CatalogStatus.ACTIVE,
                 created_at=now,
+                updated_at=now,
             )
             session.add_all([staff, cat])
             session.flush()
@@ -296,18 +297,25 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                     and original_admin_password_hash is not None
                 ):
                     reused_admin.password_hash = original_admin_password_hash
-                reused_sessions = select(AuthSession.id).where(
-                    AuthSession.user_id == reused_admin_id,
-                    AuthSession.created_at >= test_started_at,
-                )
-                session.execute(
-                    delete(RefreshToken).where(
-                        RefreshToken.session_id.in_(reused_sessions)
+                reused_session_ids = list(
+                    session.scalars(
+                        select(AuthSession.id).where(
+                            AuthSession.user_id == reused_admin_id,
+                            AuthSession.created_at >= test_started_at,
+                        )
                     )
                 )
-                session.execute(
-                    delete(AuthSession).where(AuthSession.id.in_(reused_sessions))
-                )
+                if reused_session_ids:
+                    session.execute(
+                        delete(RefreshToken).where(
+                            RefreshToken.session_id.in_(reused_session_ids)
+                        )
+                    )
+                    session.execute(
+                        delete(AuthSession).where(
+                            AuthSession.id.in_(reused_session_ids)
+                        )
+                    )
             if owned_user_ids:
                 session.execute(
                     delete(RefreshToken).where(

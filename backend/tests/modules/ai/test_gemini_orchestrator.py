@@ -71,7 +71,17 @@ def _make_sqlite_session_factory():
     def _register_collation(dbapi_conn, _conn_record):
         dbapi_conn.create_collation("ascii_bin", lambda a, b: (a > b) - (a < b))
 
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            User.__table__,
+            Category.__table__,
+            Product.__table__,
+            Inventory.__table__,
+            Order.__table__,
+            OrderItem.__table__,
+        ],
+    )
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
