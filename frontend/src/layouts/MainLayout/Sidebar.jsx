@@ -153,6 +153,7 @@ export default function Sidebar({
   const prevIsOpenRef = useRef(isOpen);
   const isNavigatingRef = useRef(false);
   const isDesktopResizingRef = useRef(false);
+  const drawerOriginalOverflowRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
@@ -220,19 +221,29 @@ export default function Sidebar({
 
   // Trách nhiệm 2: Scroll lock an toàn cho drawer trên mobile
   useEffect(() => {
-    if (!isOpen || !isMobileViewport) return;
+    if (!isOpen || !isMobileViewport) {
+      // Khi drawer đóng hoặc unmount/chuyển desktop: khôi phục overflow ban đầu nếu drawer từng khóa
+      if (drawerOriginalOverflowRef.current !== null) {
+        document.body.style.overflow = drawerOriginalOverflowRef.current;
+        drawerOriginalOverflowRef.current = null;
+      }
+      return;
+    }
 
-    // Chỉ áp dụng scroll lock nếu modal logout chưa chiếm quyền
-    const originalOverflow = document.body.style.overflow;
+    // Khi drawer mở: chỉ chụp overflow một lần nếu chưa từng chụp
+    if (drawerOriginalOverflowRef.current === null) {
+      drawerOriginalOverflowRef.current = document.body.style.overflow;
+    }
     document.body.style.overflow = 'hidden';
 
+    // Cleanup khi unmount component
     return () => {
-      // Nếu logout modal đang mở, Modal component sẽ tự quản lý overflow của nó
-      if (!isLogoutModalOpen) {
-        document.body.style.overflow = originalOverflow;
+      if (drawerOriginalOverflowRef.current !== null) {
+        document.body.style.overflow = drawerOriginalOverflowRef.current;
+        drawerOriginalOverflowRef.current = null;
       }
     };
-  }, [isOpen, isMobileViewport, isLogoutModalOpen]);
+  }, [isOpen, isMobileViewport]);
 
   // Trách nhiệm 3: Keyboard Navigation & Focus Trap trong Drawer
   useEffect(() => {

@@ -473,4 +473,71 @@ describe('Responsive Navigation & Accessibility Suite [T04AA6A]', () => {
     assert.equal(hamburger.getAttribute('aria-expanded'), 'false', 'Drawer phải tự động đóng khi chuyển route');
     assert.notEqual(document.activeElement, hamburger, 'Không cưỡng ép focus về hamburger khi chuyển route');
   });
+
+  test('11. Scroll Lock Comprehensive Lifecycle: Non-empty original overflow, repeated open/close cycles, and unmount', () => {
+    window.__setMobileViewport(true);
+
+    // 1. Trường hợp body đã có overflow ban đầu (ví dụ: 'auto')
+    document.body.style.overflow = 'auto';
+
+    const { container, unmount } = render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/dashboard'] },
+        React.createElement(TestLayoutApp, {
+          authValue: createAuthValue(mockAdminUser),
+        })
+      )
+    );
+
+    const hamburger = container.querySelector('#mobile-nav-toggle-btn');
+    assert.equal(document.body.style.overflow, 'auto', 'Ban đầu body phải có overflow = auto');
+
+    // Mở drawer
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(document.body.style.overflow, 'hidden', 'Body phải bị khóa khi drawer mở');
+
+    // Mở Logout Modal
+    const logoutBtn = container.querySelector('button[aria-label="Đăng xuất"]');
+    act(() => {
+      fireEvent.click(logoutBtn);
+    });
+    assert.equal(document.body.style.overflow, 'hidden', 'Body vẫn phải bị khóa khi Logout Modal mở');
+
+    // Đóng Logout Modal qua nút Hủy
+    const cancelBtn = container.querySelector('button[class*="cancelBtn"]');
+    assert.ok(cancelBtn, 'Nút Hủy modal phải tồn tại');
+    act(() => {
+      fireEvent.click(cancelBtn);
+    });
+    assert.equal(document.body.style.overflow, 'hidden', 'Body vẫn phải giữ hidden khi Drawer vẫn mở');
+
+    // Đóng Drawer
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(document.body.style.overflow, 'auto', 'Body overflow phải trở về giá trị ban đầu là auto');
+
+    // 2. Lặp lại chu kỳ lần 2 để đảm bảo không bị rò rỉ (idempotent / repeatable)
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(document.body.style.overflow, 'hidden', 'Lần 2: Body phải bị khóa');
+
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(document.body.style.overflow, 'auto', 'Lần 2: Body overflow phải phục hồi về auto');
+
+    // 3. Unmount khi Drawer đang mở -> cleanup an toàn
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(document.body.style.overflow, 'hidden');
+
+    unmount();
+    assert.equal(document.body.style.overflow, 'auto', 'Unmount component phải phục hồi đúng overflow ban đầu');
+  });
 });
