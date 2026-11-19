@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useInRouterContext, useNavigate } from 'react-router-dom';
 import {
   AI_QUERY_MAX_LENGTH,
   aiApi,
@@ -6,8 +7,22 @@ import {
   isAiRequestCanceled,
   validateAiMessageInput,
 } from '../../api/aiApi';
+import { analyticsApi } from '../../api/analyticsApi';
+import { getApiErrorMessage } from '../../api/axiosClient';
+import { inventoryApi } from '../../api/inventoryApi';
+import { receiptsApi } from '../../api/receiptsApi';
+import { suppliersApi } from '../../api/suppliersApi';
 import { useAuth } from '../../context/AuthContext';
+import {
+  buildDraftReceiptPayload,
+  buildReorderSuggestions,
+} from '../../utils/reorderSuggestions';
 import styles from './AiAssistant.module.css';
+
+function RouterNavigateBridge({ children }) {
+  const navigate = useNavigate();
+  return children(navigate);
+}
 
 const SUGGESTED_PROMPTS = [
   'Doanh thu và số đơn hoàn tất 7 ngày gần nhất như thế nào?',
@@ -27,11 +42,26 @@ function formatMessageTime() {
 export default function AiAssistant() {
   const { user, isMockMode } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const inRouter = useInRouterContext();
 
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [inputError, setInputError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // T3C9F16 — Smart Reorder Suggestions -> DRAFT Purchase Receipt state
+  const [reorderRows, setReorderRows] = useState([]);
+  const [reorderSuppliers, setReorderSuppliers] = useState([]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [selectedProductIds, setSelectedProductIds] = useState([]);
+  const [isReorderLoading, setIsReorderLoading] = useState(false);
+  const [reorderLoadError, setReorderLoadError] = useState('');
+  const [reorderReloadSeq, setReorderReloadSeq] = useState(0);
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
+  const [draftActionError, setDraftActionError] = useState('');
+  const [createdDraftReceipt, setCreatedDraftReceipt] = useState(null);
+  const reorderReqSeqRef = useRef(0);
+  const draftCreateLockRef = useRef(false);
 
   const reqSeqRef = useRef(0);
   const inFlightRef = useRef(false);
@@ -227,6 +257,440 @@ export default function AiAssistant() {
   const handleDismissError = (messageId) => {
     setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
   };
+
+  // T3C9F16 — Load Low Stock, 30-day Top Products & Active Suppliers in parallel
+  useEffect(() => {
+    if (!isAdmin || isMockMode) {
+      reorderReqSeqRef.current += 1;
+      setReorderRows([]);
+      setReorderSuppliers([]);
+      setSelectedProductIds([]);
+      setIsReorderLoading(false);
+      setReorderLoadError('');
+      return undefined;
+    }
+
+    const currentSeq = ++reorderReqSeqRef.current;
+    setIsReorderLoading(true);
+    setReorderLoadError('');
+
+    const fetchReorderData = async () => {
+      try {
+        const [lowResult, topResult, supResult] = await Promise.allSettled([
+          inventoryApi.getLowStock({ page: 1, pageSize: 20 }),
+          analyticsApi.getTopProducts({
+            isMockMode,
+            page: 1,
+            page_size: 20,
+            days: 30,
+          }),
+          suppliersApi.getActiveSuppliers({
+            page: 1,
+            pageSize: 100,
+            fetchAll: true,
+            maxPages: 5,
+          }),
+        ]);
+
+        if (!isMountedRef.current || currentSeq !== reorderReqSeqRef.current) {
+          return;
+        }
+
+        if (lowResult.status === 'rejected') {
+          setReorderRows([]);
+          setSelectedProductIds([]);
+          setReorderLoadError(
+            getApiErrorMessage(
+              lowResult.reason,
+              'Không thể tải danh sách sản phẩm tồn kho thấp để gợi ý nhập hàng.'
+            )
+          );
+          return;
+        }
+
+        const lowItems = lowResult.value?.items || [];
+        const topItems =
+          topResult.status === 'fulfilled' ? topResult.value?.items || [] : [];
+        const activeSups =
+          supResult.status === 'fulfilled' ? supResult.value?.items || [] : [];
+
+        const builtSuggestions = buildReorderSuggestions(lowItems, topItems);
+        setReorderRows(builtSuggestions);
+        setReorderSuppliers(activeSups);
+        setSelectedProductIds((prev) => {
+          const validIdSet = new Set(builtSuggestions.map((r) => r.product_id));
+          return prev.filter((id) => validIdSet.has(id));
+        });
+      } catch (err) {
+        if (!isMountedRef.current || currentSeq !== reorderReqSeqRef.current) {
+          return;
+        }
+        setReorderLoadError(
+          getApiErrorMessage(
+            err,
+            'Không thể tải dữ liệu gợi ý nhập hàng từ máy chủ.'
+          )
+        );
+      } finally {
+        if (isMountedRef.current && currentSeq === reorderReqSeqRef.current) {
+          setIsReorderLoading(false);
+        }
+      }
+    };
+
+    fetchReorderData();
+    return () => {
+      reorderReqSeqRef.current += 1;
+    };
+  }, [isAdmin, isMockMode, reorderReloadSeq]);
+
+  const isAllSuggestionsSelected =
+    reorderRows.length > 0 && selectedProductIds.length === reorderRows.length;
+
+  const handleToggleAllSuggestions = () => {
+    setDraftActionError('');
+    if (isAllSuggestionsSelected) {
+      setSelectedProductIds([]);
+    } else {
+      setSelectedProductIds(reorderRows.map((r) => r.product_id));
+    }
+  };
+
+  const handleToggleSuggestionRow = (productId) => {
+    const pid = Number(productId);
+    setDraftActionError('');
+    setSelectedProductIds((prev) =>
+      prev.includes(pid) ? prev.filter((id) => id !== pid) : [...prev, pid]
+    );
+  };
+
+  const handleUpdateSuggestionRow = (productId, field, rawValue) => {
+    const pid = Number(productId);
+    setDraftActionError('');
+    setReorderRows((prev) =>
+      prev.map((row) => {
+        if (row.product_id !== pid) return row;
+        return {
+          ...row,
+          [field]: rawValue === '' ? '' : Number(rawValue),
+        };
+      })
+    );
+  };
+
+  const handleCreateDraftDirect = async () => {
+    if (draftCreateLockRef.current || isCreatingDraft) return;
+    setDraftActionError('');
+    setCreatedDraftReceipt(null);
+
+    const { payload, error } = buildDraftReceiptPayload({
+      supplierId: selectedSupplierId,
+      rows: reorderRows,
+      selectedIds: selectedProductIds,
+    });
+
+    if (error || !payload) {
+      setDraftActionError(error || 'Dữ liệu tạo phiếu nhập nháp chưa hợp lệ.');
+      return;
+    }
+
+    draftCreateLockRef.current = true;
+    setIsCreatingDraft(true);
+    try {
+      const created = await receiptsApi.createDraft(payload);
+      if (!isMountedRef.current) return;
+      setCreatedDraftReceipt(created);
+      setDraftActionError('');
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setDraftActionError(
+        getApiErrorMessage(err, 'Không thể tạo phiếu nhập nháp từ gợi ý AI.')
+      );
+    } finally {
+      draftCreateLockRef.current = false;
+      if (isMountedRef.current) {
+        setIsCreatingDraft(false);
+      }
+    }
+  };
+
+  const handleOpenPrefillPurchaseForm = (navigateFn) => {
+    setDraftActionError('');
+    const selectedSet = new Set(selectedProductIds.map(Number));
+    const chosenRows = reorderRows.filter((r) =>
+      selectedSet.has(Number(r.product_id))
+    );
+    if (chosenRows.length === 0) {
+      setDraftActionError('Vui lòng chọn ít nhất 1 sản phẩm gợi ý.');
+      return;
+    }
+
+    const prefillDraft = {
+      supplier_id: selectedSupplierId ? Number(selectedSupplierId) : '',
+      items: chosenRows.map((r) => ({
+        product_id: Number(r.product_id),
+        sku: r.sku,
+        name: r.name,
+        quantity: Math.max(1, Math.trunc(Number(r.suggested_quantity) || 1)),
+        unit_cost_vnd: Math.max(0, Math.trunc(Number(r.unit_cost_vnd) || 0)),
+      })),
+    };
+
+    if (typeof navigateFn === 'function') {
+      navigateFn('/purchases', { state: { prefillDraft } });
+    }
+  };
+
+  const handleInspectCreatedDraft = (navigateFn) => {
+    if (!createdDraftReceipt?.id) return;
+    if (typeof navigateFn === 'function') {
+      navigateFn('/purchases', {
+        state: { openReceiptId: Number(createdDraftReceipt.id) },
+      });
+    }
+  };
+
+  const renderReorderSuggestionsSection = (navigateFn) => (
+    <section
+      className={styles.reorderCard}
+      aria-label="Bảng gợi ý nhập hàng thông minh"
+      data-testid="ai-reorder-suggestions-panel"
+    >
+      <div className={styles.reorderHeader}>
+        <div className={styles.reorderTitleGroup}>
+          <div className={styles.reorderTitleRow}>
+            <h2 className={styles.reorderTitle}>
+              Bảng gợi ý nhập hàng thông minh
+            </h2>
+            <span className={styles.draftOnlyBadge}>
+              Chỉ tạo BẢN NHÁP (DRAFT)
+            </span>
+          </div>
+          <p className={styles.reorderSubtitle}>
+            Tổng hợp sản phẩm tồn kho thấp (≤ 5) kết hợp tốc độ bán 30 ngày qua.
+            Phiếu sinh ra ở trạng thái DRAFT, chưa làm thay đổi tồn kho cho đến
+            khi Quản trị viên kiểm tra và xác nhận.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className={styles.refreshSuggestionsBtn}
+          disabled={isReorderLoading || isCreatingDraft}
+          onClick={() => setReorderReloadSeq((seq) => seq + 1)}
+        >
+          {isReorderLoading ? 'Đang tải gợi ý...' : 'Làm mới gợi ý'}
+        </button>
+      </div>
+
+      {createdDraftReceipt && (
+        <div
+          className={styles.reorderSuccessBanner}
+          role="status"
+          data-testid="draft-created-banner"
+        >
+          <span>
+            Đã tạo phiếu nhập nháp{' '}
+            <strong>#{createdDraftReceipt.id}</strong> (trạng thái{' '}
+            <strong>DRAFT</strong> — chưa cộng tồn kho). Vui lòng kiểm tra đơn
+            giá và xác nhận phiếu khi hàng về kho.
+          </span>
+          <button
+            type="button"
+            className={styles.inspectDraftBtn}
+            onClick={() => handleInspectCreatedDraft(navigateFn)}
+          >
+            Kiểm tra &amp; Xác nhận phiếu nháp
+          </button>
+        </div>
+      )}
+
+      {draftActionError && (
+        <div
+          className={styles.reorderFeedbackErr}
+          role="status"
+          data-testid="draft-action-error"
+        >
+          <span>{draftActionError}</span>
+        </div>
+      )}
+
+      {reorderLoadError ? (
+        <div
+          className={styles.reorderFeedbackErr}
+          role="status"
+          data-testid="reorder-load-error"
+        >
+          <span>{reorderLoadError}</span>
+        </div>
+      ) : isReorderLoading && reorderRows.length === 0 ? (
+        <div className={styles.reorderEmptyBox} role="status">
+          <span>Đang tổng hợp danh sách sản phẩm gợi ý nhập hàng...</span>
+        </div>
+      ) : reorderRows.length === 0 ? (
+        <div className={styles.reorderEmptyBox} role="status">
+          <span>
+            Hiện không có sản phẩm nào dưới ngưỡng tồn kho an toàn cần gợi ý
+            nhập thêm.
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className={styles.reorderToolbar}>
+            <div className={styles.supplierField}>
+              <label
+                htmlFor="ai-reorder-supplier-select"
+                className={styles.supplierLabel}
+              >
+                Nhà cung cấp dự kiến *
+              </label>
+              <select
+                id="ai-reorder-supplier-select"
+                aria-label="Chọn nhà cung cấp cho phiếu nhập nháp"
+                className={styles.supplierSelect}
+                value={selectedSupplierId}
+                disabled={isCreatingDraft}
+                onChange={(e) => {
+                  setSelectedSupplierId(e.target.value);
+                  setDraftActionError('');
+                }}
+              >
+                <option value="">-- Chọn nhà cung cấp --</option>
+                {reorderSuppliers.map((sup) => (
+                  <option key={sup.id} value={sup.id}>
+                    {sup.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.toolbarActions}>
+              <button
+                type="button"
+                className={styles.openFormBtn}
+                disabled={selectedProductIds.length === 0 || isCreatingDraft}
+                onClick={() => handleOpenPrefillPurchaseForm(navigateFn)}
+              >
+                Mở form tạo phiếu
+              </button>
+
+              <button
+                type="button"
+                className={styles.createDraftBtn}
+                disabled={
+                  selectedProductIds.length === 0 ||
+                  !selectedSupplierId ||
+                  isCreatingDraft
+                }
+                onClick={handleCreateDraftDirect}
+              >
+                {isCreatingDraft
+                  ? 'Đang tạo phiếu nháp...'
+                  : `Tạo phiếu nháp (${selectedProductIds.length} sản phẩm)`}
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.reorderTableWrap}>
+            <table className={styles.reorderTable}>
+              <thead>
+                <tr>
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="Chọn tất cả sản phẩm gợi ý"
+                      checked={isAllSuggestionsSelected}
+                      onChange={handleToggleAllSuggestions}
+                    />
+                  </th>
+                  <th>SKU</th>
+                  <th>Tên sản phẩm</th>
+                  <th>Tồn hiện tại / Ngưỡng</th>
+                  <th>Đã bán (30 ngày)</th>
+                  <th>Lý do gợi ý</th>
+                  <th>Số lượng nhập</th>
+                  <th>Đơn giá dự kiến (VND)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reorderRows.map((row) => {
+                  const isChecked = selectedProductIds.includes(row.product_id);
+                  return (
+                    <tr
+                      key={row.product_id}
+                      className={isChecked ? styles.reorderRowSelected : ''}
+                    >
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Chọn sản phẩm ${row.sku}`}
+                          checked={isChecked}
+                          onChange={() =>
+                            handleToggleSuggestionRow(row.product_id)
+                          }
+                        />
+                      </td>
+                      <td className={styles.skuCell}>{row.sku}</td>
+                      <td>
+                        <strong>{row.name}</strong>
+                      </td>
+                      <td>
+                        <span
+                          className={
+                            row.quantity === 0
+                              ? styles.stockBadgeOut
+                              : styles.stockBadgeLow
+                          }
+                        >
+                          {row.quantity} / {row.threshold}
+                        </span>
+                      </td>
+                      <td>{row.sold_units.toLocaleString('vi-VN')} SP</td>
+                      <td className={styles.reasonText}>{row.reason}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          aria-label={`Số lượng nhập ${row.sku}`}
+                          className={styles.cellInput}
+                          value={row.suggested_quantity}
+                          onChange={(e) =>
+                            handleUpdateSuggestionRow(
+                              row.product_id,
+                              'suggested_quantity',
+                              e.target.value
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1000}
+                          aria-label={`Đơn giá dự kiến ${row.sku}`}
+                          className={styles.cellInput}
+                          value={row.unit_cost_vnd}
+                          onChange={(e) =>
+                            handleUpdateSuggestionRow(
+                              row.product_id,
+                              'unit_cost_vnd',
+                              e.target.value
+                            )
+                          }
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
 
   if (!isAdmin) {
     return (
@@ -469,6 +933,14 @@ export default function AiAssistant() {
           </div>
         </form>
       </section>
+
+      {inRouter ? (
+        <RouterNavigateBridge>
+          {(navigateFn) => renderReorderSuggestionsSection(navigateFn)}
+        </RouterNavigateBridge>
+      ) : (
+        renderReorderSuggestionsSection(null)
+      )}
     </div>
   );
 }

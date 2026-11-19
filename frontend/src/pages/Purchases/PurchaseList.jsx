@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useInRouterContext,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
@@ -49,10 +54,36 @@ const formatDate = (isoString) => {
   }
 };
 
+function PurchaseRouterStateConsumer({ onPrefillDraft, onOpenReceiptId }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const state = location?.state;
+    if (!state || typeof state !== 'object') return;
+
+    let consumed = false;
+    if (state.prefillDraft && typeof state.prefillDraft === 'object') {
+      onPrefillDraft(state.prefillDraft);
+      consumed = true;
+    } else if (state.openReceiptId !== undefined && state.openReceiptId !== null) {
+      onOpenReceiptId(state.openReceiptId);
+      consumed = true;
+    }
+
+    if (consumed) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location, navigate, onPrefillDraft, onOpenReceiptId]);
+
+  return null;
+}
+
 export default function PurchaseList() {
   const toast = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const inRouter = useInRouterContext();
 
   // 1. Tab điều hướng trên cùng & Trạng thái lọc
   const [topTab, setTopTab] = useState('RECEIPTS'); // 'RECEIPTS' (Phiếu nhập) | 'HISTORY' (Lịch sử)
@@ -74,6 +105,8 @@ export default function PurchaseList() {
   const [historyCount, setHistoryCount] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const hasLoadedListOnceRef = useRef(false);
+  const pendingOpenReceiptIdRef = useRef(null);
 
   const [pagination, setPagination] = useState({
     page: 1,
@@ -400,6 +433,18 @@ export default function PurchaseList() {
       } finally {
         if (currentRequestId === requestIdRef.current) {
           setIsLoading(false);
+          hasLoadedListOnceRef.current = true;
+          const pendingId = Number(pendingOpenReceiptIdRef.current);
+          if (Number.isInteger(pendingId) && pendingId > 0) {
+            pendingOpenReceiptIdRef.current = null;
+            setSelectedReceiptId(pendingId);
+            setSelectedReceipt(null);
+            setDetailError('');
+            setConflictError(null);
+            setIsEditingDraft(false);
+            setIsDetailLoading(true);
+            setIsDetailModalOpen(true);
+          }
         }
       }
     };
@@ -477,6 +522,69 @@ export default function PurchaseList() {
     setIsDetailLoading(true);
     setIsDetailModalOpen(true);
   }, []);
+
+  // T3C9F16 — Nhận state.prefillDraft từ trang Trợ lý AI để mở sẵn Modal Tạo mới phiếu nhập
+  const handleApplyPrefillDraft = useCallback((prefillDraft) => {
+    if (!prefillDraft || typeof prefillDraft !== 'object') return;
+
+    const rawSupplierId = prefillDraft.supplier_id;
+    const normalizedSupplierId =
+      Number.isInteger(Number(rawSupplierId)) && Number(rawSupplierId) > 0
+        ? String(Number(rawSupplierId))
+        : '';
+
+    const rawItems = Array.isArray(prefillDraft.items) ? prefillDraft.items : [];
+    const validLines = rawItems
+      .filter((it) => Number.isInteger(Number(it?.product_id)) && Number(it.product_id) > 0)
+      .map((it) => ({
+        product_id: String(Number(it.product_id)),
+        quantity: Math.max(1, Math.trunc(Number(it.quantity) || 1)),
+        unit_cost_vnd: Math.max(0, Math.trunc(Number(it.unit_cost_vnd) || 0)),
+      }));
+
+    if (rawItems.length > 0) {
+      setKnownProductsById((prev) => {
+        const next = { ...prev };
+        rawItems.forEach((it) => {
+          const pid = Number(it?.product_id);
+          if (Number.isInteger(pid) && pid > 0 && (it.sku || it.name)) {
+            next[pid] = {
+              id: pid,
+              sku: String(it.sku || `SP-${pid}`),
+              name: String(it.name || `Sản phẩm #${pid}`),
+            };
+          }
+        });
+        return next;
+      });
+    }
+
+    setCreateSupplierId(normalizedSupplierId);
+    setCreateLines(
+      validLines.length > 0
+        ? validLines
+        : [{ product_id: '', quantity: 1, unit_cost_vnd: 0 }]
+    );
+    setProductSearchTerm('');
+    setIsCreateModalOpen(true);
+  }, []);
+
+  // T3C9F16 — Nhận state.openReceiptId từ trang Trợ lý AI để tự mở chi tiết phiếu nháp sau khi tải danh sách
+  const handleApplyOpenReceiptId = useCallback(
+    (receiptId) => {
+      const id = Number(receiptId);
+      if (!Number.isInteger(id) || id <= 0) return;
+      setTopTab('RECEIPTS');
+      setActiveTab('DRAFT');
+      if (hasLoadedListOnceRef.current && !isLoading) {
+        pendingOpenReceiptIdRef.current = null;
+        handleOpenDetailModal(id);
+      } else {
+        pendingOpenReceiptIdRef.current = id;
+      }
+    },
+    [handleOpenDetailModal, isLoading]
+  );
 
   // Load chi tiết phiếu nhập chỉ khi Modal Chi tiết ĐANG MỞ và khớp generation guard
   useEffect(() => {
@@ -1074,6 +1182,12 @@ export default function PurchaseList() {
 
   return (
     <div className={styles.container}>
+      {inRouter && (
+        <PurchaseRouterStateConsumer
+          onPrefillDraft={handleApplyPrefillDraft}
+          onOpenReceiptId={handleApplyOpenReceiptId}
+        />
+      )}
       {/* 1. Header Trang */}
       <div className={styles.header}>
         <div className={styles.titleGroup}>

@@ -20,6 +20,8 @@ Object.defineProperty(globalThis, 'navigator', {
   writable: true,
 });
 globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.HTMLInputElement = dom.window.HTMLInputElement;
+globalThis.HTMLSelectElement = dom.window.HTMLSelectElement;
 globalThis.HTMLTextAreaElement = dom.window.HTMLTextAreaElement;
 globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
 
@@ -78,15 +80,29 @@ function renderAiAssistant(role = 'ADMIN') {
 
 describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
   const originalPost = axiosClient.post;
+  const originalGet = axiosClient.get;
 
   beforeEach(() => {
     cleanup();
     dom.window.document.body.innerHTML = '<div id="root"></div>';
+    axiosClient.get = async (url) => {
+      if (url === '/inventory/low-stock') {
+        return { data: { items: [], total: 0, page: 1, page_size: 20 } };
+      }
+      if (url === '/analytics/products/top') {
+        return { data: { items: [], total: 0, page: 1, page_size: 20 } };
+      }
+      if (url === '/suppliers') {
+        return { data: { items: [], total: 0, page: 1, page_size: 100 } };
+      }
+      return { data: {} };
+    };
   });
 
   afterEach(() => {
     cleanup();
     axiosClient.post = originalPost;
+    axiosClient.get = originalGet;
   });
 
   test('ADMIN submits prompt -> shows processing state -> renders answer & evidence cards', async () => {
@@ -312,6 +328,145 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
       document.body.textContent.includes('Leaked admin response after role change'),
       false
     );
+
+    view.unmount();
+  });
+
+  test('T3C9F16: renders AI reorder suggestions table, selects row & supplier, and creates DRAFT purchase receipt', async () => {
+    axiosClient.get = async (url) => {
+      if (url === '/inventory/low-stock') {
+        return {
+          data: {
+            items: [
+              {
+                product_id: 201,
+                sku: 'SKU-201',
+                name: 'Coca Cola 330ml',
+                quantity: 1,
+                threshold: 5,
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      }
+      if (url === '/analytics/products/top') {
+        return {
+          data: {
+            items: [
+              {
+                product_id: 201,
+                sku: 'SKU-201',
+                name: 'Coca Cola 330ml',
+                sold_units: 24,
+                revenue_vnd: 240000,
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 20,
+          },
+        };
+      }
+      if (url === '/suppliers') {
+        return {
+          data: {
+            items: [
+              {
+                id: 7,
+                name: 'Công ty Nước giải khát Việt',
+                status: 'ACTIVE',
+                contact_phone: '+84901234567',
+                contact_email: 'contact@nuocgiaikhat.vn',
+                created_at: '2026-11-10T01:00:00Z',
+                updated_at: '2026-11-10T01:00:00Z',
+              },
+            ],
+            total: 1,
+            page: 1,
+            page_size: 100,
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    let createdDraftBody = null;
+    axiosClient.post = async (url, body) => {
+      assert.equal(url, '/purchase-receipts');
+      createdDraftBody = body;
+      return {
+        data: {
+          id: 88,
+          supplier_id: 7,
+          supplier_name_snapshot: 'Công ty Nước giải khát Việt',
+          status: 'DRAFT',
+          draft_version: 1,
+          total_vnd: 120000,
+          created_by: 1,
+          closed_by: null,
+          created_at: '2026-11-19T10:00:00Z',
+          updated_at: '2026-11-19T10:00:00Z',
+          closed_at: null,
+          items: [
+            {
+              product_id: 201,
+              sku_snapshot: 'SKU-201',
+              product_name_snapshot: 'Coca Cola 330ml',
+              quantity: 15,
+              unit_cost_vnd: 8000,
+              line_total_vnd: 120000,
+            },
+          ],
+        },
+      };
+    };
+
+    const view = renderAiAssistant('ADMIN');
+
+    await waitFor(() => {
+      assert.ok(screen.getByText('SKU-201'));
+      assert.ok(screen.getByText('Coca Cola 330ml'));
+      assert.ok(screen.getByText('Tồn thấp (1/5) · Bán 24 SP/30 ngày'));
+    });
+
+    const rowCheckbox = screen.getByLabelText('Chọn sản phẩm SKU-201');
+    fireEvent.click(rowCheckbox);
+
+    const qtyInput = screen.getByLabelText('Số lượng nhập SKU-201');
+    fireEvent.change(qtyInput, { target: { value: '15' } });
+
+    const costInput = screen.getByLabelText('Đơn giá dự kiến SKU-201');
+    fireEvent.change(costInput, { target: { value: '8000' } });
+
+    const supplierSelect = screen.getByLabelText(
+      'Chọn nhà cung cấp cho phiếu nhập nháp'
+    );
+    fireEvent.change(supplierSelect, { target: { value: '7' } });
+
+    const createBtn = screen.getByRole('button', {
+      name: 'Tạo phiếu nháp (1 sản phẩm)',
+    });
+    assert.equal(createBtn.disabled, false);
+    fireEvent.click(createBtn);
+
+    await waitFor(() => {
+      const banner = screen.getByTestId('draft-created-banner');
+      assert.match(banner.textContent, /#88/);
+      assert.match(banner.textContent, /DRAFT/);
+      assert.ok(
+        screen.getByRole('button', {
+          name: 'Kiểm tra & Xác nhận phiếu nháp',
+        })
+      );
+    });
+
+    assert.deepEqual(createdDraftBody, {
+      supplier_id: 7,
+      items: [{ product_id: 201, quantity: 15, unit_cost_vnd: 8000 }],
+    });
 
     view.unmount();
   });
