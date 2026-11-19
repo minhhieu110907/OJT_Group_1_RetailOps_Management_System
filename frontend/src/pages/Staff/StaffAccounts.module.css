@@ -1,0 +1,19 @@
+.page { padding: 24px; color: var(--color-neutral, #242A30); }
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+.heading h1 { font-size: 23px; margin: 0 0 6px; }
+.heading p { margin: 0; color: var(--color-secondary, #64748B); }
+.back { color: var(--color-primary, #087F5B); font-weight: 600; text-decoration: none; }
+.filters { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; margin-bottom: 16px; }
+.filters form { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.filters label { font-size: 13px; font-weight: 600; }
+.filters input, .filters select { border: 1px solid var(--color-border, #CBD5E1); border-radius: 7px; background: var(--color-bg-surface, #fff); color: inherit; padding: 9px; }
+.filters button, .unlock { background: var(--color-primary, #087F5B); color: white; border: 0; border-radius: 7px; padding: 9px 14px; cursor: pointer; }
+.tableScroll { overflow-x: auto; border: 1px solid var(--color-border, #E2E8F0); border-radius: 9px; }
+.tableScroll table { border-collapse: collapse; width: 100%; text-align: left; }
+.tableScroll th, .tableScroll td { padding: 14px; border-bottom: 1px solid var(--color-border, #E2E8F0); font-size: 14px; }
+.tableScroll th { background: var(--color-bg-hover, #F8FAFC); font-size: 12px; }
+.lock { background: #B91C1C; border: 0; padding: 9px 14px; border-radius: 7px; color: white; cursor: pointer; }
+.pagination { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 14px; }
+.pagination button { padding: 6px 12px; border: 1px solid var(--color-border, #CBD5E1); background: var(--color-bg-surface, #fff); color: inherit; border-radius: 6px; }
+.pagination button:disabled, .lock:disabled, .unlock:disabled { opacity: .55; cursor: not-allowed; }
+.error { color: var(--color-danger, #B91C1C); }
