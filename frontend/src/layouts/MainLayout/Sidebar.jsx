@@ -148,14 +148,21 @@ export default function Sidebar({
 
   const sidebarRef = useRef(null);
   const closeBtnRef = useRef(null);
+  const logoutBtnRef = useRef(null);
   const prevPathnameRef = useRef(location.pathname);
+  const prevIsOpenRef = useRef(isOpen);
   const isNavigatingRef = useRef(false);
+  const isDesktopResizingRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mql = window.matchMedia('(max-width: 1023px)');
 
     const handleMediaChange = (e) => {
+      if (!e.matches && isOpen) {
+        // Chuyển sang desktop: đánh dấu cờ để không trả focus về hamburger đang bị ẩn
+        isDesktopResizingRef.current = true;
+      }
       setIsMobileViewport(e.matches);
     };
 
@@ -172,7 +179,7 @@ export default function Sidebar({
         mql.removeListener(handleMediaChange);
       }
     };
-  }, []);
+  }, [isOpen]);
 
   // Section 5: Đóng sidebar khi route thực sự thay đổi
   useEffect(() => {
@@ -185,24 +192,54 @@ export default function Sidebar({
     }
   }, [location.pathname, isOpen, onClose]);
 
-  // Section 2 P1 & P2: Escape key, Focus Trap & Scroll Lock khi mở mobile drawer
+  // Trách nhiệm 1: Focus restoration CHỈ khi drawer thực sự chuyển từ Mở -> Đóng
+  useEffect(() => {
+    const wasOpen = prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+
+    // Khi drawer đóng lại thực sự
+    if (wasOpen && !isOpen) {
+      if (!isNavigatingRef.current && !isDesktopResizingRef.current) {
+        const toggleBtn = document.getElementById('mobile-nav-toggle-btn');
+        if (toggleBtn) {
+          toggleBtn.focus();
+        }
+      }
+      isNavigatingRef.current = false;
+      isDesktopResizingRef.current = false;
+    } else if (!wasOpen && isOpen && isMobileViewport) {
+      // Khi drawer vừa mở: focus vào nút đóng drawer
+      const initialFocusTimer = setTimeout(() => {
+        if (closeBtnRef.current) {
+          closeBtnRef.current.focus();
+        }
+      }, 50);
+      return () => clearTimeout(initialFocusTimer);
+    }
+  }, [isOpen, isMobileViewport]);
+
+  // Trách nhiệm 2: Scroll lock an toàn cho drawer trên mobile
   useEffect(() => {
     if (!isOpen || !isMobileViewport) return;
 
-    // A. Focus management: focus vào nút đóng drawer khi mở
-    const initialFocusTimer = setTimeout(() => {
-      if (closeBtnRef.current) {
-        closeBtnRef.current.focus();
-      }
-    }, 50);
-
-    // B. Scroll Lock an toàn
+    // Chỉ áp dụng scroll lock nếu modal logout chưa chiếm quyền
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    // C. Keyboard Navigation: Escape & Focus Trap (Tab / Shift+Tab)
+    return () => {
+      // Nếu logout modal đang mở, Modal component sẽ tự quản lý overflow của nó
+      if (!isLogoutModalOpen) {
+        document.body.style.overflow = originalOverflow;
+      }
+    };
+  }, [isOpen, isMobileViewport, isLogoutModalOpen]);
+
+  // Trách nhiệm 3: Keyboard Navigation & Focus Trap trong Drawer
+  useEffect(() => {
+    if (!isOpen || !isMobileViewport) return;
+
     const handleKeyDown = (e) => {
-      // Ưu tiên không can thiệp nếu Modal Đăng xuất đang mở
+      // Khi Logout Modal đang mở: drawer nhường quyền xử lý hoàn toàn cho Modal
       if (isLogoutModalOpen) return;
 
       if (e.key === 'Escape') {
@@ -237,22 +274,20 @@ export default function Sidebar({
     };
 
     document.addEventListener('keydown', handleKeyDown);
-
     return () => {
-      clearTimeout(initialFocusTimer);
-      document.body.style.overflow = originalOverflow;
       document.removeEventListener('keydown', handleKeyDown);
-
-      // Trả lại focus cho nút hamburger toggle nếu không phải do route navigation
-      if (!isNavigatingRef.current) {
-        const toggleBtn = document.getElementById('mobile-nav-toggle-btn');
-        if (toggleBtn) {
-          toggleBtn.focus();
-        }
-      }
-      isNavigatingRef.current = false;
     };
   }, [isOpen, isMobileViewport, isLogoutModalOpen, onClose]);
+
+  // Khi đóng Logout Modal mà drawer vẫn mở: trả focus về nút mở Logout
+  const handleCloseLogoutModal = () => {
+    setIsLogoutModalOpen(false);
+    setTimeout(() => {
+      if (logoutBtnRef.current) {
+        logoutBtnRef.current.focus();
+      }
+    }, 50);
+  };
 
   if (!user) return null;
 
@@ -372,6 +407,7 @@ export default function Sidebar({
 
             {/* Bên phải: Nút icon Đăng xuất -> Bật Modal xác nhận */}
             <button
+              ref={logoutBtnRef}
               type="button"
               onClick={() => setIsLogoutModalOpen(true)}
               className={styles.logoutButton}
@@ -391,7 +427,7 @@ export default function Sidebar({
       {/* MODAL XÁC NHẬN ĐĂNG XUẤT */}
       <Modal
         isOpen={isLogoutModalOpen}
-        onClose={() => setIsLogoutModalOpen(false)}
+        onClose={handleCloseLogoutModal}
         title="Xác nhận đăng xuất"
         maxWidth="420px"
         footer={
@@ -399,7 +435,7 @@ export default function Sidebar({
             <button
               type="button"
               className={modalStyles.cancelBtn}
-              onClick={() => setIsLogoutModalOpen(false)}
+              onClick={handleCloseLogoutModal}
             >
               Hủy
             </button>

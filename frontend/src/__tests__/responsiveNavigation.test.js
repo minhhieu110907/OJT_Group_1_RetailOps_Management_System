@@ -49,10 +49,7 @@ await build({
 // 3. Import bundled components & testing library
 const harnessUrl = pathToFileURL(path.join(outDir, 'responsiveLayoutHarness.js')).href;
 const {
-  MainLayout,
-  Header,
   Sidebar,
-  MENU_ITEMS,
   AuthContext,
   ThemeProvider,
   TestLayoutApp,
@@ -336,7 +333,7 @@ describe('Responsive Navigation & Accessibility Suite [T04AA6A]', () => {
     assert.ok(staffLinks.includes('Tồn kho'), 'STAFF thấy Tồn kho');
   });
 
-  test('7. Scroll Lock có dọn dẹp (cleanup) sạch sẽ khi drawer đóng', () => {
+  test('8. P1 Regression: Mở Logout Modal từ Sidebar không chuyển focus về hamburger, Escape chỉ đóng modal, hủy modal trả focus về nút Logout', async () => {
     window.__setMobileViewport(true);
 
     const { container } = render(
@@ -350,16 +347,130 @@ describe('Responsive Navigation & Accessibility Suite [T04AA6A]', () => {
     );
 
     const hamburger = container.querySelector('#mobile-nav-toggle-btn');
-    assert.equal(document.body.style.overflow, '');
-
     act(() => {
       fireEvent.click(hamburger);
     });
-    assert.equal(document.body.style.overflow, 'hidden');
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'true');
 
+    // Chờ focus ban đầu vào closeBtn
+    await new Promise((res) => setTimeout(res, 60));
+
+    // Tìm nút Đăng xuất trong Sidebar
+    const logoutBtn = container.querySelector('button[aria-label="Đăng xuất"]');
+    assert.ok(logoutBtn, 'Nút Đăng xuất trong Sidebar phải tồn tại');
+
+    // Bấm mở Logout Confirmation Modal
+    act(() => {
+      fireEvent.click(logoutBtn);
+    });
+
+    // 1. Kiểm tra focus KHÔNG bị chuyển về hamburger
+    assert.notEqual(document.activeElement, hamburger, 'Focus KHÔNG được chuyển về hamburger khi mở Logout Modal');
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'true', 'Drawer vẫn phải đang mở');
+
+    // 2. Body scroll lock vẫn được giữ khi mở Logout Modal
+    assert.equal(document.body.style.overflow, 'hidden', 'Body scroll lock vẫn phải giữ khi Logout Modal mở');
+
+    // 3. Nhấn Escape 1 lần -> CHỈ đóng Logout Modal, drawer vẫn mở
+    act(() => {
+      const modalBackdrop = document.querySelector('[class*="backdrop"]');
+      fireEvent.keyDown(modalBackdrop || document, { key: 'Escape' });
+    });
+
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'true', 'Drawer vẫn mở sau khi Escape đóng Logout Modal');
+    assert.equal(document.body.style.overflow, 'hidden', 'Body scroll lock vẫn duy trì cho Drawer sau khi đóng Logout Modal');
+
+    // Chờ trả focus về logout button
+    await new Promise((res) => setTimeout(res, 60));
+    assert.equal(document.activeElement, logoutBtn, 'Focus phải quay về nút Logout sau khi đóng Logout Modal');
+
+    // 4. Nhấn Escape lần nữa -> Drawer đóng và focus trả về hamburger
+    act(() => {
+      fireEvent.keyDown(document, { key: 'Escape' });
+    });
+
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'false', 'Drawer phải đóng sau Escape thứ 2');
+    assert.equal(document.activeElement, hamburger, 'Focus phải trở về hamburger toggle khi drawer đóng bằng Escape');
+    assert.equal(document.body.style.overflow, '', 'Body scroll lock được dọn dẹp sạch sẽ khi drawer đóng');
+  });
+
+  test('9. P1 Focus Trap: Phím Tab và Shift+Tab giữ focus tuần hoàn bên trong Drawer', async () => {
+    window.__setMobileViewport(true);
+
+    const { container } = render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/dashboard'] },
+        React.createElement(TestLayoutApp, {
+          authValue: createAuthValue(mockAdminUser),
+        })
+      )
+    );
+
+    const hamburger = container.querySelector('#mobile-nav-toggle-btn');
     act(() => {
       fireEvent.click(hamburger);
     });
-    assert.equal(document.body.style.overflow, '');
+
+    await new Promise((res) => setTimeout(res, 60));
+
+    const drawer = container.querySelector('#main-sidebar-drawer');
+    const focusable = drawer.querySelectorAll(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    assert.ok(focusable.length > 1, 'Drawer phải có ít nhất 2 phần tử tương tác');
+
+    const firstEl = focusable[0];
+    const lastEl = focusable[focusable.length - 1];
+
+    // Focus vào phần tử cuối và nhấn Tab -> quay về đầu
+    lastEl.focus();
+    assert.equal(document.activeElement, lastEl);
+
+    act(() => {
+      fireEvent.keyDown(document, { key: 'Tab' });
+    });
+    assert.equal(document.activeElement, firstEl, 'Tab từ phần tử cuối phải quay về phần tử đầu tiên');
+
+    // Shift+Tab từ phần tử đầu -> quay về cuối
+    firstEl.focus();
+    assert.equal(document.activeElement, firstEl);
+
+    act(() => {
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    });
+    assert.equal(document.activeElement, lastEl, 'Shift+Tab từ phần tử đầu phải quay về phần tử cuối cùng');
+  });
+
+  test('10. Route Navigation: Click NavLink đóng drawer và KHÔNG ép focus về hamburger', () => {
+    window.__setMobileViewport(true);
+
+    const { container } = render(
+      React.createElement(
+        MemoryRouter,
+        { initialEntries: ['/dashboard'] },
+        React.createElement(TestLayoutApp, {
+          authValue: createAuthValue(mockAdminUser),
+        })
+      )
+    );
+
+    const hamburger = container.querySelector('#mobile-nav-toggle-btn');
+    act(() => {
+      fireEvent.click(hamburger);
+    });
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'true');
+
+    // Tìm link POS và click
+    const posLink = container.querySelector('a[href="/pos"]');
+    assert.ok(posLink, 'Link Bán hàng phải tồn tại');
+
+    act(() => {
+      fireEvent.click(posLink);
+    });
+
+    // Drawer đóng và focus không bị cưỡng ép về hamburger
+    assert.equal(hamburger.getAttribute('aria-expanded'), 'false', 'Drawer phải tự động đóng khi chuyển route');
+    assert.notEqual(document.activeElement, hamburger, 'Không cưỡng ép focus về hamburger khi chuyển route');
   });
 });
