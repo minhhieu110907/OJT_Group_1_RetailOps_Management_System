@@ -90,7 +90,7 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
     test_started_at = datetime.now(UTC).replace(tzinfo=None)
     hasher = PasswordHasher(work_factor=4)
     password = "AiE2ePassword!123"
-    staff_email = f"ai-e2e-staff-{run_id}@retailops.local"
+    staff_email = f"ai-e2e-staff-{run_id}@example.com"
 
     owned_user_ids: list[int] = []
     reused_admin_id: int | None = None
@@ -108,7 +108,7 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
             )
             if existing_admin is None:
                 admin = User(
-                    email_normalized=f"ai-e2e-admin-{run_id}@retailops.local",
+                    email_normalized=f"ai-e2e-admin-{run_id}@example.com",
                     password_hash=hasher.hash(password),
                     role=UserRole.ADMIN,
                     status=UserStatus.ACTIVE,
