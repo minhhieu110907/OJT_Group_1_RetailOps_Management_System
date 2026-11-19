@@ -77,9 +77,8 @@ def downgrade() -> None:
             "Cannot downgrade: unlock all LOCKED accounts through the "
             "approved operational procedure first."
         )
-    op.drop_index(
-        "ix_staff_account_events_target_time", table_name="staff_account_events"
-    )
+    # The composite index backs the target_user_id FK on MySQL. Dropping
+    # the table removes its indexes and constraints atomically.
     op.drop_table("staff_account_events")
     op.drop_constraint(
         "ck_users_role_status_admin_slot", "users", type_="check"
