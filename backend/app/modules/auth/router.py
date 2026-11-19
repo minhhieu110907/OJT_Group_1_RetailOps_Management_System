@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import (
+    enforce_change_password_rate_limit,
     enforce_forgot_password_rate_limit,
     enforce_login_rate_limit,
     enforce_refresh_rate_limit,
@@ -249,7 +250,11 @@ def reset_password(
     return GenericMessageResponse(message=ack.message)
 
 
-@router.post("/change-password", response_model=TokenResponse)
+@router.post(
+    "/change-password",
+    response_model=TokenResponse,
+    dependencies=[Depends(enforce_change_password_rate_limit)],
+)
 def change_password(
     payload: ChangePasswordRequest,
     request: Request,
