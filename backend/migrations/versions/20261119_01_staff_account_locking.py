@@ -35,10 +35,13 @@ OLD_USER_STATUS_CHECK = (
 
 
 def upgrade() -> None:
-    op.drop_constraint("ck_users_role_status_admin_slot", "users", type_="check")
+    # MySQL DDL auto-commits. Install the stricter-or-equal replacement
+    # before dropping the old guard so a failed statement cannot leave an
+    # unconstrained users table. While both exist, ACTIVE remains valid.
     op.create_check_constraint(
-        "ck_users_role_status_admin_slot", "users", USER_STATUS_CHECK
+        "ck_users_role_status_admin_slot_v2", "users", USER_STATUS_CHECK
     )
+    op.drop_constraint("ck_users_role_status_admin_slot", "users", type_="check")
     op.create_table(
         "staff_account_events",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
@@ -76,7 +79,9 @@ def downgrade() -> None:
     # The composite index backs the target_user_id FK on MySQL. Dropping
     # the table removes its indexes and constraints atomically.
     op.drop_table("staff_account_events")
-    op.drop_constraint("ck_users_role_status_admin_slot", "users", type_="check")
+    # The original check is installed before removing V2; do not allow a
+    # failed downgrade to leave account role/status combinations unguarded.
     op.create_check_constraint(
         "ck_users_role_status_admin_slot", "users", OLD_USER_STATUS_CHECK
     )
+    op.drop_constraint("ck_users_role_status_admin_slot_v2", "users", type_="check")
