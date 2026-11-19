@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   OWASP_FORGOT_PASSWORD_MESSAGE,
   validateEmail,
@@ -83,10 +82,13 @@ export default function ForgotPassword() {
         setSubmitError(
           'Bạn đã gửi quá nhiều yêu cầu khôi phục mật khẩu. Vui lòng thử lại sau ít phút.'
         );
+      } else if (status === 400 || status === 422) {
+        setSubmitError(
+          'Địa chỉ email không hợp lệ theo định dạng yêu cầu. Vui lòng kiểm tra lại.'
+        );
       } else {
         setSubmitError(
-          getApiErrorMessage(err) ||
-            'Không thể gửi yêu cầu khôi phục mật khẩu tới máy chủ. Vui lòng thử lại.'
+          'Không thể gửi yêu cầu khôi phục mật khẩu tới máy chủ. Vui lòng thử lại sau.'
         );
       }
       setIsSubmitted(false);

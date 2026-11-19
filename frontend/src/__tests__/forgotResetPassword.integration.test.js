@@ -182,8 +182,8 @@ describe('T04AA1C Forgot & Reset Password Real React Integration Suite', () => {
     assert.equal(screen.queryByText(/Hộp thư mô phỏng/i), null);
   });
 
-  test('ForgotPassword handles HTTP 429 rate limit and HTTP 500 without faking success', async () => {
-    let mode = '429';
+  test('ForgotPassword handles HTTP 429, 422, and 500 safely without leaking raw backend detail or faking success', async () => {
+    let statusCode = 429;
     axiosClient.defaults.adapter = async (config) => {
       if (config.url === '/health') {
         return { status: 200, data: { status: 'ok' }, headers: {}, config };
@@ -193,8 +193,11 @@ describe('T04AA1C Forgot & Reset Password Real React Integration Suite', () => {
         err.isAxiosError = true;
         err.config = config;
         err.response = {
-          status: mode === '429' ? 429 : 500,
-          data: { message: 'Sensitive internal error detail' },
+          status: statusCode,
+          data: {
+            message: 'Sensitive internal error detail',
+            detail: 'Sensitive internal error detail',
+          },
           headers: {},
           config,
         };
@@ -207,20 +210,35 @@ describe('T04AA1C Forgot & Reset Password Real React Integration Suite', () => {
 
     const emailInput = screen.getByLabelText(/EMAIL ĐĂNG KÝ/i);
     fireEvent.change(emailInput, { target: { value: 'staff@retailops.vn' } });
-    fireEvent.submit(emailInput.closest('form'));
 
+    statusCode = 429;
+    fireEvent.submit(emailInput.closest('form'));
     await waitFor(() => {
       assert.ok(
         screen.getByText(/Bạn đã gửi quá nhiều yêu cầu khôi phục mật khẩu/i)
       );
     });
+    assert.equal(screen.queryByText(/Sensitive internal error detail/i), null);
     assert.equal(screen.queryByText(/Đã tiếp nhận yêu cầu/i), null);
 
-    mode = '500';
+    statusCode = 422;
     fireEvent.submit(emailInput.closest('form'));
     await waitFor(() => {
-      assert.ok(screen.getByText(/Không thể gửi yêu cầu/i));
+      assert.ok(
+        screen.getByText(/Địa chỉ email không hợp lệ theo định dạng yêu cầu/i)
+      );
     });
+    assert.equal(screen.queryByText(/Sensitive internal error detail/i), null);
+    assert.equal(screen.queryByText(/Đã tiếp nhận yêu cầu/i), null);
+
+    statusCode = 500;
+    fireEvent.submit(emailInput.closest('form'));
+    await waitFor(() => {
+      assert.ok(
+        screen.getByText(/Không thể gửi yêu cầu khôi phục mật khẩu tới máy chủ/i)
+      );
+    });
+    assert.equal(screen.queryByText(/Sensitive internal error detail/i), null);
     assert.equal(screen.queryByText(/Đã tiếp nhận yêu cầu/i), null);
   });
 
