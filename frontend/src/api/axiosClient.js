@@ -304,6 +304,7 @@ export function invalidateSession() {
   inMemoryCsrfToken = null;
   isRefreshing = false;
   activeRefreshGeneration = -1;
+  notifyRefreshDrained();
   processQueue(
     createStaleSessionError(
       null,
@@ -325,6 +326,7 @@ export function startAuthenticatedSession(accessToken, csrfToken = null) {
   inMemoryCsrfToken = csrfToken || null;
   isRefreshing = false;
   activeRefreshGeneration = -1;
+  notifyRefreshDrained();
   processQueue(
     createStaleSessionError(
       null,
