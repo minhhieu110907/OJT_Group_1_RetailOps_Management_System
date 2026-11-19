@@ -70,6 +70,7 @@ def _make_sqlite_session_factory():
     @event.listens_for(engine, "connect")
     def _register_collation(dbapi_conn, _conn_record):
         dbapi_conn.create_collation("ascii_bin", lambda a, b: (a > b) - (a < b))
+        dbapi_conn.create_function("CHAR_LENGTH", 1, len)
 
     Base.metadata.create_all(
         engine,
@@ -109,16 +110,21 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
         session.add_all([admin, staff])
         session.flush()
         if with_sales or with_low_stock:
-            cat = Category(name="Beverages", description="Drinks", created_at=now)
+            cat = Category(
+                name="Beverages",
+                description="Drinks",
+                status=CatalogStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
             session.add(cat)
             session.flush()
             prod = Product(
                 category_id=cat.id,
                 sku="SKU-AI-001",
                 name="Green Tea",
-                unit="bottle",
-                unit_price_vnd=25000,
                 status=CatalogStatus.ACTIVE,
+                sale_price_vnd=25000,
                 created_at=now,
                 updated_at=now,
             )
@@ -128,16 +134,17 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
                 Inventory(
                     product_id=prod.id,
                     quantity=2 if with_low_stock else 50,
+                    stock_version=1,
+                    first_stocked_at=now,
                     updated_at=now,
                 )
             )
             if with_sales:
                 order = Order(
-                    order_code="ORD-AI-001",
                     status=OrderStatus.COMPLETED,
                     total_vnd=50000,
                     created_by=admin.id,
-                    created_at=datetime(2026, 11, 18, 8, 0),
+                    sold_at=datetime(2026, 11, 18, 8, 0),
                 )
                 session.add(order)
                 session.flush()
@@ -145,6 +152,8 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
                     OrderItem(
                         order_id=order.id,
                         product_id=prod.id,
+                        sku_snapshot=prod.sku,
+                        product_name_snapshot=prod.name,
                         quantity=2,
                         unit_price_vnd=25000,
                         line_total_vnd=50000,

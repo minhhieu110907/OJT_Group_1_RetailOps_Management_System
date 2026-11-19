@@ -154,9 +154,8 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
                 category_id=cat.id,
                 sku=f"AI-E2E-{run_id}",
                 name=f"AI E2E Product {run_id}",
-                unit="pcs",
-                unit_price_vnd=25000,
                 status=CatalogStatus.ACTIVE,
+                sale_price_vnd=25000,
                 created_at=now,
                 updated_at=now,
             )
@@ -164,13 +163,20 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
             session.flush()
             product_ids.append(prod.id)
 
-            session.add(Inventory(product_id=prod.id, quantity=5, updated_at=now))
+            session.add(
+                Inventory(
+                    product_id=prod.id,
+                    quantity=5,
+                    stock_version=1,
+                    first_stocked_at=now,
+                    updated_at=now,
+                )
+            )
             order = Order(
-                order_code=f"ORD-AIE2E-{run_id}",
                 status=OrderStatus.COMPLETED,
                 total_vnd=75000,
                 created_by=admin_id,
-                created_at=datetime(2026, 11, 18, 9, 0),
+                sold_at=datetime(2026, 11, 18, 9, 0),
             )
             session.add(order)
             session.flush()
@@ -179,6 +185,8 @@ async def test_ai_query_http_e2e_with_real_mysql_auth_and_redis(
             item = OrderItem(
                 order_id=order.id,
                 product_id=prod.id,
+                sku_snapshot=prod.sku,
+                product_name_snapshot=prod.name,
                 quantity=3,
                 unit_price_vnd=25000,
                 line_total_vnd=75000,
