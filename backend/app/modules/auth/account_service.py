@@ -13,6 +13,7 @@ from app.core.exceptions import (
 )
 from app.modules.auth.models import (
     AuthSession,
+    PasswordResetToken,
     StaffAccountEvent,
     User,
     UserRole,
@@ -118,6 +119,16 @@ class StaffAccountService:
                         AuthSession.revoked_at.is_(None),
                     )
                     .values(revoked_at=now)
+                )
+                # A pre-lock email reset proof must not remain usable after
+                # unlock; invalidate it in the same authoritative transaction.
+                session.execute(
+                    update(PasswordResetToken)
+                    .where(
+                        PasswordResetToken.user_id == user.id,
+                        PasswordResetToken.used_at.is_(None),
+                    )
+                    .values(used_at=now)
                 )
             session.add(
                 StaffAccountEvent(
