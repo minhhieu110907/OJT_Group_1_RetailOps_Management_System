@@ -37,7 +37,10 @@ def list_staff_accounts(
     search: Annotated[str | None, Query(max_length=120)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    response: Response,
 ) -> StaffAccountPage:
+    response.headers["Cache-Control"] = "no-store"
+    # Staff account lists contain personal data; never cache their contents.
     return service.list_staff(
         session,
         status=status,
