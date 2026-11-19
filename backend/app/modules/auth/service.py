@@ -203,10 +203,11 @@ class AuthService:
             raise InvalidCredentialsError()
         # Serialize creation of new sessions with lock/unlock, password changes
         # and reset operations. Re-check credentials under the authoritative row
-        # lock: the hash may have changed after the initial bcrypt verification.
+        # lock: repeat the expensive bcrypt check ONLY if the hash changed.
         user = self.repository.lock_user_by_id(session, user.id)
-        if user is None or not self.password_hasher.verify(
-            password, user.password_hash
+        if user is None or (
+            user.password_hash != password_hash
+            and not self.password_hasher.verify(password, user.password_hash)
         ):
             session.rollback()
             raise InvalidCredentialsError()
