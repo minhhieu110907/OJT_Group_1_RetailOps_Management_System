@@ -160,7 +160,7 @@ def _seed_store_data(
             created_by=staff.id,
             status=OrderStatus.COMPLETED,
             total_vnd=300_000,
-            created_at=now - timedelta(days=2),
+            sold_at=now - timedelta(days=2),
         )
         session.add(order)
         session.flush()
@@ -169,7 +169,7 @@ def _seed_store_data(
                 order_id=order.id,
                 product_id=p_fast.id,
                 sku_snapshot=p_fast.sku,
-                name_snapshot=p_fast.name,
+                product_name_snapshot=p_fast.name,
                 unit_price_vnd=30_000,
                 quantity=10,
                 line_total_vnd=300_000,
