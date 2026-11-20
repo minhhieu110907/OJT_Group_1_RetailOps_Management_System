@@ -24,7 +24,7 @@ const STATUS_TABS = [
 ];
 
 export default function StaffApprovalList() {
-  const { isMockMode, canUseMock } = useAuth();
+  const { user, isMockMode, canUseMock } = useAuth();
   const toast = useToast();
   const [urlSearchParams, setUrlSearchParams] = useSearchParams();
 

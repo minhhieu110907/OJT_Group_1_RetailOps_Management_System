@@ -70,7 +70,7 @@
 .searchWrap {
   position: relative;
   flex: 1;
-  min-width: 260px;
+  min-width: min(240px, 100%);
   max-width: 380px;
 }
 
@@ -102,13 +102,16 @@
 .filterTabsGroup {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  max-width: 100%;
 }
 
 .filterLabel {
   font-size: 13px;
   font-weight: 500;
   color: #4B5563;
+  white-space: nowrap;
 }
 
 .tabsSegment {
@@ -117,6 +120,9 @@
   padding: 3px;
   border-radius: 6px;
   border: 1px solid #E5E7EB;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .tabBtn {
@@ -132,6 +138,28 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .searchWrap {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .filterTabsGroup {
+    width: 100%;
+  }
+
+  .tabsSegment {
+    width: 100%;
+  }
+
+  .tabBtn {
+    padding: 6px 10px;
+    font-size: 12.5px;
+  }
 }
 
 .tabBtn:hover {
@@ -191,6 +219,7 @@
   border-radius: 9999px;
   font-size: 12.5px;
   font-weight: 500;
+  white-space: nowrap;
   background-color: #DCFCE7;
   color: #166534;
   border: 1px solid #BBF7D0;
@@ -204,6 +233,7 @@
   border-radius: 9999px;
   font-size: 12.5px;
   font-weight: 500;
+  white-space: nowrap;
   background-color: #F3F4F6;
   color: #6B7280;
   border: 1px solid #E5E7EB;

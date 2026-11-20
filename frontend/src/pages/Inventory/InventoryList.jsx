@@ -373,33 +373,26 @@ export default function InventoryList() {
         <div className={styles.filterControls}>
           {/* Lọc danh mục */}
           <div className={styles.filterRow}>
-            <span className={styles.filterLabel}>Danh mục:</span>
-            <div className={styles.filterChips}>
-              <button
-                type="button"
-                className={`${styles.chipBtn} ${selectedCategoryId === '' ? styles.chipBtnActive : ''}`}
-                onClick={() => {
-                  setSelectedCategoryId('');
+            <label htmlFor="inventory-category-filter" className={styles.filterLabel}>
+              Danh mục:
+            </label>
+            <div className={styles.categorySelectWrap}>
+              <select
+                id="inventory-category-filter"
+                className={styles.categorySelect}
+                value={selectedCategoryId}
+                onChange={(e) => {
+                  setSelectedCategoryId(e.target.value);
                   setPagination((prev) => ({ ...prev, page: 1 }));
                 }}
               >
-                Tất cả
-              </button>
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  className={`${styles.chipBtn} ${
-                    String(selectedCategoryId) === String(cat.id) ? styles.chipBtnActive : ''
-                  }`}
-                  onClick={() => {
-                    setSelectedCategoryId(String(cat.id));
-                    setPagination((prev) => ({ ...prev, page: 1 }));
-                  }}
-                >
-                  {cat.name}
-                </button>
-              ))}
+                <option value="">Tất cả</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={String(cat.id)}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

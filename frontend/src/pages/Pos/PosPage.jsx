@@ -508,6 +508,25 @@ export default function PosPage() {
             )}
           </div>
 
+          <div className={styles.categorySelectWrap}>
+            <select
+              className={styles.categorySelectMobile}
+              value={selectedCategoryId}
+              onChange={(e) => {
+                setSelectedCategoryId(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Lọc theo danh mục"
+            >
+              <option value="">Tất cả danh mục</option>
+              {orderedCategories.map((cat) => (
+                <option key={cat.id} value={String(cat.id)}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className={styles.categoryRow} role="tablist" aria-label="Lọc theo danh mục">
             <button
               type="button"
@@ -637,7 +656,7 @@ export default function PosPage() {
                         <circle cx="20" cy="21" r="1" />
                         <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
                       </svg>
-                      <span>{inCartQty > 0 ? `Thêm (${inCartQty})` : 'Thêm'}</span>
+                      <span>Thêm</span>
                     </button>
                   </div>
                 </article>

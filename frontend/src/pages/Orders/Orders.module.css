@@ -60,7 +60,7 @@
 .searchBoxWrap {
   position: relative;
   flex: 1.2;
-  min-width: 190px;
+  min-width: min(190px, 100%);
   display: flex;
   align-items: center;
 }
@@ -94,7 +94,7 @@
 
 .dateFilterWrap {
   flex: 1.1;
-  min-width: 240px;
+  min-width: min(240px, 100%);
   height: 38px;
   padding: 0 12px;
   border-radius: 8px;
@@ -176,7 +176,7 @@
 
 .statusSelectSingle {
   flex: 0.9;
-  min-width: 170px;
+  min-width: min(170px, 100%);
   height: 38px;
   padding: 0 12px;
   border-radius: 8px;
@@ -186,6 +186,20 @@
   color: #0f172a;
   background-color: #ffffff;
   cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .searchBoxWrap,
+  .dateFilterWrap,
+  .statusSelectSingle {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filterCard {
+    padding: 12px;
+  }
 }
 
 .filterInput:focus,
@@ -260,6 +274,7 @@
 .totalAmountCell {
   font-weight: 700;
   color: #0f172a;
+  white-space: nowrap;
 }
 
 .statusCompleted {
@@ -271,6 +286,7 @@
   color: #047857;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .statusCancelled {
@@ -282,6 +298,7 @@
   color: #b91c1c;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .actionGroup {
@@ -302,6 +319,8 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .viewBtn {
@@ -401,6 +420,7 @@
 .detailModalCard {
   width: 100%;
   max-width: 640px;
+  max-height: min(90vh, calc(100vh - 32px));
   background-color: #ffffff;
   border-radius: 14px;
   border: 1px solid #e2e8f0;
@@ -470,12 +490,15 @@
 .detailTableWrap {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   background-color: #ffffff;
 }
 
 .detailTable {
   width: 100%;
+  min-width: 480px;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -488,12 +511,20 @@
   text-transform: uppercase;
   padding: 10px 14px;
   border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
 }
 
 .detailTable td {
   padding: 11px 14px;
   border-bottom: 1px solid #f1f5f9;
   color: #0f172a;
+}
+
+.detailTable td:nth-child(1),
+.detailTable td:nth-child(3),
+.detailTable td:nth-child(4),
+.detailTable td:nth-child(5) {
+  white-space: nowrap;
 }
 
 .detailTable tbody tr:last-child td {
@@ -524,6 +555,7 @@
   padding: 16px;
   background-color: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(2px);
+  overscroll-behavior: contain;
 }
 
 .modalCard {
@@ -621,6 +653,7 @@
   gap: 14px;
   max-height: 70vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .summaryCard {
