@@ -130,7 +130,6 @@ export default function OrderDetailModal({
                 Thời gian tạo:{' '}
                 <strong>
                   {formatOrderDateTimeVN(order.sold_at)}
-                  {hideTimezone ? '' : ' (Asia/Ho_Chi_Minh)'}
                 </strong>
               </p>
               {order.status === 'CANCELLED' && (
@@ -139,7 +138,6 @@ export default function OrderDetailModal({
                     Thời gian hủy:{' '}
                     <strong>
                       {formatOrderDateTimeVN(order.cancelled_at)}
-                      {hideTimezone ? '' : ' (Asia/Ho_Chi_Minh)'}
                     </strong>
                   </p>
                   <p className={styles.detailMetaLine}>

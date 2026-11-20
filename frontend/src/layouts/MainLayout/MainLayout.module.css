@@ -4,6 +4,8 @@
 .layoutContainer {
   display: flex;
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
   background-color: var(--color-bg-page);
 }
 
@@ -13,10 +15,15 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .pageContent {
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   padding: 24px 32px;
 }
 
@@ -264,6 +271,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  flex: 1;
 }
 
 .mobileMenuToggle {
@@ -292,26 +301,35 @@
   align-items: center;
   gap: 8px;
   font-size: 14px;
+  min-width: 0;
+  flex: 1;
 }
 
 .breadcrumbRoot {
   color: var(--color-secondary);
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .breadcrumbSeparator {
   color: var(--color-border);
+  flex-shrink: 0;
 }
 
 .breadcrumbCurrent {
   color: var(--color-neutral);
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .headerActions {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 /* Nút tiện ích (?) và Chuông thông báo (🔔) */
@@ -1229,15 +1247,43 @@
 
 @media (max-width: 640px) {
   .header {
-    padding: 0 12px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .headerLeftGroup {
+    gap: 8px;
+  }
+
+  .mobileMenuToggle {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* Ẩn tiền tố RetailOps v1.0 trên mobile để dành không gian cho tên trang hiện tại và cụm action */
+  .breadcrumbRoot,
+  .breadcrumbSeparator {
+    display: none;
+  }
+
+  .breadcrumbCurrent {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .headerActions {
-    gap: 6px;
+    gap: 4px;
+  }
+
+  .iconBtn {
+    width: 32px;
+    height: 32px;
   }
 
   .headerDivider {
-    margin: 0 2px;
+    display: none;
   }
 
   /* Ẩn bớt text vai trò / tên dài trên Header để vừa khít màn hình điện thoại hẹp */
@@ -1246,15 +1292,15 @@
   }
 
   .userDropdownTrigger {
-    padding: 4px 6px;
-    gap: 4px;
+    padding: 3px 5px;
+    gap: 2px;
   }
 
-  .breadcrumbCurrent {
-    max-width: 140px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .headerUserAvatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    font-size: 12px;
   }
 
   .pageContent {

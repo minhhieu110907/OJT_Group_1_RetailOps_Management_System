@@ -358,7 +358,7 @@ export default function CategoryList() {
         <div className={styles.titleGroup}>
           <h1 className={styles.title}>Quản lý danh mục</h1>
           <p className={styles.subtitle}>
-            Quản lý phân loại sản phẩm cho cửa hàng và kho • Múi giờ Asia/Ho_Chi_Minh
+            Quản lý phân loại sản phẩm cho cửa hàng và kho
           </p>
         </div>
 

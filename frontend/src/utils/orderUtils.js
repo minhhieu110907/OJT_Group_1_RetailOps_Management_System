@@ -267,7 +267,7 @@ export function classifyCancelOrderError(error, { actorRole } = {}) {
   ) {
     const fallbackIneligibleMessage =
       actorRole === 'ADMIN'
-        ? 'Đơn hàng không đủ điều kiện hủy (chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh Asia/Ho_Chi_Minh hoặc tài khoản không có quyền).'
+        ? 'Đơn hàng không đủ điều kiện hủy (chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh hoặc tài khoản không có quyền).'
         : 'Đơn hàng không đủ điều kiện hủy (ngoài thời hạn 15 phút, khác người tạo hoặc khác ngày kinh doanh).';
 
     return {
