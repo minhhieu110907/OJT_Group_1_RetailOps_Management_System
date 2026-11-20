@@ -138,6 +138,13 @@
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
 }
 
+.categoryRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 640px) {
   .categorySelectWrap {
     display: block;
@@ -146,13 +153,6 @@
   .categoryRow {
     display: none;
   }
-}
-
-.categoryRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .categoryPill {
