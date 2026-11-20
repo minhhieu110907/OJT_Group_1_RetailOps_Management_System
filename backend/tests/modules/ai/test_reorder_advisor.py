@@ -60,6 +60,24 @@ def _make_sqlite_session_factory() -> sessionmaker[Session]:
         dbapi_conn.create_collation("ascii_bin", lambda a, b: (a > b) - (a < b))
         dbapi_conn.create_function("CHAR_LENGTH", 1, len)
 
+    @event.listens_for(engine, "before_cursor_execute", retval=True)
+    def _adapt_mysql_date_add(
+        _conn: Any,
+        _cursor: Any,
+        statement: str,
+        parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> tuple[str, Any]:
+        adapted = statement.replace(
+            "DATE_ADD(created_at, INTERVAL 8 HOUR)",
+            "datetime(created_at, '+8 hours')",
+        ).replace(
+            "DATE_ADD(completed_at, INTERVAL 24 HOUR)",
+            "datetime(completed_at, '+24 hours')",
+        )
+        return adapted, parameters
+
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
