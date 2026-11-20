@@ -429,6 +429,10 @@ async def test_ai_query_reorder_advisor_http_auth_readonly_and_injection() -> No
     settings = Settings(
         _env_file=None,
         environment="development",
+        db_host="127.0.0.1",
+        db_name="retailops_test",
+        db_user="retailops_test",
+        db_password=SecretStr("test-db-password"),
         jwt_secret=SecretStr("t04ab0b-jwt-secret-0123456789abcdef"),
         csrf_secret=SecretStr("t04ab0b-csrf-secret-0123456789abcdef"),
         idempotency_secret=SecretStr("t04ab0b-idem-secret-0123456789abcdef"),
