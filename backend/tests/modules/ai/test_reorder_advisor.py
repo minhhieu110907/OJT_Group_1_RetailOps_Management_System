@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -54,6 +54,12 @@ def _make_sqlite_session_factory() -> sessionmaker[Session]:
         poolclass=StaticPool,
         future=True,
     )
+
+    @event.listens_for(engine, "connect")
+    def _register_collation(dbapi_conn: Any, _conn_record: Any) -> None:
+        dbapi_conn.create_collation("ascii_bin", lambda a, b: (a > b) - (a < b))
+        dbapi_conn.create_function("CHAR_LENGTH", 1, len)
+
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
