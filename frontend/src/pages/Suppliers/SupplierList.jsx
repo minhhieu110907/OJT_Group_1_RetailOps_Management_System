@@ -29,6 +29,7 @@ function SupplierStatusBadge({ status, inModal = false }) {
         borderRadius: '9999px',
         fontSize: '12.5px',
         fontWeight: '500',
+        whiteSpace: 'nowrap',
         backgroundColor: isActive ? 'rgba(16, 185, 129, 0.18)' : (inModal ? 'rgba(239, 68, 68, 0.2)' : 'rgba(71, 85, 105, 0.25)'),
         color: isActive ? '#10B981' : (inModal ? '#EF4444' : '#94A3B8'),
         border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.4)' : (inModal ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.3)')}`,

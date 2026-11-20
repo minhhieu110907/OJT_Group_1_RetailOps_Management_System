@@ -477,8 +477,8 @@ export default function OrderList() {
           </h2>
           <p className={styles.immutableRuleDesc}>
             Đơn hàng sau khi hoàn tất là cố định. Nhân viên chỉ được hủy đơn do
-            chính mình tạo trong 15 phút (Asia/Ho_Chi_Minh). Quản trị viên
-            (Admin) được phép hủy trong ngày.
+            chính mình tạo trong 15 phút. Quản trị viên (Admin) được phép hủy
+            trong ngày.
           </p>
         </div>
         <span className={styles.autoRestoreBadge}>

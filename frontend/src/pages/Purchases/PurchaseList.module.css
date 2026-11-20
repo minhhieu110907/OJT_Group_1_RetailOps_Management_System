@@ -59,6 +59,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   border-bottom: 1px solid #E5E7EB;
   padding-bottom: 0px;
 }
@@ -66,6 +68,14 @@
 .navTabs {
   display: flex;
   gap: 24px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.navTabs::-webkit-scrollbar {
+  display: none;
 }
 
 .navTabBtn {
@@ -80,6 +90,8 @@
   align-items: center;
   gap: 8px;
   position: relative;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: color 0.15s ease;
 }
 
@@ -140,10 +152,21 @@
 .searchInputWrapper {
   position: relative;
   flex: 1;
-  min-width: 240px;
+  min-width: min(220px, 100%);
   max-width: 480px;
   display: flex;
   align-items: center;
+}
+
+@media (max-width: 640px) {
+  .navTabs {
+    gap: 14px;
+  }
+
+  .searchInputWrapper {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
 }
 
 .searchIcon {
@@ -317,6 +340,7 @@
   font-weight: 700;
   color: #111827;
   font-size: 13.5px;
+  white-space: nowrap;
 }
 
 .statusBadgeDraft {
@@ -327,6 +351,8 @@
   padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid #FDE68A;
+  white-space: nowrap;
+  display: inline-block;
 }
 
 .statusBadgeConfirmed {
@@ -337,6 +363,8 @@
   padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid #A7F3D0;
+  white-space: nowrap;
+  display: inline-block;
 }
 
 .statusBadgeCancelled {
@@ -347,6 +375,8 @@
   padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid #FECACA;
+  white-space: nowrap;
+  display: inline-block;
 }
 
 .paginationBar {

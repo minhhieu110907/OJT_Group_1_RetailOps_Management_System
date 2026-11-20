@@ -6,12 +6,12 @@ from threading import Event, Lock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import IdempotencyKeyReusedError
+from app.core.exceptions import IdempotencyKeyReusedError, RequestInProgressError
 from app.modules.auth.models import User
 from app.modules.idempotency.models import IdempotencyRecord
 from app.modules.idempotency.repository import IdempotencyRepository
@@ -470,7 +470,10 @@ def test_duplicate_lock_timeout_rolls_back_then_retry_replays(
         future = pool.submit(winner)
         assert first_inside.wait(timeout=5)
         with Session(migrated_integration_engine) as session:
-            with pytest.raises(OperationalError) as caught:
+            original_timeout = session.scalar(
+                text("SELECT @@SESSION.innodb_lock_wait_timeout")
+            )
+            with pytest.raises(RequestInProgressError) as caught:
                 IdempotencyExecutor(secret=SECRET).execute(
                     session,
                     actor_id=actor_id,
@@ -479,8 +482,16 @@ def test_duplicate_lock_timeout_rolls_back_then_retry_replays(
                     request_identity={"operation": "CHECKOUT", "body": {}},
                     command=lambda: pytest.fail("timed-out duplicate ran command"),
                 )
-            assert caught.value.orig.args[0] == 1205
+            assert caught.value.status_code == 409
+            assert caught.value.code == "REQUEST_IN_PROGRESS"
+            assert isinstance(caught.value.__cause__.__cause__, OperationalError)
+            assert caught.value.__cause__.__cause__.orig.args[0] == 1205
             session.rollback()
+            assert (
+                session.scalar(text("SELECT @@SESSION.innodb_lock_wait_timeout"))
+                == original_timeout
+            )
+            assert session.scalar(text("SELECT 1")) == 1
         release_first.set()
         future.result(timeout=10)
 

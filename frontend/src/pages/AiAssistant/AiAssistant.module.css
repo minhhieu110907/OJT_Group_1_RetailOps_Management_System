@@ -523,6 +523,315 @@
   padding: 24px;
 }
 
+/* =========================================================
+   T3C9F16 — Smart Reorder Suggestions Panel (DRAFT Receipt from AI)
+   ========================================================= */
+.reorderCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.reorderHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reorderTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reorderTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.reorderTitle {
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.draftOnlyBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.reorderSubtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.refreshSuggestionsBtn {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.refreshSuggestionsBtn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.refreshSuggestionsBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reorderToolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.supplierField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 240px;
+  flex: 1;
+  max-width: 360px;
+}
+
+.supplierLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.supplierSelect {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.supplierSelect:focus {
+  outline: none;
+  border-color: #0d9488;
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.14);
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.openFormBtn {
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid #0d9488;
+  background: #ffffff;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.openFormBtn:hover:not(:disabled) {
+  background: #f0fdfa;
+}
+
+.openFormBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.createDraftBtn {
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #0d9488;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.createDraftBtn:hover:not(:disabled) {
+  background: #0f766e;
+}
+
+.createDraftBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reorderTableWrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.reorderTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.reorderTable th {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.reorderTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #0f172a;
+  vertical-align: middle;
+}
+
+.reorderTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.reorderRowSelected {
+  background: #f0fdfa;
+}
+
+.skuCell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.stockBadgeLow {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.stockBadgeOut {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.reasonText {
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.cellInput {
+  width: 110px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.cellInput:focus {
+  outline: none;
+  border-color: #0d9488;
+}
+
+.reorderEmptyBox,
+.reorderFeedbackErr,
+.reorderSuccessBanner {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reorderEmptyBox {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.reorderFeedbackErr {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.reorderSuccessBanner {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.inspectDraftBtn {
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: 1px solid #059669;
+  background: #059669;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.inspectDraftBtn:hover {
+  background: #047857;
+}
+
 @media (max-width: 720px) {
   .promptGrid {
     grid-template-columns: 1fr;
@@ -705,4 +1014,102 @@
 
 :global([data-theme='dark']) .textarea:disabled {
   background: #151f32 !important;
+}
+
+/* Dark Mode for T3C9F16 Reorder Suggestions Panel */
+:global([data-theme='dark']) .reorderCard {
+  background: #151f32 !important;
+  border-color: #2d3d56 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+}
+
+:global([data-theme='dark']) .reorderTitle {
+  color: #f8fafc !important;
+}
+
+:global([data-theme='dark']) .reorderSubtitle,
+:global([data-theme='dark']) .reasonText {
+  color: #94a3b8 !important;
+}
+
+:global([data-theme='dark']) .draftOnlyBadge {
+  background: rgba(59, 130, 246, 0.18) !important;
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  color: #93c5fd !important;
+}
+
+:global([data-theme='dark']) .refreshSuggestionsBtn,
+:global([data-theme='dark']) .openFormBtn {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+:global([data-theme='dark']) .refreshSuggestionsBtn:hover:not(:disabled),
+:global([data-theme='dark']) .openFormBtn:hover:not(:disabled) {
+  background: #26354d !important;
+  border-color: #34d399 !important;
+}
+
+:global([data-theme='dark']) .reorderToolbar,
+:global([data-theme='dark']) .reorderEmptyBox {
+  background: #111a2b !important;
+  border-color: #2d3d56 !important;
+  color: #cbd5e1 !important;
+}
+
+:global([data-theme='dark']) .supplierLabel {
+  color: #cbd5e1 !important;
+}
+
+:global([data-theme='dark']) .supplierSelect,
+:global([data-theme='dark']) .cellInput {
+  background: #1e293b !important;
+  border-color: #3b4f6b !important;
+  color: #f8fafc !important;
+}
+
+:global([data-theme='dark']) .reorderTableWrap {
+  border-color: #2d3d56 !important;
+}
+
+:global([data-theme='dark']) .reorderTable th {
+  background: #111a2b !important;
+  color: #cbd5e1 !important;
+  border-bottom-color: #2d3d56 !important;
+}
+
+:global([data-theme='dark']) .reorderTable td {
+  color: #f1f5f9 !important;
+  border-bottom-color: #1e293b !important;
+}
+
+:global([data-theme='dark']) .reorderRowSelected {
+  background: rgba(13, 148, 136, 0.16) !important;
+}
+
+:global([data-theme='dark']) .skuCell {
+  color: #34d399 !important;
+}
+
+:global([data-theme='dark']) .stockBadgeLow {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fde68a !important;
+}
+
+:global([data-theme='dark']) .stockBadgeOut {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #fecaca !important;
+}
+
+:global([data-theme='dark']) .reorderFeedbackErr {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  color: #fecaca !important;
+}
+
+:global([data-theme='dark']) .reorderSuccessBanner {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  color: #a7f3d0 !important;
 }

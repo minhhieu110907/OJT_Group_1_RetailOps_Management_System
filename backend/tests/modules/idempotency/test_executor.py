@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.exceptions import DomainValidationError, IdempotencyKeyReusedError
+from app.core.exceptions import (
+    DomainValidationError,
+    IdempotencyKeyReusedError,
+    RequestInProgressError,
+)
+from app.modules.idempotency.repository import IdempotencyClaimLockTimeoutError
 from app.modules.idempotency.service import (
     CommandOutcome,
     IdempotencyExecutor,
@@ -31,6 +36,11 @@ class FakeRepository:
 
     def claim_or_lock(self, *_args: object, **_kwargs: object):
         return self.record, self.claimed
+
+
+class LockTimeoutRepository:
+    def claim_or_lock(self, *_args: object, **_kwargs: object):
+        raise IdempotencyClaimLockTimeoutError
 
 
 def record_for(identity: dict[str, object]) -> SimpleNamespace:
@@ -92,6 +102,24 @@ def test_completed_record_replays_without_command() -> None:
     )
     assert result.status_code == 200
     assert result.body == {"id": 9, "status": "CANCELLED"}
+
+
+def test_claim_lock_timeout_maps_to_stable_request_in_progress_error() -> None:
+    with pytest.raises(RequestInProgressError) as caught:
+        IdempotencyExecutor(
+            secret=b"s" * 32,
+            repository=LockTimeoutRepository(),  # type: ignore[arg-type]
+        ).execute(
+            FakeSession(),  # type: ignore[arg-type]
+            actor_id=4,
+            operation=IdempotencyOperation.CHECKOUT,
+            idempotency_key="0123456789abcdef",
+            request_identity={"operation": "CHECKOUT", "body": {}},
+            command=lambda: pytest.fail("timed-out claim executed command"),
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.code == "REQUEST_IN_PROGRESS"
 
 
 @pytest.mark.parametrize(
