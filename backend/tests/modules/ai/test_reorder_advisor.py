@@ -9,7 +9,9 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import BigInteger, create_engine, event, func, select
+from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -18,7 +20,10 @@ from app.core.exceptions import DependencyUnavailableError, ForbiddenError
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import get_rate_limiter
-from app.infrastructure.rate_limit import RateLimitResult
+from app.infrastructure.rate_limit import (
+    RateLimitResult,
+    RedisFixedWindowRateLimiter,
+)
 from app.main import create_app
 from app.modules.ai.gemini_provider import (
     LLMProvider,
@@ -45,6 +50,16 @@ from app.modules.inventory.models import StockMovement
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.sales.models import Order, OrderItem, OrderStatus
+
+
+@compiles(BigInteger, "sqlite")
+def _compile_bigint_sqlite(_type: Any, _compiler: Any, **_kw: Any) -> str:
+    return "INTEGER"
+
+
+@compiles(TINYINT, "sqlite")
+def _compile_tinyint_sqlite(_type: Any, _compiler: Any, **_kw: Any) -> str:
+    return "INTEGER"
 
 
 def _make_sqlite_session_factory() -> sessionmaker[Session]:
@@ -185,7 +200,10 @@ def _load_principal(sf: sessionmaker[Session], user_id: int) -> CurrentPrincipal
         return CurrentPrincipal(user=user, session_id=b"\x01" * 16)
 
 
-class _NoopRateLimiter:
+class _NoopRateLimiter(RedisFixedWindowRateLimiter):
+    def __init__(self) -> None:
+        pass
+
     async def check(self, **_kwargs: Any) -> RateLimitResult:
         return RateLimitResult(allowed=True, count=1, retry_after=60)
 
@@ -477,6 +495,8 @@ async def test_ai_query_reorder_advisor_http_auth_readonly_and_injection() -> No
     )
 
     app = create_app(settings)
+    noop_limiter = _NoopRateLimiter()
+    app.state.rate_limiter = noop_limiter
 
     def _override_db() -> Iterator[Session]:
         with sf() as session:
@@ -484,7 +504,7 @@ async def test_ai_query_reorder_advisor_http_auth_readonly_and_injection() -> No
 
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_db_session] = _override_db
-    app.dependency_overrides[get_rate_limiter] = lambda: _NoopRateLimiter()
+    app.dependency_overrides[get_rate_limiter] = lambda: noop_limiter
     app.dependency_overrides[get_ai_concurrency_guard] = lambda: _NoopGuard()
     app.dependency_overrides[get_ai_session_factory] = lambda: sf
     app.dependency_overrides[get_ai_orchestrator] = lambda: AIOrchestrator(
@@ -566,7 +586,7 @@ async def test_ai_query_reorder_advisor_http_auth_readonly_and_injection() -> No
         )
         assert session.scalar(select(func.count(StockMovement.id))) == 0
         assert session.scalar(select(func.count(PurchaseReceipt.id))) == 0
-        assert session.scalar(select(func.count(PurchaseReceiptItem.id))) == 0
+        assert session.scalar(select(func.count(PurchaseReceiptItem.receipt_id))) == 0
         assert session.scalar(select(func.count(Order.id))) == 1
 
 
