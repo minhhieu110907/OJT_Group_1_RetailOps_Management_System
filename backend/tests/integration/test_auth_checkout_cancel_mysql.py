@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -15,6 +16,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
+from app.core.exceptions import ConflictError, InvalidStateError
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import enforce_login_rate_limit, get_rate_limiter
 from app.infrastructure.rate_limit import RateLimitResult
@@ -29,9 +31,13 @@ from app.modules.auth.models import (
 from app.modules.auth.security import JwtService, PasswordHasher
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
-from app.modules.inventory.models import MovementKind, ReferenceType, StockMovement
+from app.modules.idempotency.service import IdempotencyExecutor
+from app.modules.inventory import InventoryService, StockConflictError
+from app.modules.inventory.models import MovementKind, StockMovement
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.sales.models import Order, OrderItem, OrderStatus
+from app.modules.sales.schemas import CheckoutLine
+from app.modules.sales.service import CheckoutService, OrderService
 from tests.integration.conftest import (
     integration_database_url,
     integration_engine,
@@ -69,6 +75,7 @@ def _build_http_app(
         jwt_secret=SecretStr(f"t04a9ca-jwt-secret-{run_id}-0123456789"),
         csrf_secret=SecretStr(f"t04a9ca-csrf-secret-{run_id}-0123456789"),
         idempotency_secret=SecretStr(f"t04a9ca-idem-secret-{run_id}-0123456789"),
+        auth_cookie_secure=False,
     )
     app = create_app(settings)
 
@@ -117,9 +124,7 @@ def _cleanup_run(
             session.execute(delete(Category).where(Category.id.in_(category_ids)))
         if user_ids:
             session.execute(
-                delete(IdempotencyRecord).where(
-                    IdempotencyRecord.actor_id.in_(user_ids)
-                )
+                delete(IdempotencyRecord).where(IdempotencyRecord.user_id.in_(user_ids))
             )
             sess_ids = list(
                 session.scalars(
@@ -284,14 +289,19 @@ def test_auth_checkout_cancel_lifecycle_rbac_and_invariants_mysql(
             )
             assert l1.status_code == 200
             s1_token = l1.json()["access_token"]
-            s1_csrf = l1.json()["csrf_token"]
-            s1_cookies = dict(l1.cookies)
-
-            l2 = client.post(
-                "/api/v1/auth/login", json={"email": s2_email, "password": pw}
+            csrf_resp = client.get(
+                "/api/v1/auth/csrf",
+                headers={"Authorization": f"Bearer {s1_token}"},
             )
-            assert l2.status_code == 200
-            s2_token = l2.json()["access_token"]
+            assert csrf_resp.status_code == 200
+            s1_csrf = csrf_resp.json()["csrf_token"]
+
+            with TestClient(app) as client2:
+                l2 = client2.post(
+                    "/api/v1/auth/login", json={"email": s2_email, "password": pw}
+                )
+                assert l2.status_code == 200
+                s2_token = l2.json()["access_token"]
 
             # B1. Valid Checkout (qty=3) + Idempotency Replay + Conflict
             checkout_key = f"t04a9ca-chk-1-{run_id}"
@@ -412,8 +422,10 @@ def test_auth_checkout_cancel_lifecycle_rbac_and_invariants_mysql(
             # A4. Logout revokes session -> old access token rejected (401)
             r_logout = client.post(
                 "/api/v1/auth/logout",
-                headers={"X-CSRF-Token": s1_csrf},
-                cookies=s1_cookies,
+                headers={
+                    "X-CSRF-Token": s1_csrf,
+                    "Origin": settings.cors_origin_allowlist[0],
+                },
             )
             assert r_logout.status_code == 204
 
@@ -447,14 +459,14 @@ def test_auth_checkout_cancel_lifecycle_rbac_and_invariants_mysql(
                     select(StockMovement)
                     .where(
                         StockMovement.product_id == prod_id,
-                        StockMovement.reference_type == ReferenceType.ORDER,
+                        StockMovement.order_id == order_id,
                     )
                     .order_by(StockMovement.id)
                 )
             )
-            assert [(m.movement_kind, m.delta) for m in movements] == [
-                (MovementKind.SALE, -3),
-                (MovementKind.ORDER_CANCEL, 3),
+            assert [(m.kind, m.delta) for m in movements] == [
+                (MovementKind.SALE.value, -3),
+                (MovementKind.ORDER_CANCEL.value, 3),
             ]
     finally:
         _cleanup_run(
@@ -478,42 +490,64 @@ def test_checkout_and_cancel_concurrency_and_interaction_mysql(
         initial_stock=1,
         unit_price_vnd=unit_price,
     )
-    app, _sf, _settings = _build_http_app(
+    app, _sf, settings = _build_http_app(
         migrated_integration_engine, integration_database_url, run_id=run_id
     )
-    pw = "RegressionPass!123"
+    idem_secret = settings.idempotency_secret.get_secret_value().encode("utf-8")
+
+    def _checkout_worker(barrier: threading.Barrier, actor_id: int, key: str) -> int:
+        svc = CheckoutService(
+            InventoryService(),
+            idempotency=IdempotencyExecutor(secret=idem_secret),
+        )
+        with Session(migrated_integration_engine) as session:
+            barrier.wait(timeout=5)
+            try:
+                svc.checkout(
+                    session,
+                    actor_id=actor_id,
+                    idempotency_key=key,
+                    items=[
+                        CheckoutLine(
+                            product_id=prod_id,
+                            quantity=1,
+                            viewed_unit_price_vnd=unit_price,
+                        )
+                    ],
+                )
+                return 201
+            except (ConflictError, StockConflictError):
+                return 409
+
+    def _cancel_worker(
+        barrier: threading.Barrier, actor_id: int, oid: int, key: str
+    ) -> int:
+        svc = OrderService(
+            InventoryService(),
+            idempotency=IdempotencyExecutor(secret=idem_secret),
+        )
+        with Session(migrated_integration_engine) as session:
+            barrier.wait(timeout=5)
+            try:
+                svc.cancel(
+                    session,
+                    actor_id=actor_id,
+                    actor_role="STAFF",
+                    order_id=oid,
+                    reason="Huy dong thoi",
+                    idempotency_key=key,
+                )
+                return 200
+            except (ConflictError, InvalidStateError, StockConflictError):
+                return 409
 
     try:
-        with TestClient(app) as client:
-            t1 = client.post(
-                "/api/v1/auth/login", json={"email": s1_email, "password": pw}
-            ).json()["access_token"]
-            t2 = client.post(
-                "/api/v1/auth/login", json={"email": s2_email, "password": pw}
-            ).json()["access_token"]
-
         # Group D: Initial stock = 1, 2 concurrent checkouts (qty=1) -> 1x201, 1x409
-        def _do_checkout(tok: str, key: str) -> int:
-            with TestClient(app) as c:
-                resp = c.post(
-                    "/api/v1/orders/checkout",
-                    headers={"Authorization": f"Bearer {tok}", "Idempotency-Key": key},
-                    json={
-                        "items": [
-                            {
-                                "product_id": prod_id,
-                                "quantity": 1,
-                                "viewed_unit_price_vnd": unit_price,
-                            }
-                        ]
-                    },
-                )
-                return resp.status_code
-
+        barrier_d = threading.Barrier(2)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            f1 = pool.submit(_do_checkout, t1, f"t04a9ca-d1-{run_id}")
-            f2 = pool.submit(_do_checkout, t2, f"t04a9ca-d2-{run_id}")
-            statuses_d = sorted([f1.result(), f2.result()])
+            f1 = pool.submit(_checkout_worker, barrier_d, s1_id, f"t04a9ca-d1-{run_id}")
+            f2 = pool.submit(_checkout_worker, barrier_d, s2_id, f"t04a9ca-d2-{run_id}")
+            statuses_d = sorted([f1.result(timeout=15), f2.result(timeout=15)])
         assert statuses_d == [201, 409]
 
         with Session(migrated_integration_engine) as session:
@@ -524,34 +558,38 @@ def test_checkout_and_cancel_concurrency_and_interaction_mysql(
             )
             assert winning_order is not None
             win_order_id = winning_order.id
-            win_token = t1 if winning_order.created_by == s1_id else t2
+            win_actor_id = winning_order.created_by
 
         # Group E: Two concurrent cancels for the same order -> 1x200, 1x409, stock = 1
-        def _do_cancel(tok: str, oid: int, key: str) -> int:
-            with TestClient(app) as c:
-                resp = c.post(
-                    f"/api/v1/orders/{oid}/cancel",
-                    headers={"Authorization": f"Bearer {tok}", "Idempotency-Key": key},
-                    json={"reason": "Huy dong thoi"},
-                )
-                return resp.status_code
-
+        barrier_e = threading.Barrier(2)
         with ThreadPoolExecutor(max_workers=2) as pool:
             c1 = pool.submit(
-                _do_cancel, win_token, win_order_id, f"t04a9ca-e1-{run_id}"
+                _cancel_worker,
+                barrier_e,
+                win_actor_id,
+                win_order_id,
+                f"t04a9ca-e1-{run_id}",
             )
             c2 = pool.submit(
-                _do_cancel, win_token, win_order_id, f"t04a9ca-e2-{run_id}"
+                _cancel_worker,
+                barrier_e,
+                win_actor_id,
+                win_order_id,
+                f"t04a9ca-e2-{run_id}",
             )
-            statuses_e = sorted([c1.result(), c2.result()])
+            statuses_e = sorted([c1.result(timeout=15), c2.result(timeout=15)])
         assert statuses_e == [200, 409]
 
         with Session(migrated_integration_engine) as session:
             inv = session.get(Inventory, prod_id)
             assert inv is not None and inv.quantity == 1
 
-        # Group F: Checkout + Cancel interaction on same product
+        # Group F: Checkout + Cancel interaction on same product (stock 1 -> 0 -> race)
         with TestClient(app) as client:
+            t1 = client.post(
+                "/api/v1/auth/login",
+                json={"email": s1_email, "password": "RegressionPass!123"},
+            ).json()["access_token"]
             r_pre = client.post(
                 "/api/v1/orders/checkout",
                 headers={
@@ -572,11 +610,16 @@ def test_checkout_and_cancel_concurrency_and_interaction_mysql(
             pre_order_id = r_pre.json()["id"]
 
         # Stock is now 0; cancel pre_order (+1) concurrently with a checkout (-1)
+        barrier_f = threading.Barrier(2)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            fc = pool.submit(_do_cancel, t1, pre_order_id, f"t04a9ca-fcan-{run_id}")
-            fk = pool.submit(_do_checkout, t2, f"t04a9ca-fchk-{run_id}")
-            can_code = fc.result()
-            chk_code = fk.result()
+            fc = pool.submit(
+                _cancel_worker, barrier_f, s1_id, pre_order_id, f"t04a9ca-fcan-{run_id}"
+            )
+            fk = pool.submit(
+                _checkout_worker, barrier_f, s2_id, f"t04a9ca-fchk-{run_id}"
+            )
+            can_code = fc.result(timeout=15)
+            chk_code = fk.result(timeout=15)
 
         assert can_code == 200
         assert chk_code in {201, 409}

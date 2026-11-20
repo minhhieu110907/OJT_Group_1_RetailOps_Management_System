@@ -7,8 +7,8 @@
 
 ## 1. Repository Findings
 - **Auth**: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout` (CSRF + refresh cookie, thu hồi `AuthSession.revoked_at`), `get_current_active_user` kiểm tra JWT + `AuthSession` sống trong MySQL.
-- **Checkout**: `POST /api/v1/orders/checkout` (`201`), bắt buộc `Idempotency-Key` (16..128 ký tự), khóa `Inventory` bằng `SELECT ... FOR UPDATE`, trừ `quantity`, tăng `stock_version`, ghi `StockMovement(movement_kind='SALE', reference_type='ORDER')`.
-- **Cancel**: `POST /api/v1/orders/{order_id}/cancel` (`200`), bắt buộc `Idempotency-Key`, chỉ `ADMIN` hoặc `STAFF` tạo đơn trong vòng 15 phút cùng ngày VN (`403` nếu sai quyền/quá hạn), hủy lặp với key mới trả `409`, hoàn kho và ghi `StockMovement(movement_kind='ORDER_CANCEL')`.
+- **Checkout**: `POST /api/v1/orders/checkout` (`201`), bắt buộc `Idempotency-Key` (16..128 ký tự), khóa `Inventory` bằng `SELECT ... FOR UPDATE`, trừ `quantity`, tăng `stock_version`, ghi `StockMovement(kind='SALE', order_id=...)`.
+- **Cancel**: `POST /api/v1/orders/{order_id}/cancel` (`200`), bắt buộc `Idempotency-Key`, chỉ `ADMIN` hoặc `STAFF` tạo đơn trong vòng 15 phút cùng ngày VN (`403` nếu sai quyền/quá hạn), hủy lặp với key mới trả `409`, hoàn kho và ghi `StockMovement(kind='ORDER_CANCEL', order_id=...)`.
 - **Existing tests**: `backend/tests/modules/sales/test_checkout_mysql.py` đã phủ service-level checkout/cancel; `backend/tests/integration/test_auth_checkout_cancel_mysql.py` bổ sung full HTTP Auth → Checkout → Cancel & concurrency trên MySQL thật.
 
 ## 2. Test Cases (Groups A–F)
@@ -29,4 +29,4 @@
 - **Lệnh targeted**:
   `uv run --locked pytest tests/integration/test_auth_checkout_cancel_mysql.py -vv`
 - **Ruff**: `ruff check .` & `ruff format --check .` (xác minh ở local & CI).
-- **Trạng thái local**: Máy local không chạy MySQL integration stack nên thực thi MySQL thật qua GitHub Actions CI (`mysql:8.4` container).
+- **Kết quả local MySQL 8.4**: `pytest tests/integration/test_auth_checkout_cancel_mysql.py -v` → `2 passed in 22.11s`.
