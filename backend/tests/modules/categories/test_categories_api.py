@@ -58,7 +58,7 @@ def db_engine():
         connection.exec_driver_sql(
             "CREATE TABLE products ("
             "id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL, "
-            "status VARCHAR(8) NOT NULL)"
+            "status VARCHAR(8) NOT NULL, updated_at DATETIME)"
         )
     yield engine
     with engine.begin() as connection:
