@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { formatVnd } from '../../utils/posUtils';
 import {
   evaluateCancelOrderEligibility,
@@ -48,6 +49,26 @@ export default function OrderDetailModal({
   hideTimezone = false,
   compactAdminLabel = false,
 }) {
+  const isOpen = Boolean(order);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && typeof onClose === 'function') {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen, onClose]);
+
   if (!order) return null;
 
   const formatActor = (actorId, actorName) => {
@@ -78,6 +99,11 @@ export default function OrderDetailModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="order-detail-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && typeof onClose === 'function') {
+          onClose();
+        }
+      }}
     >
       <div className={styles.detailModalCard}>
         <div className={styles.modalHeader}>
