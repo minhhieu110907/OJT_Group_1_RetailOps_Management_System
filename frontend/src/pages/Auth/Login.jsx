@@ -26,6 +26,10 @@ export default function Login() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [errorTitle, setErrorTitle] = useState('Thông tin đăng nhập không hợp lệ');
+  const [errorDesc, setErrorDesc] = useState(
+    'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại thông tin và thử lại.'
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Đang khôi phục phiên từ Cookie -> Không flash màn hình đăng nhập
@@ -142,6 +146,18 @@ export default function Login() {
         });
         return;
       }
+      if (error?.code === 'ACCOUNT_LOCKED') {
+        setErrorTitle('Tài khoản đã bị khóa');
+        setErrorDesc(
+          error?.message ||
+            'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Quản trị viên.'
+        );
+      } else {
+        setErrorTitle('Thông tin đăng nhập không hợp lệ');
+        setErrorDesc(
+          'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại thông tin và thử lại.'
+        );
+      }
       setHasError(true);
     } finally {
       setIsSubmitting(false);
@@ -169,10 +185,8 @@ export default function Login() {
             </svg>
           </span>
           <div className={styles.errorBody}>
-            <h3 className={styles.errorTitle}>Thông tin đăng nhập không hợp lệ</h3>
-            <p className={styles.errorDesc}>
-              Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại thông tin và thử lại.
-            </p>
+            <h3 className={styles.errorTitle}>{errorTitle}</h3>
+            <p className={styles.errorDesc}>{errorDesc}</p>
           </div>
         </div>
       )}

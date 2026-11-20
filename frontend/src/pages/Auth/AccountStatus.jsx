@@ -271,7 +271,7 @@ export default function AccountStatus() {
                 )}
                 <div className={styles.infoRow}>
                   <span className={styles.infoLabel}>Vai trò dự kiến</span>
-                  <span className={styles.rolePill}>Nhân viên (STAFF)</span>
+                  <span className={styles.rolePill}>Nhân viên</span>
                 </div>
               </div>
             )}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { analyticsApi } from '../../api/analyticsApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import { inventoryApi } from '../../api/inventoryApi';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -41,6 +42,7 @@ export default function Dashboard() {
 
   const [loadedPreset, setLoadedPreset] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
+  const [outOfStockCount, setOutOfStockCount] = useState(null);
   const [prevMonthSales, setPrevMonthSales] = useState(null);
   const [seriesRows, setSeriesRows] = useState([]);
   const [todayOrders, setTodayOrders] = useState([]);
@@ -120,18 +122,27 @@ export default function Dashboard() {
                   .catch(() => null)
               : Promise.resolve(null);
 
-          const [mainData, resolvedBuckets, ordersPage, prevSales] = await Promise.all([
-            mainPromise,
-            Promise.all(bucketPromises),
-            ordersPromise,
-            prevMonthPromise,
-          ]);
+          const outOfStockPromise = inventoryApi
+            .getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 })
+            .catch(() => null);
 
-          return { mainData, resolvedBuckets, ordersPage, prevSales };
+          const [mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes] =
+            await Promise.all([
+              mainPromise,
+              Promise.all(bucketPromises),
+              ordersPromise,
+              prevMonthPromise,
+              outOfStockPromise,
+            ]);
+
+          return { mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes };
         },
-        onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales }) => {
+        onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes }) => {
           setLoadedPreset(targetPreset);
           setDashboardData(mainData);
+          setOutOfStockCount(
+            typeof outOfStockRes?.total === 'number' ? outOfStockRes.total : null
+          );
           setPrevMonthSales(prevSales);
           setSeriesRows(resolvedBuckets);
           setTodayOrders(ordersPage.items || []);
@@ -231,6 +242,11 @@ export default function Dashboard() {
 
   const sales = activeDashboardData?.sales ?? null;
   const lowStockCount = activeDashboardData ? activeDashboardData.low_stock_count : null;
+  const activeOutOfStockCount = hasActivePeriodData ? outOfStockCount : null;
+  const nearlyOutOfStockCount =
+    lowStockCount !== null
+      ? Math.max(0, lowStockCount - (activeOutOfStockCount ?? 0))
+      : null;
 
   const monthDeltas = useMemo(() => {
     if (preset !== DASHBOARD_PRESETS.THIS_MONTH || !sales) return null;
@@ -369,7 +385,7 @@ export default function Dashboard() {
         <div className={styles.stateCard}>
           <h2 className={styles.pageTitle}>Không có quyền truy cập</h2>
           <p className={styles.pageSubtitle}>
-            Trang Tổng quan cửa hàng chỉ dành cho tài khoản Quản trị viên (ADMIN).
+            Trang Tổng quan cửa hàng chỉ dành cho tài khoản Quản trị viên.
           </p>
         </div>
       </div>
@@ -856,10 +872,18 @@ export default function Dashboard() {
           <div className={styles.lowStockAlertBar}>
             <span>
               ⚠ Cảnh báo tồn kho:{' '}
-              {lowStockCount !== null
-                ? lowStockCount.toLocaleString('vi-VN')
-                : '—'}{' '}
-              sản phẩm sắp hết (≤ 5)
+              <strong>
+                {nearlyOutOfStockCount !== null
+                  ? nearlyOutOfStockCount.toLocaleString('vi-VN')
+                  : '—'}
+              </strong>{' '}
+              sản phẩm sắp hết •{' '}
+              <strong>
+                {activeOutOfStockCount !== null
+                  ? activeOutOfStockCount.toLocaleString('vi-VN')
+                  : '—'}
+              </strong>{' '}
+              sản phẩm hết hàng
             </span>
             <Link to="/inventory" className={styles.lowStockLink}>
               → Xem tồn kho

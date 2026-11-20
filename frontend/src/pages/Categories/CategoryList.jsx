@@ -110,7 +110,7 @@ export default function CategoryList() {
   // Xử lý mở Modal tạo mới (chỉ ADMIN)
   const handleOpenCreateModal = useCallback(() => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền thêm danh mục.');
       return;
     }
     setModalMode('create');
@@ -122,7 +122,7 @@ export default function CategoryList() {
   // Xử lý mở Modal chỉnh sửa (chỉ ADMIN)
   const handleOpenEditModal = useCallback((category) => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền chỉnh sửa danh mục.');
       return;
     }
     const formData = {
@@ -165,7 +165,7 @@ export default function CategoryList() {
   // Toggle trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
   const handleToggleStatus = useCallback(async (category) => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền thay đổi trạng thái danh mục.');
       return;
     }
     const nextStatus = category.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
@@ -188,7 +188,7 @@ export default function CategoryList() {
       e.preventDefault();
     }
     if (!isAdmin) {
-      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      const msg = 'Chỉ Quản trị viên mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
       return;

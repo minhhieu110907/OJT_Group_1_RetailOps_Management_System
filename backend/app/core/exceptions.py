@@ -58,6 +58,15 @@ class AccountRejectedError(AppException):
         super().__init__("ACCOUNT_REJECTED", "Tài khoản đã bị từ chối.", 401)
 
 
+class AccountLockedError(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            "ACCOUNT_LOCKED",
+            "Tài khoản đã bị khóa. Vui lòng liên hệ Quản trị viên.",
+            401,
+        )
+
+
 class SessionInvalidError(AppException):
     def __init__(self) -> None:
         super().__init__("SESSION_INVALID", "Phiên đăng nhập không hợp lệ.", 401)

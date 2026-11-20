@@ -345,7 +345,7 @@ export default function OrderList() {
           </p>
         </div>
         <span className={styles.timezoneBadge}>
-          Quy tắc: Hủy trong 15 phút (Nhân viên) | Cùng ngày (Admin)
+          Quy tắc: Hủy trong 15 phút (Nhân viên) | Cùng ngày (Quản trị viên)
         </span>
       </div>
 
@@ -477,7 +477,7 @@ export default function OrderList() {
           </h2>
           <p className={styles.immutableRuleDesc}>
             Đơn hàng sau khi hoàn tất là cố định. Nhân viên chỉ được hủy đơn do
-            chính mình tạo trong 15 phút. Quản trị viên (Admin) được phép hủy
+            chính mình tạo trong 15 phút. Quản trị viên được phép hủy
             trong ngày.
           </p>
         </div>
