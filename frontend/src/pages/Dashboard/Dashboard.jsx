@@ -505,7 +505,7 @@ export default function Dashboard() {
         </div>
 
         <Link
-          to="/orders"
+          to="/orders?status=COMPLETED"
           className={`${styles.kpiCard} ${styles.kpiCardLink}`}
           title="Xem danh sách đơn hàng đã hoàn thành"
         >
@@ -543,7 +543,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="/orders"
+          to="/orders?status=CANCELLED"
           className={`${styles.kpiCard} ${styles.kpiCardLink}`}
           title="Xem danh sách đơn hàng đã hủy"
         >

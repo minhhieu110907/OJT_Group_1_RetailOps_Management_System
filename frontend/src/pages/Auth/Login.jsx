@@ -141,6 +141,10 @@ export default function Login() {
                 ? 'PENDING_APPROVAL'
                 : 'REJECTED',
             email: formData.email.trim().toLowerCase(),
+            rejectReason:
+              error.code === 'ACCOUNT_REJECTED'
+                ? error?.details?.decision_reason || ''
+                : '',
             isUnverifiedSubmission: false,
           },
         });

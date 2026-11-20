@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pymysql.constants import ER
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -222,8 +222,20 @@ class AuthService:
             session.rollback()
             raise AccountPendingError()
         if user.status == UserStatus.REJECTED:
+            latest_reason = session.scalar(
+                select(StaffApprovalRequest.decision_reason)
+                .where(
+                    StaffApprovalRequest.user_id == user.id,
+                    StaffApprovalRequest.status == ApprovalStatus.REJECTED,
+                )
+                .order_by(
+                    StaffApprovalRequest.attempt_no.desc(),
+                    StaffApprovalRequest.id.desc(),
+                )
+                .limit(1)
+            )
             session.rollback()
-            raise AccountRejectedError()
+            raise AccountRejectedError(decision_reason=latest_reason)
         if user.status != UserStatus.ACTIVE:
             session.rollback()
             raise InvalidCredentialsError()

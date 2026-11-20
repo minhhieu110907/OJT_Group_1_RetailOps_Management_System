@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
@@ -14,6 +15,7 @@ from app.modules.categories.schemas import (
     CategoryStatusUpdate,
     CategoryUpdate,
 )
+from app.modules.products.models import CatalogStatus, Product
 
 
 def _utc_now_naive() -> datetime:
@@ -120,9 +122,19 @@ class CategoryService:
                 f"KhÃ´ng tÃ¬m tháº¥y danh má»¥c vá»›i mÃ£ {category_id}."
             )
         category, product_count = row
+        now = _utc_now_naive()
         category.status = data.status.value
-        category.updated_at = _utc_now_naive()
+        category.updated_at = now
         try:
+            if data.status == CategoryStatus.INACTIVE:
+                session.execute(
+                    update(Product)
+                    .where(
+                        Product.category_id == category_id,
+                        Product.status == CatalogStatus.ACTIVE,
+                    )
+                    .values(status=CatalogStatus.INACTIVE, updated_at=now)
+                )
             session.flush()
             session.commit()
             return self._to_read(category, product_count)

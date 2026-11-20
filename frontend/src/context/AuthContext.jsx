@@ -447,6 +447,9 @@ export function AuthProvider({ children }) {
       if (error?.response?.data?.code) {
         authError.code = error.response.data.code;
       }
+      if (error?.response?.data?.details) {
+        authError.details = error.response.data.details;
+      }
       throw authError;
     }
   };

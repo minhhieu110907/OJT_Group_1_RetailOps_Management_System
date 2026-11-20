@@ -25,7 +25,11 @@ export default function OrderList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const param = new URLSearchParams(window.location.search).get('status');
+    return param === 'COMPLETED' || param === 'CANCELLED' ? param : '';
+  });
   const [page, setPage] = useState(1);
 
   // Server data states
