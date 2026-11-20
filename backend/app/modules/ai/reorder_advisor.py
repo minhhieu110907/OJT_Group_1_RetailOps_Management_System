@@ -8,6 +8,7 @@ and always attaches verifiable evidence and insufficient-data flags.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
@@ -20,6 +21,8 @@ from app.core.exceptions import (
 )
 from app.modules.ai.schemas import AIEvidence
 from app.modules.ai.tool_executor import ToolId, ToolResult
+
+logger = logging.getLogger(__name__)
 
 ReorderClassification = Literal[
     "PRIORITY_RESTOCK",
@@ -39,6 +42,19 @@ _TOOL_SOURCES: dict[ToolId, str] = {
     "get_slow_products": "products, inventory_stocks, order_items",
     "get_low_stock": "products, inventory_stocks",
 }
+
+_SAFE_SOURCE_ERROR_MESSAGES: dict[str, str] = {
+    "get_low_stock": "Nguồn dữ liệu tồn kho tạm thời không khả dụng.",
+    "get_top_products": "Nguồn dữ liệu sản phẩm bán chạy tạm thời không khả dụng.",
+    "product_sales": "Nguồn dữ liệu lịch sử bán hàng tạm thời không khả dụng.",
+    "get_slow_products": "Nguồn dữ liệu sản phẩm bán chậm tạm thời không khả dụng.",
+}
+
+
+def _safe_source_error_message(source_key: str) -> str:
+    return _SAFE_SOURCE_ERROR_MESSAGES.get(
+        source_key, "Nguồn dữ liệu phân tích tạm thời không khả dụng."
+    )
 
 
 class _StrictAdvisorModel(BaseModel):
@@ -167,7 +183,12 @@ class ReadOnlyReorderAdvisor:
         low_stock_result: ToolResult | None = None,
         top_products_result: ToolResult | None = None,
         slow_products_result: ToolResult | None = None,
+        product_sales_by_id: Mapping[int, int] | None = None,
+        sales_period: str | None = None,
         analysis_days: int = DEFAULT_REORDER_ANALYSIS_DAYS,
+        low_stock_truncated: bool = False,
+        low_stock_total_available: int | None = None,
+        slow_products_truncated: bool = False,
         source_errors: Mapping[str, str] | None = None,
     ) -> ReorderSuggestionReport:
         """Build evidence-backed reorder recommendations without mutating state."""
@@ -178,15 +199,15 @@ class ReadOnlyReorderAdvisor:
         assumptions: list[str] = []
 
         if low_stock_result is None:
-            err_msg = errors.get("get_low_stock", "Không truy vấn được tồn kho thấp.")
-            warnings.append(f"Lỗi nguồn tồn kho (get_low_stock): {err_msg}")
+            safe_msg = _safe_source_error_message("get_low_stock")
+            warnings.append(safe_msg)
             missing_data.append("inventory_low_stock")
             return ReorderSuggestionReport(
                 status="SOURCE_ERROR",
                 recommendations=[],
                 summary=(
-                    "Không thể đưa ra gợi ý nhập hàng vì nguồn dữ liệu tồn kho thấp "
-                    f"gặp lỗi ({err_msg}). Vui lòng thử lại sau."
+                    "Không thể đưa ra gợi ý nhập hàng vì "
+                    f"{safe_msg[0].lower()}{safe_msg[1:]} Vui lòng thử lại sau."
                 ),
                 evidence=[],
                 insufficient_data=True,
@@ -199,15 +220,68 @@ class ReadOnlyReorderAdvisor:
             low_stock_result,
             required_fields=("product_id", "sku", "name", "quantity", "threshold"),
         )
-        evidence.append(_build_evidence_item(low_stock_result))
+        low_total = _parse_int(
+            low_stock_result.data.get("total")
+            if isinstance(low_stock_result.data, Mapping)
+            else None
+        )
+        effective_low_total = (
+            low_stock_total_available
+            if low_stock_total_available is not None
+            else low_total
+        )
+        is_low_stock_truncated = low_stock_truncated or (
+            effective_low_total is not None and effective_low_total > len(low_items)
+        )
+        low_note = (
+            f"truncated={len(low_items)}/{effective_low_total}"
+            if is_low_stock_truncated and effective_low_total is not None
+            else None
+        )
+        evidence.append(_build_evidence_item(low_stock_result, note=low_note))
         if low_malformed:
             warnings.append(
                 "Dữ liệu tồn kho thấp có bản ghi không hợp lệ đã bị bỏ qua."
             )
             missing_data.append("malformed_low_stock_items")
+        if is_low_stock_truncated:
+            total_label = (
+                str(effective_low_total)
+                if effective_low_total is not None
+                else "nhiều hơn giới hạn"
+            )
+            warnings.append(
+                f"Chỉ phân tích được {len(low_items)}/{total_label} sản phẩm tồn thấp "
+                "do giới hạn xử lý an toàn; danh sách đề xuất chưa đầy đủ."
+            )
+            missing_data.append("low_stock_truncated")
+
+        exact_sales_by_id: dict[int, int] | None = None
+        if product_sales_by_id is not None:
+            exact_sales_by_id = {}
+            for raw_pid, raw_sold in product_sales_by_id.items():
+                pid_parsed = _parse_int(raw_pid, minimum=1)
+                sold_parsed = _parse_int(raw_sold, minimum=0)
+                if pid_parsed is not None and sold_parsed is not None:
+                    exact_sales_by_id[pid_parsed] = sold_parsed
+            with_sales_count = sum(1 for v in exact_sales_by_id.values() if v > 0)
+            evidence.append(
+                AIEvidence(
+                    source="product_sales (orders, order_items, products)",
+                    period=sales_period,
+                    summary=(
+                        f"queried={len(exact_sales_by_id)}, "
+                        f"with_sales={with_sales_count}, days={analysis_days}"
+                    ),
+                )
+            )
+        elif "product_sales" in errors:
+            warnings.append(_safe_source_error_message("product_sales"))
+            missing_data.append("product_sales_velocity")
 
         top_by_id: dict[int, dict[str, Any]] = {}
-        top_period: str | None = None
+        top_period: str | None = sales_period
+        top_truncated = False
         if top_products_result is not None:
             top_items, top_malformed = _extract_valid_items(
                 top_products_result,
@@ -219,8 +293,18 @@ class ReadOnlyReorderAdvisor:
                     "revenue_vnd",
                 ),
             )
-            evidence.append(_build_evidence_item(top_products_result))
-            top_period = top_products_result.source_period
+            top_total = _parse_int(
+                top_products_result.data.get("total")
+                if isinstance(top_products_result.data, Mapping)
+                else None
+            )
+            top_truncated = top_total is not None and top_total > len(top_items)
+            top_note = (
+                f"truncated={len(top_items)}/{top_total}" if top_truncated else None
+            )
+            evidence.append(_build_evidence_item(top_products_result, note=top_note))
+            if top_period is None:
+                top_period = top_products_result.source_period
             if top_malformed:
                 warnings.append(
                     "Dữ liệu top sản phẩm có bản ghi không hợp lệ đã bị bỏ qua."
@@ -228,11 +312,13 @@ class ReadOnlyReorderAdvisor:
                 missing_data.append("malformed_top_products_items")
             for item in top_items:
                 top_by_id[int(item["product_id"])] = item
-        else:
+        elif exact_sales_by_id is None:
             if "get_top_products" in errors:
-                err_top = errors["get_top_products"]
-                warnings.append(f"Lỗi nguồn lịch sử bán (get_top_products): {err_top}")
-            missing_data.append("sales_velocity_top_products")
+                warnings.append(_safe_source_error_message("get_top_products"))
+            if "sales_velocity_top_products" not in missing_data and (
+                "product_sales_velocity" not in missing_data
+            ):
+                missing_data.append("sales_velocity_top_products")
 
         slow_ids: set[int] = set()
         slow_by_id: dict[int, dict[str, Any]] = {}
@@ -247,30 +333,49 @@ class ReadOnlyReorderAdvisor:
                     "revenue_vnd",
                 ),
             )
-            evidence.append(_build_evidence_item(slow_products_result))
+            slow_total = _parse_int(
+                slow_products_result.data.get("total")
+                if isinstance(slow_products_result.data, Mapping)
+                else None
+            )
+            is_slow_truncated = slow_products_truncated or (
+                slow_total is not None and slow_total > len(slow_items)
+            )
+            slow_note = (
+                f"truncated={len(slow_items)}/{slow_total}"
+                if is_slow_truncated and slow_total is not None
+                else None
+            )
+            evidence.append(_build_evidence_item(slow_products_result, note=slow_note))
             if slow_malformed:
                 warnings.append("Dữ liệu sản phẩm bán chậm có bản ghi không hợp lệ.")
                 missing_data.append("malformed_slow_products_items")
+            if is_slow_truncated:
+                warnings.append(
+                    "Danh sách sản phẩm bán chậm vượt giới hạn xử lý an toàn nên "
+                    "chưa đối chiếu đầy đủ."
+                )
+                missing_data.append("slow_products_truncated")
             for item in slow_items:
                 pid = int(item["product_id"])
                 slow_ids.add(pid)
                 slow_by_id[pid] = item
-        elif "get_slow_products" in errors:
-            warnings.append(
-                f"Lỗi nguồn bán chậm (get_slow_products): {errors['get_slow_products']}"
-            )
-            missing_data.append("slow_moving_products")
+        else:
+            is_slow_truncated = slow_products_truncated
+            if "get_slow_products" in errors:
+                warnings.append(_safe_source_error_message("get_slow_products"))
+                missing_data.append("slow_moving_products")
 
         if not low_items and not low_malformed:
             # Slow products without low stock should not be recommended for restock.
-            if errors:
+            if errors or is_low_stock_truncated or is_slow_truncated:
                 return ReorderSuggestionReport(
                     status="PARTIAL_DATA",
                     recommendations=[],
                     summary=(
                         "Hiện không có sản phẩm nào dưới ngưỡng tồn kho thấp theo "
-                        "snapshot hiện tại, tuy nhiên nguồn phân tích bán hàng gặp lỗi "
-                        "nên chưa thể đối chiếu đầy đủ."
+                        "snapshot hiện tại, tuy nhiên nguồn dữ liệu chưa đầy đủ hoặc "
+                        "gặp lỗi nên chưa thể đối chiếu toàn bộ."
                     ),
                     evidence=evidence,
                     insufficient_data=True,
@@ -308,7 +413,8 @@ class ReadOnlyReorderAdvisor:
             )
 
         recommendations: list[ReorderRecommendationItem] = []
-        has_missing_sales = False
+        has_zero_sales_items = False
+        has_missing_sales_items = False
 
         for raw in low_items:
             pid = int(raw["product_id"])
@@ -327,10 +433,32 @@ class ReadOnlyReorderAdvisor:
             if qty > threshold:
                 continue
 
-            top_match = top_by_id.get(pid)
             slow_match = slow_by_id.get(pid)
+            sales_source: str | None = None
+            sold_units: int | None = None
+            sales_data_known = False
 
-            if pid in slow_ids and top_match is None:
+            if exact_sales_by_id is not None and pid in exact_sales_by_id:
+                sold_units = exact_sales_by_id[pid]
+                sales_source = "product_sales"
+                sales_data_known = True
+            elif pid in top_by_id:
+                sold_units = _parse_int(top_by_id[pid].get("sold_units"))
+                sales_source = "get_top_products"
+                sales_data_known = sold_units is not None
+            elif (
+                exact_sales_by_id is None
+                and top_products_result is not None
+                and not top_truncated
+                and "product_sales" not in errors
+                and "get_top_products" not in errors
+            ):
+                # Non-truncated top_products covers every product with sales in period.
+                sold_units = 0
+                sales_source = "get_top_products"
+                sales_data_known = True
+
+            if pid in slow_ids and (sold_units is None or sold_units <= 2):
                 sold_slow = (
                     _parse_int(slow_match.get("sold_units")) if slow_match else None
                 )
@@ -364,14 +492,28 @@ class ReadOnlyReorderAdvisor:
                 )
                 continue
 
-            sold_units = _parse_int(top_match.get("sold_units")) if top_match else None
-            if sold_units is not None and sold_units > 0 and analysis_days > 0:
+            if (
+                sales_data_known
+                and sold_units is not None
+                and sold_units > 0
+                and analysis_days > 0
+            ):
                 avg_daily = round(sold_units / analysis_days, 2)
                 threshold_gap = max(0, threshold - qty)
                 demand_gap = max(0, sold_units - qty)
                 suggested_qty = max(1, threshold_gap, demand_gap)
                 confidence: ReorderConfidence = (
-                    "HIGH" if analysis_days >= 7 and sold_units >= 3 else "MEDIUM"
+                    "MEDIUM"
+                    if is_slow_truncated
+                    else (
+                        "HIGH" if analysis_days >= 7 and sold_units >= 3 else "MEDIUM"
+                    )
+                )
+                slow_caveat = (
+                    " (Lưu ý: danh sách bán chậm bị giới hạn nên chưa loại trừ "
+                    "hoàn toàn khả năng sản phẩm bán chậm.)"
+                    if is_slow_truncated
+                    else ""
                 )
                 recommendations.append(
                     ReorderRecommendationItem(
@@ -391,12 +533,13 @@ class ReadOnlyReorderAdvisor:
                             f"Tồn kho thấp ({qty}/{threshold}) và đã bán {sold_units} "
                             f"đơn vị trong {analysis_days} ngày (~{avg_daily}/ngày); "
                             f"đề xuất cân nhắc nhập tham khảo {suggested_qty} đơn vị."
+                            f"{slow_caveat}"
                         ),
-                        sources=["get_low_stock", "get_top_products"],
+                        sources=["get_low_stock", sales_source or "product_sales"],
                     )
                 )
-            else:
-                has_missing_sales = True
+            elif sales_data_known and sold_units == 0:
+                has_zero_sales_items = True
                 recommendations.append(
                     ReorderRecommendationItem(
                         product_id=pid,
@@ -404,48 +547,84 @@ class ReadOnlyReorderAdvisor:
                         name=name,
                         current_quantity=qty,
                         low_stock_threshold=threshold,
-                        sold_units=None if top_products_result is None else 0,
-                        analysis_days=analysis_days
-                        if top_products_result is not None
-                        else None,
+                        sold_units=0,
+                        analysis_days=analysis_days,
                         sales_period=top_period,
-                        average_daily_sales=None,
+                        average_daily_sales=0.0,
                         suggested_quantity=None,
                         classification="LOW_STOCK_NO_SALES_HISTORY",
                         confidence="LOW",
                         reason=(
-                            f"Tồn kho thấp ({qty}/{threshold}) nhưng thiếu lịch sử bán "
-                            "hoặc chưa ghi nhận lượt bán trong kỳ phân tích; cần ADMIN "
-                            "kiểm tra nhu cầu thực tế trước khi quyết định số lượng."
+                            f"Tồn kho thấp ({qty}/{threshold}) và ghi nhận 0 lượt bán "
+                            f"trong {analysis_days} ngày qua; cần ADMIN kiểm tra nhu "
+                            "cầu thực tế trước khi quyết định số lượng nhập."
                         ),
-                        sources=(
-                            ["get_low_stock", "get_top_products"]
-                            if top_products_result is not None
-                            else ["get_low_stock"]
+                        sources=["get_low_stock", sales_source or "product_sales"],
+                    )
+                )
+            else:
+                has_missing_sales_items = True
+                missing_reason = (
+                    "không nằm trong danh sách Top Products bị giới hạn"
+                    if top_truncated
+                    else "thiếu dữ liệu bán từ nguồn Analytics"
+                )
+                recommendations.append(
+                    ReorderRecommendationItem(
+                        product_id=pid,
+                        sku=sku,
+                        name=name,
+                        current_quantity=qty,
+                        low_stock_threshold=threshold,
+                        sold_units=None,
+                        analysis_days=None,
+                        sales_period=top_period,
+                        average_daily_sales=None,
+                        suggested_quantity=None,
+                        classification="LOW_STOCK_NO_SALES_HISTORY",
+                        confidence="INSUFFICIENT",
+                        reason=(
+                            f"Tồn kho thấp ({qty}/{threshold}) nhưng chưa xác định "
+                            f"được tốc độ bán ({missing_reason}); không giả định bằng "
+                            "0 và không tự suy đoán số lượng nhập."
                         ),
+                        sources=["get_low_stock"],
                     )
                 )
 
+        if top_truncated and has_missing_sales_items:
+            warnings.append(
+                "Một số sản phẩm tồn thấp nằm ngoài giới hạn Top Products nên chưa "
+                "xác định được tốc độ bán thực tế."
+            )
+            missing_data.append("top_products_truncated")
+
         if any(r.classification == "PRIORITY_RESTOCK" for r in recommendations):
             assumptions.append(
-                f"Số lượng gợi ý tính theo nhu cầu bán thực tế trong {analysis_days} "
-                "ngày và ngưỡng tồn kho thấp hiện tại; chưa tính lead time nhà cung "
-                "cấp hay safety stock."
+                f"Số lượng gợi ý tính theo công thức "
+                f"max(1, threshold - current_stock, sold_units_{analysis_days}d - "
+                "current_stock); chưa tính lead time nhà cung cấp hay safety stock."
             )
-        if has_missing_sales:
+        if has_zero_sales_items or has_missing_sales_items:
             assumptions.append(
-                "Các sản phẩm thiếu lịch sử bán trong kỳ không được tự suy đoán "
-                "số lượng nhập."
+                "Các sản phẩm không có lượt bán hoặc thiếu dữ liệu bán trong kỳ không "
+                "được tự suy đoán số lượng nhập."
             )
 
-        insufficient_data = bool(
+        has_partial_condition = bool(
             errors
             or low_malformed
+            or is_low_stock_truncated
+            or is_slow_truncated
+            or has_missing_sales_items
+        )
+        insufficient_data = bool(
+            has_partial_condition
             or not recommendations
-            or (all(r.suggested_quantity is None for r in recommendations))
+            or all(r.suggested_quantity is None for r in recommendations)
         )
         status: AdvisorStatus
-        if errors or low_malformed:
+        if has_partial_condition:
             status = "PARTIAL_DATA"
         elif not recommendations:
             status = "OK"
@@ -566,7 +745,15 @@ def run_reorder_advisor_via_executor(
                 "AIRequestTimeoutError",
             }:
                 raise
-            source_errors[tool_id] = str(exc) or exc.__class__.__name__
+            logger.warning(
+                "ai_reorder_source_error",
+                extra={
+                    "tool_id": tool_id,
+                    "error_type": exc.__class__.__name__,
+                    "error_code": getattr(exc, "code", None),
+                },
+            )
+            source_errors[tool_id] = "SOURCE_UNAVAILABLE"
 
     return ReadOnlyReorderAdvisor().suggest(
         low_stock_result=low_result,

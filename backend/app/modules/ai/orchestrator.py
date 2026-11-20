@@ -22,8 +22,8 @@ from app.modules.ai.gemini_provider import (
     ToolResponseItem,
 )
 from app.modules.ai.reorder_advisor import (
+    ReadOnlyReorderAdvisor,
     ReorderSuggestionReport,
-    run_reorder_advisor_via_executor,
 )
 from app.modules.ai.schemas import AIAskResponse, AIEvidence
 from app.modules.ai.tool_executor import (
@@ -304,19 +304,24 @@ class AIOrchestrator:
     def _execute_reorder_advisor_sync(
         self, bound: BoundToolRequest
     ) -> ReorderSuggestionReport:
-        def _exec(tool_id: ToolId, arguments: dict[str, Any]) -> ToolResult:
-            bound.budget.check_deadline()
-            with self._session_factory() as session:
-                result = bound.executor.execute(
-                    session,
-                    tool_id=tool_id,
-                    arguments=arguments,
-                    context=bound.context,
-                )
-            bound.budget.check_deadline()
-            return result
-
-        return run_reorder_advisor_via_executor(execute_tool=_exec)
+        bound.budget.check_deadline()
+        with self._session_factory() as session:
+            snapshot = bound.executor.collect_reorder_snapshot(
+                session,
+                context=bound.context,
+            )
+        bound.budget.check_deadline()
+        return ReadOnlyReorderAdvisor().suggest(
+            low_stock_result=snapshot.low_stock_result,
+            product_sales_by_id=snapshot.product_sales_by_id,
+            sales_period=snapshot.sales_period,
+            slow_products_result=snapshot.slow_products_result,
+            analysis_days=snapshot.analysis_days,
+            low_stock_truncated=snapshot.low_stock_truncated,
+            low_stock_total_available=snapshot.low_stock_total_available,
+            slow_products_truncated=snapshot.slow_products_truncated,
+            source_errors=snapshot.source_errors,
+        )
 
     async def handle_query(
         self,

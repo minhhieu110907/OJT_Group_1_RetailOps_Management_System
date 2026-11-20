@@ -556,7 +556,7 @@ async def test_ai_query_reorder_advisor_http_auth_readonly_and_injection() -> No
         assert "read-only" in body["answer"].lower()
         sources = [ev["source"] for ev in body["evidence"]]
         assert any(s.startswith("get_low_stock") for s in sources)
-        assert any(s.startswith("get_top_products") for s in sources)
+        assert any(s.startswith("product_sales") for s in sources)
         low_ev = [
             ev for ev in body["evidence"] if ev["source"].startswith("get_low_stock")
         ][0]
@@ -613,3 +613,451 @@ async def test_orchestrator_existing_intents_no_regression() -> None:
     )
     assert low.insufficient_data is False
     assert low.evidence[0].source.startswith("get_low_stock")
+
+
+def test_low_stock_outside_top_20_and_zero_vs_missing_sales() -> None:
+    """Issue 1: Low-stock item outside Top 20 still gets exact 7d sold_units."""
+    sf = _make_sqlite_session_factory()
+    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+    hasher = PasswordHasher(work_factor=4)
+
+    with sf() as session, session.begin():
+        admin = User(
+            email_normalized="admin-top20@retailops.local",
+            password_hash=hasher.hash("AdminPass!123"),
+            role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            admin_slot=1,
+            created_at=now,
+            updated_at=now,
+        )
+        cat = Category(
+            name="Top20 Cat",
+            description="Category",
+            status=CatalogStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add_all([admin, cat])
+        session.flush()
+
+        # 22 high-stock bestsellers occupying Top 20 (sold 20..41 units each)
+        bestseller_ids: list[int] = []
+        for idx in range(22):
+            p = Product(
+                category_id=cat.id,
+                sku=f"TOP-{idx:03d}",
+                name=f"Bestseller {idx}",
+                status=CatalogStatus.ACTIVE,
+                sale_price_vnd=10_000,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(p)
+            session.flush()
+            session.add(
+                Inventory(
+                    product_id=p.id,
+                    quantity=100,
+                    stock_version=1,
+                    first_stocked_at=now - timedelta(days=30),
+                    updated_at=now,
+                )
+            )
+            bestseller_ids.append(p.id)
+
+        # Low-stock item #23 (outside Top 20) with 8 sold in 7 days, stock=2
+        p_outside = Product(
+            category_id=cat.id,
+            sku="LOW-OUTSIDE-TOP20",
+            name="Hàng tồn thấp ngoài Top 20",
+            status=CatalogStatus.ACTIVE,
+            sale_price_vnd=20_000,
+            created_at=now,
+            updated_at=now,
+        )
+        # Low-stock item with truly 0 sales in 7 days, stock=1
+        p_zero = Product(
+            category_id=cat.id,
+            sku="LOW-ZERO-SALES",
+            name="Hàng tồn thấp 0 bán",
+            status=CatalogStatus.ACTIVE,
+            sale_price_vnd=20_000,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add_all([p_outside, p_zero])
+        session.flush()
+        session.add_all(
+            [
+                Inventory(
+                    product_id=p_outside.id,
+                    quantity=2,
+                    stock_version=1,
+                    first_stocked_at=now - timedelta(days=2),
+                    updated_at=now,
+                ),
+                Inventory(
+                    product_id=p_zero.id,
+                    quantity=1,
+                    stock_version=1,
+                    first_stocked_at=now - timedelta(days=2),
+                    updated_at=now,
+                ),
+            ]
+        )
+
+        # Create COMPLETED orders within last 7 days
+        order = Order(
+            created_by=admin.id,
+            status=OrderStatus.COMPLETED,
+            total_vnd=1,
+            sold_at=now - timedelta(days=1),
+        )
+        session.add(order)
+        session.flush()
+        total_vnd = 0
+        for idx, pid in enumerate(bestseller_ids):
+            qty = 20 + idx
+            line = qty * 10_000
+            total_vnd += line
+            session.add(
+                OrderItem(
+                    order_id=order.id,
+                    product_id=pid,
+                    sku_snapshot=f"TOP-{idx:03d}",
+                    product_name_snapshot=f"Bestseller {idx}",
+                    unit_price_vnd=10_000,
+                    quantity=qty,
+                    line_total_vnd=line,
+                )
+            )
+        # Add 8 sold units for p_outside (rank #23, outside Top 20)
+        total_vnd += 8 * 20_000
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=p_outside.id,
+                sku_snapshot=p_outside.sku,
+                product_name_snapshot=p_outside.name,
+                unit_price_vnd=20_000,
+                quantity=8,
+                line_total_vnd=8 * 20_000,
+            )
+        )
+        order.total_vnd = total_vnd
+        admin_id = admin.id
+        outside_id = p_outside.id
+        zero_id = p_zero.id
+
+    principal = _load_principal(sf, admin_id)
+    bound = bind_authenticated_request(principal, request_id="req-outside-top20")
+    with sf() as session:
+        snapshot = bound.executor.collect_reorder_snapshot(
+            session, context=bound.context
+        )
+
+    report = ReadOnlyReorderAdvisor().suggest(
+        low_stock_result=snapshot.low_stock_result,
+        product_sales_by_id=snapshot.product_sales_by_id,
+        sales_period=snapshot.sales_period,
+        slow_products_result=snapshot.slow_products_result,
+        analysis_days=snapshot.analysis_days,
+        low_stock_truncated=snapshot.low_stock_truncated,
+        low_stock_total_available=snapshot.low_stock_total_available,
+        slow_products_truncated=snapshot.slow_products_truncated,
+        source_errors=snapshot.source_errors,
+    )
+    by_id = {item.product_id: item for item in report.recommendations}
+
+    # Product outside Top 20 still gets exact sold_units=8 and Q=max(1, 5-2, 8-2)=6
+    rec_outside = by_id[outside_id]
+    assert rec_outside.sold_units == 8
+    assert rec_outside.classification == "PRIORITY_RESTOCK"
+    assert rec_outside.suggested_quantity == 6
+
+    # Product with truly 0 sales is explicitly sold_units=0 (distinct from missing)
+    rec_zero = by_id[zero_id]
+    assert rec_zero.sold_units == 0
+    assert rec_zero.suggested_quantity is None
+    assert rec_zero.confidence == "LOW"
+    assert report.status == "OK"
+    assert report.insufficient_data is False
+
+
+def test_truncated_top_products_and_analytics_error_never_fabricate_zero() -> None:
+    """Issue 1: Missing from truncated Top 20 or analytics error => sold_units=None."""
+    advisor = ReadOnlyReorderAdvisor()
+    low_stock = ToolResult(
+        tool_id="get_low_stock",
+        data={
+            "items": [
+                {
+                    "product_id": 99,
+                    "sku": "SKU-99",
+                    "name": "Ngoài Top 20",
+                    "quantity": 2,
+                    "threshold": 5,
+                }
+            ],
+            "total": 1,
+        },
+        source_period=None,
+    )
+    truncated_top = ToolResult(
+        tool_id="get_top_products",
+        data={
+            "items": [
+                {
+                    "product_id": i,
+                    "sku": f"TOP-{i}",
+                    "name": f"Top {i}",
+                    "sold_units": 50 - i,
+                    "revenue_vnd": 100_000,
+                }
+                for i in range(1, 21)
+            ],
+            "total": 35,
+        },
+        source_period="2026-11-13..2026-11-19",
+    )
+
+    rep_trunc = advisor.suggest(
+        low_stock_result=low_stock,
+        top_products_result=truncated_top,
+        analysis_days=7,
+    )
+    assert rep_trunc.status == "PARTIAL_DATA"
+    assert rep_trunc.insufficient_data is True
+    assert rep_trunc.recommendations[0].sold_units is None
+    assert rep_trunc.recommendations[0].suggested_quantity is None
+    assert rep_trunc.recommendations[0].confidence == "INSUFFICIENT"
+    assert "top_products_truncated" in rep_trunc.missing_data
+
+    rep_err = advisor.suggest(
+        low_stock_result=low_stock,
+        product_sales_by_id=None,
+        source_errors={"product_sales": "Analytics DB timeout"},
+    )
+    assert rep_err.status == "PARTIAL_DATA"
+    assert rep_err.insufficient_data is True
+    assert rep_err.recommendations[0].sold_units is None
+    assert rep_err.recommendations[0].suggested_quantity is None
+    assert "product_sales_velocity" in rep_err.missing_data
+
+
+def test_pagination_handles_more_than_20_low_stock_and_signals_truncation() -> None:
+    """Issue 2: Bounded pagination processes >20 items and flags cap truncation."""
+    sf = _make_sqlite_session_factory()
+    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+    hasher = PasswordHasher(work_factor=4)
+
+    with sf() as session, session.begin():
+        admin = User(
+            email_normalized="admin-page@retailops.local",
+            password_hash=hasher.hash("AdminPass!123"),
+            role=UserRole.ADMIN,
+            status=UserStatus.ACTIVE,
+            admin_slot=1,
+            created_at=now,
+            updated_at=now,
+        )
+        cat = Category(
+            name="Page Cat",
+            description="Category",
+            status=CatalogStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add_all([admin, cat])
+        session.flush()
+
+        low_ids: list[int] = []
+        for idx in range(25):
+            p = Product(
+                category_id=cat.id,
+                sku=f"LOW-P-{idx:03d}",
+                name=f"Low Stock {idx}",
+                status=CatalogStatus.ACTIVE,
+                sale_price_vnd=15_000,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(p)
+            session.flush()
+            session.add(
+                Inventory(
+                    product_id=p.id,
+                    quantity=2,
+                    stock_version=1,
+                    first_stocked_at=now - timedelta(days=2),
+                    updated_at=now,
+                )
+            )
+            low_ids.append(p.id)
+
+        # Item #24 (on page 3 when page_size=10) has 10 sold units in 7d
+        order = Order(
+            created_by=admin.id,
+            status=OrderStatus.COMPLETED,
+            total_vnd=150_000,
+            sold_at=now - timedelta(days=1),
+        )
+        session.add(order)
+        session.flush()
+        target_pid = low_ids[24]
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=target_pid,
+                sku_snapshot="LOW-P-024",
+                product_name_snapshot="Low Stock 24",
+                unit_price_vnd=15_000,
+                quantity=10,
+                line_total_vnd=150_000,
+            )
+        )
+        admin_id = admin.id
+
+    principal = _load_principal(sf, admin_id)
+
+    # Full bounded pagination (page_size=10, max_pages=5 -> covers all 25 items)
+    bound_full = bind_authenticated_request(principal, request_id="req-page-full")
+    with sf() as session:
+        snap_full = bound_full.executor.collect_reorder_snapshot(
+            session, context=bound_full.context, page_size=10, max_pages=5
+        )
+    assert snap_full.low_stock_truncated is False
+    assert snap_full.low_stock_total_available == 25
+    assert snap_full.low_stock_result is not None
+    returned_ids = [it["product_id"] for it in snap_full.low_stock_result.data["items"]]
+    assert len(returned_ids) == 25
+    assert len(set(returned_ids)) == 25  # no duplicates across pages
+
+    rep_full = ReadOnlyReorderAdvisor().suggest(
+        low_stock_result=snap_full.low_stock_result,
+        product_sales_by_id=snap_full.product_sales_by_id,
+        sales_period=snap_full.sales_period,
+        slow_products_result=snap_full.slow_products_result,
+        analysis_days=snap_full.analysis_days,
+        low_stock_truncated=snap_full.low_stock_truncated,
+        low_stock_total_available=snap_full.low_stock_total_available,
+        slow_products_truncated=snap_full.slow_products_truncated,
+        source_errors=snap_full.source_errors,
+    )
+    by_id_full = {item.product_id: item for item in rep_full.recommendations}
+    assert len(by_id_full) == 25
+    assert by_id_full[target_pid].sold_units == 10
+    assert by_id_full[target_pid].suggested_quantity == 8  # max(1, 5-2, 10-2)
+
+    # Capped pagination (page_size=10, max_pages=2 -> 20/25 => PARTIAL_DATA)
+    bound_cap = bind_authenticated_request(principal, request_id="req-page-cap")
+    with sf() as session:
+        snap_cap = bound_cap.executor.collect_reorder_snapshot(
+            session, context=bound_cap.context, page_size=10, max_pages=2
+        )
+    assert snap_cap.low_stock_truncated is True
+    assert snap_cap.low_stock_total_available == 25
+    assert snap_cap.low_stock_result is not None
+    assert len(snap_cap.low_stock_result.data["items"]) == 20
+
+    rep_cap = ReadOnlyReorderAdvisor().suggest(
+        low_stock_result=snap_cap.low_stock_result,
+        product_sales_by_id=snap_cap.product_sales_by_id,
+        sales_period=snap_cap.sales_period,
+        slow_products_result=snap_cap.slow_products_result,
+        analysis_days=snap_cap.analysis_days,
+        low_stock_truncated=snap_cap.low_stock_truncated,
+        low_stock_total_available=snap_cap.low_stock_total_available,
+        slow_products_truncated=snap_cap.slow_products_truncated,
+        source_errors=snap_cap.source_errors,
+    )
+    assert rep_cap.status == "PARTIAL_DATA"
+    assert rep_cap.insufficient_data is True
+    assert "low_stock_truncated" in rep_cap.missing_data
+    assert any("20/25" in w for w in rep_cap.warnings)
+
+
+def test_source_error_sanitizes_raw_exception_and_logs_safely(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """P1: Raw DB/SQL/secret exception text must never leak into response or logs."""
+    secret_dsn = "mysql+pymysql://root:SuperSecretPass!@10.0.0.5/retailops"
+
+    def _boom(_tool_id: str, _args: dict[str, Any]) -> ToolResult:
+        raise RuntimeError(f"DB failed on {secret_dsn} SELECT * FROM orders")
+
+    with caplog.at_level("WARNING"):
+        report = run_reorder_advisor_via_executor(execute_tool=_boom)
+
+    assert report.status == "SOURCE_ERROR"
+    assert report.insufficient_data is True
+    combined_client_text = report.summary + " " + " ".join(report.warnings)
+    assert "SuperSecretPass!" not in combined_client_text
+    assert "mysql+pymysql" not in combined_client_text
+    assert "10.0.0.5" not in combined_client_text
+    assert "SELECT *" not in combined_client_text
+
+    # Server log records structured error without leaking raw secret string
+    assert any(rec.message == "ai_reorder_source_error" for rec in caplog.records)
+    assert all("SuperSecretPass!" not in rec.getMessage() for rec in caplog.records)
+
+    # Even if raw exception text is passed directly in source_errors, suggest sanitizes
+    direct_report = ReadOnlyReorderAdvisor().suggest(
+        low_stock_result=None,
+        source_errors={"get_low_stock": f"FATAL {secret_dsn}"},
+    )
+    assert "SuperSecretPass!" not in direct_report.summary
+    assert all("SuperSecretPass!" not in w for w in direct_report.warnings)
+
+
+def test_slow_products_truncated_marks_partial_and_adds_caveat() -> None:
+    """P2: Truncated get_slow_products marks PARTIAL_DATA and avoids overconfidence."""
+    advisor = ReadOnlyReorderAdvisor()
+    low_stock = ToolResult(
+        tool_id="get_low_stock",
+        data={
+            "items": [
+                {
+                    "product_id": 1,
+                    "sku": "SKU-1",
+                    "name": "Sản phẩm 1",
+                    "quantity": 1,
+                    "threshold": 5,
+                }
+            ],
+            "total": 1,
+        },
+        source_period=None,
+    )
+    slow_truncated = ToolResult(
+        tool_id="get_slow_products",
+        data={
+            "items": [
+                {
+                    "product_id": 99,
+                    "sku": "SLOW-99",
+                    "name": "Chậm 99",
+                    "sold_units": 0,
+                    "revenue_vnd": 0,
+                }
+            ],
+            "total": 30,
+        },
+        source_period="2026-10-21..2026-11-19",
+    )
+
+    report = advisor.suggest(
+        low_stock_result=low_stock,
+        product_sales_by_id={1: 10},
+        sales_period="2026-11-13..2026-11-19",
+        slow_products_result=slow_truncated,
+        analysis_days=7,
+    )
+    assert report.status == "PARTIAL_DATA"
+    assert report.insufficient_data is True
+    assert "slow_products_truncated" in report.missing_data
+    rec = report.recommendations[0]
+    assert rec.classification == "PRIORITY_RESTOCK"
+    assert rec.confidence == "MEDIUM"
+    assert "bán chậm bị giới hạn" in rec.reason
