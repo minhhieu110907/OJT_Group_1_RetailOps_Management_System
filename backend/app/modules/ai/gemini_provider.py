@@ -132,12 +132,59 @@ class LLMProvider(Protocol):
     ) -> ProviderTurnResponse: ...
 
 
+_FALLBACK_TOOL_INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
+    "get_sales_summary": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "start_date": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            },
+            "end_date": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            },
+        },
+    },
+    "get_top_products": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "days": {"type": "integer", "minimum": 1, "maximum": 90, "default": 7},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+        },
+    },
+    "get_slow_products": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
+        },
+    },
+    "get_low_stock": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
+        },
+    },
+}
+
+
 @lru_cache(maxsize=1)
 def load_approved_tool_schemas(
     contracts_path: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Load the 4 frozen tool input JSON schemas from contracts/ai_tool_schemas.json."""
     path = contracts_path or (PROJECT_ROOT / "contracts" / "ai_tool_schemas.json")
+    if contracts_path is None and not path.exists():
+        return {
+            name: dict(_FALLBACK_TOOL_INPUT_SCHEMAS[name])
+            for name in APPROVED_TOOL_NAMES
+        }
     raw = json.loads(path.read_text(encoding="utf-8"))
     tools = raw.get("tools", {})
     schemas: dict[str, dict[str, Any]] = {}

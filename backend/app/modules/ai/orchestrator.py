@@ -21,6 +21,10 @@ from app.modules.ai.gemini_provider import (
     LLMProvider,
     ToolResponseItem,
 )
+from app.modules.ai.reorder_advisor import (
+    ReorderSuggestionReport,
+    run_reorder_advisor_via_executor,
+)
 from app.modules.ai.schemas import AIAskResponse, AIEvidence
 from app.modules.ai.tool_executor import (
     BoundToolRequest,
@@ -99,6 +103,31 @@ _DATE_RANGE_SALES_RE = re.compile(
     r"^(?:xem\s+|báo cáo\s+|bao cao\s+)?doanh thu\s+(?:từ|tu)\s+"
     r"(\d{4}-\d{2}-\d{2})\s+(?:đến|den|tới|toi)\s+(\d{4}-\d{2}-\d{2})$"
 )
+
+_REORDER_ADVISOR_KEYWORDS: tuple[str, ...] = (
+    "gợi ý nhập hàng",
+    "goi y nhap hang",
+    "đề xuất nhập hàng",
+    "de xuat nhap hang",
+    "tư vấn nhập hàng",
+    "tu van nhap hang",
+    "nên nhập hàng",
+    "nen nhap hang",
+    "nên nhập thêm",
+    "nen nhap them",
+    "nhập hàng gì",
+    "nhap hang gi",
+    "sản phẩm cần nhập",
+    "san pham can nhap",
+    "gợi ý nhập",
+    "goi y nhap",
+    "reorder advisor",
+)
+
+
+def _is_reorder_advisor_query(normalized: str) -> bool:
+    return any(keyword in normalized for keyword in _REORDER_ADVISOR_KEYWORDS)
+
 
 SessionFactory = Callable[[], AbstractContextManager[Session]]
 
@@ -272,6 +301,23 @@ class AIOrchestrator:
         serialized = serialize_tool_result(result)
         return result, json.loads(serialized.decode("utf-8"))
 
+    def _execute_reorder_advisor_sync(
+        self, bound: BoundToolRequest
+    ) -> ReorderSuggestionReport:
+        def _exec(tool_id: ToolId, arguments: dict[str, Any]) -> ToolResult:
+            bound.budget.check_deadline()
+            with self._session_factory() as session:
+                result = bound.executor.execute(
+                    session,
+                    tool_id=tool_id,
+                    arguments=arguments,
+                    context=bound.context,
+                )
+            bound.budget.check_deadline()
+            return result
+
+        return run_reorder_advisor_via_executor(execute_tool=_exec)
+
     async def handle_query(
         self,
         *,
@@ -321,6 +367,17 @@ class AIOrchestrator:
                 answer=answer,
                 evidence=[_build_evidence(result)],
                 insufficient_data=insufficient,
+            )
+
+        # 2b. Read-only Reorder Advisor [T04AB0B] via allowlisted AIToolExecutor
+        if _is_reorder_advisor_query(normalized):
+            bound.budget.check_deadline()
+            report = await run_in_threadpool(self._execute_reorder_advisor_sync, bound)
+            bound.budget.check_deadline()
+            return AIAskResponse(
+                answer=report.summary,
+                evidence=report.evidence,
+                insufficient_data=report.insufficient_data,
             )
 
         # 3. Complex natural-language execution via Gemini Function Calling
