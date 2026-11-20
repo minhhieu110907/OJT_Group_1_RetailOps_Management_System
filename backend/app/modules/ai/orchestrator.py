@@ -195,7 +195,8 @@ def _format_period_vn(period_str: str | None) -> str | None:
         raw_ts = period_str[len("as_of=") :].split(";", 1)[0].strip()
         try:
             dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
-            return f"30 ngày gần nhất (đến {dt.astimezone(_VN_TZ).strftime('%d/%m/%Y')})"
+            date_str = dt.astimezone(_VN_TZ).strftime("%d/%m/%Y")
+            return f"30 ngày gần nhất (đến {date_str})"
         except ValueError:
             return period_str
     return period_str

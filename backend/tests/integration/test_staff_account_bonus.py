@@ -242,7 +242,7 @@ def test_change_password_keeps_only_current_session(
         assert other_session.revoked_at is not None
         with pytest.raises(SessionInvalidError):
             service.live_user(session, other.response.access_token)
-        with pytest.raises(AccountLockedError):
+        with pytest.raises(InvalidCredentialsError):
             service.login(session, staff.email_normalized, OLD_PASSWORD)
         assert service.login(session, staff.email_normalized, NEW_PASSWORD)
 
