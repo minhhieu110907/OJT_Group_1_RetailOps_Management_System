@@ -907,4 +907,49 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
 
     view.unmount();
   });
+
+  test('P2 renderFormattedAnswer renders Markdown lists/bold/code/table safely and escapes raw HTML', async () => {
+    axiosClient.post = async () => ({
+      data: {
+        answer: [
+          '### Tóm tắt tồn kho',
+          '',
+          '- **Sữa tươi**: còn `5` hộp',
+          '1. Kiểm tra lô nhập',
+          '',
+          '| SKU | SL |',
+          '| --- | --- |',
+          '| SP01 | 5 |',
+          '',
+          '<script>alert(1)</script>',
+        ].join('\n'),
+        evidence: [],
+        insufficient_data: false,
+      },
+    });
+
+    const view = renderAiAssistant('ADMIN');
+    fireEvent.change(screen.getByLabelText('Nhập câu hỏi cho Trợ lý AI'), {
+      target: { value: 'Kiểm tra markdown' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi câu hỏi' }));
+
+    await waitFor(() => {
+      assert.ok(document.querySelector('h4'));
+      assert.ok(document.querySelector('ul li strong'));
+      assert.equal(document.querySelector('ul li strong')?.textContent, 'Sữa tươi');
+      assert.equal(document.querySelector('ul li code')?.textContent, '5');
+      assert.ok(document.querySelector('ol li'));
+      assert.ok(document.querySelector('table thead th'));
+      assert.ok(document.querySelector('table tbody td'));
+    });
+
+    assert.equal(document.querySelector('script'), null, 'Raw <script> must NOT be injected as DOM element');
+    assert.ok(
+      (document.body.textContent || '').includes('<script>alert(1)</script>'),
+      'Raw HTML must be escaped as plain text'
+    );
+
+    view.unmount();
+  });
 });

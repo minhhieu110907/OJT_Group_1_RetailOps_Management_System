@@ -2,11 +2,6 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
-import {
-  deriveRejectSubState,
-  evaluateAccountVerificationClick,
-  evaluateResubmitAction,
-} from './accountStatusHelpers';
 import styles from './AccountStatus.module.css';
 
 // Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ho_Chi_Minh (HH:mm)
@@ -26,7 +21,6 @@ const MOCK_DEMO_FALLBACK_PROFILE = {
   submittedAt: '09:30 - 07/11/2026',
   rejectReason:
     'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
-  retryAfterLabel: '15:20 - 08/11/2026',
 };
 
 export default function AccountStatus() {
@@ -54,16 +48,12 @@ export default function AccountStatus() {
           incomingState.submittedAt || MOCK_DEMO_FALLBACK_PROFILE.submittedAt,
         rejectReason:
           incomingState.rejectReason || MOCK_DEMO_FALLBACK_PROFILE.rejectReason,
-        retryAfterLabel:
-          incomingState.retryAfterLabel ||
-          MOCK_DEMO_FALLBACK_PROFILE.retryAfterLabel,
       }
     : {
         fullName: incomingState.fullName || null,
         email: incomingState.email || null,
         submittedAt: incomingState.submittedAt || null,
         rejectReason: incomingState.rejectReason || null,
-        retryAfterLabel: incomingState.retryAfterLabel || null,
       };
 
   // Trạng thái chính của hồ sơ: 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -75,18 +65,7 @@ export default function AccountStatus() {
       : rawStatus === 'ACTIVE'
       ? 'APPROVED'
       : rawStatus || 'PENDING';
-  const [status, setStatus] = useState(initialStatus);
-
-  // Trạng thái con của mục Gửi lại khi REJECTED:
-  // - Real API mode: 'UNAVAILABLE' (không tự mặc định khóa 24h và không tin location.state)
-  // - Mock Demo mode: 'LOCKED_24H' | 'ELIGIBLE'
-  const rejectSubState = deriveRejectSubState({
-    isMockDemoActive,
-    incomingState,
-  });
-
-  // Cờ xác minh quyền kiểm soát tài khoản (ở trạng thái REJECTED - Đủ điều kiện)
-  const [isAccountVerified, setIsAccountVerified] = useState(false);
+  const [status] = useState(initialStatus);
 
   // Thời gian cập nhật lần cuối (HH:mm Asia/Ho_Chi_Minh)
   const [lastUpdated, setLastUpdated] = useState(() => getHaNoiCurrentTime());
@@ -144,25 +123,6 @@ export default function AccountStatus() {
     setLastUpdated(getHaNoiCurrentTime());
     setHasConnectionError(false);
     toast.success('Đã khôi phục kết nối máy chủ thành công (Chế độ Mock Demo).');
-  };
-
-  // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Chỉ giả lập ở Mock Demo mode)
-  const handleResubmitRequest = async () => {
-    const decision = evaluateResubmitAction({
-      isMockDemoActive,
-      isAccountVerified,
-    });
-    if (!decision.allowed) {
-      toast[decision.toastType || 'info'](decision.message);
-      return;
-    }
-
-    setIsChecking(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    setIsChecking(false);
-    setLastUpdated(getHaNoiCurrentTime());
-    setStatus(decision.nextStatus);
-    toast[decision.toastType || 'success'](decision.message);
   };
 
   // Xác định class viền cho thẻ Card duy nhất
@@ -271,7 +231,7 @@ export default function AccountStatus() {
                 )}
                 <div className={styles.infoRow}>
                   <span className={styles.infoLabel}>Vai trò dự kiến</span>
-                  <span className={styles.rolePill}>Nhân viên (STAFF)</span>
+                  <span className={styles.rolePill}>Nhân viên</span>
                 </div>
               </div>
             )}
@@ -417,9 +377,9 @@ export default function AccountStatus() {
             </div>
 
             <div className={styles.headerBlock}>
-              <h1 className={styles.stateTitle}>Hồ sơ chưa được phê duyệt</h1>
+              <h1 className={styles.stateTitle}>Hồ sơ đã bị từ chối</h1>
               <p className={styles.stateDesc}>
-                Yêu cầu cấp quyền chưa được duyệt dựa trên quy định quản lý nhân
+                Yêu cầu cấp quyền đã bị từ chối dựa trên quy định quản lý nhân
                 sự của cửa hàng.
               </p>
             </div>
@@ -427,118 +387,12 @@ export default function AccountStatus() {
             {/* Khung lý do từ chối viền đứt màu đỏ nhạt */}
             <div className={styles.rejectReasonBox}>
               <span className={styles.rejectReasonLabel}>
-                Lý do từ Quản trị viên:
+                Lý do bị từ chối:
               </span>
               <p className={styles.rejectReasonText}>
                 {profile.rejectReason ||
                   'Chưa có thông tin lý do từ chối từ máy chủ. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.'}
               </p>
-            </div>
-
-            {/* Mục Gửi lại yêu cầu (Real API: Chưa khả dụng; Mock Demo: Tạm khóa 24h & Đủ điều kiện) */}
-            <div className={styles.resubmitSection}>
-              {rejectSubState === 'UNAVAILABLE' ? (
-                <>
-                  <div className={styles.resubmitHeader}>
-                    <span className={styles.resubmitTitle}>
-                      Gửi lại yêu cầu xét duyệt
-                    </span>
-                    <span className={styles.subBadgeLocked}>Chưa khả dụng</span>
-                  </div>
-                  <p className={styles.resubmitDesc}>
-                    Hệ thống hiện chưa cung cấp quy trình xác minh và gửi lại hồ sơ
-                    tự động từ máy chủ. Không áp dụng thời hạn khóa giả định 24 giờ;
-                    vui lòng liên hệ Quản trị viên để được xem xét mở lại tài khoản.
-                  </p>
-                  <button
-                    type="button"
-                    className={styles.primaryActionBtn}
-                    disabled
-                  >
-                    <span>Gửi lại yêu cầu (chưa hỗ trợ)</span>
-                  </button>
-                </>
-              ) : rejectSubState === 'LOCKED_24H' ? (
-                <>
-                  <div className={styles.resubmitHeader}>
-                    <span className={styles.resubmitTitle}>
-                      Gửi lại yêu cầu xét duyệt
-                    </span>
-                    <span className={styles.subBadgeLocked}>Tạm khóa</span>
-                  </div>
-                  <p className={styles.resubmitDesc}>
-                    Để tránh quá tải hệ thống phê duyệt (Rate Limit), mỗi tài
-                    khoản chỉ được phép gửi lại yêu cầu sau 24 giờ kể từ thời điểm
-                    từ chối.
-                  </p>
-                  <div className={styles.cooldownTag}>
-                    {profile.retryAfterLabel
-                      ? `Có thể gửi lại sau: ${profile.retryAfterLabel}`
-                      : 'Chưa có thông tin thời hạn gửi lại từ máy chủ.'}
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.primaryActionBtn}
-                    disabled
-                  >
-                    <span>Gửi lại yêu cầu</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className={styles.resubmitHeader}>
-                    <span className={styles.resubmitTitle}>
-                      Gửi lại yêu cầu xét duyệt
-                    </span>
-                    <span className={styles.subBadgeEligible}>Đủ điều kiện</span>
-                  </div>
-                  <p className={styles.resubmitDesc}>
-                    Thời gian chờ 24 giờ đã hoàn tất. Vui lòng xác minh quyền kiểm
-                    soát tài khoản trước khi gửi lại hồ sơ cho Quản trị viên.
-                  </p>
-                  <button
-                    type="button"
-                    className={`${styles.verifyControlBtn} ${
-                      isAccountVerified ? styles.verifyControlActive : ''
-                    }`}
-                    onClick={() => {
-                      const decision = evaluateAccountVerificationClick({
-                        isMockDemoActive,
-                        prevVerified: isAccountVerified,
-                      });
-                      setIsAccountVerified(decision.nextVerified);
-                      if (decision.toastType && decision.message) {
-                        toast[decision.toastType](decision.message);
-                      }
-                    }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                    </svg>
-                    <span>
-                      {isAccountVerified
-                        ? 'Đã xác minh quyền kiểm soát tài khoản ✓'
-                        : 'Xác minh quyền kiểm soát tài khoản'}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={styles.primaryActionBtn}
-                    onClick={handleResubmitRequest}
-                    disabled={isChecking}
-                  >
-                    {isChecking ? (
-                      <>
-                        <span className={styles.spinner} aria-hidden="true" />
-                        <span>Đang gửi lại yêu cầu...</span>
-                      </>
-                    ) : (
-                      <span>Gửi lại yêu cầu xét duyệt</span>
-                    )}
-                  </button>
-                </>
-              )}
             </div>
 
             <div className={styles.actionButtons}>
@@ -555,6 +409,14 @@ export default function AccountStatus() {
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                 </svg>
                 <span>Liên hệ Quản trị viên</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.secondaryActionBtn}
+                onClick={() => navigate('/login', { replace: true })}
+              >
+                <span>Quay lại đăng nhập</span>
               </button>
             </div>
           </>

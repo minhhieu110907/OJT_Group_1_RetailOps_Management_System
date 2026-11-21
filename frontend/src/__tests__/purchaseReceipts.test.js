@@ -705,7 +705,7 @@ describe('T04A7C3 & T04A8B7 Purchase Receipts Management Suite', () => {
       const content = fs.readFileSync(filePath, 'utf-8');
       assert.match(content, /useAuth/);
       assert.match(content, /user\?.role === 'ADMIN'/);
-      assert.match(content, /Chức năng dành riêng cho Quản trị viên \(ADMIN\)/);
+      assert.match(content, /Chức năng dành riêng cho Quản trị viên/);
     });
 
     test('PurchaseList.jsx does not store tokens in localStorage', () => {

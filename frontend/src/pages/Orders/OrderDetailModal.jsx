@@ -23,7 +23,7 @@ function renderWindowBadge(order, eligibility, detailStatus) {
       <span className={styles.windowBadgeAmber}>
         {typeof eligibility.remainingMinutes === 'number'
           ? `Còn ${eligibility.remainingMinutes} phút hợp lệ để hủy`
-          : 'Hợp lệ hủy trong ngày (Admin)'}
+          : 'Hợp lệ hủy trong ngày (Quản trị viên)'}
       </span>
     );
   }

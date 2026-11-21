@@ -110,6 +110,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+    volumes:
+      - ./contracts:/contracts:ro
     environment:
       RETAILOPS_ENVIRONMENT: ${RETAILOPS_ENVIRONMENT:-development}
       RETAILOPS_COOKIE_SECURE: ${RETAILOPS_COOKIE_SECURE:-false}

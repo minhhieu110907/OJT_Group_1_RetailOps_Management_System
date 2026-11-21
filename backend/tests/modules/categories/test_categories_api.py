@@ -58,7 +58,7 @@ def db_engine():
         connection.exec_driver_sql(
             "CREATE TABLE products ("
             "id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL, "
-            "status VARCHAR(8) NOT NULL)"
+            "status VARCHAR(8) NOT NULL, updated_at DATETIME)"
         )
     yield engine
     with engine.begin() as connection:
@@ -450,6 +450,41 @@ async def test_update_category_status_admin(
             f"/api/v1/categories/{cat_id}/status", json={"status": "ACTIVE"}
         )
         assert staff_res.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_deactivate_category_does_not_cascade_to_active_products(
+    app_instance,
+    db_session: Session,
+    admin_user: User,
+) -> None:
+    """PROD-02: Deactivating a category must not deactivate active products."""
+    async with make_admin_client(app_instance, admin_user) as admin_c:
+        create_res = await admin_c.post(
+            "/api/v1/categories", json={"name": "Đồ uống thử nghiệm"}
+        )
+        assert create_res.status_code == 201
+        cat_id = create_res.json()["id"]
+
+        db_session.execute(
+            text(
+                "INSERT INTO products (id, category_id, status) "
+                "VALUES (901, :cat_id, 'ACTIVE')"
+            ),
+            {"cat_id": cat_id},
+        )
+        db_session.commit()
+
+        deactivate_res = await admin_c.patch(
+            f"/api/v1/categories/{cat_id}/status", json={"status": "INACTIVE"}
+        )
+        assert deactivate_res.status_code == 200
+        assert deactivate_res.json()["status"] == "INACTIVE"
+
+        product_status = db_session.execute(
+            text("SELECT status FROM products WHERE id = 901")
+        ).scalar_one()
+        assert product_status == "ACTIVE"
 
 
 @pytest.mark.anyio

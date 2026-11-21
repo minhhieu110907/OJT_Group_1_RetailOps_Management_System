@@ -315,8 +315,8 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
     assert.ok(orderListSrc.includes('filterRowSingle'));
     assert.ok(orderListSrc.includes('placeholder="Theo mã đơn"'));
     assert.ok(orderListSrc.includes('Ngày bán:'));
-    assert.ok(orderListSrc.includes('fromDate: selectedDate || undefined'));
-    assert.ok(orderListSrc.includes('toDate: selectedDate || undefined'));
+    assert.ok(orderListSrc.includes('fromDate: urlDateRange?.from || selectedDate || undefined'));
+    assert.ok(orderListSrc.includes('toDate: urlDateRange?.to || selectedDate || undefined'));
 
     // Status badge text "Đã hoàn tất" and "Đã hủy" (not "Đơn đã hoàn tất")
     assert.ok(orderListSrc.includes('Đã hoàn tất'));

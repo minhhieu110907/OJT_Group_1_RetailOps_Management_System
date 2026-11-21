@@ -364,32 +364,8 @@ export default function Header({
           </div>
         </div>
 
-        {/* Bên phải Header: Trợ giúp (?), Chuông thông báo Admin, Cụm User Dropdown */}
+        {/* Bên phải Header: Chế độ Sáng/Tối, Chuông thông báo Admin, Cụm User Dropdown */}
         <div className={styles.headerActions}>
-          {/* Nút icon Trợ giúp (?) */}
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={() => toast.info('Trung tâm trợ giúp RetailOps v1.0')}
-            title="Trợ giúp & Hướng dẫn"
-            aria-label="Trợ giúp"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-          </button>
-
           {/* Nút chuyển chế độ Sáng / Tối */}
           <button
             type="button"
