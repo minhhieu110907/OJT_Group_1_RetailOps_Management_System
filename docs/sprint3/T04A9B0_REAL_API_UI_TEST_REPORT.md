@@ -97,6 +97,18 @@ Toàn bộ các lỗi và sai lệch phát hiện trong quá trình kiểm thử
 | **BUG-PUR-01** | Phiếu nhập (`PurchaseList`) | Xung đột phiên bản nháp `draft_version` không hiển thị thông báo lỗi chi tiết mà báo lỗi chung chung. | **P2 (Medium)** | **Lan Anh / Tân** | Response 409 trả về schema `details.expected_draft_version` nhưng frontend chỉ đọc trường message chung. | **ĐÃ SỬA** | PR #65 (`5bf2d47`) |
 | **BUG-PROD-01**| Quản lý Sản phẩm (`ProductList`) | Khi thu nhỏ màn hình xuống thiết bị di động, bảng sản phẩm bị tràn khung viền màn hình ngang. | **P3 (Low)** | **Lâm** | Thiếu wrapper `overflow-x: auto` trên container bảng dữ liệu. | **ĐÃ SỬA** | PR #87 (`663cbb2`) |
 | **BUG-NAV-01** | Thanh điều hướng chung (`Sidebar`) | Nhấn phím Tab trên Mobile Drawer bị nhảy focus ra ngoài các phần tử phía sau nền mờ. | **P1 (High)** | **Tân** | Thiếu cơ chế Focus Trap (Keyboard Navigation Containment) trên Drawer component. | **ĐÃ SỬA** | PR #87 (`7c3599a`) |
+| **BUG-PUR-02** | Nhập hàng (`PurchaseList`) | Modal xác nhận hủy phiếu nhập màu chữ sai tương thích Dark Mode / biến theme. | **P3 (Low)** | **Tân** | Hardcode màu `#374151` và `#111827` thay vì sử dụng CSS variable `var(--color-neutral)`. | **ĐÃ SỬA** | Local commit |
+
+---
+
+### Đánh giá Xử lý Đồng thời & Stale UI (Multi-tab Concurrency & Stale State)
+
+- **Stale UI (Sản phẩm & Danh mục - Thao tác ACTIVE/INACTIVE):**
+  - **Bản chất:** Là hiện tượng Stale UI (dữ liệu cũ trên giao diện giữa các tab), không phải Race Condition do thao tác cập nhật mang tính lũy quyền (Idempotent).
+  - **Xử lý:** Backend Transaction chặn và trả lỗi khi có thao tác trên dữ liệu cũ; giao diện cảnh báo lỗi để người dùng chủ động tải lại, tránh việc tự động thao tác API bừa bãi.
+- **Stale UI (Nhà cung cấp - Đổi tên, SĐT):**
+  - **Bản chất:** Là xung đột ghi đè đồng thời (Lost Update / Race Condition), thao tác lưu sau sẽ ghi đè lên thao tác trước theo nguyên tắc Last-Write-Wins.
+  - **Xử lý:** Cơ chế Last-Write-Wins ghi nhận giá trị hợp lệ cuối cùng từ request sau; toàn bộ định dạng và tính toàn vẹn (E.164, Regex) được bảo toàn trong Transaction.
 
 ---
 

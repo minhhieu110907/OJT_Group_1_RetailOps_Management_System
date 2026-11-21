@@ -101,6 +101,7 @@ export default function SupplierList() {
   const [phoneNationalInput, setPhoneNationalInput] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [initialSnapshot, setInitialSnapshot] = useState(null);
+  const [conflictData, setConflictData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -169,6 +170,7 @@ export default function SupplierList() {
     setPhoneNationalInput('');
     setPhoneError('');
     setInitialSnapshot(null);
+    setConflictData(null);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -193,6 +195,7 @@ export default function SupplierList() {
     setPhoneNationalInput(hydratedPhone.nationalInput);
     setPhoneError('');
     setInitialSnapshot(snapshot);
+    setConflictData(null);
     setFormError('');
     setIsModalOpen(true);
   }, [isAdmin, toast]);
@@ -202,7 +205,38 @@ export default function SupplierList() {
     setIsModalOpen(false);
     setFormError('');
     setPhoneError('');
+    setConflictData(null);
   };
+
+  // Tải lại dữ liệu nhà cung cấp mới nhất khi có xung đột (HTTP 409 / Stale)
+  const handleReloadLatestSupplier = useCallback(async () => {
+    if (!supplierForm.id) return;
+    setIsSubmitting(true);
+    try {
+      const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
+      const newSnapshot = normalizeSupplierSnapshot(latestSupplier);
+      const rehydratedPhone = hydrateSupplierPhoneField(newSnapshot.contact_phone);
+      setInitialSnapshot(newSnapshot);
+      setSupplierForm({
+        id: newSnapshot.id,
+        name: newSnapshot.name,
+        contact_phone: newSnapshot.contact_phone || '',
+        contact_email: newSnapshot.contact_email || '',
+        status: newSnapshot.status,
+      });
+      setPhoneCountry(rehydratedPhone.countryIso);
+      setPhoneNationalInput(rehydratedPhone.nationalInput);
+      setPhoneError('');
+      setConflictData(null);
+      setFormError('');
+      setRefreshTrigger((prev) => prev + 1);
+      toast.info('Đã cập nhật dữ liệu nhà cung cấp mới nhất từ hệ thống.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể tải dữ liệu nhà cung cấp mới nhất.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [supplierForm.id, toast]);
 
   // Đồng bộ giá trị số điện thoại quốc gia -> E.164 trong supplierForm
   const syncPhoneField = useCallback(
@@ -321,6 +355,7 @@ export default function SupplierList() {
       if (!changes.hasInfoChanges && !changes.hasStatusChange) {
         toast.info('Không có thay đổi nào để lưu.');
         setIsModalOpen(false);
+        setRefreshTrigger((prev) => prev + 1);
         return;
       }
     }
@@ -340,6 +375,25 @@ export default function SupplierList() {
         setIsModalOpen(false);
         setRefreshTrigger((prev) => prev + 1);
       } else {
+        // Kiểm tra dữ liệu phiên bản mới nhất trước khi cập nhật để ngăn chặn ghi đè stale UI giữa các tab
+        try {
+          const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
+          if (
+            initialSnapshot?.updated_at &&
+            latestSupplier?.updated_at &&
+            latestSupplier.updated_at !== initialSnapshot.updated_at
+          ) {
+            setConflictData({
+              message:
+                'Dữ liệu nhà cung cấp đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+              latest: latestSupplier,
+            });
+            return;
+          }
+        } catch (fetchErr) {
+          // Bỏ qua nếu lỗi mạng để tiếp tục xử lý update bình thường
+        }
+
         const { hasInfoChanges, hasStatusChange, normalizedPayload } = changes;
         let infoUpdated = false;
 
@@ -401,14 +455,22 @@ export default function SupplierList() {
         setRefreshTrigger((prev) => prev + 1);
       }
     } catch (err) {
-      const errorMsg = getApiErrorMessage(
-        err,
-        modalMode === 'create'
-          ? 'Không thể tạo nhà cung cấp.'
-          : 'Không thể cập nhật nhà cung cấp.'
-      );
-      setFormError(errorMsg);
-      toast.error(errorMsg);
+      if (err?.response?.status === 409) {
+        setConflictData({
+          message:
+            getApiErrorMessage(err) ||
+            'Dữ liệu đã thay đổi gần đây trên hệ thống (HTTP 409). Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
+        });
+      } else {
+        const errorMsg = getApiErrorMessage(
+          err,
+          modalMode === 'create'
+            ? 'Không thể tạo nhà cung cấp.'
+            : 'Không thể cập nhật nhà cung cấp.'
+        );
+        setFormError(errorMsg);
+        toast.error(errorMsg);
+      }
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);
@@ -656,6 +718,27 @@ export default function SupplierList() {
           onSubmit={handleSubmitForm}
           className={styles.modalForm}
         >
+          {conflictData && (
+            <div className={styles.conflictCard} role="alert">
+              <div className={styles.conflictHeaderRow}>
+                <div className={styles.conflictTitleBlock}>
+                  <span className={styles.conflictTitle}>Dữ liệu đã thay đổi gần đây</span>
+                  <span className={styles.conflictSubtitle}>Xung đột cập nhật đồng thời</span>
+                </div>
+                <span className={styles.httpBadge}>HTTP 409</span>
+              </div>
+              <p className={styles.conflictDesc}>{conflictData.message}</p>
+              <button
+                type="button"
+                className={styles.conflictReloadBtn}
+                onClick={handleReloadLatestSupplier}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Đang tải dữ liệu...' : 'Tải lại dữ liệu mới nhất'}
+              </button>
+            </div>
+          )}
+
           {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
           {/* Tên nhà cung cấp */}

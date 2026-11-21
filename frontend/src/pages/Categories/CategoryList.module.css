@@ -435,3 +435,82 @@
   color: #DC2626;
 }
 
+/* Conflict Card (HTTP 409 / Stale State) */
+.conflictCard {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conflictHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.conflictTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conflictTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.conflictSubtitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.httpBadge {
+  background-color: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.conflictDesc {
+  margin: 0;
+  font-size: 13px;
+  color: #78350f;
+  line-height: 1.5;
+}
+
+.conflictReloadBtn {
+  width: 100%;
+  padding: 8px 14px;
+  background-color: #ffffff;
+  border: 1px solid #d97706;
+  color: #b45309;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.conflictReloadBtn:hover:not(:disabled) {
+  background-color: #fef3c7;
+  border-color: #b45309;
+  color: #92400e;
+}
+
+.conflictReloadBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
