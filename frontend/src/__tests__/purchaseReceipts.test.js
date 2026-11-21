@@ -5,6 +5,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import axiosClient from '../api/axiosClient.js';
 import {
+  filterProductsBySupplierCategories,
+  filterSuppliersBySelectedProducts,
+  findAutoFillSupplierForProduct,
+  resetIncompatibleProductLines,
+} from '../utils/purchaseSupplierLinkUtils.js';
+import {
   receiptsApi,
   validateReceiptLineRead,
   validateReceiptRead,
@@ -727,6 +733,93 @@ describe('T04A7C3 & T04A8B7 Purchase Receipts Management Suite', () => {
       const content = fs.readFileSync(filePath, 'utf-8');
       assert.equal(content.includes('localStorage'), false);
       assert.equal(content.includes('mockReceipts'), false);
+    });
+  });
+
+  describe('F11: Two-way Supplier <-> Category <-> Product filtering on Purchase forms', () => {
+    const suppliers = [
+      { id: 1, name: 'NCC Đồ uống', category_ids: [10] },
+      { id: 2, name: 'NCC Tổng hợp', category_ids: [10, 20] },
+      { id: 3, name: 'NCC Chưa gán', category_ids: [] },
+    ];
+    const products = [
+      { id: 101, sku: 'SP101', name: 'Nước suối', category_id: 10 },
+      { id: 102, sku: 'SP102', name: 'Gạo 5kg', category_id: 20 },
+      { id: 103, sku: 'SP103', name: 'Bột giặt', category_id: 30 },
+    ];
+
+    test('filterProductsBySupplierCategories filters by supplier category_ids while preserving selected lines', () => {
+      const filtered = filterProductsBySupplierCategories({
+        products,
+        selectedSupplier: suppliers[0],
+        selectedProductIds: [102],
+        showAllProducts: false,
+      });
+      assert.deepEqual(
+        filtered.map((p) => p.id),
+        [101, 102]
+      );
+
+      const allWhenUnlinked = filterProductsBySupplierCategories({
+        products,
+        selectedSupplier: suppliers[2],
+      });
+      assert.equal(allWhenUnlinked.length, 3);
+
+      const allWhenToggle = filterProductsBySupplierCategories({
+        products,
+        selectedSupplier: suppliers[0],
+        showAllProducts: true,
+      });
+      assert.equal(allWhenToggle.length, 3);
+    });
+
+    test('findAutoFillSupplierForProduct and filterSuppliersBySelectedProducts support product-first selection', () => {
+      const uniqueMatch = findAutoFillSupplierForProduct({
+        suppliers,
+        product: products[1],
+        currentSupplierId: '',
+      });
+      assert.equal(uniqueMatch?.id, 2);
+
+      const ambiguousMatch = findAutoFillSupplierForProduct({
+        suppliers,
+        product: products[0],
+        currentSupplierId: '',
+      });
+      assert.equal(ambiguousMatch, null);
+
+      const filteredSups = filterSuppliersBySelectedProducts({
+        suppliers,
+        selectedProductCategoryIds: [10],
+      });
+      assert.deepEqual(
+        filteredSups.map((s) => s.id),
+        [1, 2]
+      );
+    });
+
+    test('resetIncompatibleProductLines resets incompatible product selections when switching supplier', () => {
+      const productById = new Map(products.map((p) => [p.id, p]));
+      const lines = [
+        { product_id: '101', quantity: 2, unit_cost_vnd: 5000 }, // cat 10
+        { product_id: '102', quantity: 1, unit_cost_vnd: 12000 }, // cat 20
+      ];
+      const nextLines = resetIncompatibleProductLines({
+        lines,
+        selectedSupplier: suppliers[0], // only cat 10
+        productById,
+      });
+      assert.equal(nextLines[0].product_id, '101');
+      assert.equal(nextLines[1].product_id, '');
+
+      const clearedLines = resetIncompatibleProductLines({
+        lines,
+        selectedSupplier: null,
+        productById,
+      });
+      assert.equal(clearedLines[0].product_id, '');
+      assert.equal(clearedLines[1].product_id, '');
     });
   });
 });

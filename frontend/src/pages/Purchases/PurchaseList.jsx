@@ -18,6 +18,11 @@ import { suppliersApi } from '../../api/suppliersApi';
 import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
 import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
+import {
+  filterProductsBySupplierCategories,
+  findAutoFillSupplierForProduct,
+  resetIncompatibleProductLines,
+} from '../../utils/purchaseSupplierLinkUtils';
 import styles from './PurchaseList.module.css';
 
 // Định dạng số tiền kiểu 2.500.000 đ
@@ -144,6 +149,7 @@ export default function PurchaseList() {
   const [createLines, setCreateLines] = useState([
     { product_id: '', quantity: 1, unit_cost_vnd: 0 },
   ]);
+  const [showAllProductsInReceipt, setShowAllProductsInReceipt] = useState(false);
 
   // 6. Chế độ chỉnh sửa dòng của DRAFT trong panel chi tiết (Edit Draft Mode)
   const [isEditingDraft, setIsEditingDraft] = useState(false);
@@ -685,7 +691,65 @@ export default function PurchaseList() {
     setCreateSupplierId('');
     setCreateLines([{ product_id: '', quantity: 1, unit_cost_vnd: 0 }]);
     setProductSearchTerm('');
+    setShowAllProductsInReceipt(false);
     setIsCreateModalOpen(true);
+  };
+
+  const supplierById = useMemo(() => {
+    const map = new Map();
+    activeSuppliers.forEach((s) => map.set(Number(s.id), s));
+    return map;
+  }, [activeSuppliers]);
+
+  const productById = useMemo(() => {
+    const map = new Map();
+    selectableProducts.forEach((p) => map.set(Number(p.id), p));
+    return map;
+  }, [selectableProducts]);
+
+  const createSelectedSupplier = useMemo(
+    () => (createSupplierId ? supplierById.get(Number(createSupplierId)) || null : null),
+    [createSupplierId, supplierById]
+  );
+
+  const editSelectedSupplier = useMemo(
+    () => (editSupplierId ? supplierById.get(Number(editSupplierId)) || null : null),
+    [editSupplierId, supplierById]
+  );
+
+  const createFilteredProducts = useMemo(
+    () =>
+      filterProductsBySupplierCategories({
+        products: selectableProducts,
+        selectedSupplier: createSelectedSupplier,
+        selectedProductIds: createLines.map((l) => l.product_id),
+        showAllProducts: showAllProductsInReceipt,
+      }),
+    [selectableProducts, createSelectedSupplier, createLines, showAllProductsInReceipt]
+  );
+
+  const editFilteredProducts = useMemo(
+    () =>
+      filterProductsBySupplierCategories({
+        products: selectableProducts,
+        selectedSupplier: editSelectedSupplier,
+        selectedProductIds: editLines.map((l) => l.product_id),
+        showAllProducts: showAllProductsInReceipt,
+      }),
+    [selectableProducts, editSelectedSupplier, editLines, showAllProductsInReceipt]
+  );
+
+  const handleCreateSupplierChange = (nextSupplierId) => {
+    setCreateSupplierId(nextSupplierId);
+    const nextSupplier = nextSupplierId ? supplierById.get(Number(nextSupplierId)) || null : null;
+    setCreateLines((prev) =>
+      resetIncompatibleProductLines({
+        lines: prev,
+        selectedSupplier: nextSupplier,
+        productById,
+        showAllProducts: showAllProductsInReceipt,
+      })
+    );
   };
 
   const handleAddCreateLine = () => {
@@ -702,6 +766,18 @@ export default function PurchaseList() {
       next[index] = { ...next[index], [field]: value };
       return next;
     });
+    if (field === 'product_id' && value && !createSupplierId) {
+      const pickedProduct = productById.get(Number(value));
+      const matchedSupplier = findAutoFillSupplierForProduct({
+        suppliers: activeSuppliers,
+        product: pickedProduct,
+        currentSupplierId: createSupplierId,
+      });
+      if (matchedSupplier) {
+        setCreateSupplierId(String(matchedSupplier.id));
+        toast.info(`Đã tự động chọn nhà cung cấp "${matchedSupplier.name}" theo danh mục sản phẩm.`);
+      }
+    }
   };
 
   // Submit Tạo mới bản nháp (POST /api/v1/purchase-receipts)
@@ -1693,6 +1769,7 @@ export default function PurchaseList() {
                     className={styles.addItemLink}
                     onClick={() => {
                       setProductSearchTerm('');
+                      setShowAllProductsInReceipt(false);
                       setIsEditingDraft(true);
                     }}
                   >
@@ -1714,6 +1791,32 @@ export default function PurchaseList() {
 
               {selectedReceipt.status === 'DRAFT' && isEditingDraft ? (
                 <div>
+                  {editSelectedSupplier?.category_ids?.length > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        marginBottom: '8px',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <span style={{ color: 'var(--color-text-secondary, #64748b)' }}>
+                        {showAllProductsInReceipt
+                          ? `Đang hiển thị tất cả ${selectableProducts.length} sản phẩm`
+                          : `Đang lọc ${editFilteredProducts.length} sản phẩm theo danh mục của nhà cung cấp`}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.addItemLink}
+                        onClick={() => setShowAllProductsInReceipt((prev) => !prev)}
+                      >
+                        {showAllProductsInReceipt ? 'Lọc theo NCC' : 'Hiện tất cả SP'}
+                      </button>
+                    </div>
+                  )}
+
                   {/* Ô tìm kiếm sản phẩm phía server nếu danh mục sản phẩm > 100 */}
                   {(productsMeta.isTruncated || productSearchTerm) && (
                     <div style={{ marginBottom: '10px' }}>
@@ -1744,7 +1847,7 @@ export default function PurchaseList() {
                         }
                       >
                         <option value="">-- Chọn sản phẩm --</option>
-                        {selectableProducts.map((p) => (
+                        {editFilteredProducts.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.sku} - {p.name}
                           </option>
@@ -1915,7 +2018,7 @@ export default function PurchaseList() {
             <select
               className={styles.formSelect}
               value={createSupplierId}
-              onChange={(e) => setCreateSupplierId(e.target.value)}
+              onChange={(e) => handleCreateSupplierChange(e.target.value)}
               required
             >
               <option value="">-- Chọn nhà cung cấp --</option>
@@ -1928,9 +2031,29 @@ export default function PurchaseList() {
           </div>
 
           <div className={styles.formGroup}>
-            <label className={styles.formLabel}>
-              Danh sách sản phẩm nhập <span style={{ color: '#DC2626' }}>*</span>
-            </label>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+              }}
+            >
+              <label className={styles.formLabel}>
+                Danh sách sản phẩm nhập <span style={{ color: '#DC2626' }}>*</span>
+              </label>
+              {createSelectedSupplier?.category_ids?.length > 0 && (
+                <button
+                  type="button"
+                  className={styles.addItemLink}
+                  onClick={() => setShowAllProductsInReceipt((prev) => !prev)}
+                >
+                  {showAllProductsInReceipt
+                    ? `Lọc theo NCC (${createFilteredProducts.length})`
+                    : `Hiện tất cả SP (${selectableProducts.length})`}
+                </button>
+              )}
+            </div>
 
             {(productsMeta.isTruncated || productSearchTerm) && (
               <div style={{ marginBottom: '10px' }}>
@@ -1962,7 +2085,7 @@ export default function PurchaseList() {
                   required
                 >
                   <option value="">-- Chọn sản phẩm --</option>
-                  {selectableProducts.map((p) => (
+                  {createFilteredProducts.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.sku} - {p.name}
                     </option>

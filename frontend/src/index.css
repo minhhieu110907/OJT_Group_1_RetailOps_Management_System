@@ -1123,23 +1123,23 @@
   color: #94A3B8 !important;
 }
 
-[data-theme='dark'] [class*="removeLineBtn"] {
+[data-theme='dark'] button[class*="removeLineBtn"] {
   background-color: rgba(239, 68, 68, 0.14) !important;
   border: 1px solid rgba(239, 68, 68, 0.35) !important;
   border-radius: 6px !important;
   color: #F87171 !important;
 }
 
-[data-theme='dark'] [class*="removeLineBtn"]:hover:not(:disabled) {
+[data-theme='dark'] button[class*="removeLineBtn"]:hover:not(:disabled) {
   background-color: rgba(239, 68, 68, 0.25) !important;
   color: #FCA5A5 !important;
 }
 
-[data-theme='dark'] [class*="removeLineBtn"]:disabled {
-  background-color: #1E293B !important;
-  border: 1px solid #334155 !important;
-  color: #CBD5E1 !important;
-  opacity: 0.7 !important;
+[data-theme='dark'] button[class*="removeLineBtn"]:disabled {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #F87171 !important;
+  opacity: 0.65 !important;
 }
 
 [data-theme='dark'] [class*="addLineBtn"] {
