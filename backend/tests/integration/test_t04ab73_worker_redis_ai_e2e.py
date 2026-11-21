@@ -27,7 +27,11 @@ from app.db.session import get_db_session
 from app.infrastructure.rate_limit import RedisFixedWindowRateLimiter
 from app.main import create_app
 from app.modules.ai.concurrency import RedisAIConcurrencyGuard
-from app.modules.ai.gemini_provider import GeminiProvider
+from app.modules.ai.gemini_provider import (
+    GeminiProvider,
+    ProviderTurnResponse,
+    ToolResponseItem,
+)
 from app.modules.ai.orchestrator import AIOrchestrator
 from app.modules.ai.router import get_ai_orchestrator, get_ai_session_factory
 from app.modules.auth.models import (
@@ -67,6 +71,51 @@ LIVE_QUEUE = Queue(
     durable=True,
     queue_arguments={"x-queue-type": "quorum"},
 )
+
+
+async def _cleanup_redis_namespace(redis_client: Redis, namespace: str) -> None:
+    """Delete only keys created under this test run's isolated namespace."""
+    keys = [key async for key in redis_client.scan_iter(match=f"{namespace}:*")]
+    if keys:
+        await redis_client.delete(*keys)
+
+
+class _ObservingLiveGeminiProvider:
+    """Pass-through observer over the real GeminiProvider (never mocks responses)."""
+
+    def __init__(self, inner: GeminiProvider) -> None:
+        self._inner = inner
+        self.generate_calls = 0
+        self.tool_call_names: list[str] = []
+        self.submit_tool_calls = 0
+
+    async def generate_turn(
+        self, user_message: str, *, timeout_seconds: float
+    ) -> ProviderTurnResponse:
+        self.generate_calls += 1
+        turn = await self._inner.generate_turn(
+            user_message, timeout_seconds=timeout_seconds
+        )
+        self.tool_call_names.extend(call.name for call in turn.function_calls)
+        return turn
+
+    async def submit_tool_results(
+        self,
+        conversation_state: object,
+        tool_responses: tuple[ToolResponseItem, ...],
+        *,
+        timeout_seconds: float,
+    ) -> ProviderTurnResponse:
+        self.submit_tool_calls += 1
+        return await self._inner.submit_tool_results(
+            conversation_state, tool_responses, timeout_seconds=timeout_seconds
+        )
+
+
+def _assert_no_secrets_leaked(text: str, *, forbidden_secrets: tuple[str, ...]) -> None:
+    for secret in forbidden_secrets:
+        if secret:
+            assert secret not in text
 
 
 def _cleanup_ai_run(
@@ -242,6 +291,8 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
 
     run_id = uuid4().hex[:12]
     jwt_secret = f"t04ab73-jwt-secret-{run_id}-0123456789abcdef"
+    csrf_secret = f"t04ab73-csrf-secret-{run_id}-0123456789abcdef"
+    idem_secret = f"t04ab73-idem-secret-{run_id}-0123456789abcdef"
     (
         admin_id,
         staff_id,
@@ -264,8 +315,8 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
         db_user=integration_database_url.username or "retailops_test_runner",
         db_password=SecretStr(integration_database_url.password or ""),
         jwt_secret=SecretStr(jwt_secret),
-        csrf_secret=SecretStr(f"t04ab73-csrf-{run_id}-0123456789abcdef"),
-        idempotency_secret=SecretStr(f"t04ab73-idem-{run_id}-0123456789abcdef"),
+        csrf_secret=SecretStr(csrf_secret),
+        idempotency_secret=SecretStr(idem_secret),
         redis_url=SecretStr(redis_url),
         redis_connect_timeout_seconds=1.0,
         redis_socket_timeout_seconds=1.0,
@@ -285,6 +336,14 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
         session_expires_at=now + timedelta(hours=2),
         now=now,
     )
+    forbidden_secrets = (
+        jwt_secret,
+        csrf_secret,
+        idem_secret,
+        admin_tok,
+        staff_tok,
+        integration_database_url.password or "",
+    )
 
     healthy_redis = Redis.from_url(redis_url, decode_responses=False)
     broken_redis = Redis.from_url(
@@ -293,10 +352,11 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
         socket_timeout=0.3,
         decode_responses=False,
     )
+    ns = f"t04ab73-{run_id}"
+    canary_key = f"t04ab73-unrelated-canary-{run_id}"
 
     try:
-        ns = f"t04ab73-{run_id}"
-        await healthy_redis.flushdb()
+        await healthy_redis.set(canary_key, b"preserve-me", ex=60)
         app = create_app(settings)
         app.state.rate_limiter = RedisFixedWindowRateLimiter(healthy_redis, ns)
         app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(healthy_redis, ns)
@@ -327,8 +387,11 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
                     json={"message": "Tồn kho thấp"},
                 )
                 assert r_staff.status_code == 403
+                _assert_no_secrets_leaked(
+                    r_staff.text, forbidden_secrets=forbidden_secrets
+                )
 
-                # 2. ADMIN valid query with real MySQL + real Redis -> 200
+                # 2. ADMIN direct-tool query with real MySQL + real Redis -> 200
                 r_ok = await client.post(
                     "/api/v1/ai/query",
                     headers={"Authorization": f"Bearer {admin_tok}"},
@@ -336,8 +399,11 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
                 )
                 assert r_ok.status_code == 200
                 assert f"T04AB73-{run_id}" in r_ok.json()["answer"]
+                _assert_no_secrets_leaked(
+                    r_ok.text, forbidden_secrets=forbidden_secrets
+                )
 
-                # 3. Redis interruption -> fail closed (503, no bypass)
+                # 3. Simulated Redis connection failure -> fail closed (503, no bypass)
                 app.state.rate_limiter = RedisFixedWindowRateLimiter(broken_redis, ns)
                 app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(
                     broken_redis, ns
@@ -348,10 +414,12 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
                     json={"message": "Tồn kho thấp"},
                 )
                 assert r_down.status_code == 503
-                assert jwt_secret not in r_down.text
-                assert admin_tok not in r_down.text
+                _assert_no_secrets_leaked(
+                    r_down.text, forbidden_secrets=forbidden_secrets
+                )
+                assert "Traceback" not in r_down.text
 
-                # 4. Redis recovery -> subsequent request succeeds 200
+                # 4. Redis connection restored -> subsequent request succeeds 200
                 app.state.rate_limiter = RedisFixedWindowRateLimiter(healthy_redis, ns)
                 app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(
                     healthy_redis, ns
@@ -363,7 +431,7 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
                 )
                 assert r_rec.status_code == 200
 
-        # 5. Read-only DB invariant & security-safe logs
+        # 5. Read-only DB invariant, Redis key isolation & security-safe logs
         with Session(migrated_integration_engine) as session:
             inv = session.get(Inventory, prod_id)
             assert inv is not None and inv.quantity == 2 and inv.stock_version == 1
@@ -375,11 +443,16 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
             assert after_counts == before_counts
 
         for rec in caplog.records:
-            msg = rec.getMessage()
-            assert admin_tok not in msg
-            assert staff_tok not in msg
-            assert jwt_secret not in msg
+            _assert_no_secrets_leaked(
+                rec.getMessage(), forbidden_secrets=forbidden_secrets
+            )
+            assert "Bearer " not in rec.getMessage()
+
+        await _cleanup_redis_namespace(healthy_redis, ns)
+        assert await healthy_redis.get(canary_key) == b"preserve-me"
     finally:
+        await _cleanup_redis_namespace(healthy_redis, ns)
+        await healthy_redis.delete(canary_key)
         await healthy_redis.aclose()
         await broken_redis.aclose()
         _cleanup_ai_run(
@@ -446,9 +519,11 @@ async def test_t04ab73_real_gemini_provider_e2e_with_mysql_and_redis(
         now=now,
     )
     redis_client = Redis.from_url(redis_url, decode_responses=False)
+    ns = f"t04ab73-live-{run_id}"
+    observer = _ObservingLiveGeminiProvider(
+        GeminiProvider(api_key=api_key, model=model, timeout_seconds=10.0)
+    )
     try:
-        ns = f"t04ab73-live-{run_id}"
-        await redis_client.flushdb()
         app = create_app(settings)
         app.state.rate_limiter = RedisFixedWindowRateLimiter(redis_client, ns)
         app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(redis_client, ns)
@@ -462,11 +537,16 @@ async def test_t04ab73_real_gemini_provider_e2e_with_mysql_and_redis(
         app.dependency_overrides[get_ai_session_factory] = lambda: sf
         app.dependency_overrides[get_ai_orchestrator] = lambda: AIOrchestrator(
             session_factory=sf,
-            provider_factory=lambda: GeminiProvider(
-                api_key=api_key, model=model, timeout_seconds=10.0
-            ),
+            provider_factory=lambda: observer,
             gemini_timeout_seconds=10.0,
         )
+
+        with Session(migrated_integration_engine) as session:
+            before_counts = (
+                session.scalar(select(func.count(StockMovement.id))),
+                session.scalar(select(func.count(Order.id))),
+                session.scalar(select(func.count(PurchaseReceipt.id))),
+            )
 
         with caplog.at_level("INFO"):
             async with httpx.AsyncClient(
@@ -481,11 +561,26 @@ async def test_t04ab73_real_gemini_provider_e2e_with_mysql_and_redis(
         body = resp.json()
         assert body["answer"].strip()
         assert body["evidence"]
-        assert api_key not in resp.text
+        # Prove live Gemini provider was actually called and performed tool calling
+        assert observer.generate_calls >= 1
+        assert observer.tool_call_names
+        assert observer.submit_tool_calls >= 1
+        # Verify DB remained strictly read-only
+        with Session(migrated_integration_engine) as session:
+            inv = session.get(Inventory, prod_id)
+            assert inv is not None and inv.quantity == 2 and inv.stock_version == 1
+            after_counts = (
+                session.scalar(select(func.count(StockMovement.id))),
+                session.scalar(select(func.count(Order.id))),
+                session.scalar(select(func.count(PurchaseReceipt.id))),
+            )
+            assert after_counts == before_counts
+        forbidden = (api_key, admin_tok, integration_database_url.password or "")
+        _assert_no_secrets_leaked(resp.text, forbidden_secrets=forbidden)
         for rec in caplog.records:
-            assert api_key not in rec.getMessage()
-            assert admin_tok not in rec.getMessage()
+            _assert_no_secrets_leaked(rec.getMessage(), forbidden_secrets=forbidden)
     finally:
+        await _cleanup_redis_namespace(redis_client, ns)
         await redis_client.aclose()
         _cleanup_ai_run(
             migrated_integration_engine,
@@ -631,11 +726,22 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
         ]
         assert matching, f"Expected Mailpit email for {recipient}"
 
-        # 5. Security-safe log verification (no DB password or broker password leaked)
-        db_pw = integration_database_url.password or ""
-        if db_pw:
-            assert db_pw not in worker_logs
+        # 5. Security-safe log & email verification (no DB/broker/app secrets leaked)
+        forbidden_worker_secrets = (
+            integration_database_url.password or "",
+            os.environ.get("RABBITMQ_WORKER_PASSWORD", ""),
+            worker_url or "",
+            "j" * 32,
+            "c" * 32,
+            "i" * 32,
+        )
+        _assert_no_secrets_leaked(
+            worker_logs, forbidden_secrets=forbidden_worker_secrets
+        )
         assert "amqp://" not in worker_logs
+        _assert_no_secrets_leaked(
+            json.dumps(matching[0]), forbidden_secrets=forbidden_worker_secrets
+        )
     finally:
         with Session(migrated_integration_engine) as session, session.begin():
             if event_id is not None:

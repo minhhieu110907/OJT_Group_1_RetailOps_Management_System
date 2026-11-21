@@ -279,8 +279,9 @@ jobs:
           set -a
           source ../.env
           set +a
-          uv run --locked pytest -m rabbitmq_integration \
-            tests/integration/test_outbox_rabbitmq.py
+          uv run --locked pytest -vv -m rabbitmq_integration \
+            tests/integration/test_outbox_rabbitmq.py \
+            tests/integration/test_t04ab73_worker_redis_ai_e2e.py
       - name: Broker diagnostics
         if: failure()
         run: |
