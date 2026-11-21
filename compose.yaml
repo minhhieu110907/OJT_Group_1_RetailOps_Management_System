@@ -87,7 +87,8 @@ services:
   rabbitmq-bootstrap:
     profiles: ["email"]
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: "no"
     command: ["python", "-m", "app.worker.rabbitmq_bootstrap"]
     environment:
@@ -106,7 +107,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
@@ -177,7 +179,8 @@ services:
   outbox-publisher:
     profiles: ["email"]
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     command: ["python", "-m", "app.worker.publisher_main"]
     environment:
@@ -202,7 +205,8 @@ services:
   email-worker:
     profiles: ["email"]
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     command:
       [
