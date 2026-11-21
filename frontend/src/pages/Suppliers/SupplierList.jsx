@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import { productsApi } from '../../api/productsApi';
 import {
   suppliersApi,
   normalizeSupplierSnapshot,
@@ -68,6 +69,7 @@ const INITIAL_SUPPLIER_FORM = {
   contact_phone: '',
   contact_email: '',
   status: 'ACTIVE',
+  category_ids: [],
 };
 
 export default function SupplierList() {
@@ -104,6 +106,34 @@ export default function SupplierList() {
   const [conflictData, setConflictData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [categoryLoadError, setCategoryLoadError] = useState('');
+
+  // Load danh mục sản phẩm phục vụ gán danh mục cho nhà cung cấp (tùy chọn)
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let active = true;
+    setCategoryLoadError('');
+    productsApi
+      .getCategories({ page: 1, pageSize: 100, fetchAll: true })
+      .then((res) => {
+        if (active) {
+          setAvailableCategories(res.items || []);
+          setCategoryLoadError('');
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setAvailableCategories([]);
+          setCategoryLoadError(
+            getApiErrorMessage(err, 'Không thể tải danh sách danh mục sản phẩm.')
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin]);
 
   // Chống race condition
   const requestIdRef = useRef(0);
@@ -193,6 +223,7 @@ export default function SupplierList() {
       contact_phone: snapshot.contact_phone || '',
       contact_email: snapshot.contact_email || '',
       status: snapshot.status,
+      category_ids: snapshot.category_ids || [],
     });
     setPhoneCountry(hydratedPhone.countryIso);
     setPhoneNationalInput(hydratedPhone.nationalInput);
@@ -229,6 +260,7 @@ export default function SupplierList() {
         contact_phone: newSnapshot.contact_phone || '',
         contact_email: newSnapshot.contact_email || '',
         status: newSnapshot.status,
+        category_ids: newSnapshot.category_ids || [],
       });
       setPhoneCountry(rehydratedPhone.countryIso);
       setPhoneNationalInput(rehydratedPhone.nationalInput);
@@ -407,6 +439,7 @@ export default function SupplierList() {
           name: trimmedName,
           contact_email: trimmedEmail,
           contact_phone: normalizedPhone,
+          category_ids: supplierForm.category_ids,
         });
         toast.success('Thêm nhà cung cấp mới thành công.');
         setIsModalOpen(false);
@@ -421,6 +454,7 @@ export default function SupplierList() {
             name: normalizedPayload.name,
             contact_email: normalizedPayload.contact_email,
             contact_phone: normalizedPayload.contact_phone,
+            category_ids: normalizedPayload.category_ids,
           });
           infoUpdated = true;
         }
@@ -453,6 +487,7 @@ export default function SupplierList() {
                   contact_phone: newSnapshot.contact_phone || '',
                   contact_email: newSnapshot.contact_email || '',
                   status: newSnapshot.status,
+                  category_ids: newSnapshot.category_ids || [],
                 });
                 setPhoneCountry(rehydratedPhone.countryIso);
                 setPhoneNationalInput(rehydratedPhone.nationalInput);
@@ -838,6 +873,63 @@ export default function SupplierList() {
                 disabled={!isAdmin || isSubmitting}
               />
             </div>
+          </div>
+
+          {/* Danh mục cung cấp (tùy chọn, dùng gợi ý khi lập phiếu nhập) */}
+          <div className={styles.formGroup}>
+            <div className={styles.formLabelRow}>
+              <label className={styles.formLabel}>Danh mục cung cấp</label>
+              <span className={styles.optionalTag}>Tùy chọn</span>
+            </div>
+            <div className={styles.categoryPickerBox}>
+              {categoryLoadError ? (
+                <span className={styles.categoryEmptyHint} role="alert" style={{ color: '#DC2626' }}>
+                  {categoryLoadError}
+                </span>
+              ) : availableCategories.length === 0 ? (
+                <span className={styles.categoryEmptyHint}>Chưa có danh mục nào.</span>
+              ) : (
+                availableCategories
+                  .filter(
+                    (cat) =>
+                      cat.status === 'ACTIVE' ||
+                      (supplierForm.category_ids || []).includes(cat.id)
+                  )
+                  .map((cat) => {
+                    const isSelected = (supplierForm.category_ids || []).includes(cat.id);
+                    const isInactive = cat.status !== 'ACTIVE';
+                    const isDisabled = !isAdmin || isSubmitting || (isInactive && !isSelected);
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => {
+                          setSupplierForm((prev) => {
+                            const current = prev.category_ids || [];
+                            const next = current.includes(cat.id)
+                              ? current.filter((id) => id !== cat.id)
+                              : [...current, cat.id];
+                            return { ...prev, category_ids: next };
+                          });
+                        }}
+                        className={`${styles.categoryChip} ${
+                          isSelected ? styles.categoryChipSelected : ''
+                        }`}
+                        aria-pressed={isSelected}
+                      >
+                        <span>{cat.name}</span>
+                        {isInactive && (
+                          <span className={styles.categoryChipInactiveTag}>(Ngừng HĐ)</span>
+                        )}
+                      </button>
+                    );
+                  })
+              )}
+            </div>
+            <p className={styles.fieldHelperText}>
+              Chọn các danh mục mà đối tác thường cung cấp để lọc nhanh sản phẩm khi tạo phiếu nhập hàng.
+            </p>
           </div>
 
           {/* Tình trạng đối tác (chỉ hiện khi xem chi tiết / cập nhật) */}

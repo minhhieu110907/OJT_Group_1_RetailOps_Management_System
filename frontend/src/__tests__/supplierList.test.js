@@ -1222,5 +1222,46 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.equal(patchCount, 0, 'Must not send PATCH on 500');
     });
   });
+
+  describe('F11: Supplier category_ids optional contract & dirty-state detection', () => {
+    test('validateSupplierRead, normalizeSupplierSnapshot, and detectSupplierChanges handle category_ids accurately', () => {
+      const validated = validateSupplierRead({
+        ...VALID_SUPPLIER_FIXTURE,
+        category_ids: [3, 1, 3],
+      });
+      assert.deepEqual(validated.category_ids, [1, 3]);
+
+      assert.throws(
+        () =>
+          validateSupplierRead({
+            ...VALID_SUPPLIER_FIXTURE,
+            category_ids: ['1'],
+          }),
+        /invalid category_ids/i
+      );
+
+      const snapshot = normalizeSupplierSnapshot({
+        ...VALID_SUPPLIER_FIXTURE,
+        category_ids: [1, 2],
+      });
+      const sameChanges = detectSupplierChanges(
+        { ...VALID_SUPPLIER_FIXTURE, category_ids: [2, 1] },
+        snapshot
+      );
+      assert.equal(sameChanges.hasInfoChanges, false);
+
+      const updatedChanges = detectSupplierChanges(
+        { ...VALID_SUPPLIER_FIXTURE, category_ids: [1, 3] },
+        snapshot
+      );
+      assert.equal(updatedChanges.hasInfoChanges, true);
+      assert.deepEqual(updatedChanges.normalizedPayload.category_ids, [1, 3]);
+
+      const supplierListFile = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+      const supplierListSrc = fs.readFileSync(supplierListFile, 'utf8');
+      assert.ok(supplierListSrc.includes('categoryPickerBox'));
+      assert.ok(supplierListSrc.includes('category_ids: supplierForm.category_ids'));
+    });
+  });
 });
 

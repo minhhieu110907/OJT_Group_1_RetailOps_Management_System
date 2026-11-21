@@ -30,6 +30,18 @@ export function isValidIsoTimestamp(val) {
   return true;
 }
 
+export function normalizeSupplierCategoryIds(rawIds) {
+  if (!Array.isArray(rawIds)) return [];
+  const seen = new Set();
+  for (const val of rawIds) {
+    const num = Number(val);
+    if (Number.isInteger(num) && num >= 1) {
+      seen.add(num);
+    }
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
 export function validateSupplierRead(item) {
   if (!item || typeof item !== 'object') {
     throw new Error('Schema violation: Supplier item is null or not an object.');
@@ -55,6 +67,15 @@ export function validateSupplierRead(item) {
     throw new Error(`Schema violation: Supplier ${item.id} has invalid contact_phone.`);
   }
 
+  if (item.category_ids !== undefined) {
+    if (
+      !Array.isArray(item.category_ids) ||
+      item.category_ids.some((cid) => typeof cid !== 'number' || !Number.isInteger(cid) || cid < 1)
+    ) {
+      throw new Error(`Schema violation: Supplier ${item.id} has invalid category_ids.`);
+    }
+  }
+
   if (!isValidIsoTimestamp(item.created_at)) {
     throw new Error(`Schema violation: Supplier ${item.id} has invalid created_at timestamp.`);
   }
@@ -63,7 +84,7 @@ export function validateSupplierRead(item) {
     throw new Error(`Schema violation: Supplier ${item.id} has invalid updated_at timestamp.`);
   }
 
-  return {
+  const normalized = {
     id: item.id,
     name: item.name.trim(),
     contact_email: item.contact_email ? item.contact_email.trim() : null,
@@ -72,6 +93,10 @@ export function validateSupplierRead(item) {
     created_at: item.created_at,
     updated_at: item.updated_at,
   };
+  if (item.category_ids !== undefined) {
+    normalized.category_ids = normalizeSupplierCategoryIds(item.category_ids);
+  }
+  return normalized;
 }
 
 export function validateSupplierListResponse(payload) {
@@ -193,7 +218,7 @@ export const suppliersApi = {
     return validateSupplierRead(response.data);
   },
 
-  async createSupplier({ name, contact_email = null, contact_phone = null }) {
+  async createSupplier({ name, contact_email = null, contact_phone = null, category_ids = undefined }) {
     const trimmedName = typeof name === 'string' ? name.trim() : '';
     if (!trimmedName) {
       throw new Error('Tên nhà cung cấp không được để trống.');
@@ -204,12 +229,15 @@ export const suppliersApi = {
       contact_email: contact_email?.trim() || null,
       contact_phone: contact_phone?.trim() || null,
     };
+    if (category_ids !== undefined) {
+      payload.category_ids = normalizeSupplierCategoryIds(category_ids);
+    }
 
     const response = await axiosClient.post('/suppliers', payload);
     return validateSupplierRead(response.data);
   },
 
-  async updateSupplier(id, { name, contact_email, contact_phone }) {
+  async updateSupplier(id, { name, contact_email, contact_phone, category_ids }) {
     if (!id || typeof id !== 'number' || id <= 0) {
       throw new Error('Invalid supplier ID.');
     }
@@ -229,6 +257,10 @@ export const suppliersApi = {
 
     if (contact_phone !== undefined) {
       payload.contact_phone = contact_phone ? contact_phone.trim() : null;
+    }
+
+    if (category_ids !== undefined) {
+      payload.category_ids = category_ids === null ? null : normalizeSupplierCategoryIds(category_ids);
     }
 
     const response = await axiosClient.patch(`/suppliers/${id}`, payload);
@@ -262,13 +294,17 @@ export function normalizeSupplierSnapshot(supplier) {
     : null;
   const status = supplier.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
-  return {
+  const snapshot = {
     id: supplier.id ?? null,
     name,
     contact_phone: contactPhone,
     contact_email: contactEmail,
     status,
   };
+  if (supplier.category_ids !== undefined) {
+    snapshot.category_ids = normalizeSupplierCategoryIds(supplier.category_ids);
+  }
+  return snapshot;
 }
 
 export function detectSupplierChanges(currentForm, snapshot) {
@@ -281,12 +317,18 @@ export function detectSupplierChanges(currentForm, snapshot) {
   }
 
   const currentNormalized = normalizeSupplierSnapshot(currentForm);
+  const currentCategoryIds = normalizeSupplierCategoryIds(currentForm.category_ids);
+  const snapshotCategoryIds = normalizeSupplierCategoryIds(snapshot.category_ids);
   const hasNameChange = currentNormalized.name !== snapshot.name;
   const hasPhoneChange = currentNormalized.contact_phone !== snapshot.contact_phone;
   const hasEmailChange = currentNormalized.contact_email !== snapshot.contact_email;
+  const hasCategoryIdsChange =
+    currentCategoryIds.length !== snapshotCategoryIds.length ||
+    currentCategoryIds.some((id, idx) => id !== snapshotCategoryIds[idx]);
   const hasStatusChange = currentNormalized.status !== snapshot.status;
 
-  const hasInfoChanges = hasNameChange || hasPhoneChange || hasEmailChange;
+  const hasInfoChanges =
+    hasNameChange || hasPhoneChange || hasEmailChange || hasCategoryIdsChange;
 
   return {
     hasInfoChanges,

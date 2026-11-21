@@ -620,8 +620,8 @@ export default function StaffApprovalList() {
             Chưa có hồ sơ nhân viên nào trong mục này
           </h3>
           <p className={styles.stateDesc}>
-            Khi có nhân viên mới gửi yêu cầu đăng ký tài khoản tại trang
-            /register, hồ sơ sẽ xuất hiện tại đây để Quản trị viên xét duyệt.
+            Khi có nhân viên mới gửi yêu cầu đăng ký tài khoản, hồ sơ sẽ xuất
+            hiện tại đây để Quản trị viên xét duyệt.
           </p>
         </div>
       ) : filteredItems.length === 0 ? (

@@ -157,6 +157,7 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
 
     await waitFor(() => {
       assert.ok(screen.getByText('Hiện có 2 sản phẩm dưới ngưỡng tồn an toàn, gợi ý nhập thêm.'));
+      assert.ok(screen.getByText(/Nguồn dữ liệu & Dẫn chứng/));
       assert.ok(screen.getByText('inventory.low_stock'));
       assert.ok(screen.getByText('Hiện tại (17/11/2026)'));
       assert.ok(screen.getByText('Coca Cola 330ml còn 3 lon; Nước suối còn 2 chai.'));
