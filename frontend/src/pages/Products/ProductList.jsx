@@ -419,9 +419,28 @@ export default function ProductList() {
       return;
     }
 
-    // Dirty-state check: Nếu là chế độ Edit mà không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    // Dirty-state check: Nếu là chế độ Edit, đối soát xung đột trước
     let isImageUrlSame = true;
     if (formMode === 'edit') {
+      try {
+        const latestProduct = await productsApi.getProduct(productForm.id);
+        if (
+          initialProductForm.updated_at &&
+          latestProduct.updated_at &&
+          latestProduct.updated_at !== initialProductForm.updated_at
+        ) {
+          setConflictData({
+            message:
+              'Dữ liệu sản phẩm đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+            latest: latestProduct,
+          });
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+      } catch (fetchErr) {
+        // Bỏ qua nếu lỗi mạng để tiếp tục xử lý
+      }
+
       const isNameSame = name === (initialProductForm.name || '').trim();
       const isCategorySame = categoryId === Number(initialProductForm.category_id);
       const isPriceSame = salePriceVnd === Number(initialProductForm.sale_price_vnd);
@@ -454,25 +473,6 @@ export default function ProductList() {
         });
         toast.success(`Đã thêm sản phẩm "${name}" thành công!`);
       } else {
-        // Kiểm tra dữ liệu phiên bản mới nhất trước khi cập nhật để ngăn chặn ghi đè stale UI giữa các tab
-        try {
-          const latestProduct = await productsApi.getProduct(productForm.id);
-          if (
-            initialProductForm.updated_at &&
-            latestProduct.updated_at &&
-            latestProduct.updated_at !== initialProductForm.updated_at
-          ) {
-            setConflictData({
-              message:
-                'Dữ liệu sản phẩm đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
-              latest: latestProduct,
-            });
-            return;
-          }
-        } catch (fetchErr) {
-          // Bỏ qua nếu lỗi mạng để tiếp tục xử lý update bình thường
-        }
-
         // PROD-01 & Backend contract:
         // Cập nhật thông tin sản phẩm KHÔNG gửi status (status dùng PATCH /products/{id}/status)
         // và KHÔNG sửa mã SKU khi đang cập nhật.

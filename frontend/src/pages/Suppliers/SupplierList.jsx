@@ -182,7 +182,10 @@ export default function SupplierList() {
       return;
     }
     setModalMode('edit');
-    const snapshot = normalizeSupplierSnapshot(supplier);
+    const snapshot = {
+      ...normalizeSupplierSnapshot(supplier),
+      updated_at: supplier.updated_at,
+    };
     const hydratedPhone = hydrateSupplierPhoneField(snapshot.contact_phone);
     setSupplierForm({
       id: snapshot.id,
@@ -214,7 +217,10 @@ export default function SupplierList() {
     setIsSubmitting(true);
     try {
       const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
-      const newSnapshot = normalizeSupplierSnapshot(latestSupplier);
+      const newSnapshot = {
+        ...normalizeSupplierSnapshot(latestSupplier),
+        updated_at: latestSupplier.updated_at,
+      };
       const rehydratedPhone = hydrateSupplierPhoneField(newSnapshot.contact_phone);
       setInitialSnapshot(newSnapshot);
       setSupplierForm({
@@ -348,6 +354,26 @@ export default function SupplierList() {
     // Với edit mode: kiểm tra dirty state theo Decision Matrix
     let changes = null;
     if (modalMode === 'edit') {
+      // Đối soát trước xem trên máy chủ dữ liệu có thay đổi gần đây không
+      try {
+        const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
+        if (
+          initialSnapshot?.updated_at &&
+          latestSupplier?.updated_at &&
+          latestSupplier.updated_at !== initialSnapshot.updated_at
+        ) {
+          setConflictData({
+            message:
+              'Dữ liệu nhà cung cấp đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+            latest: latestSupplier,
+          });
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+      } catch (fetchErr) {
+        // Bỏ qua nếu lỗi mạng để tiếp tục xử lý
+      }
+
       changes = detectSupplierChanges(
         { ...supplierForm, contact_phone: normalizedPhone || '' },
         initialSnapshot
@@ -375,25 +401,6 @@ export default function SupplierList() {
         setIsModalOpen(false);
         setRefreshTrigger((prev) => prev + 1);
       } else {
-        // Kiểm tra dữ liệu phiên bản mới nhất trước khi cập nhật để ngăn chặn ghi đè stale UI giữa các tab
-        try {
-          const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
-          if (
-            initialSnapshot?.updated_at &&
-            latestSupplier?.updated_at &&
-            latestSupplier.updated_at !== initialSnapshot.updated_at
-          ) {
-            setConflictData({
-              message:
-                'Dữ liệu nhà cung cấp đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
-              latest: latestSupplier,
-            });
-            return;
-          }
-        } catch (fetchErr) {
-          // Bỏ qua nếu lỗi mạng để tiếp tục xử lý update bình thường
-        }
-
         const { hasInfoChanges, hasStatusChange, normalizedPayload } = changes;
         let infoUpdated = false;
 

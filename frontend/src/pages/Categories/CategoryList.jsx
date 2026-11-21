@@ -282,8 +282,27 @@ export default function CategoryList() {
       return;
     }
 
-    // Dirty-state check: Nếu là modal Sửa và không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    // Dirty-state check: Nếu là modal Sửa, đối soát xung đột trước
     if (modalMode === 'edit') {
+      try {
+        const latestCategory = await categoriesApi.getCategory(categoryForm.id);
+        if (
+          initialCategoryForm.updated_at &&
+          latestCategory.updated_at &&
+          latestCategory.updated_at !== initialCategoryForm.updated_at
+        ) {
+          setConflictData({
+            message:
+              'Dữ liệu danh mục đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+            latest: latestCategory,
+          });
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+      } catch (fetchErr) {
+        // Bỏ qua nếu lỗi mạng để tiếp tục xử lý
+      }
+
       const isNameSame = trimmedName === (initialCategoryForm.name || '').trim();
       const isDescSame = (trimmedDescription || null) === ((initialCategoryForm.description || '').trim() || null);
       if (isNameSame && isDescSame) {
@@ -304,25 +323,6 @@ export default function CategoryList() {
         });
         toast.success(`Đã thêm danh mục "${trimmedName}" thành công!`);
       } else {
-        // Kiểm tra dữ liệu phiên bản mới nhất trước khi cập nhật để ngăn chặn ghi đè stale UI giữa các tab
-        try {
-          const latestCategory = await categoriesApi.getCategory(categoryForm.id);
-          if (
-            initialCategoryForm.updated_at &&
-            latestCategory.updated_at &&
-            latestCategory.updated_at !== initialCategoryForm.updated_at
-          ) {
-            setConflictData({
-              message:
-                'Dữ liệu danh mục đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
-              latest: latestCategory,
-            });
-            return;
-          }
-        } catch (fetchErr) {
-          // Bỏ qua nếu lỗi mạng để tiếp tục xử lý update bình thường
-        }
-
         await categoriesApi.updateCategory(categoryForm.id, {
           name: trimmedName,
           description: trimmedDescription || null,
