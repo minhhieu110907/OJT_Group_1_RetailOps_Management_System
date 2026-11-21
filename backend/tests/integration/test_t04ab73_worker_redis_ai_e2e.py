@@ -295,10 +295,11 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
     )
 
     try:
+        ns = f"t04ab73-{run_id}"
         await healthy_redis.flushdb()
         app = create_app(settings)
-        app.state.rate_limiter = RedisFixedWindowRateLimiter(healthy_redis)
-        app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(healthy_redis)
+        app.state.rate_limiter = RedisFixedWindowRateLimiter(healthy_redis, ns)
+        app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(healthy_redis, ns)
 
         def _override_db():
             with sf() as session:
@@ -337,8 +338,10 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
                 assert f"T04AB73-{run_id}" in r_ok.json()["answer"]
 
                 # 3. Redis interruption -> fail closed (503, no bypass)
-                app.state.rate_limiter = RedisFixedWindowRateLimiter(broken_redis)
-                app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(broken_redis)
+                app.state.rate_limiter = RedisFixedWindowRateLimiter(broken_redis, ns)
+                app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(
+                    broken_redis, ns
+                )
                 r_down = await client.post(
                     "/api/v1/ai/query",
                     headers={"Authorization": f"Bearer {admin_tok}"},
@@ -349,8 +352,10 @@ async def test_t04ab73_ai_redis_interruption_recovery_and_safe_logs(
                 assert admin_tok not in r_down.text
 
                 # 4. Redis recovery -> subsequent request succeeds 200
-                app.state.rate_limiter = RedisFixedWindowRateLimiter(healthy_redis)
-                app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(healthy_redis)
+                app.state.rate_limiter = RedisFixedWindowRateLimiter(healthy_redis, ns)
+                app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(
+                    healthy_redis, ns
+                )
                 r_rec = await client.post(
                     "/api/v1/ai/query",
                     headers={"Authorization": f"Bearer {admin_tok}"},
@@ -442,10 +447,11 @@ async def test_t04ab73_real_gemini_provider_e2e_with_mysql_and_redis(
     )
     redis_client = Redis.from_url(redis_url, decode_responses=False)
     try:
+        ns = f"t04ab73-live-{run_id}"
         await redis_client.flushdb()
         app = create_app(settings)
-        app.state.rate_limiter = RedisFixedWindowRateLimiter(redis_client)
-        app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(redis_client)
+        app.state.rate_limiter = RedisFixedWindowRateLimiter(redis_client, ns)
+        app.state.ai_concurrency_guard = RedisAIConcurrencyGuard(redis_client, ns)
 
         def _override_db():
             with sf() as session:
