@@ -811,3 +811,110 @@ export function applyPriceChangedAcceptance(cart = [], details = null) {
     };
   });
 }
+
+/**
+ * Clamp mobile cart sheet height to match CSS `max-height: 56vh` so drag release
+ * transitions 1:1 without a snap/jump when the cart has many items.
+ */
+export function clampMobileSheetMaxHeight(
+  measuredHeight,
+  viewportHeight,
+  fallbackHeight = 260
+) {
+  const baseHeight =
+    typeof measuredHeight === 'number' && measuredHeight > 0
+      ? measuredHeight
+      : fallbackHeight;
+  if (typeof viewportHeight === 'number' && viewportHeight > 0) {
+    return Math.min(baseHeight, Math.round(viewportHeight * 0.56));
+  }
+  return baseHeight;
+}
+
+/**
+ * Compute real-time mobile cart sheet height and backdrop progress [0..1] while dragging.
+ */
+export function computeMobileSheetDragState({
+  isExpanded,
+  deltaY,
+  maxHeight = 260,
+}) {
+  const safeMax = maxHeight > 0 ? maxHeight : 260;
+  const height = isExpanded
+    ? Math.max(0, Math.min(safeMax, safeMax - deltaY))
+    : Math.max(0, Math.min(safeMax, -deltaY));
+  return {
+    height,
+    progress: safeMax > 0 ? height / safeMax : 0,
+  };
+}
+
+/**
+ * Decide whether releasing a swipe gesture should expand or collapse the mobile cart sheet.
+ */
+export function resolveMobileSheetSwipeEnd({
+  isExpanded,
+  deltaY,
+  elapsedMs,
+  maxHeight = 260,
+}) {
+  const safeElapsed = Math.max(1, elapsedMs || 1);
+  const safeMax = maxHeight > 0 ? maxHeight : 260;
+  const velocity = Math.abs(deltaY) / safeElapsed;
+  const isQuickFlick = velocity > 0.35 && Math.abs(deltaY) > 16;
+
+  if (
+    !isExpanded &&
+    (deltaY < -35 || -deltaY > safeMax * 0.35 || (isQuickFlick && deltaY < 0))
+  ) {
+    return { nextExpanded: true, handled: true };
+  }
+
+  if (
+    isExpanded &&
+    (deltaY > 45 || deltaY > safeMax * 0.35 || (isQuickFlick && deltaY > 0))
+  ) {
+    return { nextExpanded: false, handled: true };
+  }
+
+  return { nextExpanded: Boolean(isExpanded), handled: false };
+}
+
+/**
+ * Return true only when Escape should collapse the mobile cart sheet without
+ * clobbering active conflict or receipt modals.
+ */
+export function shouldCloseMobileCartOnEscape({
+  key,
+  stockConflictDetails = null,
+  priceConflictDetails = null,
+  completedOrder = null,
+}) {
+  return (
+    key === 'Escape' &&
+    !stockConflictDetails &&
+    !priceConflictDetails &&
+    !completedOrder
+  );
+}
+
+/**
+ * Open native date picker when clicking anywhere on a date filter wrapper,
+ * avoiding duplicate invocation when clicking directly on the `<input type="date">`.
+ */
+export function triggerDateInputPicker(container, target) {
+  const input = container?.querySelector?.('input[type="date"]');
+  if (!input || target === input) return false;
+  if (typeof input.showPicker === 'function') {
+    try {
+      input.showPicker();
+      return true;
+    } catch {
+      // Fallback to focus when showPicker throws (e.g. InvalidStateError / unsupported gesture)
+    }
+  }
+  if (typeof input.focus === 'function') {
+    input.focus();
+  }
+  return true;
+}

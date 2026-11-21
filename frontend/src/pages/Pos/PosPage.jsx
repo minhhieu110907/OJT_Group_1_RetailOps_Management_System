@@ -19,12 +19,16 @@ import {
   buildPendingCheckoutOwnerScope,
   buildPriceChangedViewModel,
   calculateCartTotals,
+  clampMobileSheetMaxHeight,
   clearPendingCheckout,
+  computeMobileSheetDragState,
   executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
+  resolveMobileSheetSwipeEnd,
   resolvePendingCheckoutAction,
+  shouldCloseMobileCartOnEscape,
   updateCartItemQuantity,
 } from '../../utils/posUtils';
 import styles from './PosPage.module.css';
@@ -168,10 +172,12 @@ export default function PosPage() {
 
     const handleKeyDown = (event) => {
       if (
-        event.key === 'Escape' &&
-        !stockConflictDetails &&
-        !priceConflictDetails &&
-        !completedOrder
+        shouldCloseMobileCartOnEscape({
+          key: event.key,
+          stockConflictDetails,
+          priceConflictDetails,
+          completedOrder,
+        })
       ) {
         setIsMobileCartExpanded(false);
       }
@@ -425,7 +431,12 @@ export default function PosPage() {
     mobileSwipeStartTimeRef.current = Date.now();
     mobileSwipeHandledRef.current = false;
     const measuredHeight = mobileSheetInnerRef.current?.scrollHeight || 0;
-    mobileSheetMaxHeightRef.current = measuredHeight > 0 ? measuredHeight : 260;
+    const viewportHeight =
+      typeof window !== 'undefined' ? window.innerHeight : null;
+    mobileSheetMaxHeightRef.current = clampMobileSheetMaxHeight(
+      measuredHeight,
+      viewportHeight
+    );
   };
 
   const handleMobileCartTouchMove = (event) => {
@@ -442,13 +453,14 @@ export default function PosPage() {
 
     if (mobileDragHeight === null && Math.abs(deltaY) < 4) return;
 
-    const maxH = mobileSheetMaxHeightRef.current || 260;
-    const nextHeight = isMobileCartExpanded
-      ? Math.max(0, Math.min(maxH, maxH - deltaY))
-      : Math.max(0, Math.min(maxH, -deltaY));
+    const { height, progress } = computeMobileSheetDragState({
+      isExpanded: isMobileCartExpanded,
+      deltaY,
+      maxHeight: mobileSheetMaxHeightRef.current || 260,
+    });
 
-    setMobileDragHeight(nextHeight);
-    setMobileDragProgress(maxH > 0 ? nextHeight / maxH : 0);
+    setMobileDragHeight(height);
+    setMobileDragProgress(progress);
   };
 
   const handleMobileCartTouchEnd = (event) => {
@@ -464,22 +476,15 @@ export default function PosPage() {
     setMobileDragProgress(0);
     if (typeof endY !== 'number' || !wasDragging) return;
 
-    const deltaY = endY - startY;
-    const velocity = Math.abs(deltaY) / elapsedMs;
-    const isQuickFlick = velocity > 0.35 && Math.abs(deltaY) > 16;
-
-    if (
-      !isMobileCartExpanded &&
-      (deltaY < -35 || -deltaY > maxH * 0.35 || (isQuickFlick && deltaY < 0))
-    ) {
+    const { nextExpanded, handled } = resolveMobileSheetSwipeEnd({
+      isExpanded: isMobileCartExpanded,
+      deltaY: endY - startY,
+      elapsedMs,
+      maxHeight: maxH,
+    });
+    if (handled) {
       mobileSwipeHandledRef.current = true;
-      setIsMobileCartExpanded(true);
-    } else if (
-      isMobileCartExpanded &&
-      (deltaY > 45 || deltaY > maxH * 0.35 || (isQuickFlick && deltaY > 0))
-    ) {
-      mobileSwipeHandledRef.current = true;
-      setIsMobileCartExpanded(false);
+      setIsMobileCartExpanded(nextExpanded);
     }
   };
 

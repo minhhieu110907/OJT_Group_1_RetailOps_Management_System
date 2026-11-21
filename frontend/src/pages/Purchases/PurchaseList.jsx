@@ -18,6 +18,7 @@ import { suppliersApi } from '../../api/suppliersApi';
 import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
 import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
+import { triggerDateInputPicker } from '../../utils/posUtils';
 import {
   filterProductsBySupplierCategories,
   findAutoFillSupplierForProduct,
@@ -1466,20 +1467,7 @@ export default function PurchaseList() {
             <div
               className={styles.dateInputGroup}
               style={{ cursor: 'pointer' }}
-              onClick={(e) => {
-                const input = e.currentTarget.querySelector('input[type="date"]');
-                if (!input) return;
-                if (e.target === input) return;
-                if (typeof input.showPicker === 'function') {
-                  try {
-                    input.showPicker();
-                    return;
-                  } catch {
-                    // Fallback to focus
-                  }
-                }
-                input.focus();
-              }}
+              onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
             >
               <span>Từ:</span>
               <input
@@ -1496,20 +1484,7 @@ export default function PurchaseList() {
             <div
               className={styles.dateInputGroup}
               style={{ cursor: 'pointer' }}
-              onClick={(e) => {
-                const input = e.currentTarget.querySelector('input[type="date"]');
-                if (!input) return;
-                if (e.target === input) return;
-                if (typeof input.showPicker === 'function') {
-                  try {
-                    input.showPicker();
-                    return;
-                  } catch {
-                    // Fallback to focus
-                  }
-                }
-                input.focus();
-              }}
+              onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
             >
               <span>Đến:</span>
               <input

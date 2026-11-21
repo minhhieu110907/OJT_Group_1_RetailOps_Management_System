@@ -3,7 +3,7 @@ import { Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
-import { formatVnd } from '../../utils/posUtils';
+import { formatVnd, triggerDateInputPicker } from '../../utils/posUtils';
 import {
   executeGuardedOrderListFetch,
   executeVerifiedOrderDetailFetch,
@@ -413,20 +413,7 @@ export default function OrderList() {
           <div
             className={styles.dateFilterWrap}
             style={{ cursor: 'pointer' }}
-            onClick={(e) => {
-              const input = e.currentTarget.querySelector('input[type="date"]');
-              if (!input) return;
-              if (e.target === input) return;
-              if (typeof input.showPicker === 'function') {
-                try {
-                  input.showPicker();
-                  return;
-                } catch {
-                  // Fallback to focus
-                }
-              }
-              input.focus();
-            }}
+            onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
           >
             <span className={styles.dateCalendarIcon} aria-hidden="true">
               <svg
