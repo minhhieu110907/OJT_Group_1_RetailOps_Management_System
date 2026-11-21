@@ -637,13 +637,6 @@
   border-top: 1px solid #e2e8f0;
 }
 
-.cartQuoteNote {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: #475569;
-}
-
 .disclaimerBanner {
   display: flex;
   align-items: flex-start;
@@ -1276,8 +1269,7 @@
   }
 
   .cartHeader,
-  .cartList,
-  .cartQuoteNote {
+  .cartList {
     display: none;
   }
 

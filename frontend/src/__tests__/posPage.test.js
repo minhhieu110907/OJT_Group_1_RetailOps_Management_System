@@ -834,4 +834,31 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     assert.ok(posContent.includes('className={styles.lineTotal}'));
     assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd * item.quantity)}'));
   });
+
+  test('PR #103: PosPage avoids first-add white flash, cleans up mobile cart sheet state, supports Escape, and removes cartQuoteNote', () => {
+    const posContent = fs.readFileSync(posPagePath, 'utf8');
+    const posCssPath = path.resolve(__dirname, '../pages/Pos/PosPage.module.css');
+    const posCssContent = fs.readFileSync(posCssPath, 'utf8');
+
+    // 1. hasLoadedProductsRef prevents setIsLoading(true) flash on 12 <-> 10 pageSize switches
+    assert.ok(posContent.includes('const hasLoadedProductsRef = useRef(false)'));
+    assert.ok(posContent.includes('if (!hasLoadedProductsRef.current)'));
+    assert.ok(posContent.includes('hasLoadedProductsRef.current = true'));
+
+    // 2. Mobile cart sheet locks scroll, handles Escape without clobbering modals, and resets on empty/checkout
+    assert.ok(posContent.includes("document.body.style.overflow = 'hidden'"));
+    assert.ok(posContent.includes("event.key === 'Escape'"));
+    assert.ok(posContent.includes('!stockConflictDetails'));
+    assert.ok(posContent.includes('!priceConflictDetails'));
+    assert.ok(posContent.includes('!completedOrder'));
+    assert.ok(posContent.includes('if (nextCart.length === 0)'));
+    assert.ok(
+      (posContent.match(/setIsMobileCartExpanded\(false\)/g) || []).length >= 4,
+      'Must reset isMobileCartExpanded on Escape, handleUpdateQty empty, handleClearCart, and checkout success'
+    );
+
+    // 3. Unused cartQuoteNote removed from both JSX and CSS
+    assert.equal(posContent.includes('cartQuoteNote'), false);
+    assert.equal(posCssContent.includes('cartQuoteNote'), false);
+  });
 });

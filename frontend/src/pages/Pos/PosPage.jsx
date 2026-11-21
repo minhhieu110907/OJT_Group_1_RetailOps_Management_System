@@ -140,20 +140,42 @@ export default function PosPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isCheckingOut, pendingCheckout]);
 
-  // Khóa cuộn trang nền khi đang mở sheet danh sách giỏ hàng trên mobile
+  // Khóa cuộn trang nền và hỗ trợ phím Escape khi đang mở sheet danh sách giỏ hàng trên mobile
   useEffect(() => {
-    if (typeof document === 'undefined' || !isMobileCartExpanded || cart.length === 0) {
+    const hasCart = cart.length > 0 || Boolean(pendingCheckout);
+    if (typeof document === 'undefined' || !isMobileCartExpanded || !hasCart) {
       return undefined;
     }
     const prevBodyOverflow = document.body.style.overflow;
     const prevHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (
+        event.key === 'Escape' &&
+        !stockConflictDetails &&
+        !priceConflictDetails &&
+        !completedOrder
+      ) {
+        setIsMobileCartExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
+      window.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = prevBodyOverflow;
       document.documentElement.style.overflow = prevHtmlOverflow;
     };
-  }, [isMobileCartExpanded, cart.length]);
+  }, [
+    isMobileCartExpanded,
+    cart.length,
+    pendingCheckout,
+    stockConflictDetails,
+    priceConflictDetails,
+    completedOrder,
+  ]);
 
   // Debounce tìm kiếm theo tên sản phẩm hoặc mã SKU
   useEffect(() => {
@@ -311,13 +333,18 @@ export default function PosPage() {
 
   const handleUpdateQty = (productId, nextQty) => {
     if (isCartLocked || isCheckingOutRef.current) return;
-    setCart((prev) => updateCartItemQuantity(prev, productId, nextQty));
+    const nextCart = updateCartItemQuantity(cart, productId, nextQty);
+    setCart(nextCart);
+    if (nextCart.length === 0) {
+      setIsMobileCartExpanded(false);
+    }
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
   const handleClearCart = () => {
     if (isCartLocked || isCheckingOutRef.current) return;
     setCart([]);
+    setIsMobileCartExpanded(false);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
@@ -379,6 +406,7 @@ export default function PosPage() {
         setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
         setCart([]);
+        setIsMobileCartExpanded(false);
         idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
         setRefreshTrigger((prev) => prev + 1);
         return;
