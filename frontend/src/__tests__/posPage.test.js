@@ -830,7 +830,7 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
 
     const posContent = fs.readFileSync(posPagePath, 'utf8');
     assert.ok(posContent.includes('className={styles.cartItemMeta}'));
-    assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd)} / sp'));
+    assert.ok(posContent.includes('Đơn giá: {formatVnd(item.unitPriceVnd)}'));
     assert.ok(posContent.includes('className={styles.lineTotal}'));
     assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd * item.quantity)}'));
   });

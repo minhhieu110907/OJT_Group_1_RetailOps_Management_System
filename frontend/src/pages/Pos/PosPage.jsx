@@ -97,11 +97,13 @@ export default function PosPage() {
   const [completedOrder, setCompletedOrder] = useState(null);
   const [stockConflictDetails, setStockConflictDetails] = useState(null);
   const [priceConflictDetails, setPriceConflictDetails] = useState(null);
+  const [isMobileCartExpanded, setIsMobileCartExpanded] = useState(false);
   const isCheckingOutRef = useRef(false);
   const idempotencyKeyRef = useRef(
     pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
   );
   const requestIdRef = useRef(0);
+  const hasLoadedProductsRef = useRef(false);
 
   // Đồng bộ lại pendingCheckout/cart nếu đổi tài khoản hoặc đổi chế độ trên cùng trình duyệt
   if (trackedOwnerScope !== ownerScope) {
@@ -137,6 +139,21 @@ export default function PosPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isCheckingOut, pendingCheckout]);
+
+  // Khóa cuộn trang nền khi đang mở sheet danh sách giỏ hàng trên mobile
+  useEffect(() => {
+    if (typeof document === 'undefined' || !isMobileCartExpanded || cart.length === 0) {
+      return undefined;
+    }
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, [isMobileCartExpanded, cart.length]);
 
   // Debounce tìm kiếm theo tên sản phẩm hoặc mã SKU
   useEffect(() => {
@@ -192,7 +209,9 @@ export default function PosPage() {
     async function fetchPosProducts() {
       await Promise.resolve();
       if (currentRequestId !== requestIdRef.current) return;
-      setIsLoading(true);
+      if (!hasLoadedProductsRef.current) {
+        setIsLoading(true);
+      }
       setLoadError('');
 
       try {
@@ -213,6 +232,7 @@ export default function PosPage() {
             setCurrentPage(nextTotalPages);
             return;
           }
+          hasLoadedProductsRef.current = true;
           setProducts(res.items || []);
           setTotalProducts(nextTotal);
         }
@@ -644,8 +664,43 @@ export default function PosPage() {
 
       {/* Giỏ hàng bên phải — CHỈ hiển thị khi có hàng trong giỏ */}
       {hasCartItems && (
-        <aside className={styles.cartPanel} aria-label="Giỏ hàng hiện tại">
-          <div className={styles.cartHeader}>
+        <>
+          {isMobileCartExpanded && (
+            <div
+              className={styles.mobileCartBackdrop}
+              onClick={() => setIsMobileCartExpanded(false)}
+              aria-hidden="true"
+            />
+          )}
+          <aside
+            className={`${styles.cartPanel} ${
+              isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''
+            }`}
+            aria-label="Giỏ hàng hiện tại"
+          >
+            <button
+              type="button"
+              className={styles.mobileCartToggle}
+              onClick={() => setIsMobileCartExpanded((prev) => !prev)}
+              aria-expanded={isMobileCartExpanded}
+              aria-label={
+                isMobileCartExpanded
+                  ? 'Thu gọn danh sách giỏ hàng'
+                  : 'Mở danh sách sản phẩm đã chọn'
+              }
+            >
+              <span className={styles.mobileCartHandle} aria-hidden="true" />
+              <div className={styles.mobileCartToggleRow}>
+                <span className={styles.mobileCartToggleTitle}>
+                  Giỏ hàng ({cartTotals.lineCount} món · {cartTotals.totalUnits} SP)
+                </span>
+                <span className={styles.mobileCartToggleAction}>
+                  {isMobileCartExpanded ? 'Thu gọn ▼' : 'Xem chi tiết ▲'}
+                </span>
+              </div>
+            </button>
+
+            <div className={styles.cartHeader}>
             <h2 className={styles.cartTitle}>
               <svg
                 className={styles.cartTitleIcon}
@@ -684,7 +739,7 @@ export default function PosPage() {
                     {item.name}
                   </p>
                   <span className={styles.cartItemMeta}>
-                    {formatVnd(item.unitPriceVnd)} / sp
+                    Đơn giá: {formatVnd(item.unitPriceVnd)}
                   </span>
                 </div>
 
@@ -732,9 +787,6 @@ export default function PosPage() {
           </div>
 
           <div className={styles.cartFooter}>
-            <p className={styles.cartQuoteNote}>
-              Giỏ hàng không giữ chỗ tồn kho; tổng tiền chỉ mang tính tạm tính trước khi thanh toán.
-            </p>
             <div className={styles.summaryRow}>
               <span>Tạm tính ({cartTotals.totalUnits} sản phẩm)</span>
               <strong>{formatVnd(cartTotals.totalVnd)}</strong>
@@ -795,6 +847,7 @@ export default function PosPage() {
             </button>
           </div>
         </aside>
+        </>
       )}
 
       {/* Modal 1: Lỗi tồn kho không đủ (HTTP 409 INSUFFICIENT_STOCK) — dữ liệu thật từ Backend */}
