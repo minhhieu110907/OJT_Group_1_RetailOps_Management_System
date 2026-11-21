@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useToast } from '../../components/common';
 import { analyticsApi } from '../../api/analyticsApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
+import { downloadCsvReport } from '../../utils/csvDownload';
 import {
   buildDashboardSeriesBuckets,
   computeMonthOverMonthDelta,
@@ -34,6 +36,7 @@ const PRESET_OPTIONS = [
 export default function Dashboard() {
   const { user, isMockMode } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const toast = useToast({ optional: true });
 
   const [preset, setPreset] = useState(DASHBOARD_PRESETS.TODAY);
   const activeRange = useMemo(() => resolveDashboardDateRange(preset), [preset]);
@@ -48,6 +51,7 @@ export default function Dashboard() {
   const [hoveredPointKey, setHoveredPointKey] = useState(null);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [errorStatus, setErrorStatus] = useState(null);
 
@@ -363,6 +367,27 @@ export default function Dashboard() {
     return { completed, cancelled, revenue, aov };
   }, [activeSeriesRows]);
 
+  const handleExportCsv = useCallback(async () => {
+    if (!isAdmin) return;
+    setIsExportingCsv(true);
+    try {
+      await downloadCsvReport(
+        () =>
+          analyticsApi.exportDailySalesCsv({
+            isMockMode,
+            from: activeRange.from,
+            to: activeRange.to,
+          }),
+        `daily_sales_export_${activeRange.from}_${activeRange.to}.csv`
+      );
+      toast.success('Xuất báo cáo doanh thu theo ngày thành công!');
+    } catch (err) {
+      toast.error(err.message || 'Không thể xuất báo cáo CSV.');
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }, [isAdmin, isMockMode, activeRange, toast]);
+
   if (!isAdmin) {
     return (
       <div className={styles.pageContainer}>
@@ -432,6 +457,16 @@ export default function Dashboard() {
             >
               {isLoading ? 'Đang tải...' : 'Làm mới'}
             </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className={styles.exportCsvBtn}
+                onClick={handleExportCsv}
+                disabled={isExportingCsv}
+              >
+                {isExportingCsv ? 'Đang xuất...' : 'Xuất báo cáo ngày'}
+              </button>
+            )}
           </div>
         </div>
       </div>

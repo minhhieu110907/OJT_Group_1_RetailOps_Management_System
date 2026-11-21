@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, Path, Query, status
+from fastapi import APIRouter, Depends, Header, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import commit_session, get_db_session
@@ -93,6 +93,34 @@ def get_low_stock(
         page=page,
         page_size=page_size,
         threshold=DEFAULT_LOW_STOCK_THRESHOLD,
+    )
+
+
+# CRITICAL ROUTE ORDER:
+# /inventory/export/csv MUST be registered BEFORE /inventory/{product_id}
+# to prevent FastAPI from matching "export" as an integer product_id.
+@router.get(
+    "/export/csv",
+    status_code=status.HTTP_200_OK,
+)
+def export_inventory_csv(
+    _admin: Annotated[User, Depends(require_active_admin)],
+    session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[InventoryQueryService, Depends(get_inventory_service)],
+    category_id: Annotated[int | None, Query(ge=1)] = None,
+    status_filter: Annotated[
+        Literal["ACTIVE", "INACTIVE"] | None, Query(alias="status")
+    ] = None,
+    in_stock: Annotated[bool | None, Query()] = None,
+    low_stock_only: Annotated[bool, Query()] = False,
+) -> Response:
+    """Export inventory items as CSV (ADMIN only)."""
+    return service.export_csv(
+        session=session,
+        category_id=category_id,
+        status=status_filter,
+        in_stock=in_stock,
+        low_stock_only=low_stock_only,
     )
 
 

@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.models import Inventory
@@ -86,6 +86,80 @@ class SalesAnalyticsRepository:
             "completed_orders": int(row.completed_orders or 0),
             "cancelled_orders": int(row.cancelled_orders or 0),
         }
+
+    def get_daily_sales_summary(
+        self,
+        session: Session,
+        *,
+        start_utc: datetime,
+        end_utc_exclusive: datetime,
+    ) -> list[dict[str, Any]]:
+        """Aggregate daily sales metrics grouped by Vietnam date in DB."""
+        start_utc_naive = (
+            start_utc.astimezone(UTC).replace(tzinfo=None)
+            if start_utc.tzinfo is not None
+            else start_utc
+        )
+        end_utc_exclusive_naive = (
+            end_utc_exclusive.astimezone(UTC).replace(tzinfo=None)
+            if end_utc_exclusive.tzinfo is not None
+            else end_utc_exclusive
+        )
+
+        bind = session.get_bind()
+        if bind.dialect.name == "sqlite":
+            vn_date_col = func.date(Order.sold_at, "+7 hours")
+        else:
+            vn_date_col = func.date(
+                func.date_add(Order.sold_at, text("INTERVAL 7 HOUR"))
+            )
+
+        completed_cond = Order.status == OrderStatus.COMPLETED.value
+        cancelled_cond = Order.status == OrderStatus.CANCELLED.value
+
+        stmt = (
+            select(
+                vn_date_col.label("vn_date"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (completed_cond, Order.total_vnd),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("revenue_vnd"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (completed_cond, 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("completed_orders"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (cancelled_cond, 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("cancelled_orders"),
+            )
+            .where(
+                Order.sold_at >= start_utc_naive,
+                Order.sold_at < end_utc_exclusive_naive,
+                Order.status.in_(
+                    [OrderStatus.COMPLETED.value, OrderStatus.CANCELLED.value]
+                ),
+            )
+            .group_by(vn_date_col)
+            .order_by(vn_date_col.asc())
+        )
+        rows = session.execute(stmt).mappings().all()
+        return [dict(row) for row in rows]
 
     def get_top_products(
         self,

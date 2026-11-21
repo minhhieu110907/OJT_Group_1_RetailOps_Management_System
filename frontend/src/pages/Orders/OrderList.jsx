@@ -3,6 +3,7 @@ import { Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
+import { downloadCsvReport } from '../../utils/csvDownload';
 import { formatVnd } from '../../utils/posUtils';
 import {
   executeGuardedOrderListFetch,
@@ -32,6 +33,7 @@ export default function OrderList() {
   const [orders, setOrders] = useState([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -235,6 +237,29 @@ export default function OrderList() {
     setRefreshTick((t) => t + 1);
   };
 
+  const handleExportCsv = useCallback(async () => {
+    if (user?.role !== 'ADMIN') return;
+    setIsExporting(true);
+    try {
+      await downloadCsvReport(
+        () =>
+          ordersApi.exportOrdersCsv({
+            isMockMode,
+            status: statusFilter || undefined,
+            fromDate: selectedDate || undefined,
+            toDate: selectedDate || undefined,
+            search: debouncedSearch || undefined,
+          }),
+        `orders_export_${selectedDate || 'all'}.csv`
+      );
+      toast.success('Xuất file CSV đơn hàng thành công!');
+    } catch (err) {
+      toast.error(err.message || 'Không thể xuất file CSV đơn hàng.');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [user, isMockMode, statusFilter, selectedDate, debouncedSearch, toast]);
+
   const columns = useMemo(
     () => [
       {
@@ -437,6 +462,18 @@ export default function OrderList() {
           >
             Xóa bộ lọc
           </button>
+
+          {/* Export CSV button (Admin only) */}
+          {user?.role === 'ADMIN' && (
+            <button
+              type="button"
+              className={styles.exportCsvBtn}
+              onClick={handleExportCsv}
+              disabled={isExporting}
+            >
+              {isExporting ? 'Đang xuất...' : 'Xuất CSV'}
+            </button>
+          )}
         </div>
       </div>
 

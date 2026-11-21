@@ -9,6 +9,7 @@ import {
   classifyStockLevel,
   inventoryApi,
 } from '../../api/inventoryApi';
+import { downloadCsvReport } from '../../utils/csvDownload';
 import { isValidAuthoritativeInventory } from './inventoryAdjustmentController';
 import StockMovementList from './StockMovementList';
 import InventoryAdjustModal from './InventoryAdjustModal';
@@ -33,6 +34,7 @@ export default function InventoryList() {
   const [totalCount, setTotalCount] = useState(0);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [isLoading, setIsLoading] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
 
   // 4. Danh mục & Thống kê KPI toàn kho (Authoritative Global Counts)
   const [categories, setCategories] = useState([]);
@@ -262,6 +264,38 @@ export default function InventoryList() {
     ];
   }, [categoryMap, isAdmin, pendingAmbiguousProduct, toast]);
 
+  const handleExportCsv = useCallback(async () => {
+    if (!isAdmin) return;
+    setIsExportingCsv(true);
+    try {
+      let inStockParam = null;
+      let lowStockOnly = false;
+      if (stockStatusFilter === STOCK_STATUS_TABS.IN_STOCK) {
+        inStockParam = true;
+      } else if (stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK) {
+        inStockParam = false;
+      } else if (stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK) {
+        lowStockOnly = true;
+      }
+
+      await downloadCsvReport(
+        () =>
+          inventoryApi.exportInventoryCsv({
+            categoryId: selectedCategoryId ? Number(selectedCategoryId) : null,
+            status: null,
+            inStock: inStockParam,
+            lowStockOnly,
+          }),
+        `inventory_export_${selectedCategoryId || 'all'}.csv`
+      );
+      toast.success('Xuất file CSV danh sách tồn kho thành công!');
+    } catch (err) {
+      toast.error(err.message || 'Không thể xuất file CSV tồn kho.');
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }, [isAdmin, stockStatusFilter, selectedCategoryId, toast]);
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pagination.pageSize));
 
   return (
@@ -273,6 +307,16 @@ export default function InventoryList() {
             Theo dõi tồn kho hiện tại, cảnh báo tồn thấp và lịch sử biến động kho
           </p>
         </div>
+        {isAdmin && activeMainTab === 'OVERVIEW' && (
+          <button
+            type="button"
+            className={styles.exportCsvBtn}
+            onClick={handleExportCsv}
+            disabled={isExportingCsv}
+          >
+            {isExportingCsv ? 'Đang xuất...' : 'Xuất CSV'}
+          </button>
+        )}
       </div>
 
       <div className={styles.tabsContainer}>

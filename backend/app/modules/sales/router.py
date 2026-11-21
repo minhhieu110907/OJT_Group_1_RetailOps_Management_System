@@ -3,11 +3,15 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Path, Query, status
+from fastapi import APIRouter, Depends, Header, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.csv_export import MAX_EXPORT_ROWS
 from app.db.session import get_db_session
-from app.modules.auth.dependencies import get_current_active_user
+from app.modules.auth.dependencies import (
+    get_current_active_user,
+    require_active_admin,
+)
 from app.modules.auth.models import User
 from app.modules.inventory.service import InventoryService
 from app.modules.sales.inventory_port import InventoryServicePort
@@ -101,6 +105,36 @@ def list_orders(
         filters=OrderQuery(
             page=page,
             page_size=page_size,
+            status=status_filter.value if status_filter else None,
+            from_date=from_date,
+            to_date=to_date,
+            search=search,
+        ),
+    )
+
+
+# CRITICAL ROUTE ORDER:
+# /orders/export/csv MUST be registered BEFORE /orders/{order_id}
+# to prevent FastAPI from matching "export" as an integer order_id.
+@router.get(
+    "/export/csv",
+    status_code=status.HTTP_200_OK,
+)
+def export_orders_csv(
+    _admin: Annotated[User, Depends(require_active_admin)],
+    session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[OrderReadService, Depends(get_order_read_service)],
+    status_filter: Annotated[OrderStatus | None, Query(alias="status")] = None,
+    from_date: Annotated[date | None, Query()] = None,
+    to_date: Annotated[date | None, Query()] = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+) -> Response:
+    """Export orders and their line items as CSV (ADMIN only)."""
+    return service.export_csv(
+        session,
+        filters=OrderQuery(
+            page=1,
+            page_size=MAX_EXPORT_ROWS,
             status=status_filter.value if status_filter else None,
             from_date=from_date,
             to_date=to_date,
