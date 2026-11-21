@@ -1296,3 +1296,39 @@
   border-color: rgba(52, 211, 153, 0.45) !important;
   color: #a7f3d0 !important;
 }
+
+:global([data-theme='dark']) .actionGuidanceBar {
+  background: #111a2b !important;
+  border-color: #2d3d56 !important;
+  color: #cbd5e1 !important;
+}
+
+:global([data-theme='dark']) .actionGuidanceReady {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  color: #a7f3d0 !important;
+}
+
+:global([data-theme='dark']) .actionGuidanceWarn {
+  background: rgba(245, 158, 11, 0.16) !important;
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  color: #fde68a !important;
+}
+
+:global([data-theme='dark']) .priorityBadge {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  color: #6ee7b7 !important;
+}
+
+:global([data-theme='dark']) .slowHoldBadge {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  color: #fde68a !important;
+}
+
+:global([data-theme='dark']) .checkDemandBadge {
+  background: rgba(148, 163, 184, 0.18) !important;
+  border-color: rgba(148, 163, 184, 0.4) !important;
+  color: #cbd5e1 !important;
+}

@@ -210,10 +210,6 @@ _TOP_PRODUCT_KEYWORDS: tuple[str, ...] = (
     "bestseller",
     "top bán chạy",
     "top ban chay",
-    "top sản phẩm",
-    "top san pham",
-    "top mặt hàng",
-    "top mat hang",
 )
 _PRODUCT_REVENUE_SUPERLATIVE_KEYWORDS: tuple[str, ...] = (
     "doanh thu cao nhất",
@@ -416,6 +412,13 @@ _REORDER_UNSUPPORTED_PERIOD_RE = re.compile(
 )
 
 
+_EXPLICIT_REORDER_ADVISOR_PHRASES: tuple[str, ...] = (
+    "gợi ý nhập hàng",
+    "goi y nhap hang",
+    "reorder advisor",
+)
+
+
 def _parse_reorder_advisor_intent(
     normalized: str,
 ) -> tuple[bool, int | None, str | None]:
@@ -425,6 +428,10 @@ def _parse_reorder_advisor_intent(
     if any(neg in normalized for neg in _REORDER_NEGATION_PHRASES):
         return (False, None, None)
     if any(exp in normalized for exp in _REORDER_EXPLANATION_PHRASES):
+        return (False, None, None)
+    if any(slow_kw in normalized for slow_kw in _SLOW_PRODUCT_KEYWORDS) and not any(
+        explicit in normalized for explicit in _EXPLICIT_REORDER_ADVISOR_PHRASES
+    ):
         return (False, None, None)
 
     days_match = _REORDER_DAYS_RE.search(normalized)

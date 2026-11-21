@@ -114,6 +114,7 @@ def build_system_instruction(now_vn: datetime | None = None) -> str:
     return _BASE_SYSTEM_INSTRUCTION + time_context
 
 
+# Backward-compatible alias
 _SYSTEM_INSTRUCTION = _BASE_SYSTEM_INSTRUCTION
 
 

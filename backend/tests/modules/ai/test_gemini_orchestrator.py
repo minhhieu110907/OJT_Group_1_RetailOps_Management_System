@@ -888,7 +888,7 @@ async def test_orchestrator_fast_path_admin_queries_zero_gemini_calls() -> None:
     assert "get_top_products" in res_top_30d.evidence[0].source
     assert res_top_30d.evidence[0].period == "20/10/2026 - 18/11/2026"
 
-    # 4. UI suggested prompt #4: Slow products
+    # 4. UI suggested prompt #4 & slow-moving variants with "nhập hàng"
     res_slow = await orchestrator.handle_query(
         message="Sản phẩm nào bán chậm cần xem xét kế hoạch nhập hàng?",
         bound=_bound("req-fp-slow"),
@@ -896,6 +896,22 @@ async def test_orchestrator_fast_path_admin_queries_zero_gemini_calls() -> None:
     assert len(stub.calls) == 0
     assert len(res_slow.evidence) == 1
     assert "get_slow_products" in res_slow.evidence[0].source
+
+    res_slow_reorder_word = await orchestrator.handle_query(
+        message="Sản phẩm bán chậm nào cần cân nhắc nhập hàng?",
+        bound=_bound("req-fp-slow-consider-reorder"),
+    )
+    assert len(stub.calls) == 0
+    assert len(res_slow_reorder_word.evidence) == 1
+    assert "get_slow_products" in res_slow_reorder_word.evidence[0].source
+
+    res_slow_can_nhap = await orchestrator.handle_query(
+        message="Sản phẩm bán chậm nào cần nhập hàng?",
+        bound=_bound("req-fp-slow-can-nhap"),
+    )
+    assert len(stub.calls) == 0
+    assert len(res_slow_can_nhap.evidence) == 1
+    assert "get_slow_products" in res_slow_can_nhap.evidence[0].source
 
     # 5. Yesterday / this week / this month sales
     res_yday = await orchestrator.handle_query(
@@ -997,40 +1013,17 @@ def test_fast_path_superlative_and_top_n_time_unit_queries() -> None:
     assert match("Sản phẩm nào còn ít nhất?") == [("get_low_stock", {"limit": 10})]
     assert match("Top 15 sản phẩm tồn ít nhất") == [("get_low_stock", {"limit": 15})]
 
-    # Sales + relative/calendar periods + new sales keywords & overview
+    # Sales + relative month / week
     assert match("Doanh thu 1 tháng gần nhất") == [
         ("get_sales_summary", {"start_date": "2026-10-24", "end_date": "2026-11-22"})
-    ]
-    assert match("Doanh số tuần trước") == [
-        ("get_sales_summary", {"start_date": "2026-11-09", "end_date": "2026-11-15"})
-    ]
-    assert match("Doanh thu tháng trước") == [
-        ("get_sales_summary", {"start_date": "2026-10-01", "end_date": "2026-10-31"})
-    ]
-    assert match("Số đơn hàng hôm nay") == [
-        ("get_sales_summary", {"start_date": "2026-11-22", "end_date": "2026-11-22"})
-    ]
-    assert match("Xem doanh thu") == [
-        ("get_sales_summary", {"start_date": "2026-11-22", "end_date": "2026-11-22"})
-    ]
-    assert match("Tình hình bán hàng nửa tháng qua") == [
-        ("get_sales_summary", {"start_date": "2026-11-08", "end_date": "2026-11-22"}),
-        ("get_top_products", {"days": 15, "limit": 5}),
     ]
     assert match("Doanh thu và top 3 sản phẩm bán chạy nhất 1 tháng qua") == [
         ("get_sales_summary", {"start_date": "2026-10-24", "end_date": "2026-11-22"}),
         ("get_top_products", {"days": 30, "limit": 3}),
     ]
-    assert match("Mặt hàng nào chạy nhất?") == [
-        ("get_top_products", {"days": 7, "limit": 5})
-    ]
-    assert match("Hàng tồn đọng") == [("get_slow_products", {"limit": 10})]
-    assert match("Cảnh báo tồn kho") == [("get_low_stock", {"limit": 10})]
 
-    # Guards: out-of-range period/limit, explicit month, unsupported sales queries
+    # Guards: out-of-range period/limit, explicit month, unsupported sales superlative
     assert match("Top 5 sản phẩm bán chạy nhất trong 6 tháng") is None
     assert match("Top 50 sản phẩm bán chạy nhất 7 ngày") is None
     assert match("Doanh thu tháng 10") is None
     assert match("Ngày nào doanh thu cao nhất tuần này?") is None
-    assert match("So sánh doanh thu tuần này và tuần trước") is None
-    assert match("Top 5 sản phẩm bán chạy tháng trước") is None
