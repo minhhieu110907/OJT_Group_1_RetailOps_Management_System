@@ -12,7 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.modules.ai.reorder_advisor import ReadOnlyReorderAdvisor
 from app.modules.ai.tool_executor import bind_authenticated_request
-from app.modules.analytics.service import Period, ProductAnalyticsService
+from app.modules.analytics.service import (
+    ProductAnalyticsService,
+    resolve_days_period,
+)
 from app.modules.auth.dependencies import CurrentPrincipal
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.auth.security import PasswordHasher
@@ -40,12 +43,14 @@ def test_sold_units_for_products_and_reorder_advisor_readonly_mysql(
 ) -> None:
     """Verify exact COMPLETED half-open sales query and read-only invariant on MySQL."""
     run_id = uuid4().hex[:12]
-    # Fixed UTC window [start_utc, end_utc_exclusive)
-    start_utc = datetime(2026, 11, 13, 0, 0, tzinfo=UTC)
-    end_utc_exclusive = datetime(2026, 11, 20, 0, 0, tzinfo=UTC)
+    # Fixed UTC clock aligned with resolve_days_period(7) half-open UTC window
+    fixed_clock = datetime(2026, 11, 19, 12, 0, tzinfo=UTC)
+    period = resolve_days_period(7, now_fn=lambda: fixed_clock)
+    start_utc = period.start_utc
+    end_utc_exclusive = period.end_utc_exclusive
     start_naive = start_utc.replace(tzinfo=None)
     end_naive = end_utc_exclusive.replace(tzinfo=None)
-    now_naive = end_naive - timedelta(hours=1)
+    now_naive = fixed_clock.replace(tzinfo=None)
 
     hasher = PasswordHasher(work_factor=4)
     owned_user_ids: list[int] = []
@@ -228,10 +233,6 @@ def test_sold_units_for_products_and_reorder_advisor_readonly_mysql(
 
         # Verify ProductAnalyticsService.sold_units_for_products on MySQL 8.4
         analytics = ProductAnalyticsService()
-        period = Period(
-            start_utc=start_utc,
-            end_utc_exclusive=end_utc_exclusive,
-        )
         with Session(migrated_integration_engine) as session:
             sold_map = analytics.sold_units_for_products(
                 session,
@@ -258,7 +259,7 @@ def test_sold_units_for_products_and_reorder_advisor_readonly_mysql(
             bound = bind_authenticated_request(
                 principal,
                 request_id=f"mysql-t04ab0b-{run_id}",
-                clock=lambda: end_utc_exclusive - timedelta(minutes=1),
+                clock=lambda: fixed_clock,
             )
             snapshot = bound.executor.collect_reorder_snapshot(
                 session, context=bound.context, analysis_days=7
