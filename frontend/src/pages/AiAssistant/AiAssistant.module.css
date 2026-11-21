@@ -772,6 +772,66 @@
   cursor: not-allowed;
 }
 
+.actionGuidanceBar {
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.actionGuidanceReady {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  color: #0f766e;
+  font-weight: 500;
+}
+
+.actionGuidanceWarn {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.reasonCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.priorityBadge,
+.slowHoldBadge,
+.checkDemandBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.priorityBadge {
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  color: #0f766e;
+}
+
+.slowHoldBadge {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #b45309;
+}
+
+.checkDemandBadge {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
 .reorderTableWrap {
   width: 100%;
   overflow-x: auto;
@@ -1235,4 +1295,40 @@
   background: rgba(16, 185, 129, 0.16) !important;
   border-color: rgba(52, 211, 153, 0.45) !important;
   color: #a7f3d0 !important;
+}
+
+:global([data-theme='dark']) .actionGuidanceBar {
+  background: #111a2b !important;
+  border-color: #2d3d56 !important;
+  color: #cbd5e1 !important;
+}
+
+:global([data-theme='dark']) .actionGuidanceReady {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  color: #a7f3d0 !important;
+}
+
+:global([data-theme='dark']) .actionGuidanceWarn {
+  background: rgba(245, 158, 11, 0.16) !important;
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  color: #fde68a !important;
+}
+
+:global([data-theme='dark']) .priorityBadge {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  color: #6ee7b7 !important;
+}
+
+:global([data-theme='dark']) .slowHoldBadge {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  color: #fde68a !important;
+}
+
+:global([data-theme='dark']) .checkDemandBadge {
+  background: rgba(148, 163, 184, 0.18) !important;
+  border-color: rgba(148, 163, 184, 0.4) !important;
+  color: #cbd5e1 !important;
 }

@@ -40,17 +40,21 @@ export function parseStrictInteger(raw) {
 }
 
 /**
- * Ghép dữ liệu từ GET /api/v1/inventory/low-stock và GET /api/v1/analytics/products/top
- * theo product_id để sinh danh sách gợi ý nhập hàng có dẫn chứng (AI-03).
+ * Ghép dữ liệu từ GET /api/v1/inventory/low-stock, GET /api/v1/analytics/products/top
+ * và GET /api/v1/analytics/products/slow theo product_id để sinh danh sách gợi ý
+ * nhập hàng có dẫn chứng (AI-03).
  *
  * Quan trọng (P1):
  * - Nếu sản phẩm xuất hiện trong topProductItems (hoặc lowItem có sold_units hợp lệ) ->
  *   sales_status = 'VERIFIED', sold_units = số nguyên >= 0.
  * - Nếu sản phẩm KHÔNG nằm trong topProductItems ->
  *   sales_status = 'UNKNOWN', sold_units = null (tuyệt đối không giả định sold_units = 0).
+ * - Nếu sản phẩm xuất hiện trong slowProductItems ->
+ *   is_slow_moving = true, classification = 'SLOW_MOVING_HOLD' để cảnh báo Admin cân nhắc giữ.
  *
  * @param {Array<Object>} lowStockItems
  * @param {Array<Object>|null} topProductItems
+ * @param {Array<Object>|null} [slowProductItems]
  * @returns {Array<{
  *   product_id: number,
  *   sku: string,
@@ -59,21 +63,36 @@ export function parseStrictInteger(raw) {
  *   threshold: number,
  *   sold_units: number | null,
  *   sales_status: 'VERIFIED' | 'UNKNOWN',
+ *   is_slow_moving: boolean,
+ *   classification: 'PRIORITY_RESTOCK' | 'SLOW_MOVING_HOLD' | 'CHECK_DEMAND',
  *   suggested_quantity: number,
  *   unit_cost_vnd: number,
  *   reason: string
  * }>}
  */
-export function buildReorderSuggestions(lowStockItems = [], topProductItems = []) {
+export function buildReorderSuggestions(
+  lowStockItems = [],
+  topProductItems = [],
+  slowProductItems = []
+) {
   const safeLowStock = Array.isArray(lowStockItems) ? lowStockItems : [];
   const hasTopArray = Array.isArray(topProductItems);
   const safeTopProducts = hasTopArray ? topProductItems : [];
+  const safeSlowProducts = Array.isArray(slowProductItems) ? slowProductItems : [];
 
   const topByProductId = new Map();
   for (const item of safeTopProducts) {
     const pid = parseStrictInteger(item?.product_id);
     if (pid !== null && pid > 0 && !topByProductId.has(pid)) {
       topByProductId.set(pid, item);
+    }
+  }
+
+  const slowByProductId = new Map();
+  for (const item of safeSlowProducts) {
+    const pid = parseStrictInteger(item?.product_id);
+    if (pid !== null && pid > 0 && !slowByProductId.has(pid)) {
+      slowByProductId.set(pid, item);
     }
   }
 
@@ -95,6 +114,7 @@ export function buildReorderSuggestions(lowStockItems = [], topProductItems = []
     seenIds.add(productId);
 
     const topMatch = topByProductId.get(productId);
+    const slowMatch = slowByProductId.get(productId);
     const rawSku = typeof lowItem?.sku === 'string' && lowItem.sku.trim()
       ? lowItem.sku.trim()
       : typeof topMatch?.sku === 'string' && topMatch.sku.trim()
@@ -115,11 +135,20 @@ export function buildReorderSuggestions(lowStockItems = [], topProductItems = []
     const matchedSold =
       topMatch !== undefined
         ? parseStrictInteger(topMatch?.sold_units)
+        : slowMatch !== undefined
+        ? parseStrictInteger(slowMatch?.sold_units)
         : parseStrictInteger(lowItem?.sold_units);
 
     const hasVerifiedSales = matchedSold !== null && matchedSold >= 0;
     const soldUnits = hasVerifiedSales ? matchedSold : null;
     const salesStatus = hasVerifiedSales ? 'VERIFIED' : 'UNKNOWN';
+
+    const isSlowMoving = slowMatch !== undefined && (soldUnits === null || soldUnits <= 2);
+    const classification = isSlowMoving
+      ? 'SLOW_MOVING_HOLD'
+      : hasVerifiedSales && soldUnits > 0
+      ? 'PRIORITY_RESTOCK'
+      : 'CHECK_DEMAND';
 
     const stockDeficitTarget = Math.max(1, threshold * 2 - quantity, 5);
     const suggestedQuantity = hasVerifiedSales
@@ -132,7 +161,10 @@ export function buildReorderSuggestions(lowStockItems = [], topProductItems = []
         : `Tồn thấp (${quantity}/${threshold})`;
 
     let reason;
-    if (hasVerifiedSales) {
+    if (isSlowMoving) {
+      const slowCountLabel = soldUnits !== null ? `${soldUnits} SP/30 ngày` : '<= 2 SP/30 ngày';
+      reason = `${stockLabel} · Bán chậm (${slowCountLabel}) — Cân nhắc trước khi nhập thêm`;
+    } else if (hasVerifiedSales) {
       reason =
         soldUnits > 0
           ? `${stockLabel} · Bán ${soldUnits} SP/30 ngày`
@@ -149,6 +181,8 @@ export function buildReorderSuggestions(lowStockItems = [], topProductItems = []
       threshold,
       sold_units: soldUnits,
       sales_status: salesStatus,
+      is_slow_moving: isSlowMoving,
+      classification,
       suggested_quantity: suggestedQuantity,
       unit_cost_vnd: 0,
       reason,
@@ -156,6 +190,84 @@ export function buildReorderSuggestions(lowStockItems = [], topProductItems = []
   }
 
   return results;
+}
+
+/**
+ * Sinh thông điệp hướng dẫn trạng thái nút "Tạo phiếu nháp" & "Mở form tạo phiếu"
+ * để Admin biết rõ điều kiện mở khóa nút (chọn sản phẩm + chọn nhà cung cấp).
+ */
+export function getDraftActionGuidance({
+  selectedCount = 0,
+  supplierId = '',
+  suppliersCount = 0,
+  suppliersFailed = false,
+  isCreatingDraft = false,
+  zeroCostSelectedCount = 0,
+} = {}) {
+  const hasSelection = Number(selectedCount) > 0;
+  const hasSupplier = supplierId !== '' && supplierId !== null && supplierId !== undefined;
+
+  if (isCreatingDraft) {
+    return {
+      tone: 'info',
+      message: 'Đang tạo phiếu nhập nháp (DRAFT)...',
+      createDraftTooltip: 'Đang gửi yêu cầu tạo phiếu nhập nháp...',
+      openFormTooltip: 'Đang xử lý yêu cầu tạo phiếu nhập nháp...',
+    };
+  }
+
+  if (!suppliersFailed && Number(suppliersCount) === 0) {
+    return {
+      tone: 'warning',
+      message:
+        'Chưa có Nhà cung cấp nào đang hoạt động (ACTIVE) để tạo phiếu nháp trực tiếp. Vui lòng tạo/kích hoạt nhà cung cấp tại mục Nhà cung cấp hoặc bấm "Mở form tạo phiếu".',
+      createDraftTooltip: 'Cần có ít nhất 1 Nhà cung cấp đang hoạt động (ACTIVE).',
+      openFormTooltip: hasSelection
+        ? 'Mở form tạo phiếu nhập với các sản phẩm đã chọn.'
+        : 'Vui lòng tick chọn ít nhất 1 sản phẩm trong bảng.',
+    };
+  }
+
+  if (!hasSelection && !hasSupplier) {
+    return {
+      tone: 'info',
+      message:
+        'Để tạo phiếu nháp: (1) Tick chọn ít nhất 1 sản phẩm trong bảng và (2) Chọn Nhà cung cấp dự kiến ở trên.',
+      createDraftTooltip: 'Vui lòng tick chọn ít nhất 1 sản phẩm và chọn Nhà cung cấp dự kiến.',
+      openFormTooltip: 'Vui lòng tick chọn ít nhất 1 sản phẩm trong bảng.',
+    };
+  }
+
+  if (!hasSelection && hasSupplier) {
+    return {
+      tone: 'info',
+      message:
+        'Đã chọn Nhà cung cấp — vui lòng tick chọn ít nhất 1 sản phẩm trong bảng để mở khóa nút Tạo phiếu nháp.',
+      createDraftTooltip: 'Vui lòng tick chọn ít nhất 1 sản phẩm trong bảng.',
+      openFormTooltip: 'Vui lòng tick chọn ít nhất 1 sản phẩm trong bảng.',
+    };
+  }
+
+  if (hasSelection && !hasSupplier) {
+    return {
+      tone: 'info',
+      message: `Đã chọn ${selectedCount} sản phẩm — vui lòng chọn Nhà cung cấp dự kiến để mở khóa nút "Tạo phiếu nháp" (hoặc bấm "Mở form tạo phiếu").`,
+      createDraftTooltip: 'Vui lòng chọn Nhà cung cấp dự kiến trước khi tạo phiếu nháp.',
+      openFormTooltip: 'Mở form tạo phiếu nhập với các sản phẩm đã chọn.',
+    };
+  }
+
+  const zeroCostNote =
+    Number(zeroCostSelectedCount) > 0
+      ? ` Lưu ý: ${zeroCostSelectedCount} sản phẩm đang để đơn giá dự kiến = 0 VND (có thể cập nhật lại trước khi xác nhận phiếu).`
+      : '';
+
+  return {
+    tone: Number(zeroCostSelectedCount) > 0 ? 'warning' : 'ready',
+    message: `Sẵn sàng tạo phiếu nhập nháp (DRAFT) cho ${selectedCount} sản phẩm đã chọn.${zeroCostNote}`,
+    createDraftTooltip: `Tạo phiếu nhập nháp (DRAFT) cho ${selectedCount} sản phẩm đã chọn.`,
+    openFormTooltip: 'Mở form tạo phiếu nhập với các sản phẩm và nhà cung cấp đã chọn.',
+  };
 }
 
 /**
