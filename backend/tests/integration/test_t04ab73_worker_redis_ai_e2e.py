@@ -638,12 +638,21 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
 
         # 2. Publish to real RabbitMQ while worker is stopped -> message stays queued
         sf = sessionmaker(bind=migrated_integration_engine, expire_on_commit=False)
+        pub_settings = Settings(
+            _env_file=None,
+            db_host=integration_database_url.host or "127.0.0.1",
+            db_port=integration_database_url.port or 3306,
+            db_name=integration_database_url.database or "retailops_test",
+            db_user=integration_database_url.username or "retailops_test_runner",
+            db_password=SecretStr(integration_database_url.password or "unused"),
+            rabbitmq_url=SecretStr(publisher_url or ""),
+        )
         pub_celery = Celery(f"t04ab73-pub-{run_id}", broker=publisher_url)
         pub_celery.conf.broker_transport_options = {"confirm_publish": True}
         pub_celery.conf.task_queues = (LIVE_QUEUE,)
-        pub_result = OutboxPublisher(CeleryEventPublisher(pub_celery)).publish_due(
-            sf, batch_size=25
-        )
+        pub_result = OutboxPublisher(
+            CeleryEventPublisher(pub_celery, pub_settings)
+        ).publish_due(sf, batch_size=25)
         assert pub_result.published >= 1
 
         # Confirm event is published in DB but NOT yet SENT (worker is down)
@@ -746,6 +755,9 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
             json.dumps(matching[0]), forbidden_secrets=forbidden_worker_secrets
         )
     finally:
+        from kombu import pools
+
+        pools.reset()
         with Session(migrated_integration_engine) as session, session.begin():
             if event_id is not None:
                 session.execute(delete(OutboxEvent).where(OutboxEvent.id == event_id))
