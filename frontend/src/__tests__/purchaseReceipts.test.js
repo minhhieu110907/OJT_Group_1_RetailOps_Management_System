@@ -821,5 +821,27 @@ describe('T04A7C3 & T04A8B7 Purchase Receipts Management Suite', () => {
       assert.equal(clearedLines[0].product_id, '');
       assert.equal(clearedLines[1].product_id, '');
     });
+
+    test('handleEditSupplierChange in PurchaseList resets incompatible editLines when switching supplier', () => {
+      const purchaseListSrc = fs.readFileSync(
+        path.resolve(__dirname, '../pages/Purchases/PurchaseList.jsx'),
+        'utf-8'
+      );
+      assert.ok(purchaseListSrc.includes('const handleEditSupplierChange = (nextSupplierId) =>'));
+      assert.ok(purchaseListSrc.includes('onChange={(e) => handleEditSupplierChange(e.target.value)}'));
+
+      const productById = new Map(products.map((p) => [p.id, p]));
+      const editLines = [
+        { product_id: '101', quantity: 5, unit_cost_vnd: 4000 }, // cat 10
+        { product_id: '102', quantity: 2, unit_cost_vnd: 10000 }, // cat 20
+      ];
+      const nextEditLines = resetIncompatibleProductLines({
+        lines: editLines,
+        selectedSupplier: suppliers[0], // only cat 10
+        productById,
+      });
+      assert.equal(nextEditLines[0].product_id, '101');
+      assert.equal(nextEditLines[1].product_id, '');
+    });
   });
 });

@@ -821,6 +821,19 @@ export default function PurchaseList() {
   };
 
   // Thao tác sửa dòng trong DRAFT
+  const handleEditSupplierChange = (nextSupplierId) => {
+    setEditSupplierId(nextSupplierId);
+    const nextSupplier = nextSupplierId ? supplierById.get(Number(nextSupplierId)) || null : null;
+    setEditLines((prev) =>
+      resetIncompatibleProductLines({
+        lines: prev,
+        selectedSupplier: nextSupplier,
+        productById,
+        showAllProducts: showAllProductsInReceipt,
+      })
+    );
+  };
+
   const handleAddEditLine = () => {
     setEditLines((prev) => [...prev, { product_id: '', quantity: 1, unit_cost_vnd: 0 }]);
   };
@@ -1717,7 +1730,7 @@ export default function PurchaseList() {
                   <select
                     className={styles.formSelect}
                     value={editSupplierId}
-                    onChange={(e) => setEditSupplierId(e.target.value)}
+                    onChange={(e) => handleEditSupplierChange(e.target.value)}
                   >
                     {!activeSuppliers.some(
                       (s) => Number(s.id) === Number(selectedReceipt.supplier_id)

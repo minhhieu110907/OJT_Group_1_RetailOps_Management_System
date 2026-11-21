@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
-import { categoriesApi } from '../../api/categoriesApi';
+import { productsApi } from '../../api/productsApi';
 import {
   suppliersApi,
   normalizeSupplierSnapshot,
@@ -107,21 +107,27 @@ export default function SupplierList() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [availableCategories, setAvailableCategories] = useState([]);
+  const [categoryLoadError, setCategoryLoadError] = useState('');
 
   // Load danh mục sản phẩm phục vụ gán danh mục cho nhà cung cấp (tùy chọn)
   useEffect(() => {
     if (!isAdmin) return undefined;
     let active = true;
-    categoriesApi
-      .getCategories({ page: 1, pageSize: 100 })
+    setCategoryLoadError('');
+    productsApi
+      .getCategories({ page: 1, pageSize: 100, fetchAll: true })
       .then((res) => {
         if (active) {
           setAvailableCategories(res.items || []);
+          setCategoryLoadError('');
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (active) {
           setAvailableCategories([]);
+          setCategoryLoadError(
+            getApiErrorMessage(err, 'Không thể tải danh sách danh mục sản phẩm.')
+          );
         }
       });
     return () => {
@@ -876,7 +882,11 @@ export default function SupplierList() {
               <span className={styles.optionalTag}>Tùy chọn</span>
             </div>
             <div className={styles.categoryPickerBox}>
-              {availableCategories.length === 0 ? (
+              {categoryLoadError ? (
+                <span className={styles.categoryEmptyHint} role="alert" style={{ color: '#DC2626' }}>
+                  {categoryLoadError}
+                </span>
+              ) : availableCategories.length === 0 ? (
                 <span className={styles.categoryEmptyHint}>Chưa có danh mục nào.</span>
               ) : (
                 availableCategories

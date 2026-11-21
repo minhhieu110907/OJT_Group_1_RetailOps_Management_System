@@ -1047,6 +1047,30 @@ export default function AiAssistant() {
                             </>
                           )}
 
+                          {msg.response.evidence.length > 0 && (
+                            <details className={styles.evidenceSection}>
+                              <summary className={styles.evidenceToggle}>
+                                Nguồn dữ liệu &amp; Dẫn chứng ({msg.response.evidence.length})
+                              </summary>
+                              <div className={styles.evidenceList}>
+                                {msg.response.evidence.map((ev, idx) => (
+                                  <div
+                                    key={`${msg.id}-ev-${idx}`}
+                                    className={styles.evidenceCard}
+                                  >
+                                    <div className={styles.evidenceMeta}>
+                                      <span className={styles.evidenceSource}>{ev.source}</span>
+                                      <span className={styles.evidencePeriod}>
+                                        {ev.period ? ev.period : 'Dữ liệu hiện tại'}
+                                      </span>
+                                    </div>
+                                    <p className={styles.evidenceSummary}>{ev.summary}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+
                           <p className={styles.suggestionNote}>
                             Lưu ý: Nội dung chỉ mang tính gợi ý tham khảo, không tự động thay đổi
                             dữ liệu tồn kho hay phiếu nhập.
