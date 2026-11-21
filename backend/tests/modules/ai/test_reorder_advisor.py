@@ -1012,7 +1012,7 @@ def test_source_error_sanitizes_raw_exception_and_logs_safely(
 
 
 def test_slow_products_truncated_marks_partial_and_adds_caveat() -> None:
-    """P2: Truncated get_slow_products marks PARTIAL_DATA and avoids overconfidence."""
+    """Finding 1: Unverified slow-moving blocks quantity for 1-2 sales, allows >2."""
     advisor = ReadOnlyReorderAdvisor()
     low_stock = ToolResult(
         tool_id="get_low_stock",
@@ -1020,16 +1020,63 @@ def test_slow_products_truncated_marks_partial_and_adds_caveat() -> None:
             "items": [
                 {
                     "product_id": 1,
-                    "sku": "SKU-1",
-                    "name": "Sản phẩm 1",
+                    "sku": "SKU-FAST",
+                    "name": "Sản phẩm bán nhanh",
                     "quantity": 1,
                     "threshold": 5,
+                },
+                {
+                    "product_id": 2,
+                    "sku": "SKU-LOW-VEL",
+                    "name": "Sản phẩm bán 2 cái",
+                    "quantity": 1,
+                    "threshold": 5,
+                },
+                {
+                    "product_id": 3,
+                    "sku": "SKU-SLOW-CONFIRMED",
+                    "name": "Sản phẩm chậm xác nhận",
+                    "quantity": 1,
+                    "threshold": 5,
+                },
+            ],
+            "total": 3,
+        },
+        source_period=None,
+    )
+    slow_complete = ToolResult(
+        tool_id="get_slow_products",
+        data={
+            "items": [
+                {
+                    "product_id": 3,
+                    "sku": "SKU-SLOW-CONFIRMED",
+                    "name": "Sản phẩm chậm xác nhận",
+                    "sold_units": 2,
+                    "revenue_vnd": 20_000,
                 }
             ],
             "total": 1,
         },
-        source_period=None,
+        source_period="2026-10-21..2026-11-19",
     )
+
+    # 1. Complete slow-moving: id=3 -> SLOW_MOVING_HOLD; id=2 -> PRIORITY_RESTOCK
+    rep_complete = advisor.suggest(
+        low_stock_result=low_stock,
+        product_sales_by_id={1: 10, 2: 2, 3: 2},
+        sales_period="2026-11-13..2026-11-19",
+        slow_products_result=slow_complete,
+        analysis_days=7,
+    )
+    by_id_c = {r.product_id: r for r in rep_complete.recommendations}
+    assert by_id_c[3].classification == "SLOW_MOVING_HOLD"
+    assert by_id_c[3].suggested_quantity is None
+    assert by_id_c[2].classification == "PRIORITY_RESTOCK"
+    assert by_id_c[2].suggested_quantity == 4  # max(1, 5-1, 2-1)
+    assert rep_complete.status == "OK"
+
+    # 2. Truncated slow-moving: id=2 (sold=2) -> UNVERIFIED_SLOW_MOVING, no qty
     slow_truncated = ToolResult(
         tool_id="get_slow_products",
         data={
@@ -1046,18 +1093,185 @@ def test_slow_products_truncated_marks_partial_and_adds_caveat() -> None:
         },
         source_period="2026-10-21..2026-11-19",
     )
-
-    report = advisor.suggest(
+    rep_trunc = advisor.suggest(
         low_stock_result=low_stock,
-        product_sales_by_id={1: 10},
+        product_sales_by_id={1: 10, 2: 2, 3: 1},
         sales_period="2026-11-13..2026-11-19",
         slow_products_result=slow_truncated,
         analysis_days=7,
     )
-    assert report.status == "PARTIAL_DATA"
-    assert report.insufficient_data is True
-    assert "slow_products_truncated" in report.missing_data
-    rec = report.recommendations[0]
-    assert rec.classification == "PRIORITY_RESTOCK"
-    assert rec.confidence == "MEDIUM"
-    assert "bán chậm bị giới hạn" in rec.reason
+    assert rep_trunc.status == "PARTIAL_DATA"
+    assert rep_trunc.insufficient_data is True
+    assert "slow_products_truncated" in rep_trunc.missing_data
+    by_id_t = {r.product_id: r for r in rep_trunc.recommendations}
+    assert by_id_t[2].classification == "UNVERIFIED_SLOW_MOVING"
+    assert by_id_t[2].suggested_quantity is None
+    assert by_id_t[2].confidence == "INSUFFICIENT"
+    # id=1 has sold_units=10 > 2 in 7d -> mathematically rules out <=2/30d
+    assert by_id_t[1].classification == "PRIORITY_RESTOCK"
+    assert by_id_t[1].suggested_quantity == 9
+    assert by_id_t[1].confidence == "MEDIUM"
+    assert "Thiếu bằng chứng loại trừ nhóm bán chậm" in rep_trunc.summary
+
+    # 3. Slow-moving error: id=2 -> no qty; id=1 (sold=10 > 2) -> qty + warning
+    rep_err = advisor.suggest(
+        low_stock_result=low_stock,
+        product_sales_by_id={1: 10, 2: 2, 3: 1},
+        sales_period="2026-11-13..2026-11-19",
+        slow_products_result=None,
+        source_errors={"get_slow_products": "SOURCE_UNAVAILABLE"},
+        analysis_days=7,
+    )
+    assert rep_err.status == "PARTIAL_DATA"
+    assert rep_err.insufficient_data is True
+    assert "slow_moving_products" in rep_err.missing_data
+    assert rep_err.warnings
+    by_id_e = {r.product_id: r for r in rep_err.recommendations}
+    assert by_id_e[2].classification == "UNVERIFIED_SLOW_MOVING"
+    assert by_id_e[2].suggested_quantity is None
+    assert by_id_e[1].classification == "PRIORITY_RESTOCK"
+    assert by_id_e[1].suggested_quantity == 9
+
+
+@pytest.mark.anyio
+async def test_reorder_intent_detection_period_parsing_and_negations() -> None:
+    """Finding 2: Reorder intent routing, N-day period parsing, no false matches."""
+    sf = _make_sqlite_session_factory()
+    admin_id, _, _, _ = _seed_store_data(sf)
+    principal = _load_principal(sf, admin_id)
+
+    gemini_calls: list[str] = []
+
+    class _TrackingProvider(LLMProvider):
+        async def generate_turn(
+            self, user_message: str, *, timeout_seconds: float
+        ) -> ProviderTurnResponse:
+            gemini_calls.append(user_message)
+            return ProviderTurnResponse(text="Phản hồi từ Gemini", function_calls=())
+
+        async def submit_tool_results(
+            self,
+            conversation_state: Any,
+            tool_responses: tuple[ToolResponseItem, ...],
+            *,
+            timeout_seconds: float,
+        ) -> ProviderTurnResponse:
+            return ProviderTurnResponse(text="Phản hồi từ Gemini", function_calls=())
+
+    orch = AIOrchestrator(
+        session_factory=sf,
+        provider_factory=lambda: _TrackingProvider(),
+        gemini_timeout_seconds=10.0,
+    )
+
+    # 1. Default 7 days
+    r7 = await orch.handle_query(
+        message="Gợi ý nhập hàng",
+        bound=bind_authenticated_request(principal, request_id="req-7d"),
+    )
+    assert not gemini_calls
+    sales_ev_7 = [e for e in r7.evidence if e.source.startswith("product_sales")][0]
+    assert "days=7" in sales_ev_7.summary
+
+    # 2. Explicit 30 days
+    r30 = await orch.handle_query(
+        message="Gợi ý nhập hàng trong 30 ngày qua",
+        bound=bind_authenticated_request(principal, request_id="req-30d"),
+    )
+    assert not gemini_calls
+    sales_ev_30 = [e for e in r30.evidence if e.source.startswith("product_sales")][0]
+    assert "days=30" in sales_ev_30.summary
+
+    # 3. Out-of-range 120 days -> must NOT silently fall back to 7 days
+    r120 = await orch.handle_query(
+        message="Gợi ý nhập hàng trong 120 ngày",
+        bound=bind_authenticated_request(principal, request_id="req-120d"),
+    )
+    assert not gemini_calls
+    assert r120.evidence == []
+    assert r120.insufficient_data is True
+    assert "1 đến 90 ngày" in r120.answer
+
+    # 4. Negation -> must NOT route to Reorder Advisor (falls through to Gemini)
+    await orch.handle_query(
+        message="Tôi không cần gợi ý nhập hàng, hãy giải thích sản phẩm bán chậm.",
+        bound=bind_authenticated_request(principal, request_id="req-neg"),
+    )
+    assert len(gemini_calls) == 1
+
+    # 5. Explanation question -> must NOT route to Reorder Advisor
+    await orch.handle_query(
+        message="Giải thích nguyên tắc gợi ý nhập hàng.",
+        bound=bind_authenticated_request(principal, request_id="req-exp"),
+    )
+    assert len(gemini_calls) == 2
+
+
+def test_summary_reports_group_totals_and_hidden_counts() -> None:
+    """Finding 3: Summary shows total counts and hidden count when group > 5 items."""
+    advisor = ReadOnlyReorderAdvisor()
+    slow_empty = ToolResult(
+        tool_id="get_slow_products",
+        data={"items": [], "total": 0},
+        source_period="2026-10-21..2026-11-19",
+    )
+
+    # 0 items
+    r0 = advisor.suggest(
+        low_stock_result=ToolResult(
+            tool_id="get_low_stock", data={"items": [], "total": 0}, source_period=None
+        ),
+        product_sales_by_id={},
+        sales_period="2026-11-13..2026-11-19",
+        slow_products_result=slow_empty,
+    )
+    assert "không tìm thấy sản phẩm nào" in r0.summary.lower()
+
+    # 3 items (1-5) -> shows total (3 sản phẩm), no hidden text
+    items_3 = [
+        {
+            "product_id": i,
+            "sku": f"S-{i}",
+            "name": f"SP {i}",
+            "quantity": 1,
+            "threshold": 5,
+        }
+        for i in range(1, 4)
+    ]
+    r3 = advisor.suggest(
+        low_stock_result=ToolResult(
+            tool_id="get_low_stock",
+            data={"items": items_3, "total": 3},
+            source_period=None,
+        ),
+        product_sales_by_id={i: 10 for i in range(1, 4)},
+        sales_period="2026-11-13..2026-11-19",
+        slow_products_result=slow_empty,
+    )
+    assert "(3 sản phẩm)" in r3.summary
+    assert "chưa liệt kê" not in r3.summary
+
+    # 7 priority items + 6 zero-sales items -> shows 5/7 (2 hidden) and 5/6 (1 hidden)
+    items_13 = [
+        {
+            "product_id": i,
+            "sku": f"P-{i}",
+            "name": f"SP {i}",
+            "quantity": 1,
+            "threshold": 5,
+        }
+        for i in range(1, 14)
+    ]
+    sales_13 = {i: (10 if i <= 7 else 0) for i in range(1, 14)}
+    r13 = advisor.suggest(
+        low_stock_result=ToolResult(
+            tool_id="get_low_stock",
+            data={"items": items_13, "total": 13},
+            source_period=None,
+        ),
+        product_sales_by_id=sales_13,
+        sales_period="2026-11-13..2026-11-19",
+        slow_products_result=slow_empty,
+    )
+    assert "hiển thị 5/7 sản phẩm, còn 2 sản phẩm khác chưa liệt kê" in r13.summary
+    assert "hiển thị 5/6 sản phẩm, còn 1 sản phẩm khác chưa liệt kê" in r13.summary

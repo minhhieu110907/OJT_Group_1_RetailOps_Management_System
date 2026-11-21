@@ -125,8 +125,93 @@ _REORDER_ADVISOR_KEYWORDS: tuple[str, ...] = (
 )
 
 
-def _is_reorder_advisor_query(normalized: str) -> bool:
-    return any(keyword in normalized for keyword in _REORDER_ADVISOR_KEYWORDS)
+_REORDER_NEGATION_PHRASES: tuple[str, ...] = (
+    "không cần",
+    "khong can",
+    "không muốn",
+    "khong muon",
+    "đừng ",
+    "dung ",
+    "không phải",
+    "khong phai",
+    "chưa cần",
+    "chua can",
+    "khỏi cần",
+    "khoi can",
+    "don't",
+    "do not",
+)
+
+_REORDER_EXPLANATION_PHRASES: tuple[str, ...] = (
+    "giải thích",
+    "giai thich",
+    "nguyên tắc",
+    "nguyen tac",
+    "công thức",
+    "cong thuc",
+    "là gì",
+    "la gi",
+    "cách tính",
+    "cach tinh",
+    "hoạt động như thế nào",
+    "hoat dong nhu the nao",
+    "explain",
+    "how does",
+)
+
+_REORDER_DAYS_RE = re.compile(r"\b(\d+)\s*(?:ngày|ngay|days?)\b")
+_REORDER_WEEKS_RE = re.compile(r"\b(\d+)\s*(?:tuần|tuan|weeks?)\b")
+_REORDER_UNSUPPORTED_PERIOD_RE = re.compile(
+    r"\b(?:\d+\s*)?(?:tháng|thang|months?|năm|nam|years?|quý|quy)\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+)
+
+
+def _parse_reorder_advisor_intent(
+    normalized: str,
+) -> tuple[bool, int | None, str | None]:
+    """Return (matched, analysis_days, error_message) for reorder advisor queries."""
+    if not any(keyword in normalized for keyword in _REORDER_ADVISOR_KEYWORDS):
+        return (False, None, None)
+    if any(neg in normalized for neg in _REORDER_NEGATION_PHRASES):
+        return (False, None, None)
+    if any(exp in normalized for exp in _REORDER_EXPLANATION_PHRASES):
+        return (False, None, None)
+
+    days_match = _REORDER_DAYS_RE.search(normalized)
+    if days_match is not None:
+        days = int(days_match.group(1))
+        if 1 <= days <= 90:
+            return (True, days, None)
+        return (
+            True,
+            None,
+            f"Khoảng thời gian phân tích gợi ý nhập hàng chỉ hỗ trợ từ 1 đến 90 ngày "
+            f"(bạn yêu cầu {days} ngày). Vui lòng chọn lại khoảng thời gian hợp lệ.",
+        )
+
+    weeks_match = _REORDER_WEEKS_RE.search(normalized)
+    if weeks_match is not None:
+        days = int(weeks_match.group(1)) * 7
+        if 1 <= days <= 90:
+            return (True, days, None)
+        return (
+            True,
+            None,
+            f"Khoảng thời gian phân tích gợi ý nhập hàng chỉ hỗ trợ từ 1 đến 90 ngày "
+            f"(khoảng bạn yêu cầu tương đương {days} ngày). Vui lòng chọn lại số ngày "
+            "hợp lệ.",
+        )
+
+    if _REORDER_UNSUPPORTED_PERIOD_RE.search(normalized) is not None:
+        return (
+            True,
+            None,
+            "Chức năng gợi ý nhập hàng hiện chỉ hỗ trợ phân tích theo số ngày từ 1 "
+            "đến 90 ngày (ví dụ: 7 ngày, 30 ngày). Vui lòng nêu rõ số ngày hợp lệ.",
+        )
+
+    return (True, 7, None)
 
 
 SessionFactory = Callable[[], AbstractContextManager[Session]]
@@ -302,13 +387,14 @@ class AIOrchestrator:
         return result, json.loads(serialized.decode("utf-8"))
 
     def _execute_reorder_advisor_sync(
-        self, bound: BoundToolRequest
+        self, bound: BoundToolRequest, *, analysis_days: int = 7
     ) -> ReorderSuggestionReport:
         bound.budget.check_deadline()
         with self._session_factory() as session:
             snapshot = bound.executor.collect_reorder_snapshot(
                 session,
                 context=bound.context,
+                analysis_days=analysis_days,
             )
         bound.budget.check_deadline()
         return ReadOnlyReorderAdvisor().suggest(
@@ -375,9 +461,23 @@ class AIOrchestrator:
             )
 
         # 2b. Read-only Reorder Advisor [T04AB0B] via allowlisted AIToolExecutor
-        if _is_reorder_advisor_query(normalized):
+        is_reorder, analysis_days, period_error = _parse_reorder_advisor_intent(
+            normalized
+        )
+        if is_reorder:
             bound.budget.check_deadline()
-            report = await run_in_threadpool(self._execute_reorder_advisor_sync, bound)
+            if period_error is not None or analysis_days is None:
+                return AIAskResponse(
+                    answer=period_error
+                    or "Khoảng thời gian phân tích gợi ý nhập hàng không hợp lệ.",
+                    evidence=[],
+                    insufficient_data=True,
+                )
+            report = await run_in_threadpool(
+                self._execute_reorder_advisor_sync,
+                bound,
+                analysis_days=analysis_days,
+            )
             bound.budget.check_deadline()
             return AIAskResponse(
                 answer=report.summary,

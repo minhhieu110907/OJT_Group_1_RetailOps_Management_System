@@ -27,9 +27,11 @@ logger = logging.getLogger(__name__)
 ReorderClassification = Literal[
     "PRIORITY_RESTOCK",
     "LOW_STOCK_NO_SALES_HISTORY",
+    "UNVERIFIED_SLOW_MOVING",
     "SLOW_MOVING_HOLD",
     "NO_CANDIDATES",
 ]
+SlowSourceState = Literal["COMPLETE", "TRUNCATED", "UNAVAILABLE"]
 ReorderConfidence = Literal["HIGH", "MEDIUM", "LOW", "INSUFFICIENT"]
 AdvisorStatus = Literal["OK", "PARTIAL_DATA", "INSUFFICIENT_DATA", "SOURCE_ERROR"]
 
@@ -322,6 +324,7 @@ class ReadOnlyReorderAdvisor:
 
         slow_ids: set[int] = set()
         slow_by_id: dict[int, dict[str, Any]] = {}
+        slow_malformed = False
         if slow_products_result is not None:
             slow_items, slow_malformed = _extract_valid_items(
                 slow_products_result,
@@ -365,6 +368,19 @@ class ReadOnlyReorderAdvisor:
             if "get_slow_products" in errors:
                 warnings.append(_safe_source_error_message("get_slow_products"))
                 missing_data.append("slow_moving_products")
+
+        slow_source_state: SlowSourceState
+        if (
+            slow_products_result is not None
+            and not is_slow_truncated
+            and not slow_malformed
+            and "get_slow_products" not in errors
+        ):
+            slow_source_state = "COMPLETE"
+        elif slow_products_result is not None and is_slow_truncated:
+            slow_source_state = "TRUNCATED"
+        else:
+            slow_source_state = "UNAVAILABLE"
 
         if not low_items and not low_malformed:
             # Slow products without low stock should not be recommended for restock.
@@ -415,6 +431,7 @@ class ReadOnlyReorderAdvisor:
         recommendations: list[ReorderRecommendationItem] = []
         has_zero_sales_items = False
         has_missing_sales_items = False
+        has_unverified_slow_items = False
 
         for raw in low_items:
             pid = int(raw["product_id"])
@@ -499,20 +516,57 @@ class ReadOnlyReorderAdvisor:
                 and analysis_days > 0
             ):
                 avg_daily = round(sold_units / analysis_days, 2)
+                can_rule_out_slow = slow_source_state == "COMPLETE" or (
+                    sold_units > 2 and analysis_days <= 30
+                )
+                if not can_rule_out_slow:
+                    has_unverified_slow_items = True
+                    slow_state_note = (
+                        "danh sách bán chậm bị giới hạn"
+                        if slow_source_state == "TRUNCATED"
+                        else "nguồn sản phẩm bán chậm không khả dụng"
+                    )
+                    recommendations.append(
+                        ReorderRecommendationItem(
+                            product_id=pid,
+                            sku=sku,
+                            name=name,
+                            current_quantity=qty,
+                            low_stock_threshold=threshold,
+                            sold_units=sold_units,
+                            analysis_days=analysis_days,
+                            sales_period=top_period,
+                            average_daily_sales=avg_daily,
+                            suggested_quantity=None,
+                            classification="UNVERIFIED_SLOW_MOVING",
+                            confidence="INSUFFICIENT",
+                            reason=(
+                                f"Tồn kho thấp ({qty}/{threshold}) và đã bán "
+                                f"{sold_units} đơn vị trong {analysis_days} ngày, "
+                                f"nhưng {slow_state_note} nên chưa đủ bằng chứng loại "
+                                "trừ nhóm bán chậm (<= 2 đơn vị/30 ngày); chưa đề xuất "
+                                "số lượng nhập."
+                            ),
+                            sources=["get_low_stock", sales_source or "product_sales"],
+                        )
+                    )
+                    continue
+
                 threshold_gap = max(0, threshold - qty)
                 demand_gap = max(0, sold_units - qty)
                 suggested_qty = max(1, threshold_gap, demand_gap)
                 confidence: ReorderConfidence = (
                     "MEDIUM"
-                    if is_slow_truncated
+                    if slow_source_state != "COMPLETE"
                     else (
                         "HIGH" if analysis_days >= 7 and sold_units >= 3 else "MEDIUM"
                     )
                 )
                 slow_caveat = (
-                    " (Lưu ý: danh sách bán chậm bị giới hạn nên chưa loại trừ "
-                    "hoàn toàn khả năng sản phẩm bán chậm.)"
-                    if is_slow_truncated
+                    " (Lưu ý: nguồn sản phẩm bán chậm chưa đầy đủ; sản phẩm được "
+                    f"loại trừ nhờ bán {sold_units} > 2 đơn vị trong {analysis_days} "
+                    "ngày.)"
+                    if slow_source_state != "COMPLETE"
                     else ""
                 )
                 recommendations.append(
@@ -617,6 +671,7 @@ class ReadOnlyReorderAdvisor:
             or is_low_stock_truncated
             or is_slow_truncated
             or has_missing_sales_items
+            or has_unverified_slow_items
         )
         insufficient_data = bool(
             has_partial_condition
@@ -652,6 +707,16 @@ class ReadOnlyReorderAdvisor:
         )
 
 
+def _format_group_header(label: str, total: int, shown: int) -> str:
+    if total > shown:
+        hidden = total - shown
+        return (
+            f"{label} (hiển thị {shown}/{total} sản phẩm, còn {hidden} sản phẩm khác "
+            "chưa liệt kê)"
+        )
+    return f"{label} ({total} sản phẩm)"
+
+
 def _format_report_summary(
     *,
     recommendations: list[ReorderRecommendationItem],
@@ -666,6 +731,9 @@ def _format_report_summary(
         )
 
     priority = [r for r in recommendations if r.classification == "PRIORITY_RESTOCK"]
+    unverified_slow = [
+        r for r in recommendations if r.classification == "UNVERIFIED_SLOW_MOVING"
+    ]
     no_hist = [
         r for r in recommendations if r.classification == "LOW_STOCK_NO_SALES_HISTORY"
     ]
@@ -673,32 +741,58 @@ def _format_report_summary(
 
     parts: list[str] = []
     if priority:
+        shown = priority[:5]
         items_text = "; ".join(
             f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}, "
             f"đã bán {r.sold_units} ({r.average_daily_sales}/ngày), "
             f"gợi ý nhập {r.suggested_quantity}"
-            for r in priority[:5]
+            for r in shown
         )
         period_note = f" (kỳ bán {top_period})" if top_period else ""
-        parts.append(f"Ưu tiên cân nhắc nhập hàng{period_note}: {items_text}.")
+        header = _format_group_header(
+            f"Ưu tiên cân nhắc nhập hàng{period_note}", len(priority), len(shown)
+        )
+        parts.append(f"{header}: {items_text}.")
+
+    if unverified_slow:
+        shown = unverified_slow[:5]
+        items_text = "; ".join(
+            f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}, "
+            f"đã bán {r.sold_units}"
+            for r in shown
+        )
+        header = _format_group_header(
+            "Thiếu bằng chứng loại trừ nhóm bán chậm (chưa đề xuất số lượng)",
+            len(unverified_slow),
+            len(shown),
+        )
+        parts.append(f"{header}: {items_text}.")
 
     if no_hist:
+        shown = no_hist[:5]
         items_text = "; ".join(
             f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}"
-            for r in no_hist[:5]
+            for r in shown
         )
-        parts.append(
-            "Tồn kho thấp nhưng thiếu dữ liệu bán để định lượng: " + items_text + "."
+        header = _format_group_header(
+            "Tồn kho thấp nhưng thiếu dữ liệu bán để định lượng",
+            len(no_hist),
+            len(shown),
         )
+        parts.append(f"{header}: {items_text}.")
 
     if slow_hold:
+        shown = slow_hold[:5]
         items_text = "; ".join(
             f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}"
-            for r in slow_hold[:5]
+            for r in shown
         )
-        parts.append(
-            "Không ưu tiên nhập thêm (nhóm bán chậm 30 ngày): " + items_text + "."
+        header = _format_group_header(
+            "Không ưu tiên nhập thêm (nhóm bán chậm 30 ngày)",
+            len(slow_hold),
+            len(shown),
         )
+        parts.append(f"{header}: {items_text}.")
 
     if warnings:
         parts.append("Lưu ý nguồn dữ liệu: " + " ".join(warnings))
