@@ -16,15 +16,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=uv /uv /uvx /bin/
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --locked --no-install-project
 
 RUN addgroup --system retailops \
     && adduser --system --ingroup retailops --home /nonexistent retailops
 
-COPY --chown=retailops:retailops app ./app
-COPY --chown=retailops:retailops alembic.ini ./
-COPY --chown=retailops:retailops migrations ./migrations
+COPY --chown=retailops:retailops backend/app ./app
+COPY --chown=retailops:retailops backend/alembic.ini ./
+COPY --chown=retailops:retailops backend/migrations ./migrations
+COPY --chown=retailops:retailops contracts/ai_tool_schemas.json /contracts/ai_tool_schemas.json
 
 USER retailops
 EXPOSE 8000
