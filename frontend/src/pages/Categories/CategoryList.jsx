@@ -213,9 +213,7 @@ export default function CategoryList() {
         );
       } else {
         const errMsg = getApiErrorMessage(err, 'Không thể thay đổi trạng thái danh mục.');
-        toast.error(
-          `${errMsg} Vui lòng làm mới trang để kiểm tra trạng thái mới nhất từ hệ thống.`
-        );
+        toast.error(errMsg);
       }
       setCategoryToToggle(null);
       setRefreshTrigger((prev) => prev + 1);
@@ -300,7 +298,18 @@ export default function CategoryList() {
           return;
         }
       } catch (fetchErr) {
-        // Bỏ qua nếu lỗi mạng để tiếp tục xử lý
+        if (fetchErr?.response?.status === 404) {
+          toast.error('Danh mục không còn tồn tại trên hệ thống.');
+          setIsModalOpen(false);
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+        const errorMsg = getApiErrorMessage(
+          fetchErr,
+          'Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'
+        );
+        setFormError(errorMsg);
+        return;
       }
 
       const isNameSame = trimmedName === (initialCategoryForm.name || '').trim();

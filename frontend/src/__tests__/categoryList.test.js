@@ -462,5 +462,43 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
       assert.ok(content.includes('Tên danh mục không được vượt quá 120 ký tự.'));
       assert.ok(content.includes('handleCloseModal'));
     });
+
+    test('CategoryList source enforces concurrency reconciliation (HTTP 409) and fail-closed pre-check', () => {
+      const content = fs.readFileSync(categoryListPath, 'utf8');
+
+      // Preserves updated_at
+      assert.ok(
+        content.includes('updated_at: category.updated_at'),
+        'handleOpenEditModal must preserve updated_at'
+      );
+      assert.ok(
+        content.includes('latestCategory.updated_at !== initialCategoryForm.updated_at'),
+        'Must compare latestCategory.updated_at against initialCategoryForm.updated_at'
+      );
+
+      // Conflict card & badge
+      assert.ok(
+        content.includes('conflictCard') && content.includes('HTTP 409'),
+        'Must render conflictCard with HTTP 409 badge'
+      );
+      assert.ok(
+        content.includes('handleReloadLatestCategory'),
+        'Must declare handleReloadLatestCategory'
+      );
+
+      // Fail-closed pre-check
+      assert.ok(
+        content.includes('fetchErr?.response?.status === 404'),
+        'Must handle 404 on pre-check'
+      );
+      assert.ok(
+        content.includes('Danh mục không còn tồn tại trên hệ thống.'),
+        'Must notify user when category is deleted'
+      );
+      assert.ok(
+        content.includes('Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'),
+        'Must fail-closed and block PATCH on 5xx/network error'
+      );
+    });
   });
 });

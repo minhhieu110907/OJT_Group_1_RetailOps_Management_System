@@ -438,7 +438,18 @@ export default function ProductList() {
           return;
         }
       } catch (fetchErr) {
-        // Bỏ qua nếu lỗi mạng để tiếp tục xử lý
+        if (fetchErr?.response?.status === 404) {
+          toast.error('Sản phẩm không còn tồn tại trên hệ thống.');
+          setIsProductModalOpen(false);
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+        const errorMsg = getApiErrorMessage(
+          fetchErr,
+          'Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'
+        );
+        setFormError(errorMsg);
+        return;
       }
 
       const isNameSame = name === (initialProductForm.name || '').trim();
@@ -551,9 +562,7 @@ export default function ProductList() {
       } else {
         const errMsg =
           getApiErrorMessage(error) || 'Cập nhật trạng thái sản phẩm thất bại.';
-        toast.error(
-          `${errMsg} Vui lòng làm mới trang để kiểm tra trạng thái mới nhất từ hệ thống.`
-        );
+        toast.error(errMsg);
       }
       setProductToDeactivate(null);
       setRefreshTrigger((prev) => prev + 1);

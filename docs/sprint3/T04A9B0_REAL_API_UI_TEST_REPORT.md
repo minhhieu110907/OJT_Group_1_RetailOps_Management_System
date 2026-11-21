@@ -107,8 +107,8 @@ Toàn bộ các lỗi và sai lệch phát hiện trong quá trình kiểm thử
   - **Bản chất:** Là hiện tượng Stale UI (dữ liệu cũ trên giao diện giữa các tab), không phải Race Condition do thao tác cập nhật mang tính lũy quyền (Idempotent).
   - **Xử lý:** Backend Transaction chặn và trả lỗi khi có thao tác trên dữ liệu cũ; giao diện cảnh báo lỗi để người dùng chủ động tải lại, tránh việc tự động thao tác API bừa bãi.
 - **Stale UI (Nhà cung cấp - Đổi tên, SĐT):**
-  - **Bản chất:** Là xung đột ghi đè đồng thời (Lost Update / Race Condition), thao tác lưu sau sẽ ghi đè lên thao tác trước theo nguyên tắc Last-Write-Wins.
-  - **Xử lý:** Cơ chế Last-Write-Wins ghi nhận giá trị hợp lệ cuối cùng từ request sau; toàn bộ định dạng và tính toàn vẹn (E.164, Regex) được bảo toàn trong Transaction.
+  - **Bản chất:** Là xung đột cập nhật đồng thời (Concurrent Update Conflict) giữa các tab làm việc độc lập.
+  - **Xử lý:** Frontend đối soát dấu thời gian `updated_at` từ máy chủ trước khi gửi mutation; nếu phát hiện dữ liệu trên máy chủ đã thay đổi gần đây (hoặc nhận lỗi HTTP 409 Conflict), giao diện hiển thị thẻ cảnh báo xung đột màu vàng hổ phách (`conflictCard`), chặn ghi đè mù quáng và cung cấp nút "Tải lại dữ liệu mới nhất" để người dùng chủ động đối soát.
 
 ---
 

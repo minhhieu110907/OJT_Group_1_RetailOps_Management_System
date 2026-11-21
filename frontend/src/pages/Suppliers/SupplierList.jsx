@@ -371,7 +371,18 @@ export default function SupplierList() {
           return;
         }
       } catch (fetchErr) {
-        // Bỏ qua nếu lỗi mạng để tiếp tục xử lý
+        if (fetchErr?.response?.status === 404) {
+          toast.error('Nhà cung cấp không còn tồn tại trên hệ thống.');
+          setIsModalOpen(false);
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+        const errorMsg = getApiErrorMessage(
+          fetchErr,
+          'Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'
+        );
+        setFormError(errorMsg);
+        return;
       }
 
       changes = detectSupplierChanges(
@@ -430,7 +441,10 @@ export default function SupplierList() {
               try {
                 // Thử đồng bộ lại dữ liệu backend thực tế
                 const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
-                const newSnapshot = normalizeSupplierSnapshot(latestSupplier);
+                const newSnapshot = {
+                  ...normalizeSupplierSnapshot(latestSupplier),
+                  updated_at: latestSupplier.updated_at,
+                };
                 const rehydratedPhone = hydrateSupplierPhoneField(newSnapshot.contact_phone);
                 setInitialSnapshot(newSnapshot);
                 setSupplierForm({
