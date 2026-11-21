@@ -86,6 +86,7 @@ export default function ProductList() {
   const [productForm, setProductForm] = useState(INITIAL_PRODUCT_FORM);
   const [initialProductForm, setInitialProductForm] = useState(INITIAL_PRODUCT_FORM);
   const [formError, setFormError] = useState('');
+  const [conflictData, setConflictData] = useState(null);
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
   const [imagePreviewState, setImagePreviewState] = useState({
     url: '',
@@ -308,8 +309,13 @@ export default function ProductList() {
     const firstActiveCategory = categories.find((c) => c.status === 'ACTIVE');
     setFormMode('create');
     setFormError('');
+    setConflictData(null);
     setImagePreviewState({ url: '', status: 'idle' });
     setProductForm({
+      ...INITIAL_PRODUCT_FORM,
+      category_id: firstActiveCategory ? String(firstActiveCategory.id) : '',
+    });
+    setInitialProductForm({
       ...INITIAL_PRODUCT_FORM,
       category_id: firstActiveCategory ? String(firstActiveCategory.id) : '',
     });
@@ -322,6 +328,7 @@ export default function ProductList() {
       if (isMock) return;
       setFormMode('edit');
       setFormError('');
+      setConflictData(null);
       const initialImage = row.image_url || '';
       const formData = {
         id: row.id,
@@ -331,6 +338,7 @@ export default function ProductList() {
         sale_price_vnd: String(row.sale_price_vnd || ''),
         image_url: initialImage,
         status: row.status || 'ACTIVE',
+        updated_at: row.updated_at,
       };
       setImagePreviewState(
         initialImage ? { url: initialImage, status: 'loading' } : { url: '', status: 'idle' }
@@ -341,6 +349,39 @@ export default function ProductList() {
     },
     [isMock]
   );
+
+  // Tải lại dữ liệu sản phẩm mới nhất khi có xung đột (HTTP 409 / Stale)
+  const handleReloadLatestProduct = useCallback(async () => {
+    if (!productForm.id) return;
+    setIsSubmittingForm(true);
+    try {
+      const latest = await productsApi.getProduct(productForm.id);
+      const latestImage = latest.image_url || '';
+      const updatedFormData = {
+        id: latest.id,
+        sku: latest.sku || '',
+        name: latest.name || '',
+        category_id: String(latest.category_id || ''),
+        sale_price_vnd: String(latest.sale_price_vnd || ''),
+        image_url: latestImage,
+        status: latest.status || 'ACTIVE',
+        updated_at: latest.updated_at,
+      };
+      setImagePreviewState(
+        latestImage ? { url: latestImage, status: 'loading' } : { url: '', status: 'idle' }
+      );
+      setProductForm(updatedFormData);
+      setInitialProductForm(updatedFormData);
+      setConflictData(null);
+      setFormError('');
+      setRefreshTrigger((prev) => prev + 1);
+      toast.info('Đã cập nhật dữ liệu sản phẩm mới nhất từ hệ thống.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể tải dữ liệu sản phẩm mới nhất.'));
+    } finally {
+      setIsSubmittingForm(false);
+    }
+  }, [productForm.id, toast]);
 
   // Submit Form Thêm/Sửa
   const handleSubmitProductForm = async (e) => {
@@ -378,9 +419,39 @@ export default function ProductList() {
       return;
     }
 
-    // Dirty-state check: Nếu là chế độ Edit mà không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    // Dirty-state check: Nếu là chế độ Edit, đối soát xung đột trước
     let isImageUrlSame = true;
     if (formMode === 'edit') {
+      try {
+        const latestProduct = await productsApi.getProduct(productForm.id);
+        if (
+          initialProductForm.updated_at &&
+          latestProduct.updated_at &&
+          latestProduct.updated_at !== initialProductForm.updated_at
+        ) {
+          setConflictData({
+            message:
+              'Dữ liệu sản phẩm đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+            latest: latestProduct,
+          });
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+      } catch (fetchErr) {
+        if (fetchErr?.response?.status === 404) {
+          toast.error('Sản phẩm không còn tồn tại trên hệ thống.');
+          setIsProductModalOpen(false);
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+        const errorMsg = getApiErrorMessage(
+          fetchErr,
+          'Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'
+        );
+        setFormError(errorMsg);
+        return;
+      }
+
       const isNameSame = name === (initialProductForm.name || '').trim();
       const isCategorySame = categoryId === Number(initialProductForm.category_id);
       const isPriceSame = salePriceVnd === Number(initialProductForm.sale_price_vnd);
@@ -391,6 +462,7 @@ export default function ProductList() {
       if (isNameSame && isCategorySame && isPriceSame && isImageUrlSame) {
         toast.info('Không có thay đổi nào để lưu.');
         setIsProductModalOpen(false);
+        setRefreshTrigger((prev) => prev + 1);
         return;
       }
     }
@@ -433,9 +505,17 @@ export default function ProductList() {
       setIsProductModalOpen(false);
       setRefreshTrigger((prev) => prev + 1);
     } catch (error) {
-      setFormError(
-        getApiErrorMessage(error) || 'Thao tác không thành công. Vui lòng kiểm tra lại.'
-      );
+      if (error?.response?.status === 409) {
+        setConflictData({
+          message:
+            getApiErrorMessage(error) ||
+            'Dữ liệu đã thay đổi gần đây trên hệ thống (HTTP 409). Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
+        });
+      } else {
+        setFormError(
+          getApiErrorMessage(error) || 'Thao tác không thành công. Vui lòng kiểm tra lại.'
+        );
+      }
     } finally {
       setIsSubmittingForm(false);
     }
@@ -450,6 +530,17 @@ export default function ProductList() {
     setIsSubmittingStatus(true);
 
     try {
+      // Đối soát trạng thái thực tế từ máy chủ trước khi cập nhật
+      const latest = await productsApi.getProduct(productToDeactivate.id);
+      if (latest && latest.status !== productToDeactivate.status) {
+        toast.warning(
+          `Sản phẩm "${productToDeactivate.name}" đã được thay đổi trạng thái trước đó bởi người dùng khác. Đang làm mới dữ liệu...`
+        );
+        setProductToDeactivate(null);
+        setRefreshTrigger((prev) => prev + 1);
+        return;
+      }
+
       const nextStatus =
         productToDeactivate.status === 'INACTIVE' ? 'ACTIVE' : 'INACTIVE';
       await productsApi.updateProductStatus({
@@ -464,9 +555,17 @@ export default function ProductList() {
       setProductToDeactivate(null);
       setRefreshTrigger((prev) => prev + 1);
     } catch (error) {
-      toast.error(
-        getApiErrorMessage(error) || 'Cập nhật trạng thái thất bại.'
-      );
+      if (error?.response?.status === 409) {
+        toast.warning(
+          `Sản phẩm "${productToDeactivate.name}" đã được sửa trước đó. Đang làm mới dữ liệu...`
+        );
+      } else {
+        const errMsg =
+          getApiErrorMessage(error) || 'Cập nhật trạng thái sản phẩm thất bại.';
+        toast.error(errMsg);
+      }
+      setProductToDeactivate(null);
+      setRefreshTrigger((prev) => prev + 1);
     } finally {
       isStatusMutationPendingRef.current = false;
       setIsSubmittingStatus(false);
@@ -943,6 +1042,27 @@ export default function ProductList() {
             onSubmit={handleSubmitProductForm}
             className={styles.modalForm}
           >
+            {conflictData && (
+              <div className={styles.conflictCard} role="alert">
+                <div className={styles.conflictHeaderRow}>
+                  <div className={styles.conflictTitleBlock}>
+                    <span className={styles.conflictTitle}>Dữ liệu đã thay đổi gần đây</span>
+                    <span className={styles.conflictSubtitle}>Xung đột cập nhật đồng thời</span>
+                  </div>
+                  <span className={styles.httpBadge}>HTTP 409</span>
+                </div>
+                <p className={styles.conflictDesc}>{conflictData.message}</p>
+                <button
+                  type="button"
+                  className={styles.conflictReloadBtn}
+                  onClick={handleReloadLatestProduct}
+                  disabled={isSubmittingForm}
+                >
+                  {isSubmittingForm ? 'Đang tải dữ liệu...' : 'Tải lại dữ liệu mới nhất'}
+                </button>
+              </div>
+            )}
+
             {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
             <div className={styles.formRowTwoCols}>

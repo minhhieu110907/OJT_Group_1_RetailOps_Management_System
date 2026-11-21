@@ -2042,9 +2042,9 @@ export default function PurchaseList() {
           </>
         }
       >
-        <p style={{ margin: 0, fontSize: '14px', lineHeight: 1.5, color: '#374151' }}>
+        <p style={{ margin: 0, fontSize: '14px', lineHeight: 1.5, color: 'var(--color-neutral, #242A30)' }}>
           Bạn có chắc chắn muốn hủy bản nháp phiếu nhập{' '}
-          <strong style={{ color: '#111827' }}>#{selectedReceipt?.id}</strong>?
+          <strong style={{ color: 'var(--color-neutral, #111827)' }}>#{selectedReceipt?.id}</strong>?
           Thao tác này sẽ đánh dấu phiếu thành CANCELLED và không thể khôi phục.
         </p>
       </Modal>
