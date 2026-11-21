@@ -187,7 +187,7 @@ export default function Register() {
           <h3 className={styles.infoTitle}>Quy trình cấp tài khoản hai bước</h3>
           <p className={styles.infoDesc}>
             Sau khi gửi yêu cầu, hồ sơ sẽ được khởi tạo với vai trò{' '}
-            <strong>Nhân viên (STAFF)</strong> và chờ Quản trị viên phê duyệt trước khi đăng nhập quầy POS.
+            <strong>Nhân viên</strong> và chờ Quản trị viên phê duyệt trước khi đăng nhập quầy POS.
           </p>
         </div>
       </div>

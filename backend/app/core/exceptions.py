@@ -54,8 +54,23 @@ class AccountPendingError(AppException):
 
 
 class AccountRejectedError(AppException):
+    def __init__(self, decision_reason: str | None = None) -> None:
+        details = {"decision_reason": decision_reason} if decision_reason else None
+        super().__init__(
+            "ACCOUNT_REJECTED",
+            "Tài khoản đã bị từ chối.",
+            401,
+            details=details,
+        )
+
+
+class AccountLockedError(AppException):
     def __init__(self) -> None:
-        super().__init__("ACCOUNT_REJECTED", "Tài khoản đã bị từ chối.", 401)
+        super().__init__(
+            "ACCOUNT_LOCKED",
+            "Tài khoản đã bị khóa. Vui lòng liên hệ Quản trị viên.",
+            401,
+        )
 
 
 class SessionInvalidError(AppException):

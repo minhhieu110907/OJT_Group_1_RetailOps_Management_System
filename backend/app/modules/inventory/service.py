@@ -207,6 +207,8 @@ class InventoryQueryService:
         page: int,
         page_size: int,
         threshold: int = DEFAULT_LOW_STOCK_THRESHOLD,
+        category_id: int | None = None,
+        exclude_out_of_stock: bool = False,
     ) -> LowStockPage:
         """Fetch active products with inventory quantity <= threshold."""
         items, total = self._repository.list_low_stock(
@@ -214,6 +216,8 @@ class InventoryQueryService:
             page=page,
             page_size=page_size,
             threshold=threshold,
+            category_id=category_id,
+            exclude_out_of_stock=exclude_out_of_stock,
         )
         return LowStockPage(
             items=[LowStockItem.model_validate(item) for item in items],

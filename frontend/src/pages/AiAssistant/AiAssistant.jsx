@@ -40,6 +40,168 @@ function formatMessageTime() {
   }).format(new Date());
 }
 
+function renderInlineMarkdown(text, keyPrefix) {
+  if (!text) return null;
+  const tokens = String(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return tokens.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={`${keyPrefix}-b-${idx}`}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return (
+        <code key={`${keyPrefix}-c-${idx}`} className={styles.inlineCode}>
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
+function parseTableRow(line) {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isTableSeparatorLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|') || !trimmed.includes('-')) return false;
+  return /^\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?$/.test(trimmed);
+}
+
+function renderFormattedAnswer(answerText) {
+  const raw = String(answerText || '').trim();
+  if (!raw) return null;
+
+  const lines = raw.split(/\r?\n/);
+  const blocks = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    // Markdown table: header line with | followed by separator line
+    if (
+      trimmed.includes('|') &&
+      i + 1 < lines.length &&
+      isTableSeparatorLine(lines[i + 1])
+    ) {
+      const headers = parseTableRow(lines[i]);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().includes('|') && lines[i].trim() !== '') {
+        rows.push(parseTableRow(lines[i]));
+        i += 1;
+      }
+      blocks.push(
+        <div key={`tbl-${i}`} className={styles.answerTableWrap}>
+          <table className={styles.answerTable}>
+            <thead>
+              <tr>
+                {headers.map((h, hIdx) => (
+                  <th key={`th-${hIdx}`}>{renderInlineMarkdown(h, `th-${i}-${hIdx}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, rIdx) => (
+                <tr key={`tr-${rIdx}`}>
+                  {headers.map((_, cIdx) => (
+                    <td key={`td-${rIdx}-${cIdx}`}>
+                      {renderInlineMarkdown(r[cIdx] ?? '', `td-${i}-${rIdx}-${cIdx}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*•]\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^[-*•]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*•]\s+/, ''));
+        i += 1;
+      }
+      blocks.push(
+        <ul key={`ul-${i}`} className={styles.answerList}>
+          {items.map((item, idx) => (
+            <li key={`li-${idx}`}>{renderInlineMarkdown(item, `ul-${i}-${idx}`)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
+        i += 1;
+      }
+      blocks.push(
+        <ol key={`ol-${i}`} className={styles.answerList}>
+          {items.map((item, idx) => (
+            <li key={`oli-${idx}`}>{renderInlineMarkdown(item, `ol-${i}-${idx}`)}</li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Heading (### / ##)
+    if (/^#{1,4}\s+/.test(trimmed)) {
+      const headingText = trimmed.replace(/^#{1,4}\s+/, '');
+      blocks.push(
+        <h4 key={`h-${i}`} className={styles.answerSubheading}>
+          {renderInlineMarkdown(headingText, `h-${i}`)}
+        </h4>
+      );
+      i += 1;
+      continue;
+    }
+
+    // Paragraph (group consecutive plain lines until blank/table/list/heading)
+    const paraLines = [];
+    while (i < lines.length) {
+      const cur = lines[i].trim();
+      if (
+        !cur ||
+        /^[-*•]\s+/.test(cur) ||
+        /^\d+\.\s+/.test(cur) ||
+        /^#{1,4}\s+/.test(cur) ||
+        (cur.includes('|') && i + 1 < lines.length && isTableSeparatorLine(lines[i + 1]))
+      ) {
+        break;
+      }
+      paraLines.push(lines[i]);
+      i += 1;
+    }
+    blocks.push(
+      <p key={`p-${i}`} className={styles.answerText}>
+        {renderInlineMarkdown(paraLines.join('\n'), `p-${i}`)}
+      </p>
+    );
+  }
+
+  return <div className={styles.answerRich}>{blocks}</div>;
+}
+
 export default function AiAssistant() {
   const { user, isMockMode } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -77,7 +239,7 @@ export default function AiAssistant() {
   const nextIdRef = useRef(1);
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef(null);
-  const messagesEndRef = useRef(null);
+  const messagesAreaRef = useRef(null);
   const textareaRef = useRef(null);
   const sessionKeyRef = useRef(`${user?.id ?? 'anon'}:${user?.role ?? 'none'}:${isMockMode}`);
 
@@ -111,8 +273,13 @@ export default function AiAssistant() {
   }, [user?.id, user?.role, isMockMode]);
 
   useEffect(() => {
-    if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === 'function') {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length === 0) return;
+    const container = messagesAreaRef.current;
+    if (!container) return;
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      container.scrollTop = container.scrollHeight;
     }
   }, [messages]);
 
@@ -675,6 +842,10 @@ export default function AiAssistant() {
                     <tr
                       key={row.product_id}
                       className={isChecked ? styles.reorderRowSelected : ''}
+                      onClick={(e) => {
+                        if (e.target.closest('input, button, select, textarea, a, label')) return;
+                        handleToggleSuggestionRow(row.product_id);
+                      }}
                     >
                       <td>
                         <input
@@ -758,7 +929,7 @@ export default function AiAssistant() {
         <div className={styles.stateCard} role="alert">
           <h2 className={styles.pageTitle}>Không có quyền truy cập</h2>
           <p className={styles.pageSubtitle}>
-            Trợ lý AI RetailOps chỉ dành cho tài khoản Quản trị viên (ADMIN).
+            Trợ lý AI RetailOps chỉ dành cho tài khoản Quản trị viên.
           </p>
         </div>
       </div>
@@ -798,7 +969,7 @@ export default function AiAssistant() {
       </div>
 
       <section className={styles.chatShell} aria-label="Khung trò chuyện Trợ lý AI">
-        <div className={styles.messagesArea} aria-live="polite">
+        <div ref={messagesAreaRef} className={styles.messagesArea} aria-live="polite">
           {messages.length === 0 ? (
             <div className={styles.welcomeCard}>
               <h2 className={styles.welcomeTitle}>Bắt đầu hỏi đáp kinh doanh</h2>
@@ -857,7 +1028,7 @@ export default function AiAssistant() {
                             </span>
                           )}
 
-                          <p className={styles.answerText}>{msg.response.answer}</p>
+                          {renderFormattedAnswer(msg.response.answer)}
 
                           {msg.status === 'insufficient_data' && (
                             <>
@@ -877,10 +1048,10 @@ export default function AiAssistant() {
                           )}
 
                           {msg.response.evidence.length > 0 && (
-                            <div className={styles.evidenceSection}>
-                              <h3 className={styles.evidenceHeading}>
+                            <details className={styles.evidenceSection}>
+                              <summary className={styles.evidenceToggle}>
                                 Nguồn dữ liệu &amp; Dẫn chứng ({msg.response.evidence.length})
-                              </h3>
+                              </summary>
                               <div className={styles.evidenceList}>
                                 {msg.response.evidence.map((ev, idx) => (
                                   <div
@@ -897,7 +1068,7 @@ export default function AiAssistant() {
                                   </div>
                                 ))}
                               </div>
-                            </div>
+                            </details>
                           )}
 
                           <p className={styles.suggestionNote}>
@@ -951,7 +1122,6 @@ export default function AiAssistant() {
               );
             })
           )}
-          <div ref={messagesEndRef} />
         </div>
 
         <form className={styles.composer} onSubmit={handleSubmit}>

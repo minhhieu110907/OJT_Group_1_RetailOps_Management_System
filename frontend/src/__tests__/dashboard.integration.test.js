@@ -312,4 +312,46 @@ describe('T04AB25 Dashboard Real React Component Regression Suite', () => {
 
     view.unmount();
   });
+
+  test('P2 fail-closed: nearlyOutOfStockCount shows "—" when out-of-stock count fails and drilldown links include date range', async () => {
+    axiosClient.get = async (url, config) => {
+      if (url === '/dashboard') {
+        return {
+          data: {
+            sales: makeSalesSummary({ revenue: 500000, completed: 4, cancelled: 1, aov: 125000 }),
+            low_stock_count: 8,
+            top_products: [],
+          },
+        };
+      }
+      if (url === '/dashboard/revenue-chart') {
+        return {
+          data: makeChartResponse(config?.params?.days === 30 ? 'week' : 'day'),
+        };
+      }
+      if (url === '/orders') {
+        return { data: { items: [], total: 0, page: 1, page_size: 6 } };
+      }
+      if (url === '/inventory') {
+        if (config?.params?.status === 'ACTIVE' && config?.params?.in_stock === false) {
+          throw new Error('Inventory out-of-stock count failed');
+        }
+        return { data: { items: [], total: 0, page: 1, page_size: 20 } };
+      }
+      throw new Error(`Unexpected GET ${url}`);
+    };
+
+    const view = renderDashboard();
+
+    await waitFor(() => {
+      assert.match(document.body.textContent || '', /—\s*sản phẩm sắp hết/);
+      assert.match(document.body.textContent || '', /—\s*sản phẩm hết hàng/);
+    });
+
+    const links = Array.from(document.querySelectorAll('a')).map((el) => el.getAttribute('href') || '');
+    assert.ok(links.some((href) => href.startsWith('/orders?status=COMPLETED&from_date=') && href.includes('&to_date=')));
+    assert.ok(links.some((href) => href.startsWith('/orders?status=CANCELLED&from_date=') && href.includes('&to_date=')));
+
+    view.unmount();
+  });
 });

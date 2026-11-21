@@ -104,11 +104,13 @@ export default function InventoryList() {
       ]);
 
       if (currentKpiId === kpiRequestIdRef.current) {
+        const outOfStockCount = outOfStockRes?.total ?? 0;
+        const lowStockIncludingZero = lowStockRes?.total ?? 0;
         setKpiStats({
           totalProducts: totalRes?.total ?? 0,
           activeProducts: activeRes?.total ?? 0,
-          lowStock: lowStockRes?.total ?? 0,
-          outOfStock: outOfStockRes?.total ?? 0,
+          lowStock: Math.max(0, lowStockIncludingZero - outOfStockCount),
+          outOfStock: outOfStockCount,
           isLoading: false,
         });
       }
@@ -134,13 +136,26 @@ export default function InventoryList() {
     setIsLoading(true);
 
     try {
+      if (stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK) {
+        const res = await inventoryApi.getLowStock({
+          page: pagination.page,
+          pageSize: pagination.pageSize,
+          categoryId: selectedCategoryId ? Number(selectedCategoryId) : null,
+          excludeOutOfStock: true,
+        });
+        if (currentRequestId === requestIdRef.current) {
+          setInventoryItems(res.items || []);
+          setTotalCount(res.total || 0);
+        }
+        return;
+      }
+
       // Xác định param query theo filter
       let statusParam = null;
       let inStockParam = null;
 
-      if (stockStatusFilter === STOCK_STATUS_TABS.IN_STOCK) {
-        inStockParam = true;
-      } else if (stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK) {
+      if (stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK) {
+        statusParam = 'ACTIVE';
         inStockParam = false;
       }
 
@@ -340,7 +355,7 @@ export default function InventoryList() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span className={`${styles.statDot} ${styles.statDotYellow}`} />
-            <span>Tồn thấp</span>
+            <span>Sắp hết</span>
           </div>
           <div className={styles.statBody}>
             <span className={styles.statValue}>
@@ -415,18 +430,6 @@ export default function InventoryList() {
               <button
                 type="button"
                 className={`${styles.chipBtn} ${
-                  stockStatusFilter === STOCK_STATUS_TABS.IN_STOCK ? styles.chipBtnActive : ''
-                }`}
-                onClick={() => {
-                  setStockStatusFilter(STOCK_STATUS_TABS.IN_STOCK);
-                  setPagination((prev) => ({ ...prev, page: 1 }));
-                }}
-              >
-                Còn hàng
-              </button>
-              <button
-                type="button"
-                className={`${styles.chipBtn} ${
                   stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK ? styles.chipBtnActive : ''
                 }`}
                 onClick={() => {
@@ -435,6 +438,18 @@ export default function InventoryList() {
                 }}
               >
                 Hết hàng
+              </button>
+              <button
+                type="button"
+                className={`${styles.chipBtn} ${
+                  stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK ? styles.chipBtnActive : ''
+                }`}
+                onClick={() => {
+                  setStockStatusFilter(STOCK_STATUS_TABS.LOW_STOCK);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+              >
+                Sắp hết
               </button>
             </div>
           </div>

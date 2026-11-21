@@ -48,6 +48,8 @@ export default function CategoryList() {
   const [initialCategoryForm, setInitialCategoryForm] = useState(INITIAL_FORM);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [categoryToToggle, setCategoryToToggle] = useState(null);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
   const requestIdRef = useRef(0);
   const searchInputRef = useRef(null);
@@ -110,7 +112,7 @@ export default function CategoryList() {
   // Xử lý mở Modal tạo mới (chỉ ADMIN)
   const handleOpenCreateModal = useCallback(() => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền thêm danh mục.');
       return;
     }
     setModalMode('create');
@@ -122,7 +124,7 @@ export default function CategoryList() {
   // Xử lý mở Modal chỉnh sửa (chỉ ADMIN)
   const handleOpenEditModal = useCallback((category) => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền chỉnh sửa danh mục.');
       return;
     }
     const formData = {
@@ -162,25 +164,38 @@ export default function CategoryList() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAdmin, isModalOpen, isSubmitting, handleCloseModal, handleOpenCreateModal]);
 
-  // Toggle trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
-  const handleToggleStatus = useCallback(async (category) => {
-    if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái danh mục.');
-      return;
-    }
-    const nextStatus = category.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    try {
-      await categoriesApi.updateCategoryStatus(category.id, nextStatus);
-      if (nextStatus === 'INACTIVE') {
-        toast.error(`Đã ngừng hoạt động danh mục "${category.name}".`);
-      } else {
-        toast.success(`Đã kích hoạt lại danh mục "${category.name}".`);
+  // Mở modal xác nhận đổi trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
+  const handleToggleStatus = useCallback(
+    (category) => {
+      if (!isAdmin) {
+        toast.error('Chỉ Quản trị viên mới có quyền thay đổi trạng thái danh mục.');
+        return;
       }
+      setCategoryToToggle(category);
+    },
+    [isAdmin, toast]
+  );
+
+  // Xác nhận đổi trạng thái ACTIVE / INACTIVE
+  const handleConfirmToggleStatus = useCallback(async () => {
+    if (!categoryToToggle || isTogglingStatus) return;
+    const nextStatus = categoryToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    setIsTogglingStatus(true);
+    try {
+      await categoriesApi.updateCategoryStatus(categoryToToggle.id, nextStatus);
+      if (nextStatus === 'INACTIVE') {
+        toast.error(`Đã ngừng hoạt động danh mục "${categoryToToggle.name}".`);
+      } else {
+        toast.success(`Đã kích hoạt lại danh mục "${categoryToToggle.name}".`);
+      }
+      setCategoryToToggle(null);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Không thể thay đổi trạng thái danh mục.'));
+    } finally {
+      setIsTogglingStatus(false);
     }
-  }, [isAdmin, toast]);
+  }, [categoryToToggle, isTogglingStatus, toast]);
 
   // Submit form tạo / sửa danh mục (chỉ ADMIN)
   const handleSubmitForm = async (e) => {
@@ -188,7 +203,7 @@ export default function CategoryList() {
       e.preventDefault();
     }
     if (!isAdmin) {
-      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      const msg = 'Chỉ Quản trị viên mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
       return;
@@ -541,6 +556,65 @@ export default function CategoryList() {
           </div>
         </form>
       </Modal>
+
+      {/* 6. Modal xác nhận ngừng hoạt động / kích hoạt lại danh mục */}
+      {isAdmin && (
+        <Modal
+          isOpen={Boolean(categoryToToggle)}
+          onClose={() => {
+            if (!isTogglingStatus) setCategoryToToggle(null);
+          }}
+          title={
+            categoryToToggle?.status === 'ACTIVE'
+              ? 'Xác nhận ngừng hoạt động danh mục'
+              : 'Xác nhận kích hoạt lại danh mục'
+          }
+          maxWidth="440px"
+          footer={
+            <>
+              <button
+                type="button"
+                className={modalStyles.cancelBtn}
+                onClick={() => setCategoryToToggle(null)}
+                disabled={isTogglingStatus}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className={
+                  categoryToToggle?.status === 'ACTIVE'
+                    ? modalStyles.dangerBtn || modalStyles.confirmBtn
+                    : modalStyles.confirmBtn
+                }
+                onClick={handleConfirmToggleStatus}
+                disabled={isTogglingStatus}
+              >
+                {isTogglingStatus
+                  ? 'Đang xử lý...'
+                  : categoryToToggle?.status === 'ACTIVE'
+                  ? 'Ngừng hoạt động'
+                  : 'Kích hoạt lại'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0, lineHeight: 1.6 }}>
+            Bạn có chắc chắn muốn{' '}
+            {categoryToToggle?.status === 'ACTIVE'
+              ? 'ngừng hoạt động'
+              : 'kích hoạt lại'}{' '}
+            danh mục <strong>&quot;{categoryToToggle?.name}&quot;</strong>?
+            {categoryToToggle?.status === 'ACTIVE' && (
+              <>
+                {' '}
+                Danh mục ngừng hoạt động sẽ không thể gán cho sản phẩm mới; các sản
+                phẩm hiện có thuộc danh mục này vẫn giữ nguyên trạng thái.
+              </>
+            )}
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import re
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -168,40 +168,72 @@ def _build_evidence(result: ToolResult) -> AIEvidence:
         )
     return AIEvidence(
         source=source,
-        period=result.source_period,
+        period=_format_period_vn(result.source_period),
         summary=summary,
     )
+
+
+def _format_period_vn(period_str: str | None) -> str | None:
+    """Convert raw UTC ISO period/as_of strings into clean DD/MM/YYYY labels."""
+    if not period_str:
+        return None
+    if period_str == "current_stock":
+        return "Hiện tại"
+    if "/" in period_str:
+        parts = period_str.split("/", 1)
+        try:
+            start_dt = datetime.fromisoformat(parts[0].replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
+            start_d = start_dt.astimezone(_VN_TZ).date()
+            end_d = (end_dt.astimezone(_VN_TZ) - timedelta(microseconds=1)).date()
+            if start_d == end_d:
+                return start_d.strftime("%d/%m/%Y")
+            return f"{start_d.strftime('%d/%m/%Y')} - {end_d.strftime('%d/%m/%Y')}"
+        except ValueError:
+            return period_str
+    if period_str.startswith("as_of="):
+        raw_ts = period_str[len("as_of=") :].split(";", 1)[0].strip()
+        try:
+            dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            date_str = dt.astimezone(_VN_TZ).strftime("%d/%m/%Y")
+            return f"30 ngày gần nhất (đến {date_str})"
+        except ValueError:
+            return period_str
+    return period_str
 
 
 def _format_direct_answer(result: ToolResult) -> tuple[str, bool]:
     data = result.data
     insufficient = _is_insufficient_result(result)
     if result.tool_id == "get_sales_summary":
+        period_label = _format_period_vn(result.source_period) or "đã chọn"
         if insufficient:
-            period_label = result.source_period or "đã chọn"
             return (
-                f"Chưa có dữ liệu đơn hàng trong kỳ {period_label} "
-                "(0 đơn hoàn thành, 0 đơn hủy).",
+                f"Chưa có dữ liệu đơn hàng trong ngày/kỳ {period_label}:\n"
+                "- Đơn hoàn thành: **0**\n"
+                "- Đơn hủy: **0**",
                 True,
             )
         return (
-            f"Doanh thu kỳ {result.source_period}: {data['revenue_vnd']:,} VND "
-            f"({data['completed_orders']} đơn hoàn thành, "
-            f"{data['cancelled_orders']} đơn hủy, AOV {data['aov_vnd']:,} VND).",
+            f"Tổng hợp doanh thu ngày/kỳ **{period_label}**:\n"
+            f"- Doanh thu: **{data['revenue_vnd']:,} VND**\n"
+            f"- Đơn hoàn thành: **{data['completed_orders']}**\n"
+            f"- Đơn hủy: **{data['cancelled_orders']}**\n"
+            f"- Giá trị đơn trung bình (AOV): **{data['aov_vnd']:,} VND**",
             False,
         )
     if result.tool_id == "get_low_stock":
         items = data.get("items", [])
         if insufficient:
             return ("Hiện không có sản phẩm nào dưới ngưỡng tồn kho thấp.", True)
-        preview = "; ".join(
-            f"{item['name']} ({item['sku']}): "
-            f"còn {item['quantity']}/{item['threshold']}"
-            for item in items[:5]
+        displayed = items[:10]
+        lines = "\n".join(
+            f"- **{item['name']}** (`{item['sku']}`): còn {item['quantity']}"
+            for item in displayed
         )
         return (
             f"Có {data['total']} sản phẩm tồn kho thấp "
-            f"(hiển thị {len(items)}): {preview}.",
+            f"(hiển thị {len(displayed)}):\n{lines}",
             False,
         )
     return ("Đã hoàn tất truy vấn dữ liệu.", insufficient)

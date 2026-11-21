@@ -463,8 +463,7 @@ export default function StaffApprovalList() {
             
           </div>
           <p className={styles.subtitle}>
-            Hàng đợi xét duyệt hồ sơ đăng ký tài khoản nhân viên (Staff) • Quyền
-            Admin
+            Hàng đợi xét duyệt hồ sơ đăng ký tài khoản nhân viên
           </p>
         </div>
 
@@ -472,25 +471,6 @@ export default function StaffApprovalList() {
           <Link to="/staff/accounts" className={styles.refreshBtn}>
             Tài khoản nhân viên
           </Link>
-          <div className={styles.policyBadge}>
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              <polyline points="9 12 11 14 15 10" />
-            </svg>
-            <span>
-              Quy chuẩn: Cấp quyền duy nhất <strong>STAFF</strong> (1 cửa hàng,
-              1 kho)
-            </span>
-          </div>
 
           <button
             type="button"
@@ -693,13 +673,9 @@ export default function StaffApprovalList() {
                         <span className={styles.applicantName}>
                           {item.full_name || item.email}
                         </span>
-                        <span className={styles.requestCodePill}>
-                          ID: REG-{item.id} • Lần #{item.attempt_no}
-                        </span>
                       </div>
                       <span className={styles.applicantEmail}>
-                        Email đăng ký: {item.email} • Mã tài khoản User #
-                        {item.user_id} • Yêu cầu #{item.id}
+                        Email đăng ký: {item.email}
                       </span>
                     </div>
                   </div>
@@ -751,9 +727,6 @@ export default function StaffApprovalList() {
                   </span>
 
                   <div className={styles.cardBottomRight}>
-                    <span className={styles.storeScopeLabel}>
-                      Cửa hàng RetailOps (duy nhất)
-                    </span>
                     <span className={styles.viewProfileLink}>
                       <span>Xem hồ sơ</span>
                       <span aria-hidden="true">→</span>
@@ -985,7 +958,7 @@ export default function StaffApprovalList() {
               <div className={styles.roleBox}>
                 <div className={styles.roleBoxHeader}>
                   <span className={styles.roleBoxTitle}>
-                    <span>Nhân viên bán hàng (Staff)</span>
+                    <span>Nhân viên bán hàng</span>
                   </span>
                   <span className={styles.roleCodePill}>ROLE_STAFF</span>
                 </div>

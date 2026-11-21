@@ -813,4 +813,25 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     assert.ok(posContent.includes('✓ Xác nhận bán hàng'));
     assert.equal(posContent.includes('Trigger:'), false);
   });
+
+  test('P1 cart item line displays both unit price and line total (unitPriceVnd * quantity)', () => {
+    const qty3Item = {
+      productId: 10,
+      sku: 'SP0010',
+      name: 'Nước khoáng 500ml',
+      unitPriceVnd: 15000,
+      quantity: 3,
+      availableStock: 20,
+    };
+    const totals = calculateCartTotals([qty3Item]);
+    assert.equal(totals.totalVnd, 45000);
+    assert.ok(formatVnd(qty3Item.unitPriceVnd).includes('15.000'));
+    assert.ok(formatVnd(qty3Item.unitPriceVnd * qty3Item.quantity).includes('45.000'));
+
+    const posContent = fs.readFileSync(posPagePath, 'utf8');
+    assert.ok(posContent.includes('className={styles.cartItemMeta}'));
+    assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd)} / sp'));
+    assert.ok(posContent.includes('className={styles.lineTotal}'));
+    assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd * item.quantity)}'));
+  });
 });

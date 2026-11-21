@@ -1173,7 +1173,7 @@ export default function PurchaseList() {
           <div className={styles.titleGroup}>
             <h1 className={styles.title}>Quản lý nhập hàng</h1>
             <p className={styles.subtitle}>
-              Chức năng dành riêng cho Quản trị viên (ADMIN).
+              Chức năng dành riêng cho Quản trị viên.
             </p>
           </div>
         </div>

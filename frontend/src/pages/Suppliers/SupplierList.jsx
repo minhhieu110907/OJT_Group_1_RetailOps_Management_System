@@ -30,9 +30,9 @@ function SupplierStatusBadge({ status, inModal = false }) {
         fontSize: '12.5px',
         fontWeight: '500',
         whiteSpace: 'nowrap',
-        backgroundColor: isActive ? 'rgba(16, 185, 129, 0.18)' : (inModal ? 'rgba(239, 68, 68, 0.2)' : 'rgba(71, 85, 105, 0.25)'),
-        color: isActive ? '#10B981' : (inModal ? '#EF4444' : '#94A3B8'),
-        border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.4)' : (inModal ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.3)')}`,
+        backgroundColor: isActive ? 'rgba(16, 185, 129, 0.18)' : (inModal ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.14)'),
+        color: isActive ? '#10B981' : (inModal ? '#EF4444' : '#DC2626'),
+        border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.4)' : (inModal ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.35)')}`,
       }}
     >
       {isActive ? 'Đang hợp tác' : 'Ngừng hợp tác'}
@@ -160,7 +160,7 @@ export default function SupplierList() {
   // Xử lý mở modal thêm mới (chỉ ADMIN)
   const handleOpenCreateModal = () => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm nhà cung cấp.');
+      toast.error('Chỉ Quản trị viên mới có quyền thêm nhà cung cấp.');
       return;
     }
     setModalMode('create');
@@ -176,7 +176,7 @@ export default function SupplierList() {
   // Xử lý mở modal xem chi tiết / cập nhật (chỉ ADMIN)
   const handleOpenEditModal = useCallback((supplier) => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa nhà cung cấp.');
+      toast.error('Chỉ Quản trị viên mới có quyền chỉnh sửa nhà cung cấp.');
       return;
     }
     setModalMode('edit');
@@ -252,7 +252,7 @@ export default function SupplierList() {
   // Đảo trạng thái tạm thời trong form modal (chưa lưu xuống database cho đến khi bấm "Lưu thay đổi")
   const handleToggleStatus = () => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái đối tác.');
+      toast.error('Chỉ Quản trị viên mới có quyền thay đổi trạng thái đối tác.');
       return;
     }
     if (isSubmitting || modalMode !== 'edit' || !supplierForm.id) return;
@@ -268,7 +268,7 @@ export default function SupplierList() {
       e.preventDefault();
     }
     if (!isAdmin) {
-      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      const msg = 'Chỉ Quản trị viên mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
       return;
@@ -529,7 +529,7 @@ export default function SupplierList() {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span>
-            <strong>Truy cập bị giới hạn (403):</strong> Bạn không có quyền Quản trị viên (ADMIN) để thao tác trên danh mục nhà cung cấp.
+            <strong>Truy cập bị giới hạn (403):</strong> Bạn không có quyền Quản trị viên để thao tác trên danh mục nhà cung cấp.
           </span>
         </div>
       )}

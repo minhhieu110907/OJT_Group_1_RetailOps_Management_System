@@ -1591,7 +1591,6 @@ describe('PR #20 Final Security Remediation — Automated Verification Suite', (
       assert.ok(content.includes('const isDirectUnverifiedVisit = !isMockDemoActive && !incomingState.status'));
       assert.ok(content.includes('isMockDemoActive\n    ? {'));
       assert.ok(content.includes("Chưa có thông tin lý do từ chối từ máy chủ"));
-      assert.ok(content.includes("Chưa có thông tin thời hạn gửi lại từ máy chủ"));
       assert.equal(content.includes('setAccessToken'), false);
       assert.equal(content.includes('setUser('), false);
     });

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.exceptions import (
+    AccountLockedError,
     DomainValidationError,
     InvalidCredentialsError,
     SessionInvalidError,
@@ -136,7 +137,7 @@ def test_lock_revoke_unlock_does_not_revive_old_session(
                 login.csrf_token,
                 ORIGIN,
             )
-        with pytest.raises(InvalidCredentialsError):
+        with pytest.raises(AccountLockedError):
             service.login(session, staff.email_normalized, OLD_PASSWORD)
 
         unlocked = accounts.transition(
@@ -272,7 +273,7 @@ def test_login_serializes_with_account_row_lock(
             try:
                 service.login(worker, target_email, OLD_PASSWORD)
                 return "ISSUED"
-            except InvalidCredentialsError:
+            except (InvalidCredentialsError, AccountLockedError):
                 return "DENIED"
 
     with Session(engine) as locker:

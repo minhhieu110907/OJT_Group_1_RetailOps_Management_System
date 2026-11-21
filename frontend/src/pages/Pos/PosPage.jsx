@@ -526,44 +526,6 @@ export default function PosPage() {
               ))}
             </select>
           </div>
-
-          <div className={styles.categoryRow} role="tablist" aria-label="Lọc theo danh mục">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={selectedCategoryId === ''}
-              className={`${styles.categoryPill} ${
-                selectedCategoryId === '' ? styles.categoryPillActive : ''
-              }`}
-              onClick={() => {
-                setSelectedCategoryId('');
-                setCurrentPage(1);
-              }}
-            >
-              Tất cả
-            </button>
-
-            {orderedCategories.map((cat) => {
-              const isSelected = String(selectedCategoryId) === String(cat.id);
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isSelected}
-                  className={`${styles.categoryPill} ${
-                    isSelected ? styles.categoryPillActive : ''
-                  }`}
-                  onClick={() => {
-                    setSelectedCategoryId(String(cat.id));
-                    setCurrentPage(1);
-                  }}
-                >
-                  {cat.name}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
         {isLoading ? (
@@ -721,9 +683,9 @@ export default function PosPage() {
                   <p className={styles.cartItemName} title={item.name}>
                     {item.name}
                   </p>
-                  <div className={styles.cartItemMeta}>
-                    SKU: {item.sku} • {formatVnd(item.unitPriceVnd)}
-                  </div>
+                  <span className={styles.cartItemMeta}>
+                    {formatVnd(item.unitPriceVnd)} / sp
+                  </span>
                 </div>
 
                 <div className={styles.qtyStepper}>
@@ -770,28 +732,9 @@ export default function PosPage() {
           </div>
 
           <div className={styles.cartFooter}>
-            <div className={styles.disclaimerBanner}>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ flexShrink: 0, marginTop: '1px' }}
-                aria-hidden="true"
-              >
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                <polyline points="9 12 11 14 15 10" />
-              </svg>
-              <span>
-                Giỏ hàng không giữ trước tồn kho. Giá bán và số lượng sẽ được kiểm
-                tra khi xác nhận bán.
-              </span>
-            </div>
-
+            <p className={styles.cartQuoteNote}>
+              Giỏ hàng không giữ chỗ tồn kho; tổng tiền chỉ mang tính tạm tính trước khi thanh toán.
+            </p>
             <div className={styles.summaryRow}>
               <span>Tạm tính ({cartTotals.totalUnits} sản phẩm)</span>
               <strong>{formatVnd(cartTotals.totalVnd)}</strong>

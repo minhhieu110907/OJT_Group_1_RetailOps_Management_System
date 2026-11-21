@@ -821,6 +821,20 @@ paths:
           type: integer
           minimum: 1
           maximum: 100
+      - in: query
+        name: category_id
+        required: false
+        description: Lọc theo mã danh mục sản phẩm (tùy chọn).
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: exclude_out_of_stock
+        required: false
+        description: Nếu true, loại bỏ sản phẩm có tồn kho bằng 0 (chỉ giữ sản phẩm sắp hết hàng với quantity > 0).
+        schema:
+          type: boolean
+          default: false
       x-implementation-status: PLANNED_NOT_VERIFIED
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
   /stock-movements:
