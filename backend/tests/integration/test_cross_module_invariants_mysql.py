@@ -28,20 +28,26 @@ from sqlalchemy.engine import URL, Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
+from app.core.exceptions import ConflictError, InvalidStateError
 from app.db.session import get_db_session
 from app.main import create_app
 from app.modules.auth.models import AuthSession, User, UserRole, UserStatus
 from app.modules.auth.security import JwtService
 from app.modules.categories.models import Category
 from app.modules.idempotency.models import IdempotencyRecord
+from app.modules.idempotency.service import IdempotencyExecutor
+from app.modules.inventory.exceptions import StockConflictError
 from app.modules.inventory.models import (
     InventoryAdjustment,
     MovementKind,
     StockMovement,
 )
+from app.modules.inventory.service import InventoryService
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.sales.models import Order, OrderItem
+from app.modules.sales.schemas import CheckoutLine
+from app.modules.sales.service import CheckoutService, OrderService
 from app.modules.suppliers.models import Supplier, SupplierStatus
 from tests.integration.conftest import (
     integration_database_url,
@@ -775,39 +781,45 @@ def test_concurrent_checkout_stock_5_qty_4_and_concurrent_cancel_mysql(
             )
             prod_id = prod.id
 
-        app = _create_test_app(migrated_integration_engine, settings)
+        idem_secret = settings.idempotency_secret.get_secret_value().encode("utf-8")
         k1 = f"conc-co-1-{run_id}-0001"
         k2 = f"conc-co-2-{run_id}-0002"
         idem_keys.extend([k1, k2])
         barrier = Barrier(2)
 
-        def _do_checkout(key: str) -> tuple[int, dict]:
-            with TestClient(app) as client:
+        def _do_checkout(key: str) -> tuple[int, int | None]:
+            svc = CheckoutService(
+                InventoryService(),
+                idempotency=IdempotencyExecutor(secret=idem_secret),
+            )
+            with Session(migrated_integration_engine) as session:
                 barrier.wait(timeout=10)
-                resp = client.post(
-                    "/api/v1/orders/checkout",
-                    headers={**actors["admin_headers"], "Idempotency-Key": key},
-                    json={
-                        "items": [
-                            {
-                                "product_id": prod_id,
-                                "quantity": 4,
-                                "viewed_unit_price_vnd": 50_000,
-                            }
-                        ]
-                    },
-                )
-                return resp.status_code, resp.json()
+                try:
+                    order = svc.checkout(
+                        session,
+                        actor_id=actors["admin_id"],
+                        idempotency_key=key,
+                        items=[
+                            CheckoutLine(
+                                product_id=prod_id,
+                                quantity=4,
+                                viewed_unit_price_vnd=50_000,
+                            )
+                        ],
+                    )
+                    return 201, order.id
+                except (ConflictError, StockConflictError):
+                    return 409, None
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             f1 = pool.submit(_do_checkout, k1)
             f2 = pool.submit(_do_checkout, k2)
-            res1, res2 = f1.result(), f2.result()
+            res1, res2 = f1.result(timeout=20), f2.result(timeout=20)
 
         statuses = sorted([res1[0], res2[0]])
         assert statuses == [201, 409]
-        winner_body = res1[1] if res1[0] == 201 else res2[1]
-        order_id = winner_body["id"]
+        order_id = res1[1] if res1[0] == 201 else res2[1]
+        assert order_id is not None
         order_ids.append(order_id)
 
         with Session(migrated_integration_engine) as session:
@@ -828,19 +840,29 @@ def test_concurrent_checkout_stock_5_qty_4_and_concurrent_cancel_mysql(
         cancel_barrier = Barrier(2)
 
         def _do_cancel(key: str) -> int:
-            with TestClient(app) as client:
+            svc = OrderService(
+                InventoryService(),
+                idempotency=IdempotencyExecutor(secret=idem_secret),
+            )
+            with Session(migrated_integration_engine) as session:
                 cancel_barrier.wait(timeout=10)
-                resp = client.post(
-                    f"/api/v1/orders/{order_id}/cancel",
-                    headers={**actors["admin_headers"], "Idempotency-Key": key},
-                    json={"reason": "Concurrent cancel test"},
-                )
-                return resp.status_code
+                try:
+                    svc.cancel(
+                        session,
+                        actor_id=actors["admin_id"],
+                        actor_role="ADMIN",
+                        order_id=order_id,
+                        reason="Concurrent cancel test",
+                        idempotency_key=key,
+                    )
+                    return 200
+                except (ConflictError, InvalidStateError, StockConflictError):
+                    return 409
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             fc1 = pool.submit(_do_cancel, kc1)
             fc2 = pool.submit(_do_cancel, kc2)
-            cancel_statuses = sorted([fc1.result(), fc2.result()])
+            cancel_statuses = sorted([fc1.result(timeout=20), fc2.result(timeout=20)])
 
         assert cancel_statuses == [200, 409]
         with Session(migrated_integration_engine) as session:
