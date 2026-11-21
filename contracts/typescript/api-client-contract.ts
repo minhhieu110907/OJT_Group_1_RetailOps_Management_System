@@ -77,9 +77,26 @@ export type PriceChangedError = {
   code:'PRICE_CHANGED'; message:string;
   details:{changed_items:Array<{product_id:number;viewed_unit_price_vnd:number;current_unit_price_vnd:number}>};
 };
+export type SupplierStatus = 'ACTIVE'|'INACTIVE';
+export type SupplierRead = {
+  id:number; name:string; contact_email:string|null; contact_phone:string|null;
+  status:SupplierStatus; category_ids:number[]; created_at:string; updated_at:string;
+};
+export type SupplierCreate = {
+  name:string; contact_email?:string|null; contact_phone?:string|null;
+  category_ids?:number[];
+};
+export type SupplierUpdate = {
+  name?:string|null; contact_email?:string|null; contact_phone?:string|null;
+  category_ids?:number[]|null;
+};
+export type SupplierListQuery = {
+  search?:string; status?:SupplierStatus; page?:number; page_size?:number;
+};
 /** FE xem mọi Order, nhưng không tự suy ra quyền hủy từ việc được phép xem. */
 export interface RetailOpsReadApi {
   listProducts(query?:ProductListQuery):Promise<Page<ProductRead>>;
   listReceipts(query?:ReceiptListQuery):Promise<Page<ReceiptRead>>;
   listOrders(query?:OrderListQuery):Promise<Page<OrderRead>>;
+  listSuppliers(query?:SupplierListQuery):Promise<Page<SupplierRead>>;
 }

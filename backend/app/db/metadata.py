@@ -18,7 +18,7 @@ from app.modules.purchasing.models import (
     PurchaseReceiptItem,
 )
 from app.modules.sales.models import Order, OrderItem
-from app.modules.suppliers.models import Supplier
+from app.modules.suppliers.models import Supplier, SupplierCategory
 
 REGISTERED_MODELS = (
     User,
@@ -29,6 +29,7 @@ REGISTERED_MODELS = (
     OutboxEvent,
     Category,
     Supplier,
+    SupplierCategory,
     Product,
     Inventory,
     PurchaseReceipt,

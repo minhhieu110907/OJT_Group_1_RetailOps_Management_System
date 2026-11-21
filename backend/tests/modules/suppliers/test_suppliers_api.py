@@ -21,7 +21,8 @@ from app.modules.auth.dependencies import get_auth_service
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.service import AuthService
-from app.modules.suppliers.models import Supplier, SupplierStatus
+from app.modules.categories.models import Category
+from app.modules.suppliers.models import Supplier, SupplierCategory, SupplierStatus
 
 
 @compiles(BigInteger, "sqlite")
@@ -48,9 +49,11 @@ def db_engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Supplier.__table__.create(bind=engine, checkfirst=True)
+    for table in (Category.__table__, Supplier.__table__, SupplierCategory.__table__):
+        table.create(bind=engine, checkfirst=True)
     yield engine
-    Supplier.__table__.drop(bind=engine, checkfirst=True)
+    for table in (SupplierCategory.__table__, Supplier.__table__, Category.__table__):
+        table.drop(bind=engine, checkfirst=True)
     engine.dispose()
 
 
@@ -621,6 +624,13 @@ def test_supplier_openapi_contract_has_no_phone_region(app_instance) -> None:
         "contact_email",
         "contact_phone",
         "status",
+        "category_ids",
         "created_at",
         "updated_at",
     }
+
+    # Backward compatible: category_ids is optional on requests, required on reads.
+    assert schemas["SupplierCreate"]["properties"]["category_ids"]["type"] == "array"
+    assert "category_ids" not in schemas["SupplierCreate"].get("required", [])
+    assert "category_ids" not in schemas["SupplierUpdate"].get("required", [])
+    assert "category_ids" in schemas["SupplierRead"]["required"]
