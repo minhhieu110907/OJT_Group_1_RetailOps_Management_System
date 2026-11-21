@@ -17,6 +17,7 @@ tags:
 - name: analytics
 - name: dashboard
 - name: ai
+- name: suppliers
 paths:
   /admin/staff:
     get:
@@ -2434,6 +2435,253 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
       x-owner-consumer-signoff: PENDING_ON_DOCS_PR
+  /suppliers:
+    get:
+      tags: [suppliers]
+      summary: Danh sách nhà cung cấp
+      description: Lấy danh sách nhà cung cấp có phân trang (chỉ ADMIN).
+      operationId: listSuppliers
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - in: query
+        name: status
+        required: false
+        schema:
+          $ref: '#/components/schemas/SupplierStatus'
+      - in: query
+        name: search
+        required: false
+        schema:
+          type: string
+          maxLength: 160
+      responses:
+        '200':
+          description: Danh sách nhà cung cấp phân trang thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierListResponse'
+        '401':
+          description: Chưa xác thực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Quyền truy cập bị từ chối (chỉ ADMIN)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Dữ liệu tham số không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [suppliers]
+      summary: Tạo mới nhà cung cấp
+      description: Tạo mới nhà cung cấp kèm danh mục tùy chọn (chỉ ADMIN).
+      operationId: createSupplier
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierCreate'
+      responses:
+        '201':
+          description: Nhà cung cấp được tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierRead'
+        '401':
+          description: Chưa xác thực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Quyền truy cập bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Danh mục không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Dữ liệu không hợp lệ hoặc danh mục INACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /suppliers/{id}:
+    get:
+      tags: [suppliers]
+      summary: Chi tiết nhà cung cấp
+      description: Lấy thông tin chi tiết một nhà cung cấp (chỉ ADMIN).
+      operationId: getSupplier
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Chi tiết nhà cung cấp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierRead'
+        '401':
+          description: Chưa xác thực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Quyền truy cập bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy nhà cung cấp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags: [suppliers]
+      summary: Cập nhật nhà cung cấp
+      description: Cập nhật thông tin nhà cung cấp và/hoặc liên kết danh mục (chỉ ADMIN).
+      operationId: updateSupplier
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierUpdate'
+      responses:
+        '200':
+          description: Nhà cung cấp được cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierRead'
+        '401':
+          description: Chưa xác thực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Quyền truy cập bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy nhà cung cấp hoặc danh mục
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Dữ liệu cập nhật không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /suppliers/{id}/status:
+    patch:
+      tags: [suppliers]
+      summary: Đổi trạng thái nhà cung cấp
+      description: Chuyển đổi trạng thái hoạt động (ACTIVE/INACTIVE, chỉ ADMIN).
+      operationId: updateSupplierStatus
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierStatusUpdate'
+      responses:
+        '200':
+          description: Đổi trạng thái thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierRead'
+        '401':
+          description: Chưa xác thực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Quyền truy cập bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy nhà cung cấp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Trạng thái không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     bearerAuth:
@@ -3841,4 +4089,141 @@ components:
       properties:
         current_password: {type: string, minLength: 1, maxLength: 72}
         new_password: {type: string, minLength: 1, maxLength: 72}
+    SupplierStatus:
+      type: string
+      enum:
+      - ACTIVE
+      - INACTIVE
+      description: Supported supplier status values.
+    SupplierCreate:
+      type: object
+      additionalProperties: false
+      description: Request payload for creating a new supplier.
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        contact_email:
+          anyOf:
+          - type: string
+            format: email
+          - type: null
+          default: null
+        contact_phone:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: null
+          default: null
+        category_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          maxItems: 100
+    SupplierUpdate:
+      type: object
+      additionalProperties: false
+      description: |-
+        Request payload for updating supplier info
+        (supports setting None to clear contacts).
+      properties:
+        name:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 160
+          - type: null
+          default: null
+        contact_email:
+          anyOf:
+          - type: string
+            format: email
+          - type: null
+          default: null
+        contact_phone:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: null
+          default: null
+        category_ids:
+          anyOf:
+          - type: array
+            items:
+              type: integer
+              minimum: 1
+            maxItems: 100
+          - type: null
+          default: null
+    SupplierStatusUpdate:
+      type: object
+      additionalProperties: false
+      description: Request payload for changing supplier status.
+      required:
+      - status
+      properties:
+        status:
+          $ref: '#/components/schemas/SupplierStatus'
+    SupplierRead:
+      type: object
+      additionalProperties: false
+      description: Public representation of a supplier.
+      required:
+      - id
+      - name
+      - contact_email
+      - contact_phone
+      - status
+      - category_ids
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        contact_email:
+          anyOf:
+          - type: string
+          - type: null
+        contact_phone:
+          anyOf:
+          - type: string
+          - type: null
+        status:
+          type: string
+        category_ids:
+          type: array
+          items:
+            type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SupplierListResponse:
+      type: object
+      additionalProperties: false
+      description: Paginated list of suppliers.
+      required:
+      - items
+      - total
+      - page
+      - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupplierRead'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
 x-source-commit-reviewed: cd1a6d3451a88bd890e76c14944a98329152c325

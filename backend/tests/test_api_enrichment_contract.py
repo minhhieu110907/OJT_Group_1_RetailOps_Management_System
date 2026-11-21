@@ -11,6 +11,7 @@ from app.modules.auth.schemas import UserRead
 from app.modules.categories.router import category_router
 from app.modules.products.router import router as product_router
 from app.modules.sales.router import router as sales_router
+from app.modules.suppliers.router import supplier_router
 
 
 def _runtime_schemas() -> dict[str, object]:
@@ -21,6 +22,7 @@ def _runtime_schemas() -> dict[str, object]:
         category_router,
         product_router,
         sales_router,
+        supplier_router,
     ):
         app.include_router(router)
     schemas = app.openapi()["components"]["schemas"]
@@ -54,9 +56,42 @@ def test_changed_frozen_dtos_have_declared_required_properties() -> None:
         "AuthenticatedUser",
         "ApprovalListItemRead",
         "OrderRead",
+        "SupplierCreate",
+        "SupplierRead",
+        "SupplierStatusUpdate",
+        "SupplierListResponse",
     ):
         schema = frozen[name]
         assert set(schema.get("required", ())) <= set(schema["properties"]), name
+
+
+def test_runtime_and_frozen_supplier_schemas_match() -> None:
+    runtime = _runtime_schemas()
+    frozen = _frozen_schemas()
+
+    # SupplierRead required fields and properties match
+    assert "category_ids" in runtime["SupplierRead"]["required"]
+    assert "category_ids" in frozen["SupplierRead"]["required"]
+    assert runtime["SupplierRead"]["properties"]["category_ids"]["type"] == "array"
+    assert frozen["SupplierRead"]["properties"]["category_ids"]["type"] == "array"
+
+    # SupplierCreate category_ids is optional array
+    assert "category_ids" not in runtime["SupplierCreate"].get("required", ())
+    assert "category_ids" not in frozen["SupplierCreate"].get("required", ())
+    assert runtime["SupplierCreate"]["properties"]["category_ids"]["type"] == "array"
+    assert frozen["SupplierCreate"]["properties"]["category_ids"]["type"] == "array"
+
+    # SupplierUpdate category_ids is optional nullable array
+    assert "category_ids" not in runtime["SupplierUpdate"].get("required", ())
+    assert "category_ids" not in frozen["SupplierUpdate"].get("required", ())
+    assert (
+        _constraint(runtime["SupplierUpdate"]["properties"]["category_ids"], "type")
+        == "array"
+    )
+    assert (
+        _constraint(frozen["SupplierUpdate"]["properties"]["category_ids"], "type")
+        == "array"
+    )
 
 
 def test_runtime_and_frozen_enrichment_required_nullable_semantics_match() -> None:

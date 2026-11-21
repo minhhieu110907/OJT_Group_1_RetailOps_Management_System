@@ -68,7 +68,7 @@ def get_supplier(
 ) -> SupplierRead:
     """Retrieve details of a single supplier (Admin only)."""
     supplier = service.get_by_id(session, id)
-    return SupplierRead.model_validate(supplier)
+    return service.to_read(session, supplier)
 
 
 @supplier_router.post(
@@ -84,7 +84,7 @@ def create_supplier(
 ) -> SupplierRead:
     """Create a new supplier (Admin only)."""
     supplier = service.create_supplier(session, data)
-    return SupplierRead.model_validate(supplier)
+    return service.to_read(session, supplier)
 
 
 @supplier_router.patch(
@@ -102,7 +102,7 @@ def update_supplier(
     """Update supplier information (Admin only)
     supports explicit null to clear contact fields."""
     supplier = service.update_supplier(session, id, data)
-    return SupplierRead.model_validate(supplier)
+    return service.to_read(session, supplier)
 
 
 @supplier_router.patch(
@@ -119,4 +119,4 @@ def update_supplier_status(
 ) -> SupplierRead:
     """Change supplier status (ACTIVE/INACTIVE, Admin only)."""
     supplier = service.update_supplier_status(session, id, data)
-    return SupplierRead.model_validate(supplier)
+    return service.to_read(session, supplier)

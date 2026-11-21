@@ -202,3 +202,144 @@ def test_profile_product_enrichment_upgrade_preserves_rows_and_downgrades(
                 text("DELETE FROM categories WHERE name = 'Migration enrichment'")
             )
         get_settings.cache_clear()
+
+
+def test_supplier_categories_migration_constraints_and_reversibility(
+    integration_database_url: URL,
+    migrated_integration_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RETAILOPS_DB_HOST", integration_database_url.host or "")
+    monkeypatch.setenv("RETAILOPS_DB_PORT", str(integration_database_url.port or 3306))
+    monkeypatch.setenv("RETAILOPS_DB_NAME", integration_database_url.database or "")
+    monkeypatch.setenv("RETAILOPS_DB_USER", integration_database_url.username or "")
+    monkeypatch.setenv("RETAILOPS_DB_PASSWORD", integration_database_url.password or "")
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    alembic_config = Config(BACKEND_DIR / "alembic.ini")
+    category_name = "migration-supplier-categories category"
+    supplier_name = "migration-supplier-categories supplier"
+
+    def insert_rows(connection) -> tuple[int, int]:
+        category_id = connection.execute(
+            text(
+                "INSERT INTO categories (name, status, created_at, updated_at) "
+                "VALUES (:name, 'ACTIVE', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))"
+            ),
+            {"name": category_name},
+        ).lastrowid
+        supplier_id = connection.execute(
+            text(
+                "INSERT INTO suppliers (name, status, created_at, updated_at) "
+                "VALUES (:name, 'ACTIVE', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))"
+            ),
+            {"name": supplier_name},
+        ).lastrowid
+        return supplier_id, category_id
+
+    try:
+        command.upgrade(alembic_config, "head")
+        inspector = inspect(migrated_integration_engine)
+        assert "supplier_categories" in inspector.get_table_names()
+        assert inspector.get_pk_constraint("supplier_categories")[
+            "constrained_columns"
+        ] == ["supplier_id", "category_id"]
+        foreign_keys = {
+            fk["referred_table"]: fk
+            for fk in inspector.get_foreign_keys("supplier_categories")
+        }
+        assert foreign_keys["suppliers"]["options"]["ondelete"] == "CASCADE"
+        assert foreign_keys["categories"]["options"]["ondelete"] == "RESTRICT"
+        assert "ix_supplier_categories_category_id" in {
+            index["name"] for index in inspector.get_indexes("supplier_categories")
+        }
+
+        with migrated_integration_engine.begin() as connection:
+            supplier_id, category_id = insert_rows(connection)
+            connection.execute(
+                text(
+                    "INSERT INTO supplier_categories (supplier_id, category_id) "
+                    "VALUES (:s, :c)"
+                ),
+                {"s": supplier_id, "c": category_id},
+            )
+
+        # Composite primary key rejects duplicates.
+        with pytest.raises(IntegrityError), migrated_integration_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO supplier_categories (supplier_id, category_id) "
+                    "VALUES (:s, :c)"
+                ),
+                {"s": supplier_id, "c": category_id},
+            )
+
+        # ON DELETE RESTRICT: a linked category cannot be hard-deleted.
+        with pytest.raises(IntegrityError), migrated_integration_engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM categories WHERE id = :c"), {"c": category_id}
+            )
+
+        # Downgrade drops only the link table; supplier/category rows survive.
+        command.downgrade(alembic_config, "20261119_01")
+        assert "supplier_categories" not in set(
+            inspect(migrated_integration_engine).get_table_names()
+        )
+        with migrated_integration_engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT COUNT(*) FROM suppliers WHERE id = :s"),
+                    {"s": supplier_id},
+                ).scalar_one()
+                == 1
+            )
+            assert (
+                connection.execute(
+                    text("SELECT COUNT(*) FROM categories WHERE id = :c"),
+                    {"c": category_id},
+                ).scalar_one()
+                == 1
+            )
+
+        command.upgrade(alembic_config, "head")
+        command.check(alembic_config)
+        with migrated_integration_engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT COUNT(*) FROM supplier_categories")
+                ).scalar_one()
+                == 0
+            )
+            # ON DELETE CASCADE: deleting a supplier removes its links.
+            connection.execute(
+                text(
+                    "INSERT INTO supplier_categories (supplier_id, category_id) "
+                    "VALUES (:s, :c)"
+                ),
+                {"s": supplier_id, "c": category_id},
+            )
+            connection.execute(
+                text("DELETE FROM suppliers WHERE id = :s"), {"s": supplier_id}
+            )
+            assert (
+                connection.execute(
+                    text("SELECT COUNT(*) FROM supplier_categories")
+                ).scalar_one()
+                == 0
+            )
+    finally:
+        command.upgrade(alembic_config, "head")
+        with migrated_integration_engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM suppliers WHERE name = :name"),
+                {"name": supplier_name},
+            )
+            connection.execute(
+                text("DELETE FROM categories WHERE name = :name"),
+                {"name": category_name},
+            )
+        get_settings.cache_clear()
