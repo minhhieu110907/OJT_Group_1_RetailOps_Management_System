@@ -1469,6 +1469,7 @@ export default function PurchaseList() {
               onClick={(e) => {
                 const input = e.currentTarget.querySelector('input[type="date"]');
                 if (!input) return;
+                if (e.target === input) return;
                 if (typeof input.showPicker === 'function') {
                   try {
                     input.showPicker();
@@ -1498,6 +1499,7 @@ export default function PurchaseList() {
               onClick={(e) => {
                 const input = e.currentTarget.querySelector('input[type="date"]');
                 if (!input) return;
+                if (e.target === input) return;
                 if (typeof input.showPicker === 'function') {
                   try {
                     input.showPicker();

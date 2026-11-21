@@ -153,7 +153,12 @@ export default function PosPage() {
   // Khóa cuộn trang nền và hỗ trợ phím Escape khi đang mở sheet danh sách giỏ hàng trên mobile
   useEffect(() => {
     const hasCart = cart.length > 0 || Boolean(pendingCheckout);
-    if (typeof document === 'undefined' || !isMobileCartExpanded || !hasCart) {
+    if (
+      typeof document === 'undefined' ||
+      typeof window === 'undefined' ||
+      !isMobileCartExpanded ||
+      !hasCart
+    ) {
       return undefined;
     }
     const prevBodyOverflow = document.body.style.overflow;
@@ -398,6 +403,14 @@ export default function PosPage() {
       event.touches.length === 0 ||
       (typeof window !== 'undefined' && window.innerWidth > 768)
     ) {
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest('button, input, label, a') &&
+      !event.target.closest(`.${styles.mobileCartToggle}`)
+    ) {
+      mobileSwipeStartYRef.current = null;
       return;
     }
     const inCartList = Boolean(
