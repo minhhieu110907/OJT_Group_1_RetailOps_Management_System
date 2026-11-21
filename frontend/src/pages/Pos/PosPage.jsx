@@ -683,6 +683,9 @@ export default function PosPage() {
                   <p className={styles.cartItemName} title={item.name}>
                     {item.name}
                   </p>
+                  <span className={styles.cartItemMeta}>
+                    {formatVnd(item.unitPriceVnd)} / sp
+                  </span>
                 </div>
 
                 <div className={styles.qtyStepper}>
@@ -713,7 +716,7 @@ export default function PosPage() {
 
                 <div className={styles.cartItemRight}>
                   <span className={styles.lineTotal}>
-                    {formatVnd(item.unitPriceVnd)}
+                    {formatVnd(item.unitPriceVnd * item.quantity)}
                   </span>
                   <button
                     type="button"

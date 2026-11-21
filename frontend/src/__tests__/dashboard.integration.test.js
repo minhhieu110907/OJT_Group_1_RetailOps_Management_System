@@ -332,11 +332,11 @@ describe('T04AB25 Dashboard Real React Component Regression Suite', () => {
       if (url === '/orders') {
         return { data: { items: [], total: 0, page: 1, page_size: 6 } };
       }
-      if (url === '/inventory/low-stock') {
-        return { data: { items: [], total: 8 } };
-      }
-      if (url === '/products') {
-        throw new Error('Products count failed');
+      if (url === '/inventory') {
+        if (config?.params?.status === 'ACTIVE' && config?.params?.in_stock === false) {
+          throw new Error('Inventory out-of-stock count failed');
+        }
+        return { data: { items: [], total: 0, page: 1, page_size: 20 } };
       }
       throw new Error(`Unexpected GET ${url}`);
     };

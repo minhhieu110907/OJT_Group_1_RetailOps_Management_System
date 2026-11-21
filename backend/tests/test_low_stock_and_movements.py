@@ -334,61 +334,60 @@ async def test_low_stock_category_and_exclude_out_of_stock_filters(
     )
 
     db = db_session  # type: ignore[assignment]
-    if True:
-        cat2 = Category(
-            id=2,
-            name="Đồ uống",
-            status=CategoryStatus.ACTIVE,
+    cat2 = Category(
+        id=2,
+        name="Đồ uống",
+        status=CategoryStatus.ACTIVE,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    db.add(cat2)
+    # Add 102 zero-stock items + 3 near-out-of-stock items in category 2
+    for idx in range(100, 202):
+        p = Product(
+            id=idx,
+            sku=f"ZERO-{idx}",
+            name=f"Zero {idx}",
+            category_id=2,
+            sale_price_vnd=10000,
+            status=CatalogStatus.ACTIVE,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
-        db.add(cat2)
-        # Add 102 zero-stock items + 3 near-out-of-stock items in category 2
-        for idx in range(100, 202):
-            p = Product(
-                id=idx,
-                sku=f"ZERO-{idx}",
-                name=f"Zero {idx}",
-                category_id=2,
-                sale_price_vnd=10000,
-                status=CatalogStatus.ACTIVE,
-                created_at=datetime.now(UTC),
+        db.add(p)
+        db.flush()
+        db.add(
+            Inventory(
+                product_id=idx,
+                quantity=0,
+                stock_version=0,
                 updated_at=datetime.now(UTC),
             )
-            db.add(p)
-            db.flush()
-            db.add(
-                Inventory(
-                    product_id=idx,
-                    quantity=0,
-                    stock_version=0,
-                    updated_at=datetime.now(UTC),
-                )
-            )
-        for offset, qty in enumerate((2, 3, 4), start=1):
-            pid = 300 + offset
-            p = Product(
-                id=pid,
-                sku=f"NEAR-{pid}",
-                name=f"Near {pid}",
-                category_id=2,
-                sale_price_vnd=15000,
-                status=CatalogStatus.ACTIVE,
-                created_at=datetime.now(UTC),
+        )
+    for offset, qty in enumerate((2, 3, 4), start=1):
+        pid = 300 + offset
+        p = Product(
+            id=pid,
+            sku=f"NEAR-{pid}",
+            name=f"Near {pid}",
+            category_id=2,
+            sale_price_vnd=15000,
+            status=CatalogStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        db.add(p)
+        db.flush()
+        db.add(
+            Inventory(
+                product_id=pid,
+                quantity=qty,
+                stock_version=1,
+                first_stocked_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )
-            db.add(p)
-            db.flush()
-            db.add(
-                Inventory(
-                    product_id=pid,
-                    quantity=qty,
-                    stock_version=1,
-                    first_stocked_at=datetime.now(UTC),
-                    updated_at=datetime.now(UTC),
-                )
-            )
-        db.commit()
+        )
+    db.commit()
 
     transport = httpx.ASGITransport(app=application)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
