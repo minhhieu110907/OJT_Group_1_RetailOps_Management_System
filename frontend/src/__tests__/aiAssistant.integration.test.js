@@ -106,6 +106,9 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
       if (url === '/analytics/products/top') {
         return { data: { items: [], total: 0, page: 1, page_size: 20 } };
       }
+      if (url === '/analytics/products/slow') {
+        return { data: { items: [], total: 0, page: 1, page_size: 100 } };
+      }
       if (url === '/suppliers') {
         return { data: { items: [], total: 0, page: 1, page_size: 100 } };
       }
@@ -385,6 +388,16 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
           },
         };
       }
+      if (url === '/analytics/products/slow') {
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 100,
+          },
+        };
+      }
       if (url === '/suppliers') {
         return {
           data: {
@@ -525,6 +538,16 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
           },
         };
       }
+      if (url === '/analytics/products/slow') {
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 100,
+          },
+        };
+      }
       if (url === '/suppliers') {
         throw new Error('Suppliers service temporary failure');
       }
@@ -625,6 +648,16 @@ describe('T04AB25 AiAssistant Real React Component Integration Suite', () => {
             total: 1,
             page: 1,
             page_size: 20,
+          },
+        };
+      }
+      if (url === '/analytics/products/slow') {
+        return {
+          data: {
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 100,
           },
         };
       }

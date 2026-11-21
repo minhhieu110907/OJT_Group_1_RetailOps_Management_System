@@ -17,6 +17,8 @@ import {
   buildDraftReceiptPayload,
   buildPrefillDraftState,
   buildReorderSuggestions,
+  getDraftActionGuidance,
+  parseStrictInteger,
 } from '../../utils/reorderSuggestions';
 import styles from './AiAssistant.module.css';
 
@@ -221,6 +223,7 @@ export default function AiAssistant() {
     topProductsTotal: 0,
     topProductsLoaded: 0,
     topProductsFailed: false,
+    slowProductsFailed: false,
     suppliersFailed: false,
   });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
@@ -452,13 +455,18 @@ export default function AiAssistant() {
 
     const fetchReorderData = async () => {
       try {
-        const [lowResult, topResult, supResult] = await Promise.allSettled([
+        const [lowResult, topResult, slowResult, supResult] = await Promise.allSettled([
           inventoryApi.getLowStock({ page: 1, pageSize: 20 }),
           analyticsApi.getTopProducts({
             isMockMode,
             page: 1,
             page_size: 20,
             days: 30,
+          }),
+          analyticsApi.getSlowProducts({
+            isMockMode,
+            page: 1,
+            page_size: 100,
           }),
           suppliersApi.getActiveSuppliers({
             page: 1,
@@ -495,12 +503,17 @@ export default function AiAssistant() {
           ? Number(topData.total) || topItems.length
           : 0;
 
+        const slowFailed = slowResult.status === 'rejected';
+        const slowData = !slowFailed ? slowResult.value || {} : {};
+        const slowItems = !slowFailed ? slowData.items || [] : [];
+
         const supFailed = supResult.status === 'rejected';
         const activeSups = !supFailed ? supResult.value?.items || [] : [];
 
         const builtSuggestions = buildReorderSuggestions(
           lowItems,
-          topFailed ? null : topItems
+          topFailed ? null : topItems,
+          slowFailed ? null : slowItems
         );
         setReorderRows(builtSuggestions);
         setReorderSuppliers(activeSups);
@@ -510,6 +523,7 @@ export default function AiAssistant() {
           topProductsTotal: Math.max(topTotal, topItems.length),
           topProductsLoaded: topItems.length,
           topProductsFailed: topFailed,
+          slowProductsFailed: slowFailed,
           suppliersFailed: supFailed,
         });
         setSelectedProductIds((prev) => {
@@ -694,7 +708,9 @@ export default function AiAssistant() {
         </div>
       )}
 
-      {(reorderMeta.topProductsFailed || reorderMeta.suppliersFailed) && (
+      {(reorderMeta.topProductsFailed ||
+        reorderMeta.slowProductsFailed ||
+        reorderMeta.suppliersFailed) && (
         <div
           className={styles.reorderEmptyBox}
           role="status"
@@ -703,6 +719,8 @@ export default function AiAssistant() {
           <span>
             {reorderMeta.topProductsFailed &&
               'Chưa tải được dữ liệu Top sản phẩm bán chạy 30 ngày; hệ thống đang gợi ý thuần theo ngưỡng tồn kho (chưa có dữ liệu bán hàng đầy đủ). '}
+            {reorderMeta.slowProductsFailed &&
+              'Chưa đối chiếu được danh sách sản phẩm bán chậm 30 ngày. '}
             {reorderMeta.suppliersFailed &&
               'Chưa tải được danh sách nhà cung cấp hoạt động; bạn vẫn có thể chọn sản phẩm và bấm "Mở form tạo phiếu" để chọn nhà cung cấp tại trang Quản lý nhập hàng.'}
           </span>
@@ -758,167 +776,222 @@ export default function AiAssistant() {
           </span>
         </div>
       ) : (
-        <>
-          <div className={styles.reorderToolbar}>
-            <div className={styles.supplierField}>
-              <label
-                htmlFor="ai-reorder-supplier-select"
-                className={styles.supplierLabel}
-              >
-                Nhà cung cấp dự kiến *
-              </label>
-              <select
-                id="ai-reorder-supplier-select"
-                aria-label="Chọn nhà cung cấp cho phiếu nhập nháp"
-                className={styles.supplierSelect}
-                value={selectedSupplierId}
-                disabled={isCreatingDraft}
-                onChange={(e) => {
-                  setSelectedSupplierId(e.target.value);
-                  setDraftActionError('');
-                }}
-              >
-                <option value="">-- Chọn nhà cung cấp --</option>
-                {reorderSuppliers.map((sup) => (
-                  <option key={sup.id} value={sup.id}>
-                    {sup.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+        (() => {
+          const zeroCostSelectedCount = reorderRows.filter(
+            (r) =>
+              selectedProductIds.includes(r.product_id) &&
+              parseStrictInteger(r.unit_cost_vnd) === 0
+          ).length;
+          const guidance = getDraftActionGuidance({
+            selectedCount: selectedProductIds.length,
+            supplierId: selectedSupplierId,
+            suppliersCount: reorderSuppliers.length,
+            suppliersFailed: reorderMeta.suppliersFailed,
+            isCreatingDraft,
+            zeroCostSelectedCount,
+          });
+          const guidanceClass =
+            guidance.tone === 'ready'
+              ? `${styles.actionGuidanceBar} ${styles.actionGuidanceReady}`
+              : guidance.tone === 'warning'
+              ? `${styles.actionGuidanceBar} ${styles.actionGuidanceWarn}`
+              : styles.actionGuidanceBar;
 
-            <div className={styles.toolbarActions}>
-              <button
-                type="button"
-                className={styles.openFormBtn}
-                disabled={selectedProductIds.length === 0 || isCreatingDraft}
-                onClick={() => handleOpenPrefillPurchaseForm(navigateFn)}
-              >
-                Mở form tạo phiếu
-              </button>
+          return (
+            <>
+              <div className={styles.reorderToolbar}>
+                <div className={styles.supplierField}>
+                  <label
+                    htmlFor="ai-reorder-supplier-select"
+                    className={styles.supplierLabel}
+                  >
+                    Nhà cung cấp dự kiến *
+                  </label>
+                  <select
+                    id="ai-reorder-supplier-select"
+                    aria-label="Chọn nhà cung cấp cho phiếu nhập nháp"
+                    className={styles.supplierSelect}
+                    value={selectedSupplierId}
+                    disabled={isCreatingDraft}
+                    onChange={(e) => {
+                      setSelectedSupplierId(e.target.value);
+                      setDraftActionError('');
+                    }}
+                  >
+                    <option value="">-- Chọn nhà cung cấp --</option>
+                    {reorderSuppliers.map((sup) => (
+                      <option key={sup.id} value={sup.id}>
+                        {sup.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <button
-                type="button"
-                className={styles.createDraftBtn}
-                disabled={
-                  selectedProductIds.length === 0 ||
-                  !selectedSupplierId ||
-                  isCreatingDraft
-                }
-                onClick={handleCreateDraftDirect}
-              >
-                {isCreatingDraft
-                  ? 'Đang tạo phiếu nháp...'
-                  : `Tạo phiếu nháp (${selectedProductIds.length} sản phẩm)`}
-              </button>
-            </div>
-          </div>
+                <div className={styles.toolbarActions}>
+                  <button
+                    type="button"
+                    className={styles.openFormBtn}
+                    title={guidance.openFormTooltip}
+                    disabled={selectedProductIds.length === 0 || isCreatingDraft}
+                    onClick={() => handleOpenPrefillPurchaseForm(navigateFn)}
+                  >
+                    Mở form tạo phiếu
+                  </button>
 
-          <div className={styles.reorderTableWrap}>
-            <table className={styles.reorderTable}>
-              <thead>
-                <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      aria-label="Chọn tất cả sản phẩm gợi ý"
-                      checked={isAllSuggestionsSelected}
-                      onChange={handleToggleAllSuggestions}
-                    />
-                  </th>
-                  <th>SKU</th>
-                  <th>Tên sản phẩm</th>
-                  <th>Tồn hiện tại / Ngưỡng</th>
-                  <th>Đã bán (30 ngày)</th>
-                  <th>Lý do gợi ý</th>
-                  <th>Số lượng nhập</th>
-                  <th>Đơn giá dự kiến (VND)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reorderRows.map((row) => {
-                  const isChecked = selectedProductIds.includes(row.product_id);
-                  return (
-                    <tr
-                      key={row.product_id}
-                      className={isChecked ? styles.reorderRowSelected : ''}
-                      onClick={(e) => {
-                        if (e.target.closest('input, button, select, textarea, a, label')) return;
-                        handleToggleSuggestionRow(row.product_id);
-                      }}
-                    >
-                      <td>
+                  <button
+                    type="button"
+                    className={styles.createDraftBtn}
+                    title={guidance.createDraftTooltip}
+                    disabled={
+                      selectedProductIds.length === 0 ||
+                      !selectedSupplierId ||
+                      isCreatingDraft
+                    }
+                    onClick={handleCreateDraftDirect}
+                  >
+                    {isCreatingDraft
+                      ? 'Đang tạo phiếu nháp...'
+                      : `Tạo phiếu nháp (${selectedProductIds.length} sản phẩm)`}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className={guidanceClass}
+                role="status"
+                data-testid="reorder-action-guidance"
+              >
+                <span>{guidance.message}</span>
+              </div>
+
+              <div className={styles.reorderTableWrap}>
+                <table className={styles.reorderTable}>
+                  <thead>
+                    <tr>
+                      <th>
                         <input
                           type="checkbox"
-                          aria-label={`Chọn sản phẩm ${row.sku}`}
-                          checked={isChecked}
-                          onChange={() =>
-                            handleToggleSuggestionRow(row.product_id)
-                          }
+                          aria-label="Chọn tất cả sản phẩm gợi ý"
+                          checked={isAllSuggestionsSelected}
+                          onChange={handleToggleAllSuggestions}
                         />
-                      </td>
-                      <td className={styles.skuCell}>{row.sku}</td>
-                      <td>
-                        <strong>{row.name}</strong>
-                      </td>
-                      <td>
-                        <span
-                          className={
-                            row.quantity === 0
-                              ? styles.stockBadgeOut
-                              : styles.stockBadgeLow
-                          }
-                        >
-                          {row.quantity} / {row.threshold}
-                        </span>
-                      </td>
-                      <td>
-                        {row.sold_units === null
-                          ? 'Chưa có dữ liệu bán hàng đầy đủ'
-                          : `${row.sold_units.toLocaleString('vi-VN')} SP`}
-                      </td>
-                      <td className={styles.reasonText}>{row.reason}</td>
-                      <td>
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          aria-label={`Số lượng nhập ${row.sku}`}
-                          className={styles.cellInput}
-                          value={row.suggested_quantity}
-                          onChange={(e) =>
-                            handleUpdateSuggestionRow(
-                              row.product_id,
-                              'suggested_quantity',
-                              e.target.value
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min={0}
-                          step={1000}
-                          aria-label={`Đơn giá dự kiến ${row.sku}`}
-                          className={styles.cellInput}
-                          value={row.unit_cost_vnd}
-                          onChange={(e) =>
-                            handleUpdateSuggestionRow(
-                              row.product_id,
-                              'unit_cost_vnd',
-                              e.target.value
-                            )
-                          }
-                        />
-                      </td>
+                      </th>
+                      <th>SKU</th>
+                      <th>Tên sản phẩm</th>
+                      <th>Tồn hiện tại / Ngưỡng</th>
+                      <th>Đã bán (30 ngày)</th>
+                      <th>Phân loại &amp; Lý do gợi ý</th>
+                      <th>Số lượng nhập</th>
+                      <th>Đơn giá dự kiến (VND)</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
+                  </thead>
+                  <tbody>
+                    {reorderRows.map((row) => {
+                      const isChecked = selectedProductIds.includes(row.product_id);
+                      const badgeMeta =
+                        row.classification === 'SLOW_MOVING_HOLD'
+                          ? {
+                              label: 'Bán chậm · Cân nhắc giữ',
+                              className: styles.slowHoldBadge,
+                            }
+                          : row.classification === 'PRIORITY_RESTOCK'
+                          ? {
+                              label: 'Ưu tiên nhập',
+                              className: styles.priorityBadge,
+                            }
+                          : {
+                              label: 'Cần kiểm tra nhu cầu',
+                              className: styles.checkDemandBadge,
+                            };
+
+                      return (
+                        <tr
+                          key={row.product_id}
+                          className={isChecked ? styles.reorderRowSelected : ''}
+                          onClick={(e) => {
+                            if (e.target.closest('input, button, select, textarea, a, label')) return;
+                            handleToggleSuggestionRow(row.product_id);
+                          }}
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`Chọn sản phẩm ${row.sku}`}
+                              checked={isChecked}
+                              onChange={() =>
+                                handleToggleSuggestionRow(row.product_id)
+                              }
+                            />
+                          </td>
+                          <td className={styles.skuCell}>{row.sku}</td>
+                          <td>
+                            <strong>{row.name}</strong>
+                          </td>
+                          <td>
+                            <span
+                              className={
+                                row.quantity === 0
+                                  ? styles.stockBadgeOut
+                                  : styles.stockBadgeLow
+                              }
+                            >
+                              {row.quantity} / {row.threshold}
+                            </span>
+                          </td>
+                          <td>
+                            {row.sold_units === null
+                              ? 'Chưa có dữ liệu bán hàng đầy đủ'
+                              : `${row.sold_units.toLocaleString('vi-VN')} SP`}
+                          </td>
+                          <td className={styles.reasonCell}>
+                            <span className={badgeMeta.className}>
+                              {badgeMeta.label}
+                            </span>
+                            <span className={styles.reasonText}>{row.reason}</span>
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              aria-label={`Số lượng nhập ${row.sku}`}
+                              className={styles.cellInput}
+                              value={row.suggested_quantity}
+                              onChange={(e) =>
+                                handleUpdateSuggestionRow(
+                                  row.product_id,
+                                  'suggested_quantity',
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              aria-label={`Đơn giá dự kiến ${row.sku}`}
+                              className={styles.cellInput}
+                              value={row.unit_cost_vnd}
+                              onChange={(e) =>
+                                handleUpdateSuggestionRow(
+                                  row.product_id,
+                                  'unit_cost_vnd',
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          );
+        })()
       )}
     </section>
   );

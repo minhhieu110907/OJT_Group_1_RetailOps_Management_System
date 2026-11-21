@@ -41,6 +41,7 @@ from app.modules.ai.gemini_provider import (
     ProviderTurnResponse,
     ToolResponseItem,
     build_gemini_function_declarations,
+    build_system_instruction,
 )
 from app.modules.ai.orchestrator import AIOrchestrator
 from app.modules.ai.router import (
@@ -90,6 +91,7 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
     now = datetime(2026, 11, 18, 10, 0)
     with sf() as session, session.begin():
         admin = User(
+            id=1,
             email_normalized="admin@retailops.local",
             password_hash="hash",
             role=UserRole.ADMIN,
@@ -99,6 +101,7 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
             updated_at=now,
         )
         staff = User(
+            id=2,
             email_normalized="staff@retailops.local",
             password_hash="hash",
             role=UserRole.STAFF,
@@ -111,6 +114,7 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
         session.flush()
         if with_sales or with_low_stock:
             cat = Category(
+                id=1,
                 name="Beverages",
                 description="Drinks",
                 status=CatalogStatus.ACTIVE,
@@ -120,6 +124,7 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
             session.add(cat)
             session.flush()
             prod = Product(
+                id=1,
                 category_id=cat.id,
                 sku="SKU-AI-001",
                 name="Green Tea",
@@ -141,6 +146,7 @@ def _seed_admin_and_data(sf, *, with_sales: bool = True, with_low_stock: bool = 
             )
             if with_sales:
                 order = Order(
+                    id=1,
                     status=OrderStatus.COMPLETED,
                     total_vnd=50000,
                     created_by=admin.id,
@@ -802,3 +808,229 @@ async def test_orchestrator_enforces_global_15s_deadline_across_all_paths() -> N
     )
     with pytest.raises(DependencyUnavailableError):
         await orch_final.handle_query(message="Phân tích tồn kho", bound=b_final)
+
+
+def test_build_system_instruction_embeds_vietnam_date_context() -> None:
+    fixed_now = datetime(2026, 11, 22, 9, 30)
+    instruction = build_system_instruction(fixed_now)
+    assert "2026-11-22" in instruction
+    assert "22/11/2026" in instruction
+    assert "2026-11-21" in instruction  # yesterday
+    assert "2026-11-16" in instruction  # 7-day start (inclusive) and Monday of week
+    assert "2026-10-24" in instruction  # 30-day start (inclusive)
+    assert "2026-11-01" in instruction  # month start
+
+    provider = GeminiProvider(
+        api_key="AIzaSyFakeKeyForDateContextTest1234",
+        model="gemini-2.5-flash",
+        timeout_seconds=5.0,
+        clock_vn=lambda: fixed_now,
+    )
+    cfg = provider._build_config()
+    assert isinstance(cfg.system_instruction, str)
+    assert "2026-11-22" in cfg.system_instruction
+
+
+@pytest.mark.anyio
+async def test_orchestrator_fast_path_admin_queries_zero_gemini_calls() -> None:
+    sf = _make_sqlite_session_factory()
+    admin_id, _ = _seed_admin_and_data(sf, with_sales=True, with_low_stock=True)
+    principal = _load_principal(sf, admin_id)
+    stub = _StubProvider([])
+
+    fixed_vn = datetime(2026, 11, 18, 15, 0)
+    fixed_utc = datetime(2026, 11, 18, 8, 0)
+
+    orchestrator = AIOrchestrator(
+        session_factory=sf,
+        provider_factory=lambda: stub,
+        gemini_timeout_seconds=10.0,
+        clock_vn=lambda: fixed_vn,
+    )
+
+    def _bound(req_id: str):
+        return bind_authenticated_request(
+            principal, request_id=req_id, clock=lambda: fixed_utc
+        )
+
+    # 1. Combined sales + products for last 7 days (2 direct calls, 0 Gemini calls)
+    res_combined = await orchestrator.handle_query(
+        message="Doanh thu và Sản phẩm 7 ngày gần nhất của cửa hàng",
+        bound=_bound("req-fp-combined"),
+    )
+    assert len(stub.calls) == 0
+    assert res_combined.insufficient_data is False
+    assert len(res_combined.evidence) == 2
+    assert "get_sales_summary" in res_combined.evidence[0].source
+    assert res_combined.evidence[0].period == "12/11/2026 - 18/11/2026"
+    assert "revenue_vnd=50000" in res_combined.evidence[0].summary
+    assert "get_top_products" in res_combined.evidence[1].source
+    assert res_combined.evidence[1].period == "12/11/2026 - 18/11/2026"
+    assert "SKU-AI-001" in res_combined.answer
+
+    # 2. UI suggested prompt #1: 7-day sales summary
+    res_sales_7d = await orchestrator.handle_query(
+        message="Doanh thu và số đơn hoàn tất 7 ngày gần nhất như thế nào?",
+        bound=_bound("req-fp-sales-7d"),
+    )
+    assert len(stub.calls) == 0
+    assert res_sales_7d.insufficient_data is False
+    assert len(res_sales_7d.evidence) == 1
+    assert res_sales_7d.evidence[0].period == "12/11/2026 - 18/11/2026"
+
+    # 3. UI suggested prompt #2: Top products 30 days
+    res_top_30d = await orchestrator.handle_query(
+        message="Những sản phẩm nào bán chạy nhất trong 30 ngày qua?",
+        bound=_bound("req-fp-top-30d"),
+    )
+    assert len(stub.calls) == 0
+    assert res_top_30d.insufficient_data is False
+    assert "get_top_products" in res_top_30d.evidence[0].source
+    assert res_top_30d.evidence[0].period == "20/10/2026 - 18/11/2026"
+
+    # 4. UI suggested prompt #4: Slow products
+    res_slow = await orchestrator.handle_query(
+        message="Sản phẩm nào bán chậm cần xem xét kế hoạch nhập hàng?",
+        bound=_bound("req-fp-slow"),
+    )
+    assert len(stub.calls) == 0
+    assert len(res_slow.evidence) == 1
+    assert "get_slow_products" in res_slow.evidence[0].source
+
+    # 5. Yesterday / this week / this month sales
+    res_yday = await orchestrator.handle_query(
+        message="Doanh thu hôm qua thế nào?",
+        bound=_bound("req-fp-yday"),
+    )
+    assert len(stub.calls) == 0
+    assert res_yday.evidence[0].period == "17/11/2026"
+
+    res_month = await orchestrator.handle_query(
+        message="Doanh thu tháng này",
+        bound=_bound("req-fp-month"),
+    )
+    assert len(stub.calls) == 0
+    assert res_month.evidence[0].period == "01/11/2026 - 18/11/2026"
+
+    # 6. Reorder advisor natural variants (0 Gemini calls)
+    res_reorder_user = await orchestrator.handle_query(
+        message="Sản phẩm nào cần nhập thêm",
+        bound=_bound("req-reorder-user"),
+    )
+    assert len(stub.calls) == 0
+    assert res_reorder_user.insufficient_data is False
+    assert len(res_reorder_user.evidence) >= 1
+    assert any("get_low_stock" in ev.source for ev in res_reorder_user.evidence)
+    assert "SKU-AI-001" in res_reorder_user.answer
+
+    res_reorder_short = await orchestrator.handle_query(
+        message="cần nhập thêm",
+        bound=_bound("req-reorder-short"),
+    )
+    assert len(stub.calls) == 0
+    assert res_reorder_short.insufficient_data is False
+
+    # 7. Low stock fast-path natural variants (0 Gemini calls)
+    res_low_stock = await orchestrator.handle_query(
+        message="Sản phẩm nào sắp hết",
+        bound=_bound("req-low-stock-variant"),
+    )
+    assert len(stub.calls) == 0
+    assert len(res_low_stock.evidence) == 1
+    assert "get_low_stock" in res_low_stock.evidence[0].source
+
+
+def test_fast_path_superlative_and_top_n_time_unit_queries() -> None:
+    """Verify 'nhất' superlatives and 'top N sản phẩm ... trong <time unit>' routing."""
+    from zoneinfo import ZoneInfo
+
+    from app.modules.ai.orchestrator import _match_direct_tools, _normalize_text
+
+    fixed_vn = datetime(2026, 11, 22, 10, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))
+
+    def match(msg: str):
+        return _match_direct_tools(_normalize_text(msg), now_vn=fixed_vn)
+
+    # Top N sản phẩm + various time units (ngày, tuần, tháng, tuần/tháng này & qua)
+    assert match("Top 5 sản phẩm trong 7 ngày") == [
+        ("get_top_products", {"days": 7, "limit": 5})
+    ]
+    assert match("Top 3 sản phẩm bán chạy nhất trong 2 tuần") == [
+        ("get_top_products", {"days": 14, "limit": 3})
+    ]
+    assert match("Top 10 sản phẩm trong 1 tháng") == [
+        ("get_top_products", {"days": 30, "limit": 10})
+    ]
+    assert match("Top 5 sản phẩm bán tốt nhất trong 3 tháng qua") == [
+        ("get_top_products", {"days": 90, "limit": 5})
+    ]
+    assert match("Top 4 sản phẩm bán nhiều nhất tuần qua") == [
+        ("get_top_products", {"days": 7, "limit": 4})
+    ]
+    assert match("Top 6 sản phẩm mua nhiều nhất tháng qua") == [
+        ("get_top_products", {"days": 30, "limit": 6})
+    ]
+    assert match("Top 3 sản phẩm doanh thu cao nhất tháng này") == [
+        ("get_top_products", {"days": 22, "limit": 3})
+    ]
+    assert match("3 sản phẩm bán chạy nhất 14 ngày gần nhất") == [
+        ("get_top_products", {"days": 14, "limit": 3})
+    ]
+    assert match("Sản phẩm nào bán được nhiều nhất?") == [
+        ("get_top_products", {"days": 7, "limit": 5})
+    ]
+    assert match("Sản phẩm doanh thu cao nhất trong 1 tuần") == [
+        ("get_top_products", {"days": 7, "limit": 5})
+    ]
+
+    # Superlative slow-moving products
+    assert match("Top 5 sản phẩm bán chậm nhất") == [
+        ("get_slow_products", {"limit": 5})
+    ]
+    assert match("Sản phẩm nào bán ế nhất?") == [("get_slow_products", {"limit": 10})]
+    assert match("3 sản phẩm tồn lâu nhất") == [("get_slow_products", {"limit": 3})]
+
+    # Superlative low-stock products
+    assert match("Top 5 sản phẩm tồn kho thấp nhất") == [
+        ("get_low_stock", {"limit": 5})
+    ]
+    assert match("Sản phẩm nào còn ít nhất?") == [("get_low_stock", {"limit": 10})]
+    assert match("Top 15 sản phẩm tồn ít nhất") == [("get_low_stock", {"limit": 15})]
+
+    # Sales + relative/calendar periods + new sales keywords & overview
+    assert match("Doanh thu 1 tháng gần nhất") == [
+        ("get_sales_summary", {"start_date": "2026-10-24", "end_date": "2026-11-22"})
+    ]
+    assert match("Doanh số tuần trước") == [
+        ("get_sales_summary", {"start_date": "2026-11-09", "end_date": "2026-11-15"})
+    ]
+    assert match("Doanh thu tháng trước") == [
+        ("get_sales_summary", {"start_date": "2026-10-01", "end_date": "2026-10-31"})
+    ]
+    assert match("Số đơn hàng hôm nay") == [
+        ("get_sales_summary", {"start_date": "2026-11-22", "end_date": "2026-11-22"})
+    ]
+    assert match("Xem doanh thu") == [
+        ("get_sales_summary", {"start_date": "2026-11-22", "end_date": "2026-11-22"})
+    ]
+    assert match("Tình hình bán hàng nửa tháng qua") == [
+        ("get_sales_summary", {"start_date": "2026-11-08", "end_date": "2026-11-22"}),
+        ("get_top_products", {"days": 15, "limit": 5}),
+    ]
+    assert match("Doanh thu và top 3 sản phẩm bán chạy nhất 1 tháng qua") == [
+        ("get_sales_summary", {"start_date": "2026-10-24", "end_date": "2026-11-22"}),
+        ("get_top_products", {"days": 30, "limit": 3}),
+    ]
+    assert match("Mặt hàng nào chạy nhất?") == [
+        ("get_top_products", {"days": 7, "limit": 5})
+    ]
+    assert match("Hàng tồn đọng") == [("get_slow_products", {"limit": 10})]
+    assert match("Cảnh báo tồn kho") == [("get_low_stock", {"limit": 10})]
+
+    # Guards: out-of-range period/limit, explicit month, unsupported sales queries
+    assert match("Top 5 sản phẩm bán chạy nhất trong 6 tháng") is None
+    assert match("Top 50 sản phẩm bán chạy nhất 7 ngày") is None
+    assert match("Doanh thu tháng 10") is None
+    assert match("Ngày nào doanh thu cao nhất tuần này?") is None
+    assert match("So sánh doanh thu tuần này và tuần trước") is None
+    assert match("Top 5 sản phẩm bán chạy tháng trước") is None

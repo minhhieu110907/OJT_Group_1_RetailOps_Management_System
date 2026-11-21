@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -45,7 +48,18 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
-_SYSTEM_INSTRUCTION = (
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+_WEEKDAY_VI: tuple[str, ...] = (
+    "Thứ Hai",
+    "Thứ Ba",
+    "Thứ Tư",
+    "Thứ Năm",
+    "Thứ Sáu",
+    "Thứ Bảy",
+    "Chủ Nhật",
+)
+
+_BASE_SYSTEM_INSTRUCTION = (
     "Bạn là trợ lý phân tích vận hành cửa hàng RetailOps dành riêng cho quản trị viên. "
     "Chỉ sử dụng 4 công cụ được cung cấp để tra cứu số liệu thực tế của cửa hàng. "
     "Tuyệt đối không bịa đặt số liệu, không suy đoán giá trị không có trong kết quả "
@@ -60,6 +74,47 @@ _SYSTEM_INSTRUCTION = (
     "Nếu dữ liệu từ công cụ rỗng hoặc không đủ để kết luận, hãy nêu rõ phần dữ liệu "
     "còn thiếu bằng tiếng Việt ngắn gọn, rõ ràng."
 )
+
+
+def build_system_instruction(now_vn: datetime | None = None) -> str:
+    """Build system instruction with live Vietnam date context for relative periods."""
+    current = now_vn or datetime.now(_VN_TZ)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=_VN_TZ)
+    else:
+        current = current.astimezone(_VN_TZ)
+
+    today = current.date()
+    yesterday = today - timedelta(days=1)
+    last_7_start = today - timedelta(days=6)
+    last_30_start = today - timedelta(days=29)
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    weekday_label = _WEEKDAY_VI[today.weekday()]
+
+    today_iso = today.isoformat()
+    time_context = (
+        " Bối cảnh thời gian hiện tại (múi giờ Việt Nam Asia/Ho_Chi_Minh): "
+        f"Hôm nay là {weekday_label}, ngày {today_iso} ({today.strftime('%d/%m/%Y')}). "
+        "Khi gọi công cụ get_sales_summary với các mốc thời gian tương đối, BẮT BUỘC "
+        "tính start_date và end_date theo ngày hiện tại này, tuyệt đối không dùng năm "
+        "cũ như 2023/2024/2025. Quy ước chuẩn: "
+        f"'hôm nay' = {today_iso} đến {today_iso}; "
+        f"'hôm qua' = {yesterday.isoformat()} đến {yesterday.isoformat()}; "
+        "'7 ngày gần nhất/qua' (tính gồm hôm nay) = "
+        f"{last_7_start.isoformat()} đến {today_iso}; "
+        "'30 ngày gần nhất/qua' (tính gồm hôm nay) = "
+        f"{last_30_start.isoformat()} đến {today_iso}; "
+        f"'tuần này' = {week_start.isoformat()} đến {today_iso}; "
+        f"'tháng này' = {month_start.isoformat()} đến {today_iso}; "
+        "tổng quát 'N ngày gần nhất' (1..90) = từ (hôm nay - (N - 1) ngày) đến "
+        "hôm nay. Khi người dùng hỏi kết hợp doanh thu và sản phẩm trong N ngày "
+        "gần nhất, hãy gọi cả get_sales_summary và get_top_products (days=N)."
+    )
+    return _BASE_SYSTEM_INSTRUCTION + time_context
+
+
+_SYSTEM_INSTRUCTION = _BASE_SYSTEM_INSTRUCTION
 
 
 class GeminiProviderError(AppException):
@@ -223,6 +278,7 @@ class GeminiProvider:
         api_key: str,
         model: str,
         timeout_seconds: float = 10.0,
+        clock_vn: Callable[[], datetime] | None = None,
     ) -> None:
         if not api_key or not api_key.strip():
             raise GeminiProviderError()
@@ -230,6 +286,7 @@ class GeminiProvider:
             raise GeminiProviderError()
         self._model = model.strip()
         self._default_timeout = max(0.5, float(timeout_seconds))
+        self._clock_vn = clock_vn or (lambda: datetime.now(_VN_TZ))
         self._client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
@@ -242,7 +299,7 @@ class GeminiProvider:
 
     def _build_config(self) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
-            system_instruction=_SYSTEM_INSTRUCTION,
+            system_instruction=build_system_instruction(self._clock_vn()),
             temperature=0.0,
             tools=self._tools,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(

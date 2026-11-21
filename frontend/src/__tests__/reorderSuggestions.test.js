@@ -8,6 +8,7 @@ import {
   buildDraftReceiptPayload,
   buildPrefillDraftState,
   buildReorderSuggestions,
+  getDraftActionGuidance,
   parseStrictInteger,
   validateSelectedReorderLines,
 } from '../utils/reorderSuggestions.js';
@@ -70,6 +71,8 @@ describe('T3C9F16 — Reorder Suggestions & Draft Receipt Payload Suite', () => 
       threshold: 5,
       sold_units: null,
       sales_status: 'UNKNOWN',
+      is_slow_moving: false,
+      classification: 'CHECK_DEMAND',
       suggested_quantity: 10,
       unit_cost_vnd: 0,
       reason: 'Hết hàng (0/5) · Chưa có dữ liệu bán hàng đầy đủ',
@@ -84,6 +87,8 @@ describe('T3C9F16 — Reorder Suggestions & Draft Receipt Payload Suite', () => 
       threshold: 5,
       sold_units: 25,
       sales_status: 'VERIFIED',
+      is_slow_moving: false,
+      classification: 'PRIORITY_RESTOCK',
       suggested_quantity: 13,
       unit_cost_vnd: 0,
       reason: 'Tồn thấp (2/5) · Bán 25 SP/30 ngày',
@@ -98,10 +103,58 @@ describe('T3C9F16 — Reorder Suggestions & Draft Receipt Payload Suite', () => 
       threshold: 5,
       sold_units: 0,
       sales_status: 'VERIFIED',
+      is_slow_moving: false,
+      classification: 'CHECK_DEMAND',
       suggested_quantity: 6,
       unit_cost_vnd: 0,
       reason: 'Tồn thấp (4/5) · Đã xác minh bán 0 SP/30 ngày',
     });
+  });
+
+  test('classifies slow-moving products as SLOW_MOVING_HOLD and provides clear draft action guidance', () => {
+    const rows = buildReorderSuggestions(
+      [
+        { product_id: 201, sku: 'SKU-201', name: 'Sản phẩm bán chậm', quantity: 2, threshold: 5 },
+      ],
+      [],
+      [
+        { product_id: 201, sku: 'SKU-201', name: 'Sản phẩm bán chậm', sold_units: 1, revenue_vnd: 10000 },
+      ]
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].is_slow_moving, true);
+    assert.equal(rows[0].classification, 'SLOW_MOVING_HOLD');
+    assert.equal(rows[0].sold_units, 1);
+    assert.match(rows[0].reason, /Bán chậm \(1 SP\/30 ngày\)/);
+
+    const noSup = getDraftActionGuidance({ selectedCount: 0, supplierId: '', suppliersCount: 0 });
+    assert.equal(noSup.tone, 'warning');
+    assert.match(noSup.message, /Chưa có Nhà cung cấp/);
+
+    const missingBoth = getDraftActionGuidance({ selectedCount: 0, supplierId: '', suppliersCount: 2 });
+    assert.equal(missingBoth.tone, 'info');
+    assert.match(missingBoth.message, /Tick chọn ít nhất 1 sản phẩm.*Chọn Nhà cung cấp/i);
+
+    const missingSup = getDraftActionGuidance({ selectedCount: 2, supplierId: '', suppliersCount: 2 });
+    assert.match(missingSup.message, /Đã chọn 2 sản phẩm.*chọn Nhà cung cấp/i);
+
+    const readyZeroCost = getDraftActionGuidance({
+      selectedCount: 1,
+      supplierId: '7',
+      suppliersCount: 2,
+      zeroCostSelectedCount: 1,
+    });
+    assert.equal(readyZeroCost.tone, 'warning');
+    assert.match(readyZeroCost.message, /đơn giá dự kiến = 0 VND/);
+
+    const readyClean = getDraftActionGuidance({
+      selectedCount: 1,
+      supplierId: '7',
+      suppliersCount: 2,
+      zeroCostSelectedCount: 0,
+    });
+    assert.equal(readyClean.tone, 'ready');
+    assert.match(readyClean.message, /Sẵn sàng tạo phiếu nhập nháp/);
   });
 
   test('P1: handles malformed items, duplicate IDs, and missing Top Products safely', () => {
