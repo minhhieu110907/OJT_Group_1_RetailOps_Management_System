@@ -410,7 +410,23 @@ export default function OrderList() {
           </div>
 
           {/* Single Date filter */}
-          <div className={styles.dateFilterWrap}>
+          <div
+            className={styles.dateFilterWrap}
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => {
+              const input = e.currentTarget.querySelector('input[type="date"]');
+              if (!input) return;
+              if (typeof input.showPicker === 'function') {
+                try {
+                  input.showPicker();
+                  return;
+                } catch {
+                  // Fallback to focus
+                }
+              }
+              input.focus();
+            }}
+          >
             <span className={styles.dateCalendarIcon} aria-hidden="true">
               <svg
                 width="16"
@@ -432,6 +448,7 @@ export default function OrderList() {
             <input
               type="date"
               className={styles.dateInputInline}
+              style={{ cursor: 'pointer' }}
               aria-label="Ngày bán"
               value={selectedDate}
               onChange={(e) => {

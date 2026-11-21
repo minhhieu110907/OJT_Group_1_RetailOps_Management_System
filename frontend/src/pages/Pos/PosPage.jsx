@@ -98,12 +98,22 @@ export default function PosPage() {
   const [stockConflictDetails, setStockConflictDetails] = useState(null);
   const [priceConflictDetails, setPriceConflictDetails] = useState(null);
   const [isMobileCartExpanded, setIsMobileCartExpanded] = useState(false);
+  const [mobileDragHeight, setMobileDragHeight] = useState(null);
+  const [mobileDragProgress, setMobileDragProgress] = useState(0);
   const isCheckingOutRef = useRef(false);
   const idempotencyKeyRef = useRef(
     pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
   );
   const requestIdRef = useRef(0);
   const hasLoadedProductsRef = useRef(false);
+  const mobileSwipeStartYRef = useRef(null);
+  const mobileSwipeStartTimeRef = useRef(0);
+  const mobileSwipeHandledRef = useRef(false);
+  const mobileTouchInCartListRef = useRef(false);
+  const mobileCartPanelRef = useRef(null);
+  const mobileCartListRef = useRef(null);
+  const mobileSheetInnerRef = useRef(null);
+  const mobileSheetMaxHeightRef = useRef(260);
 
   // Đồng bộ lại pendingCheckout/cart nếu đổi tài khoản hoặc đổi chế độ trên cùng trình duyệt
   if (trackedOwnerScope !== ownerScope) {
@@ -176,6 +186,40 @@ export default function PosPage() {
     priceConflictDetails,
     completedOrder,
   ]);
+
+  // Chặn cuộn trang nền / pull-to-refresh trên Safari iOS & Chrome Android khi kéo giỏ hàng
+  useEffect(() => {
+    const panelEl = mobileCartPanelRef.current;
+    const hasCart = cart.length > 0 || Boolean(pendingCheckout);
+    if (!panelEl || !hasCart) return undefined;
+
+    const handleNativeTouchMove = (event) => {
+      if (
+        typeof window !== 'undefined' &&
+        window.innerWidth > 768
+      ) {
+        return;
+      }
+      if (mobileSwipeStartYRef.current === null || !event.touches?.length) return;
+      const deltaY = event.touches[0].clientY - mobileSwipeStartYRef.current;
+
+      // Cho phép cuộn tự nhiên bên trong danh sách sản phẩm khi đang mở và không kéo đóng ở đầu danh sách
+      if (mobileTouchInCartListRef.current && isMobileCartExpanded) {
+        if (deltaY <= 0 || (mobileCartListRef.current?.scrollTop || 0) > 0) {
+          return;
+        }
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+    };
+
+    panelEl.addEventListener('touchmove', handleNativeTouchMove, { passive: false });
+    return () => {
+      panelEl.removeEventListener('touchmove', handleNativeTouchMove);
+    };
+  }, [cart.length, pendingCheckout, isMobileCartExpanded]);
 
   // Debounce tìm kiếm theo tên sản phẩm hoặc mã SKU
   useEffect(() => {
@@ -346,6 +390,92 @@ export default function PosPage() {
     setCart([]);
     setIsMobileCartExpanded(false);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+  };
+
+  const handleMobileCartTouchStart = (event) => {
+    if (
+      !event.touches ||
+      event.touches.length === 0 ||
+      (typeof window !== 'undefined' && window.innerWidth > 768)
+    ) {
+      return;
+    }
+    const inCartList = Boolean(
+      mobileCartListRef.current && mobileCartListRef.current.contains(event.target)
+    );
+    if (inCartList && mobileCartListRef.current.scrollTop > 0) {
+      mobileSwipeStartYRef.current = null;
+      return;
+    }
+    mobileTouchInCartListRef.current = inCartList;
+    mobileSwipeStartYRef.current = event.touches[0].clientY;
+    mobileSwipeStartTimeRef.current = Date.now();
+    mobileSwipeHandledRef.current = false;
+    const measuredHeight = mobileSheetInnerRef.current?.scrollHeight || 0;
+    mobileSheetMaxHeightRef.current = measuredHeight > 0 ? measuredHeight : 260;
+  };
+
+  const handleMobileCartTouchMove = (event) => {
+    if (mobileSwipeStartYRef.current === null || !event.touches?.length) return;
+    const currentY = event.touches[0].clientY;
+    const deltaY = currentY - mobileSwipeStartYRef.current;
+
+    // Khi vuốt trong danh sách sản phẩm đang mở: ưu tiên cuộn danh sách lên, chỉ kéo đóng khi kéo xuống ở đầu danh sách
+    if (mobileTouchInCartListRef.current && isMobileCartExpanded) {
+      if (deltaY <= 0 || (mobileCartListRef.current?.scrollTop || 0) > 0) {
+        return;
+      }
+    }
+
+    if (mobileDragHeight === null && Math.abs(deltaY) < 4) return;
+
+    const maxH = mobileSheetMaxHeightRef.current || 260;
+    const nextHeight = isMobileCartExpanded
+      ? Math.max(0, Math.min(maxH, maxH - deltaY))
+      : Math.max(0, Math.min(maxH, -deltaY));
+
+    setMobileDragHeight(nextHeight);
+    setMobileDragProgress(maxH > 0 ? nextHeight / maxH : 0);
+  };
+
+  const handleMobileCartTouchEnd = (event) => {
+    if (mobileSwipeStartYRef.current === null) return;
+    const endY = event.changedTouches?.[0]?.clientY;
+    const startY = mobileSwipeStartYRef.current;
+    const wasDragging = mobileDragHeight !== null;
+    const elapsedMs = Math.max(1, Date.now() - mobileSwipeStartTimeRef.current);
+    const maxH = mobileSheetMaxHeightRef.current || 260;
+    mobileSwipeStartYRef.current = null;
+    mobileTouchInCartListRef.current = false;
+    setMobileDragHeight(null);
+    setMobileDragProgress(0);
+    if (typeof endY !== 'number' || !wasDragging) return;
+
+    const deltaY = endY - startY;
+    const velocity = Math.abs(deltaY) / elapsedMs;
+    const isQuickFlick = velocity > 0.35 && Math.abs(deltaY) > 16;
+
+    if (
+      !isMobileCartExpanded &&
+      (deltaY < -35 || -deltaY > maxH * 0.35 || (isQuickFlick && deltaY < 0))
+    ) {
+      mobileSwipeHandledRef.current = true;
+      setIsMobileCartExpanded(true);
+    } else if (
+      isMobileCartExpanded &&
+      (deltaY > 45 || deltaY > maxH * 0.35 || (isQuickFlick && deltaY > 0))
+    ) {
+      mobileSwipeHandledRef.current = true;
+      setIsMobileCartExpanded(false);
+    }
+  };
+
+  const handleMobileCartToggleClick = () => {
+    if (mobileSwipeHandledRef.current) {
+      mobileSwipeHandledRef.current = false;
+      return;
+    }
+    setIsMobileCartExpanded((prev) => !prev);
   };
 
   const handleAbandonPendingCheckout = () => {
@@ -693,23 +823,37 @@ export default function PosPage() {
       {/* Giỏ hàng bên phải — CHỈ hiển thị khi có hàng trong giỏ */}
       {hasCartItems && (
         <>
-          {isMobileCartExpanded && (
-            <div
-              className={styles.mobileCartBackdrop}
-              onClick={() => setIsMobileCartExpanded(false)}
-              aria-hidden="true"
-            />
-          )}
+          <div
+            className={`${styles.mobileCartBackdrop} ${
+              isMobileCartExpanded ? styles.mobileCartBackdropVisible : ''
+            }`}
+            style={
+              mobileDragHeight !== null
+                ? {
+                    opacity: mobileDragProgress,
+                    transition: 'none',
+                    pointerEvents: mobileDragProgress > 0.02 ? 'auto' : 'none',
+                  }
+                : undefined
+            }
+            onClick={() => setIsMobileCartExpanded(false)}
+            aria-hidden="true"
+          />
           <aside
+            ref={mobileCartPanelRef}
             className={`${styles.cartPanel} ${
               isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''
             }`}
+            onTouchStart={handleMobileCartTouchStart}
+            onTouchMove={handleMobileCartTouchMove}
+            onTouchEnd={handleMobileCartTouchEnd}
+            onTouchCancel={handleMobileCartTouchEnd}
             aria-label="Giỏ hàng hiện tại"
           >
             <button
               type="button"
               className={styles.mobileCartToggle}
-              onClick={() => setIsMobileCartExpanded((prev) => !prev)}
+              onClick={handleMobileCartToggleClick}
               aria-expanded={isMobileCartExpanded}
               aria-label={
                 isMobileCartExpanded
@@ -728,7 +872,21 @@ export default function PosPage() {
               </div>
             </button>
 
-            <div className={styles.cartHeader}>
+            <div
+              className={`${styles.mobileCartSheetBody} ${
+                mobileDragHeight !== null ? styles.mobileCartSheetBodyDragging : ''
+              }`}
+              style={
+                mobileDragHeight !== null
+                  ? {
+                      maxHeight: `${mobileDragHeight}px`,
+                      opacity: Math.max(0.15, mobileDragProgress),
+                    }
+                  : undefined
+              }
+            >
+              <div ref={mobileSheetInnerRef} className={styles.mobileCartSheetInner}>
+                <div className={styles.cartHeader}>
             <h2 className={styles.cartTitle}>
               <svg
                 className={styles.cartTitleIcon}
@@ -759,7 +917,7 @@ export default function PosPage() {
             </button>
           </div>
 
-          <div className={styles.cartList}>
+          <div ref={mobileCartListRef} className={styles.cartList}>
             {cart.map((item) => (
               <div key={item.productId} className={styles.cartItem}>
                 <div className={styles.cartItemInfo}>
@@ -813,6 +971,8 @@ export default function PosPage() {
               </div>
             ))}
           </div>
+              </div>
+            </div>
 
           <div className={styles.cartFooter}>
             <div className={styles.summaryRow}>

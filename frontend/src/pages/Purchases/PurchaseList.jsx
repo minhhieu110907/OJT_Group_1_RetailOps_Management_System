@@ -1463,11 +1463,28 @@ export default function PurchaseList() {
 
         {dateRangeType === 'CUSTOM' && (
           <div className={styles.customDatePopover}>
-            <div className={styles.dateInputGroup}>
+            <div
+              className={styles.dateInputGroup}
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => {
+                const input = e.currentTarget.querySelector('input[type="date"]');
+                if (!input) return;
+                if (typeof input.showPicker === 'function') {
+                  try {
+                    input.showPicker();
+                    return;
+                  } catch {
+                    // Fallback to focus
+                  }
+                }
+                input.focus();
+              }}
+            >
               <span>Từ:</span>
               <input
                 type="date"
                 className={styles.dateInput}
+                style={{ cursor: 'pointer' }}
                 value={fromDateFilter}
                 onChange={(e) => {
                   setFromDateFilter(e.target.value);
@@ -1475,11 +1492,28 @@ export default function PurchaseList() {
                 }}
               />
             </div>
-            <div className={styles.dateInputGroup}>
+            <div
+              className={styles.dateInputGroup}
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => {
+                const input = e.currentTarget.querySelector('input[type="date"]');
+                if (!input) return;
+                if (typeof input.showPicker === 'function') {
+                  try {
+                    input.showPicker();
+                    return;
+                  } catch {
+                    // Fallback to focus
+                  }
+                }
+                input.focus();
+              }}
+            >
               <span>Đến:</span>
               <input
                 type="date"
                 className={styles.dateInput}
+                style={{ cursor: 'pointer' }}
                 value={toDateFilter}
                 onChange={(e) => {
                   setToDateFilter(e.target.value);

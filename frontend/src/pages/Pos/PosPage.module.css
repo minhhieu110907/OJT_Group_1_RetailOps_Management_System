@@ -1188,6 +1188,11 @@
   display: none;
 }
 
+.mobileCartSheetBody,
+.mobileCartSheetInner {
+  display: contents;
+}
+
 @media (max-width: 1024px) {
   .posLayoutWithCart {
     grid-template-columns: minmax(0, 1fr);
@@ -1212,6 +1217,14 @@
     backdrop-filter: blur(2px);
     touch-action: none;
     overscroll-behavior: contain;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  .mobileCartBackdropVisible {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .cartPanel {
@@ -1224,6 +1237,8 @@
     max-height: 82vh;
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.2);
+    touch-action: none;
+    overscroll-behavior: contain;
   }
 
   .mobileCartToggle {
@@ -1238,6 +1253,14 @@
     background: transparent;
     cursor: pointer;
     text-align: left;
+    touch-action: none;
+    outline: none;
+  }
+
+  .mobileCartToggle:focus-visible {
+    outline: 2px solid var(--color-primary, #059669);
+    outline-offset: -2px;
+    border-radius: 14px 14px 0 0;
   }
 
   .mobileCartHandle {
@@ -1268,25 +1291,48 @@
     color: var(--color-primary, #059669);
   }
 
-  .cartHeader,
-  .cartList {
-    display: none;
+  .mobileCartSheetBody {
+    display: block;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    will-change: max-height, opacity;
+    transition: max-height 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.22s ease;
   }
 
-  .cartPanelMobileExpanded .cartHeader {
+  .cartPanelMobileExpanded .mobileCartSheetBody {
+    max-height: 56vh;
+    opacity: 1;
+  }
+
+  .mobileCartSheetBodyDragging {
+    transition: none;
+  }
+
+  .mobileCartSheetInner {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .cartHeader {
     display: flex;
     padding: 10px 16px;
+    touch-action: none;
   }
 
-  .cartPanelMobileExpanded .cartList {
+  .cartList {
     display: flex;
     max-height: 44vh;
     overflow-y: auto;
     overscroll-behavior: contain;
+    touch-action: pan-y;
   }
 
   .cartFooter {
     padding: 12px 16px;
     gap: 8px;
+    touch-action: none;
   }
 }
