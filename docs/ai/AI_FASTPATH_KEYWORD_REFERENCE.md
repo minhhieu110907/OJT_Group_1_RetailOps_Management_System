@@ -140,6 +140,7 @@ Trả đồng thời **báo cáo doanh thu** và **top sản phẩm bán chạy*
    - Số lượng sản phẩm `limit > 20` (ví dụ: *"top 50 sản phẩm"*).
 2. **Mốc lịch cụ thể cần phân giải phức tạp**:
    - Ngày dạng `DD/MM` (ví dụ: *"18/11"*) hoặc tháng lịch cụ thể `tháng <1..12>` (ví dụ: *"doanh thu tháng 10"*).
-3. **Câu hỏi phân tích chi tiết theo từng ngày/đơn hoặc so sánh**:
+3. **Câu hỏi phân tích chi tiết theo từng ngày/đơn, so sánh hoặc giải thích lý thuyết/phủ định**:
    - Câu hỏi doanh thu chứa: `cao nhất`, `thấp nhất`, `lớn nhất`, `nhiều nhất`, `ít nhất` mà không gắn với sản phẩm (ví dụ: *"Ngày nào doanh thu cao nhất tuần này?"*).
    - Câu hỏi chứa: `so sánh`, `theo ngày`, `từng ngày`, `biểu đồ`, `xu hướng`, `tăng trưởng`, `đơn nào`, `chi tiết đơn`.
+   - Câu hỏi yêu cầu giải thích định nghĩa/công thức (`giải thích`, `nguyên tắc`, `công thức`, `là gì`, `cách tính`, `hoạt động như thế nào`) hoặc câu phức có mệnh đề phủ định (`không cần`, `không muốn`, `đừng`, `chưa cần`).

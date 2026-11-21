@@ -597,10 +597,14 @@ def _match_direct_tools(
             )
         ]
 
-    # Skip explicit calendar dates (e.g. "18/11", "tháng 10") or unsupported periods
-    if _EXPLICIT_DATE_HINT_RE.search(
-        normalized
-    ) or _UNSUPPORTED_RELATIVE_PERIOD_RE.search(normalized):
+    # Skip explicit calendar dates (e.g. "18/11", "tháng 10"), unsupported periods,
+    # explanation/theory questions, or negated multi-clause prompts.
+    if (
+        _EXPLICIT_DATE_HINT_RE.search(normalized)
+        or _UNSUPPORTED_RELATIVE_PERIOD_RE.search(normalized)
+        or any(exp in normalized for exp in _REORDER_EXPLANATION_PHRASES)
+        or any(neg in normalized for neg in _REORDER_NEGATION_PHRASES)
+    ):
         return None
 
     has_sales = any(kw in normalized for kw in _SALES_KEYWORDS)
