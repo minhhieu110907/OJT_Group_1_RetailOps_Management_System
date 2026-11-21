@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import DependencyUnavailableError, ForbiddenError
+from app.core.exceptions import (
+    DependencyUnavailableError,
+    ForbiddenError,
+    RateLimitedError,
+)
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.infrastructure.dependencies import get_rate_limiter
@@ -331,8 +335,10 @@ def test_reorder_advisor_classifications_boundaries_and_evidence() -> None:
     assert fast.confidence == "HIGH"
     assert fast.average_daily_sales == 2.0
     assert fast.suggested_quantity == 14
-    assert fast.sales_period == "2026-11-13..2026-11-19"
+    assert fast.sales_period == "13/11/2026 - 19/11/2026"
     assert "get_low_stock" in fast.sources and "get_top_products" in fast.sources
+    assert "\n- **Bán chạy hết hàng** (`FAST-0`):" in report.summary
+    assert "2026-11-13" not in report.summary
 
     # Product 2: low stock at threshold=5, no sales history -> no fabricated quantity
     no_hist = by_id[2]
@@ -349,7 +355,7 @@ def test_reorder_advisor_classifications_boundaries_and_evidence() -> None:
     low_ev = [e for e in report.evidence if e.source.startswith("get_low_stock")][0]
     assert low_ev.period is None
     top_ev = [e for e in report.evidence if e.source.startswith("get_top_products")][0]
-    assert top_ev.period == "2026-11-13..2026-11-19"
+    assert top_ev.period == "13/11/2026 - 19/11/2026"
     assert report.assumptions
 
 
@@ -552,11 +558,17 @@ async def test_ai_query_reorder_advisor_http_auth_readonly_and_injection() -> No
         assert r_ok.status_code == 200
         body = r_ok.json()
         assert body["insufficient_data"] is False
-        assert "FAST-001" in body["answer"]
+        assert "- **Cà phê sữa** (`FAST-001`):" in body["answer"]
         assert "read-only" in body["answer"].lower()
+        assert "T17:00:00" not in body["answer"]
+        assert "as_of=" not in body["answer"]
         sources = [ev["source"] for ev in body["evidence"]]
         assert any(s.startswith("get_low_stock") for s in sources)
         assert any(s.startswith("product_sales") for s in sources)
+        for ev in body["evidence"]:
+            if ev["period"] is not None:
+                assert "T" not in ev["period"]
+                assert "as_of=" not in ev["period"]
         low_ev = [
             ev for ev in body["evidence"] if ev["source"].startswith("get_low_stock")
         ][0]
@@ -1275,3 +1287,17 @@ def test_summary_reports_group_totals_and_hidden_counts() -> None:
     )
     assert "hiển thị 5/7 sản phẩm, còn 2 sản phẩm khác chưa liệt kê" in r13.summary
     assert "hiển thị 5/6 sản phẩm, còn 1 sản phẩm khác chưa liệt kê" in r13.summary
+    assert "\n- **SP 1** (`P-1`):" in r13.summary
+    assert "13/11/2026 - 19/11/2026" in r13.summary
+
+
+def test_collect_reorder_snapshot_enforces_output_payload_budget() -> None:
+    """P2: collect_reorder_snapshot enforces ToolBudget max_output_bytes (32 KiB)."""
+    sf = _make_sqlite_session_factory()
+    admin_id, _, _, _ = _seed_store_data(sf)
+    principal = _load_principal(sf, admin_id)
+    bound = bind_authenticated_request(principal, request_id="req-budget-bytes")
+    # Tighten max_output_bytes to verify add_output raises RateLimitedError on overflow
+    bound.budget.max_output_bytes = 64
+    with sf() as session, pytest.raises(RateLimitedError):
+        bound.executor.collect_reorder_snapshot(session, context=bound.context)

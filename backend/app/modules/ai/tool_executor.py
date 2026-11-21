@@ -318,6 +318,7 @@ class AIToolExecutor:
         """
         started = time.monotonic()
         status = "error"
+        output_bytes = 0
         verified = False
         error_code: str | None = None
         source_errors: dict[str, str] = {}
@@ -376,6 +377,9 @@ class AIToolExecutor:
                         data={"items": low_items, "total": low_total},
                         source_period=None,
                     )
+                    low_payload = serialize_tool_result(low_stock_result)
+                    self._budget.add_output(low_payload)
+                    output_bytes += len(low_payload)
                 except (ForbiddenError, DomainValidationError, RateLimitedError):
                     raise
                 except DependencyUnavailableError as exc:
@@ -419,6 +423,13 @@ class AIToolExecutor:
                             product_ids=[int(it["product_id"]) for it in low_items],
                             period=period,
                         )
+                        sales_payload = json.dumps(
+                            {str(k): v for k, v in product_sales_by_id.items()},
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                        self._budget.add_output(sales_payload)
+                        output_bytes += len(sales_payload)
                     except (ForbiddenError, DomainValidationError, RateLimitedError):
                         raise
                     except DependencyUnavailableError as exc:
@@ -493,6 +504,9 @@ class AIToolExecutor:
                         data={"items": slow_items, "total": slow_total},
                         source_period=slow_period,
                     )
+                    slow_payload = serialize_tool_result(slow_products_result)
+                    self._budget.add_output(slow_payload)
+                    output_bytes += len(slow_payload)
                 except (ForbiddenError, DomainValidationError, RateLimitedError):
                     raise
                 except DependencyUnavailableError as exc:
@@ -548,7 +562,7 @@ class AIToolExecutor:
                     "tool_id": "reorder_advisor_snapshot",
                     "status": status,
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                    "output_bytes": 0,
+                    "output_bytes": output_bytes,
                     "error_code": error_code,
                 },
             )

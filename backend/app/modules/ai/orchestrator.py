@@ -400,7 +400,7 @@ class AIOrchestrator:
         return ReadOnlyReorderAdvisor().suggest(
             low_stock_result=snapshot.low_stock_result,
             product_sales_by_id=snapshot.product_sales_by_id,
-            sales_period=snapshot.sales_period,
+            sales_period=_format_period_vn(snapshot.sales_period),
             slow_products_result=snapshot.slow_products_result,
             analysis_days=snapshot.analysis_days,
             low_stock_truncated=snapshot.low_stock_truncated,

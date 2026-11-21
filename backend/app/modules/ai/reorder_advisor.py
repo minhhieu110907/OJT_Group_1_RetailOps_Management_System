@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +25,47 @@ from app.modules.ai.schemas import AIEvidence
 from app.modules.ai.tool_executor import ToolId, ToolResult
 
 logger = logging.getLogger(__name__)
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+
+def format_period_vn(period_str: str | None) -> str | None:
+    """Convert raw UTC ISO period/as_of strings into clean DD/MM/YYYY labels."""
+    if not period_str:
+        return None
+    if period_str == "current_stock":
+        return "Hiện tại"
+    if "/" in period_str:
+        parts = period_str.split("/", 1)
+        try:
+            start_dt = datetime.fromisoformat(parts[0].replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
+            start_d = start_dt.astimezone(_VN_TZ).date()
+            end_d = (end_dt.astimezone(_VN_TZ) - timedelta(microseconds=1)).date()
+            if start_d == end_d:
+                return start_d.strftime("%d/%m/%Y")
+            return f"{start_d.strftime('%d/%m/%Y')} - {end_d.strftime('%d/%m/%Y')}"
+        except ValueError:
+            return period_str
+    if ".." in period_str:
+        parts = period_str.split("..", 1)
+        try:
+            start_d = date.fromisoformat(parts[0].strip())
+            end_d = date.fromisoformat(parts[1].strip())
+            if start_d == end_d:
+                return start_d.strftime("%d/%m/%Y")
+            return f"{start_d.strftime('%d/%m/%Y')} - {end_d.strftime('%d/%m/%Y')}"
+        except ValueError:
+            return period_str
+    if period_str.startswith("as_of="):
+        raw_ts = period_str[len("as_of=") :].split(";", 1)[0].strip()
+        try:
+            dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            date_str = dt.astimezone(_VN_TZ).strftime("%d/%m/%Y")
+            return f"30 ngày gần nhất (đến {date_str})"
+        except ValueError:
+            return period_str
+    return period_str
+
 
 ReorderClassification = Literal[
     "PRIORITY_RESTOCK",
@@ -169,7 +212,7 @@ def _build_evidence_item(result: ToolResult, *, note: str | None = None) -> AIEv
         summary = f"total={total_label}, returned={len(items)}" + (
             f"; items=[{preview}]" if preview else ""
         )
-        period = result.source_period
+        period = format_period_vn(result.source_period)
 
     if note:
         summary = f"{summary}; {note}"
@@ -258,6 +301,7 @@ class ReadOnlyReorderAdvisor:
             )
             missing_data.append("low_stock_truncated")
 
+        formatted_sales_period = format_period_vn(sales_period)
         exact_sales_by_id: dict[int, int] | None = None
         if product_sales_by_id is not None:
             exact_sales_by_id = {}
@@ -270,7 +314,7 @@ class ReadOnlyReorderAdvisor:
             evidence.append(
                 AIEvidence(
                     source="product_sales (orders, order_items, products)",
-                    period=sales_period,
+                    period=formatted_sales_period,
                     summary=(
                         f"queried={len(exact_sales_by_id)}, "
                         f"with_sales={with_sales_count}, days={analysis_days}"
@@ -282,7 +326,7 @@ class ReadOnlyReorderAdvisor:
             missing_data.append("product_sales_velocity")
 
         top_by_id: dict[int, dict[str, Any]] = {}
-        top_period: str | None = sales_period
+        top_period: str | None = formatted_sales_period
         top_truncated = False
         if top_products_result is not None:
             top_items, top_malformed = _extract_valid_items(
@@ -306,7 +350,7 @@ class ReadOnlyReorderAdvisor:
             )
             evidence.append(_build_evidence_item(top_products_result, note=top_note))
             if top_period is None:
-                top_period = top_products_result.source_period
+                top_period = format_period_vn(top_products_result.source_period)
             if top_malformed:
                 warnings.append(
                     "Dữ liệu top sản phẩm có bản ghi không hợp lệ đã bị bỏ qua."
@@ -489,7 +533,7 @@ class ReadOnlyReorderAdvisor:
                         sold_units=sold_slow,
                         analysis_days=30,
                         sales_period=(
-                            slow_products_result.source_period
+                            format_period_vn(slow_products_result.source_period)
                             if slow_products_result is not None
                             else None
                         ),
@@ -742,23 +786,23 @@ def _format_report_summary(
     parts: list[str] = []
     if priority:
         shown = priority[:5]
-        items_text = "; ".join(
-            f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}, "
-            f"đã bán {r.sold_units} ({r.average_daily_sales}/ngày), "
-            f"gợi ý nhập {r.suggested_quantity}"
+        lines = "\n".join(
+            f"- **{r.name}** (`{r.sku}`): tồn {r.current_quantity}/"
+            f"{r.low_stock_threshold}, đã bán {r.sold_units} "
+            f"({r.average_daily_sales}/ngày), gợi ý nhập **{r.suggested_quantity}**"
             for r in shown
         )
         period_note = f" (kỳ bán {top_period})" if top_period else ""
         header = _format_group_header(
             f"Ưu tiên cân nhắc nhập hàng{period_note}", len(priority), len(shown)
         )
-        parts.append(f"{header}: {items_text}.")
+        parts.append(f"**{header}:**\n{lines}")
 
     if unverified_slow:
         shown = unverified_slow[:5]
-        items_text = "; ".join(
-            f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}, "
-            f"đã bán {r.sold_units}"
+        lines = "\n".join(
+            f"- **{r.name}** (`{r.sku}`): tồn {r.current_quantity}/"
+            f"{r.low_stock_threshold}, đã bán {r.sold_units}"
             for r in shown
         )
         header = _format_group_header(
@@ -766,12 +810,13 @@ def _format_report_summary(
             len(unverified_slow),
             len(shown),
         )
-        parts.append(f"{header}: {items_text}.")
+        parts.append(f"**{header}:**\n{lines}")
 
     if no_hist:
         shown = no_hist[:5]
-        items_text = "; ".join(
-            f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}"
+        lines = "\n".join(
+            f"- **{r.name}** (`{r.sku}`): tồn {r.current_quantity}/"
+            f"{r.low_stock_threshold}"
             for r in shown
         )
         header = _format_group_header(
@@ -779,12 +824,13 @@ def _format_report_summary(
             len(no_hist),
             len(shown),
         )
-        parts.append(f"{header}: {items_text}.")
+        parts.append(f"**{header}:**\n{lines}")
 
     if slow_hold:
         shown = slow_hold[:5]
-        items_text = "; ".join(
-            f"{r.name} ({r.sku}): tồn {r.current_quantity}/{r.low_stock_threshold}"
+        lines = "\n".join(
+            f"- **{r.name}** (`{r.sku}`): tồn {r.current_quantity}/"
+            f"{r.low_stock_threshold}"
             for r in shown
         )
         header = _format_group_header(
@@ -792,17 +838,19 @@ def _format_report_summary(
             len(slow_hold),
             len(shown),
         )
-        parts.append(f"{header}: {items_text}.")
+        parts.append(f"**{header}:**\n{lines}")
 
     if warnings:
-        parts.append("Lưu ý nguồn dữ liệu: " + " ".join(warnings))
+        warn_lines = "\n".join(f"- {w}" for w in warnings)
+        parts.append(f"**Lưu ý nguồn dữ liệu:**\n{warn_lines}")
     if assumptions:
-        parts.append("Giả định: " + " ".join(assumptions))
+        assump_lines = "\n".join(f"- {a}" for a in assumptions)
+        parts.append(f"**Giả định:**\n{assump_lines}")
     parts.append(
         "AI chỉ tư vấn read-only; quản trị viên tự tạo và xác nhận phiếu nhập tại "
         "mục Purchasing."
     )
-    return " ".join(parts)
+    return "\n\n".join(parts)
 
 
 def run_reorder_advisor_via_executor(
