@@ -729,6 +729,9 @@ export default function PosPage() {
           </div>
 
           <div className={styles.cartFooter}>
+            <p className={styles.cartQuoteNote}>
+              Giỏ hàng không giữ chỗ tồn kho; tổng tiền chỉ mang tính tạm tính trước khi thanh toán.
+            </p>
             <div className={styles.summaryRow}>
               <span>Tạm tính ({cartTotals.totalUnits} sản phẩm)</span>
               <strong>{formatVnd(cartTotals.totalVnd)}</strong>

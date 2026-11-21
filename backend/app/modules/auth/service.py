@@ -199,9 +199,6 @@ class AuthService:
         user = self.repository.find_user_by_email(session, normalized)
         password_hash = user.password_hash if user is not None else DUMMY_BCRYPT_HASH
         password_matches = self.password_hasher.verify(password, password_hash)
-        if user is not None and user.status == UserStatus.LOCKED:
-            session.rollback()
-            raise AccountLockedError()
         if user is None or not password_matches:
             session.rollback()
             raise InvalidCredentialsError()

@@ -17,6 +17,12 @@ import styles from './Orders.module.css';
 
 const PAGE_SIZE = 10;
 
+function parseIsoDateParam(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())
+    ? value.trim()
+    : '';
+}
+
 export default function OrderList() {
   const { user, isMockMode } = useAuth();
   const toast = useToast();
@@ -24,7 +30,26 @@ export default function OrderList() {
   // Filter states (Single-row filter bar: Search | Single Date | Status | Reset)
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedDate, setSelectedDate] = useState('');
+  const [urlDateRange, setUrlDateRange] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const from = parseIsoDateParam(params.get('from_date'));
+    const to = parseIsoDateParam(params.get('to_date'));
+    if (from && to && from !== to) {
+      return { from, to };
+    }
+    return null;
+  });
+  const [selectedDate, setSelectedDate] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    const from = parseIsoDateParam(params.get('from_date'));
+    const to = parseIsoDateParam(params.get('to_date'));
+    if (from && (!to || from === to)) {
+      return from;
+    }
+    return '';
+  });
   const [statusFilter, setStatusFilter] = useState(() => {
     if (typeof window === 'undefined') return '';
     const param = new URLSearchParams(window.location.search).get('status');
@@ -96,8 +121,8 @@ export default function OrderList() {
           page,
           pageSize: PAGE_SIZE,
           status: statusFilter || undefined,
-          fromDate: selectedDate || undefined,
-          toDate: selectedDate || undefined,
+          fromDate: urlDateRange?.from || selectedDate || undefined,
+          toDate: urlDateRange?.to || selectedDate || undefined,
           search: debouncedSearch || undefined,
         }),
       onStart: () => {
@@ -122,7 +147,7 @@ export default function OrderList() {
         setIsLoading(false);
       },
     });
-  }, [isMockMode, page, statusFilter, selectedDate, debouncedSearch]);
+  }, [isMockMode, page, statusFilter, selectedDate, urlDateRange, debouncedSearch]);
 
   useEffect(() => {
     fetchOrders();
@@ -132,6 +157,7 @@ export default function OrderList() {
     setSearchQuery('');
     setDebouncedSearch('');
     setSelectedDate('');
+    setUrlDateRange(null);
     setStatusFilter('');
     setPage(1);
   };
@@ -409,6 +435,7 @@ export default function OrderList() {
               aria-label="Ngày bán"
               value={selectedDate}
               onChange={(e) => {
+                setUrlDateRange(null);
                 setSelectedDate(e.target.value);
                 setPage(1);
               }}

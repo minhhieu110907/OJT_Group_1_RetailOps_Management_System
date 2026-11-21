@@ -608,8 +608,8 @@ export default function CategoryList() {
             {categoryToToggle?.status === 'ACTIVE' && (
               <>
                 {' '}
-                Các sản phẩm đang bán trong danh mục này cũng sẽ chuyển sang{' '}
-                <strong>Ngừng bán</strong> và ẩn khỏi màn hình Bán hàng.
+                Danh mục ngừng hoạt động sẽ không thể gán cho sản phẩm mới; các sản
+                phẩm hiện có thuộc danh mục này vẫn giữ nguyên trạng thái.
               </>
             )}
           </p>

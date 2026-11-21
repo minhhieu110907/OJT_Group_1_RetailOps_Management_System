@@ -86,6 +86,8 @@ def get_low_stock(
     service: Annotated[InventoryQueryService, Depends(get_inventory_service)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    category_id: Annotated[int | None, Query(ge=1)] = None,
+    exclude_out_of_stock: Annotated[bool, Query()] = False,
 ) -> LowStockPage:
     """Retrieve products at or below the fixed P0 low-stock threshold (5)."""
     return service.get_low_stock(
@@ -93,6 +95,8 @@ def get_low_stock(
         page=page,
         page_size=page_size,
         threshold=DEFAULT_LOW_STOCK_THRESHOLD,
+        category_id=category_id,
+        exclude_out_of_stock=exclude_out_of_stock,
     )
 
 

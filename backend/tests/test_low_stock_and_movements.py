@@ -324,6 +324,100 @@ async def test_low_stock_pagination_slicing(app: object) -> None:
 
 
 @pytest.mark.anyio
+async def test_low_stock_category_and_exclude_out_of_stock_filters(
+    app: object, db_session: object
+) -> None:
+    """Verify category_id & exclude_out_of_stock filters apply before pagination."""
+    application = app  # type: ignore[assignment]
+    application.dependency_overrides[get_current_principal] = lambda: make_principal(
+        UserRole.ADMIN
+    )
+
+    db = db_session  # type: ignore[assignment]
+    if True:
+        cat2 = Category(
+            id=2,
+            name="Đồ uống",
+            status=CategoryStatus.ACTIVE,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        db.add(cat2)
+        # Add 102 zero-stock items + 3 near-out-of-stock items in category 2
+        for idx in range(100, 202):
+            p = Product(
+                id=idx,
+                sku=f"ZERO-{idx}",
+                name=f"Zero {idx}",
+                category_id=2,
+                sale_price_vnd=10000,
+                status=CatalogStatus.ACTIVE,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+            db.add(p)
+            db.flush()
+            db.add(
+                Inventory(
+                    product_id=idx,
+                    quantity=0,
+                    stock_version=0,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+        for offset, qty in enumerate((2, 3, 4), start=1):
+            pid = 300 + offset
+            p = Product(
+                id=pid,
+                sku=f"NEAR-{pid}",
+                name=f"Near {pid}",
+                category_id=2,
+                sale_price_vnd=15000,
+                status=CatalogStatus.ACTIVE,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+            db.add(p)
+            db.flush()
+            db.add(
+                Inventory(
+                    product_id=pid,
+                    quantity=qty,
+                    stock_version=1,
+                    first_stocked_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+        db.commit()
+
+    transport = httpx.ASGITransport(app=application)  # type: ignore[arg-type]
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Category 2 + exclude_out_of_stock skips all 102 zero-stock items
+        res_cat2 = await client.get(
+            "/api/v1/inventory/low-stock"
+            "?category_id=2&exclude_out_of_stock=true&page=1&page_size=2"
+        )
+        assert res_cat2.status_code == 200
+        body_cat2 = res_cat2.json()
+        assert body_cat2["total"] == 3
+        assert [i["product_id"] for i in body_cat2["items"]] == [301, 302]
+
+        # 2. Page 2 returns the 3rd item cleanly
+        res_cat2_p2 = await client.get(
+            "/api/v1/inventory/low-stock"
+            "?category_id=2&exclude_out_of_stock=true&page=2&page_size=2"
+        )
+        assert res_cat2_p2.status_code == 200
+        assert [i["product_id"] for i in res_cat2_p2.json()["items"]] == [303]
+
+        # 3. Non-existent category returns empty list with total=0
+        res_empty = await client.get("/api/v1/inventory/low-stock?category_id=999")
+        assert res_empty.status_code == 200
+        assert res_empty.json()["items"] == []
+        assert res_empty.json()["total"] == 0
+
+
+@pytest.mark.anyio
 async def test_low_stock_auth_guards(app: object) -> None:
     """Verify unauthenticated returns 401 and inactive returns 403."""
     application = app  # type: ignore[assignment]

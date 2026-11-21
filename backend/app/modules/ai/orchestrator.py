@@ -226,13 +226,14 @@ def _format_direct_answer(result: ToolResult) -> tuple[str, bool]:
         items = data.get("items", [])
         if insufficient:
             return ("Hiện không có sản phẩm nào dưới ngưỡng tồn kho thấp.", True)
+        displayed = items[:10]
         lines = "\n".join(
             f"- **{item['name']}** (`{item['sku']}`): còn {item['quantity']}"
-            for item in items[:10]
+            for item in displayed
         )
         return (
             f"Có {data['total']} sản phẩm tồn kho thấp "
-            f"(hiển thị {len(items)}):\n{lines}",
+            f"(hiển thị {len(displayed)}):\n{lines}",
             False,
         )
     return ("Đã hoàn tất truy vấn dữ liệu.", insufficient)

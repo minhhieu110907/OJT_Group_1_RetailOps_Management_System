@@ -244,8 +244,8 @@ export default function Dashboard() {
   const lowStockCount = activeDashboardData ? activeDashboardData.low_stock_count : null;
   const activeOutOfStockCount = hasActivePeriodData ? outOfStockCount : null;
   const nearlyOutOfStockCount =
-    lowStockCount !== null
-      ? Math.max(0, lowStockCount - (activeOutOfStockCount ?? 0))
+    lowStockCount !== null && activeOutOfStockCount !== null
+      ? Math.max(0, lowStockCount - activeOutOfStockCount)
       : null;
 
   const monthDeltas = useMemo(() => {
@@ -505,7 +505,7 @@ export default function Dashboard() {
         </div>
 
         <Link
-          to="/orders?status=COMPLETED"
+          to={`/orders?status=COMPLETED&from_date=${encodeURIComponent(activeRange.from)}&to_date=${encodeURIComponent(activeRange.to)}`}
           className={`${styles.kpiCard} ${styles.kpiCardLink}`}
           title="Xem danh sách đơn hàng đã hoàn thành"
         >
@@ -543,7 +543,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="/orders?status=CANCELLED"
+          to={`/orders?status=CANCELLED&from_date=${encodeURIComponent(activeRange.from)}&to_date=${encodeURIComponent(activeRange.to)}`}
           className={`${styles.kpiCard} ${styles.kpiCardLink}`}
           title="Xem danh sách đơn hàng đã hủy"
         >

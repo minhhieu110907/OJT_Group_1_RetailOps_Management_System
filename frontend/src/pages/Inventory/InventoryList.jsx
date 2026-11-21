@@ -137,18 +137,15 @@ export default function InventoryList() {
 
     try {
       if (stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK) {
-        const res = await inventoryApi.getLowStock({ page: 1, pageSize: 100 });
-        const catIdNum = selectedCategoryId ? Number(selectedCategoryId) : null;
-        const onlyLowStock = (res.items || []).filter((item) => {
-          const qty = Number(item.quantity);
-          if (!Number.isInteger(qty) || qty <= 0) return false;
-          if (catIdNum !== null && Number(item.category_id) !== catIdNum) return false;
-          return true;
+        const res = await inventoryApi.getLowStock({
+          page: pagination.page,
+          pageSize: pagination.pageSize,
+          categoryId: selectedCategoryId ? Number(selectedCategoryId) : null,
+          excludeOutOfStock: true,
         });
-        const startIdx = (pagination.page - 1) * pagination.pageSize;
         if (currentRequestId === requestIdRef.current) {
-          setInventoryItems(onlyLowStock.slice(startIdx, startIdx + pagination.pageSize));
-          setTotalCount(onlyLowStock.length);
+          setInventoryItems(res.items || []);
+          setTotalCount(res.total || 0);
         }
         return;
       }

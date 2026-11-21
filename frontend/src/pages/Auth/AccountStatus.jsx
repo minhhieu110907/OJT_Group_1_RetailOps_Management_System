@@ -2,11 +2,6 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/common';
-import {
-  deriveRejectSubState,
-  evaluateAccountVerificationClick,
-  evaluateResubmitAction,
-} from './accountStatusHelpers';
 import styles from './AccountStatus.module.css';
 
 // Hàm lấy giờ hiện tại theo chuẩn múi giờ Asia/Ho_Chi_Minh (HH:mm)
@@ -26,7 +21,6 @@ const MOCK_DEMO_FALLBACK_PROFILE = {
   submittedAt: '09:30 - 07/11/2026',
   rejectReason:
     'Hồ sơ chưa đáp ứng điều kiện phân ca nhân sự tại cửa hàng. Vui lòng liên hệ Quản trị viên để biết thêm chi tiết.',
-  retryAfterLabel: '15:20 - 08/11/2026',
 };
 
 export default function AccountStatus() {
@@ -54,16 +48,12 @@ export default function AccountStatus() {
           incomingState.submittedAt || MOCK_DEMO_FALLBACK_PROFILE.submittedAt,
         rejectReason:
           incomingState.rejectReason || MOCK_DEMO_FALLBACK_PROFILE.rejectReason,
-        retryAfterLabel:
-          incomingState.retryAfterLabel ||
-          MOCK_DEMO_FALLBACK_PROFILE.retryAfterLabel,
       }
     : {
         fullName: incomingState.fullName || null,
         email: incomingState.email || null,
         submittedAt: incomingState.submittedAt || null,
         rejectReason: incomingState.rejectReason || null,
-        retryAfterLabel: incomingState.retryAfterLabel || null,
       };
 
   // Trạng thái chính của hồ sơ: 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -75,18 +65,7 @@ export default function AccountStatus() {
       : rawStatus === 'ACTIVE'
       ? 'APPROVED'
       : rawStatus || 'PENDING';
-  const [status, setStatus] = useState(initialStatus);
-
-  // Trạng thái con của mục Gửi lại khi REJECTED:
-  // - Real API mode: 'UNAVAILABLE' (không tự mặc định khóa 24h và không tin location.state)
-  // - Mock Demo mode: 'LOCKED_24H' | 'ELIGIBLE'
-  const rejectSubState = deriveRejectSubState({
-    isMockDemoActive,
-    incomingState,
-  });
-
-  // Cờ xác minh quyền kiểm soát tài khoản (ở trạng thái REJECTED - Đủ điều kiện)
-  const [isAccountVerified, setIsAccountVerified] = useState(false);
+  const [status] = useState(initialStatus);
 
   // Thời gian cập nhật lần cuối (HH:mm Asia/Ho_Chi_Minh)
   const [lastUpdated, setLastUpdated] = useState(() => getHaNoiCurrentTime());
@@ -144,25 +123,6 @@ export default function AccountStatus() {
     setLastUpdated(getHaNoiCurrentTime());
     setHasConnectionError(false);
     toast.success('Đã khôi phục kết nối máy chủ thành công (Chế độ Mock Demo).');
-  };
-
-  // Xử lý gửi lại yêu cầu xét duyệt khi ở trạng thái REJECTED (Chỉ giả lập ở Mock Demo mode)
-  const handleResubmitRequest = async () => {
-    const decision = evaluateResubmitAction({
-      isMockDemoActive,
-      isAccountVerified,
-    });
-    if (!decision.allowed) {
-      toast[decision.toastType || 'info'](decision.message);
-      return;
-    }
-
-    setIsChecking(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    setIsChecking(false);
-    setLastUpdated(getHaNoiCurrentTime());
-    setStatus(decision.nextStatus);
-    toast[decision.toastType || 'success'](decision.message);
   };
 
   // Xác định class viền cho thẻ Card duy nhất
