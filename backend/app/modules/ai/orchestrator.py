@@ -21,6 +21,10 @@ from app.modules.ai.gemini_provider import (
     LLMProvider,
     ToolResponseItem,
 )
+from app.modules.ai.reorder_advisor import (
+    ReadOnlyReorderAdvisor,
+    ReorderSuggestionReport,
+)
 from app.modules.ai.schemas import AIAskResponse, AIEvidence
 from app.modules.ai.tool_executor import (
     BoundToolRequest,
@@ -99,6 +103,116 @@ _DATE_RANGE_SALES_RE = re.compile(
     r"^(?:xem\s+|báo cáo\s+|bao cao\s+)?doanh thu\s+(?:từ|tu)\s+"
     r"(\d{4}-\d{2}-\d{2})\s+(?:đến|den|tới|toi)\s+(\d{4}-\d{2}-\d{2})$"
 )
+
+_REORDER_ADVISOR_KEYWORDS: tuple[str, ...] = (
+    "gợi ý nhập hàng",
+    "goi y nhap hang",
+    "đề xuất nhập hàng",
+    "de xuat nhap hang",
+    "tư vấn nhập hàng",
+    "tu van nhap hang",
+    "nên nhập hàng",
+    "nen nhap hang",
+    "nên nhập thêm",
+    "nen nhap them",
+    "nhập hàng gì",
+    "nhap hang gi",
+    "sản phẩm cần nhập",
+    "san pham can nhap",
+    "gợi ý nhập",
+    "goi y nhap",
+    "reorder advisor",
+)
+
+
+_REORDER_NEGATION_PHRASES: tuple[str, ...] = (
+    "không cần",
+    "khong can",
+    "không muốn",
+    "khong muon",
+    "đừng ",
+    "dung ",
+    "không phải",
+    "khong phai",
+    "chưa cần",
+    "chua can",
+    "khỏi cần",
+    "khoi can",
+    "don't",
+    "do not",
+)
+
+_REORDER_EXPLANATION_PHRASES: tuple[str, ...] = (
+    "giải thích",
+    "giai thich",
+    "nguyên tắc",
+    "nguyen tac",
+    "công thức",
+    "cong thuc",
+    "là gì",
+    "la gi",
+    "cách tính",
+    "cach tinh",
+    "hoạt động như thế nào",
+    "hoat dong nhu the nao",
+    "explain",
+    "how does",
+)
+
+_REORDER_DAYS_RE = re.compile(r"\b(\d+)\s*(?:ngày|ngay|days?)\b")
+_REORDER_WEEKS_RE = re.compile(r"\b(\d+)\s*(?:tuần|tuan|weeks?)\b")
+_REORDER_UNSUPPORTED_PERIOD_RE = re.compile(
+    r"\b(?:\d+\s*)?(?:tháng|thang|months?|năm|nam|years?|quý|quy)\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+)
+
+
+def _parse_reorder_advisor_intent(
+    normalized: str,
+) -> tuple[bool, int | None, str | None]:
+    """Return (matched, analysis_days, error_message) for reorder advisor queries."""
+    if not any(keyword in normalized for keyword in _REORDER_ADVISOR_KEYWORDS):
+        return (False, None, None)
+    if any(neg in normalized for neg in _REORDER_NEGATION_PHRASES):
+        return (False, None, None)
+    if any(exp in normalized for exp in _REORDER_EXPLANATION_PHRASES):
+        return (False, None, None)
+
+    days_match = _REORDER_DAYS_RE.search(normalized)
+    if days_match is not None:
+        days = int(days_match.group(1))
+        if 1 <= days <= 90:
+            return (True, days, None)
+        return (
+            True,
+            None,
+            f"Khoảng thời gian phân tích gợi ý nhập hàng chỉ hỗ trợ từ 1 đến 90 ngày "
+            f"(bạn yêu cầu {days} ngày). Vui lòng chọn lại khoảng thời gian hợp lệ.",
+        )
+
+    weeks_match = _REORDER_WEEKS_RE.search(normalized)
+    if weeks_match is not None:
+        days = int(weeks_match.group(1)) * 7
+        if 1 <= days <= 90:
+            return (True, days, None)
+        return (
+            True,
+            None,
+            f"Khoảng thời gian phân tích gợi ý nhập hàng chỉ hỗ trợ từ 1 đến 90 ngày "
+            f"(khoảng bạn yêu cầu tương đương {days} ngày). Vui lòng chọn lại số ngày "
+            "hợp lệ.",
+        )
+
+    if _REORDER_UNSUPPORTED_PERIOD_RE.search(normalized) is not None:
+        return (
+            True,
+            None,
+            "Chức năng gợi ý nhập hàng hiện chỉ hỗ trợ phân tích theo số ngày từ 1 "
+            "đến 90 ngày (ví dụ: 7 ngày, 30 ngày). Vui lòng nêu rõ số ngày hợp lệ.",
+        )
+
+    return (True, 7, None)
+
 
 SessionFactory = Callable[[], AbstractContextManager[Session]]
 
@@ -272,6 +386,29 @@ class AIOrchestrator:
         serialized = serialize_tool_result(result)
         return result, json.loads(serialized.decode("utf-8"))
 
+    def _execute_reorder_advisor_sync(
+        self, bound: BoundToolRequest, *, analysis_days: int = 7
+    ) -> ReorderSuggestionReport:
+        bound.budget.check_deadline()
+        with self._session_factory() as session:
+            snapshot = bound.executor.collect_reorder_snapshot(
+                session,
+                context=bound.context,
+                analysis_days=analysis_days,
+            )
+        bound.budget.check_deadline()
+        return ReadOnlyReorderAdvisor().suggest(
+            low_stock_result=snapshot.low_stock_result,
+            product_sales_by_id=snapshot.product_sales_by_id,
+            sales_period=_format_period_vn(snapshot.sales_period),
+            slow_products_result=snapshot.slow_products_result,
+            analysis_days=snapshot.analysis_days,
+            low_stock_truncated=snapshot.low_stock_truncated,
+            low_stock_total_available=snapshot.low_stock_total_available,
+            slow_products_truncated=snapshot.slow_products_truncated,
+            source_errors=snapshot.source_errors,
+        )
+
     async def handle_query(
         self,
         *,
@@ -321,6 +458,31 @@ class AIOrchestrator:
                 answer=answer,
                 evidence=[_build_evidence(result)],
                 insufficient_data=insufficient,
+            )
+
+        # 2b. Read-only Reorder Advisor [T04AB0B] via allowlisted AIToolExecutor
+        is_reorder, analysis_days, period_error = _parse_reorder_advisor_intent(
+            normalized
+        )
+        if is_reorder:
+            bound.budget.check_deadline()
+            if period_error is not None or analysis_days is None:
+                return AIAskResponse(
+                    answer=period_error
+                    or "Khoảng thời gian phân tích gợi ý nhập hàng không hợp lệ.",
+                    evidence=[],
+                    insufficient_data=True,
+                )
+            report = await run_in_threadpool(
+                self._execute_reorder_advisor_sync,
+                bound,
+                analysis_days=analysis_days,
+            )
+            bound.budget.check_deadline()
+            return AIAskResponse(
+                answer=report.summary,
+                evidence=report.evidence,
+                insufficient_data=report.insufficient_data,
             )
 
         # 3. Complex natural-language execution via Gemini Function Calling

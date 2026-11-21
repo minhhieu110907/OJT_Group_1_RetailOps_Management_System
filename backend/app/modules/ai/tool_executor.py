@@ -160,6 +160,21 @@ class ToolResult:
     source_period: str | None
 
 
+@dataclass(frozen=True)
+class ReorderSnapshot:
+    """Bounded, read-only inventory & analytics snapshot for Reorder Advisor."""
+
+    low_stock_result: ToolResult | None
+    product_sales_by_id: Mapping[int, int] | None
+    sales_period: str | None
+    slow_products_result: ToolResult | None
+    analysis_days: int
+    low_stock_truncated: bool
+    low_stock_total_available: int | None
+    slow_products_truncated: bool
+    source_errors: Mapping[str, str]
+
+
 def serialize_tool_result(result: ToolResult) -> bytes:
     """Use these exact UTF-8 bytes when handing a result to the LLM provider."""
     return json.dumps(
@@ -280,6 +295,271 @@ class AIToolExecutor:
                     "tool_id": tool_id
                     if isinstance(tool_id, str) and tool_id in _TOOLS
                     else "unknown",
+                    "status": status,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "output_bytes": output_bytes,
+                    "error_code": error_code,
+                },
+            )
+
+    def collect_reorder_snapshot(
+        self,
+        session: Session,
+        *,
+        context: ToolContext,
+        analysis_days: int = 7,
+        page_size: int = 50,
+        max_pages: int = 5,
+    ) -> ReorderSnapshot:
+        """Collect bounded, paginated read-only data for Reorder Advisor [T04AB0B].
+
+        Enforces the same ADMIN authentication, context verification, budget, and
+        deadline checks as `execute`, without exposing arbitrary SQL or write tools.
+        """
+        started = time.monotonic()
+        status = "error"
+        output_bytes = 0
+        verified = False
+        error_code: str | None = None
+        source_errors: dict[str, str] = {}
+        try:
+            with self._budget.lock:
+                if self._context_verifier is None or not self._context_verifier(
+                    context
+                ):
+                    raise ForbiddenError()
+                verified = True
+                self._budget.check_deadline()
+                self._authenticate_admin(session, context)
+                self._budget.check_deadline()
+                days = self._bounded_int(analysis_days, "days", 1, 90)
+                eff_page_size = self._bounded_int(page_size, "page_size", 1, 100)
+                eff_max_pages = self._bounded_int(max_pages, "max_pages", 1, 20)
+                self._budget.reserve()
+
+                # 1. Bounded pagination over InventoryQueryService.get_low_stock
+                low_items: list[dict[str, Any]] = []
+                seen_low_ids: set[int] = set()
+                low_total: int | None = None
+                low_stock_result: ToolResult | None = None
+                low_stock_truncated = False
+                try:
+                    for page_num in range(1, eff_max_pages + 1):
+                        self._budget.check_deadline()
+                        page = self._inventory.get_low_stock(
+                            session=session,
+                            page=page_num,
+                            page_size=eff_page_size,
+                            threshold=DEFAULT_LOW_STOCK_THRESHOLD,
+                        )
+                        low_total = int(page.total)
+                        if not page.items:
+                            break
+                        added_this_page = 0
+                        for item in page.items:
+                            mapped = self._safe_low(item)
+                            pid = int(mapped["product_id"])
+                            if pid not in seen_low_ids:
+                                seen_low_ids.add(pid)
+                                low_items.append(mapped)
+                                added_this_page += 1
+                        if (
+                            added_this_page == 0
+                            or len(low_items) >= low_total
+                            or len(page.items) < eff_page_size
+                        ):
+                            break
+                    if low_total is None:
+                        low_total = len(low_items)
+                    low_stock_truncated = low_total > len(low_items)
+                    low_stock_result = ToolResult(
+                        tool_id="get_low_stock",
+                        data={"items": low_items, "total": low_total},
+                        source_period=None,
+                    )
+                    low_payload = serialize_tool_result(low_stock_result)
+                    self._budget.add_output(low_payload)
+                    output_bytes += len(low_payload)
+                except (ForbiddenError, DomainValidationError, RateLimitedError):
+                    raise
+                except DependencyUnavailableError as exc:
+                    # Re-raise if deadline expired; otherwise record safe error
+                    self._budget.check_deadline()
+                    logger.warning(
+                        "ai_reorder_source_error",
+                        extra={
+                            "request_id": context.request_id,
+                            "tool_id": "get_low_stock",
+                            "error_type": exc.__class__.__name__,
+                            "error_code": exc.code,
+                        },
+                    )
+                    source_errors["get_low_stock"] = "SOURCE_UNAVAILABLE"
+                except Exception as exc:  # noqa: BLE001
+                    self._budget.check_deadline()
+                    logger.warning(
+                        "ai_reorder_source_error",
+                        extra={
+                            "request_id": context.request_id,
+                            "tool_id": "get_low_stock",
+                            "error_type": exc.__class__.__name__,
+                            "error_code": getattr(exc, "code", None),
+                        },
+                    )
+                    source_errors["get_low_stock"] = "SOURCE_UNAVAILABLE"
+
+                # 2. Exact per-product sales in period for all low-stock candidates
+                period = resolve_days_period(days, now_fn=self._clock)
+                sales_period = (
+                    f"{period.start_utc.isoformat()}/"
+                    f"{period.end_utc_exclusive.isoformat()}"
+                )
+                product_sales_by_id: dict[int, int] | None = None
+                if low_items:
+                    self._budget.check_deadline()
+                    try:
+                        product_sales_by_id = self._products.sold_units_for_products(
+                            session,
+                            product_ids=[int(it["product_id"]) for it in low_items],
+                            period=period,
+                        )
+                        sales_payload = json.dumps(
+                            {str(k): v for k, v in product_sales_by_id.items()},
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                        self._budget.add_output(sales_payload)
+                        output_bytes += len(sales_payload)
+                    except (ForbiddenError, DomainValidationError, RateLimitedError):
+                        raise
+                    except DependencyUnavailableError as exc:
+                        self._budget.check_deadline()
+                        logger.warning(
+                            "ai_reorder_source_error",
+                            extra={
+                                "request_id": context.request_id,
+                                "tool_id": "product_sales",
+                                "error_type": exc.__class__.__name__,
+                                "error_code": exc.code,
+                            },
+                        )
+                        source_errors["product_sales"] = "SOURCE_UNAVAILABLE"
+                    except Exception as exc:  # noqa: BLE001
+                        self._budget.check_deadline()
+                        logger.warning(
+                            "ai_reorder_source_error",
+                            extra={
+                                "request_id": context.request_id,
+                                "tool_id": "product_sales",
+                                "error_type": exc.__class__.__name__,
+                                "error_code": getattr(exc, "code", None),
+                            },
+                        )
+                        source_errors["product_sales"] = "SOURCE_UNAVAILABLE"
+                elif low_stock_result is not None:
+                    product_sales_by_id = {}
+
+                # 3. Bounded pagination over ProductAnalyticsService.slow
+                slow_items: list[dict[str, Any]] = []
+                seen_slow_ids: set[int] = set()
+                slow_total: int | None = None
+                slow_products_result: ToolResult | None = None
+                slow_products_truncated = False
+                as_of = self._clock()
+                slow_period = (
+                    f"as_of={self._utc(as_of)}; trailing_30_days; "
+                    "stocked_more_than_7_days"
+                )
+                try:
+                    for page_num in range(1, eff_max_pages + 1):
+                        self._budget.check_deadline()
+                        page = self._products.slow(
+                            session,
+                            as_of_utc=as_of,
+                            page=page_num,
+                            page_size=eff_page_size,
+                        )
+                        slow_total = int(page.total)
+                        if not page.items:
+                            break
+                        added_this_page = 0
+                        for item in page.items:
+                            mapped = self._item(item)
+                            pid = int(mapped["product_id"])
+                            if pid not in seen_slow_ids:
+                                seen_slow_ids.add(pid)
+                                slow_items.append(mapped)
+                                added_this_page += 1
+                        if (
+                            added_this_page == 0
+                            or len(slow_items) >= slow_total
+                            or len(page.items) < eff_page_size
+                        ):
+                            break
+                    if slow_total is None:
+                        slow_total = len(slow_items)
+                    slow_products_truncated = slow_total > len(slow_items)
+                    slow_products_result = ToolResult(
+                        tool_id="get_slow_products",
+                        data={"items": slow_items, "total": slow_total},
+                        source_period=slow_period,
+                    )
+                    slow_payload = serialize_tool_result(slow_products_result)
+                    self._budget.add_output(slow_payload)
+                    output_bytes += len(slow_payload)
+                except (ForbiddenError, DomainValidationError, RateLimitedError):
+                    raise
+                except DependencyUnavailableError as exc:
+                    self._budget.check_deadline()
+                    logger.warning(
+                        "ai_reorder_source_error",
+                        extra={
+                            "request_id": context.request_id,
+                            "tool_id": "get_slow_products",
+                            "error_type": exc.__class__.__name__,
+                            "error_code": exc.code,
+                        },
+                    )
+                    source_errors["get_slow_products"] = "SOURCE_UNAVAILABLE"
+                except Exception as exc:  # noqa: BLE001
+                    self._budget.check_deadline()
+                    logger.warning(
+                        "ai_reorder_source_error",
+                        extra={
+                            "request_id": context.request_id,
+                            "tool_id": "get_slow_products",
+                            "error_type": exc.__class__.__name__,
+                            "error_code": getattr(exc, "code", None),
+                        },
+                    )
+                    source_errors["get_slow_products"] = "SOURCE_UNAVAILABLE"
+
+                self._budget.check_deadline()
+                status = "success"
+                return ReorderSnapshot(
+                    low_stock_result=low_stock_result,
+                    product_sales_by_id=product_sales_by_id,
+                    sales_period=sales_period,
+                    slow_products_result=slow_products_result,
+                    analysis_days=days,
+                    low_stock_truncated=low_stock_truncated,
+                    low_stock_total_available=low_total,
+                    slow_products_truncated=slow_products_truncated,
+                    source_errors=source_errors,
+                )
+        except AppException as error:
+            error_code = error.code
+            raise
+        except Exception as error:
+            error_code = "DEPENDENCY_UNAVAILABLE"
+            raise DependencyUnavailableError() from error
+        finally:
+            logger.info(
+                "ai_tool_execution",
+                extra={
+                    "request_id": context.request_id if verified else "invalid",
+                    "actor_id": context.actor_id if verified else None,
+                    "tool_id": "reorder_advisor_snapshot",
                     "status": status,
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
                     "output_bytes": output_bytes,
