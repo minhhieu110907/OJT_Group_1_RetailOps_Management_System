@@ -16,15 +16,20 @@ import {
   buildPendingCheckoutOwnerScope,
   buildPriceChangedViewModel,
   calculateCartTotals,
+  clampMobileSheetMaxHeight,
   classifyCheckoutError,
   clearPendingCheckout,
+  computeMobileSheetDragState,
   executeSafePosCheckout,
   formatVnd,
   getPendingCheckoutStorageKey,
   loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
+  resolveMobileSheetSwipeEnd,
   resolvePendingCheckoutAction,
   savePendingCheckout,
+  shouldCloseMobileCartOnEscape,
+  triggerDateInputPicker,
   updateCartItemQuantity,
 } from '../utils/posUtils.js';
 
@@ -830,8 +835,180 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
 
     const posContent = fs.readFileSync(posPagePath, 'utf8');
     assert.ok(posContent.includes('className={styles.cartItemMeta}'));
-    assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd)} / sp'));
+    assert.ok(posContent.includes('Đơn giá: {formatVnd(item.unitPriceVnd)}'));
     assert.ok(posContent.includes('className={styles.lineTotal}'));
     assert.ok(posContent.includes('{formatVnd(item.unitPriceVnd * item.quantity)}'));
+  });
+
+  test('PR #103: PosPage avoids first-add white flash, cleans up mobile cart sheet state, supports Escape, and removes cartQuoteNote', () => {
+    const posContent = fs.readFileSync(posPagePath, 'utf8');
+    const posCssPath = path.resolve(__dirname, '../pages/Pos/PosPage.module.css');
+    const posCssContent = fs.readFileSync(posCssPath, 'utf8');
+
+    // 1. hasLoadedProductsRef prevents setIsLoading(true) flash on 12 <-> 10 pageSize switches
+    assert.ok(posContent.includes('const hasLoadedProductsRef = useRef(false)'));
+    assert.ok(posContent.includes('if (!hasLoadedProductsRef.current)'));
+    assert.ok(posContent.includes('hasLoadedProductsRef.current = true'));
+
+    // 2. Mobile cart sheet locks scroll, handles Escape without clobbering modals, and resets on empty/checkout
+    assert.ok(posContent.includes("document.body.style.overflow = 'hidden'"));
+    assert.ok(posContent.includes('shouldCloseMobileCartOnEscape'));
+    assert.ok(posContent.includes('clampMobileSheetMaxHeight'));
+    assert.ok(posContent.includes('if (nextCart.length === 0)'));
+    assert.ok(
+      (posContent.match(/setIsMobileCartExpanded\(false\)/g) || []).length >= 4,
+      'Must reset isMobileCartExpanded on Escape, handleUpdateQty empty, handleClearCart, and checkout success'
+    );
+
+    // 3. Unused cartQuoteNote removed from both JSX and CSS
+    assert.equal(posContent.includes('cartQuoteNote'), false);
+    assert.equal(posCssContent.includes('cartQuoteNote'), false);
+  });
+
+  test('PR #103 behavioral: mobile cart sheet clamps maxHeight to 56vh, computes drag height/progress, and resolves swipe thresholds', () => {
+    // 1. Clamping measured scrollHeight to 56vh (matches CSS max-height: 56vh)
+    assert.equal(clampMobileSheetMaxHeight(720, 800), Math.round(800 * 0.56)); // 448px
+    assert.equal(clampMobileSheetMaxHeight(220, 800), 220); // smaller than 56vh -> keep exact height
+    assert.equal(clampMobileSheetMaxHeight(0, 800), 260); // fallback when unmeasured
+    assert.equal(clampMobileSheetMaxHeight(600, 400), Math.round(400 * 0.56)); // 224px on short viewport
+
+    // 2. Dragging up from collapsed state grows height and progress smoothly in [0..1]
+    assert.deepEqual(
+      computeMobileSheetDragState({ isExpanded: false, deltaY: -100, maxHeight: 400 }),
+      { height: 100, progress: 0.25 }
+    );
+    assert.deepEqual(
+      computeMobileSheetDragState({ isExpanded: false, deltaY: -600, maxHeight: 400 }),
+      { height: 400, progress: 1 }
+    );
+    assert.deepEqual(
+      computeMobileSheetDragState({ isExpanded: false, deltaY: 40, maxHeight: 400 }),
+      { height: 0, progress: 0 }
+    );
+
+    // 3. Dragging down from expanded state shrinks height and progress smoothly in [0..1]
+    assert.deepEqual(
+      computeMobileSheetDragState({ isExpanded: true, deltaY: 100, maxHeight: 400 }),
+      { height: 300, progress: 0.75 }
+    );
+    assert.deepEqual(
+      computeMobileSheetDragState({ isExpanded: true, deltaY: 500, maxHeight: 400 }),
+      { height: 0, progress: 0 }
+    );
+
+    // 4. Swipe release open/close thresholds & quick flick
+    assert.deepEqual(
+      resolveMobileSheetSwipeEnd({ isExpanded: false, deltaY: -40, elapsedMs: 300, maxHeight: 400 }),
+      { nextExpanded: true, handled: true }
+    );
+    assert.deepEqual(
+      resolveMobileSheetSwipeEnd({ isExpanded: false, deltaY: -20, elapsedMs: 30, maxHeight: 400 }),
+      { nextExpanded: true, handled: true }
+    );
+    assert.deepEqual(
+      resolveMobileSheetSwipeEnd({ isExpanded: false, deltaY: -15, elapsedMs: 300, maxHeight: 400 }),
+      { nextExpanded: false, handled: false }
+    );
+    assert.deepEqual(
+      resolveMobileSheetSwipeEnd({ isExpanded: true, deltaY: 50, elapsedMs: 300, maxHeight: 400 }),
+      { nextExpanded: false, handled: true }
+    );
+    assert.deepEqual(
+      resolveMobileSheetSwipeEnd({ isExpanded: true, deltaY: 20, elapsedMs: 30, maxHeight: 400 }),
+      { nextExpanded: false, handled: true }
+    );
+    assert.deepEqual(
+      resolveMobileSheetSwipeEnd({ isExpanded: true, deltaY: 20, elapsedMs: 300, maxHeight: 400 }),
+      { nextExpanded: true, handled: false }
+    );
+  });
+
+  test('PR #103 behavioral: Escape closes mobile cart sheet only when no conflict or receipt modal is open', () => {
+    assert.equal(
+      shouldCloseMobileCartOnEscape({
+        key: 'Escape',
+        stockConflictDetails: null,
+        priceConflictDetails: null,
+        completedOrder: null,
+      }),
+      true
+    );
+    assert.equal(
+      shouldCloseMobileCartOnEscape({
+        key: 'Enter',
+        stockConflictDetails: null,
+        priceConflictDetails: null,
+        completedOrder: null,
+      }),
+      false
+    );
+    assert.equal(
+      shouldCloseMobileCartOnEscape({
+        key: 'Escape',
+        stockConflictDetails: { insufficient_items: [] },
+        priceConflictDetails: null,
+        completedOrder: null,
+      }),
+      false
+    );
+    assert.equal(
+      shouldCloseMobileCartOnEscape({
+        key: 'Escape',
+        stockConflictDetails: null,
+        priceConflictDetails: { changed_items: [] },
+        completedOrder: null,
+      }),
+      false
+    );
+    assert.equal(
+      shouldCloseMobileCartOnEscape({
+        key: 'Escape',
+        stockConflictDetails: null,
+        priceConflictDetails: null,
+        completedOrder: { id: 99 },
+      }),
+      false
+    );
+  });
+
+  test('PR #103 behavioral: date picker wrapper triggers showPicker(), skips direct input clicks, and falls back to focus()', () => {
+    let showPickerCalls = 0;
+    let focusCalls = 0;
+    const mockInput = {
+      showPicker: () => {
+        showPickerCalls += 1;
+      },
+      focus: () => {
+        focusCalls += 1;
+      },
+    };
+    const mockWrapper = {
+      querySelector: (selector) => (selector === 'input[type="date"]' ? mockInput : null),
+    };
+
+    // Clicking wrapper calls showPicker() without focus()
+    assert.equal(triggerDateInputPicker(mockWrapper, mockWrapper), true);
+    assert.equal(showPickerCalls, 1);
+    assert.equal(focusCalls, 0);
+
+    // Clicking directly on the input avoids duplicate showPicker()
+    assert.equal(triggerDateInputPicker(mockWrapper, mockInput), false);
+    assert.equal(showPickerCalls, 1);
+    assert.equal(focusCalls, 0);
+
+    // Throwing showPicker() falls back cleanly to focus()
+    const throwingInput = {
+      showPicker: () => {
+        throw new Error('InvalidStateError');
+      },
+      focus: () => {
+        focusCalls += 1;
+      },
+    };
+    const throwingWrapper = {
+      querySelector: () => throwingInput,
+    };
+    assert.equal(triggerDateInputPicker(throwingWrapper, throwingWrapper), true);
+    assert.equal(focusCalls, 1);
   });
 });

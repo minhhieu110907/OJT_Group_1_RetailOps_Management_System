@@ -19,12 +19,16 @@ import {
   buildPendingCheckoutOwnerScope,
   buildPriceChangedViewModel,
   calculateCartTotals,
+  clampMobileSheetMaxHeight,
   clearPendingCheckout,
+  computeMobileSheetDragState,
   executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
   prioritizeCategoriesByLatestProducts,
+  resolveMobileSheetSwipeEnd,
   resolvePendingCheckoutAction,
+  shouldCloseMobileCartOnEscape,
   updateCartItemQuantity,
 } from '../../utils/posUtils';
 import styles from './PosPage.module.css';
@@ -97,11 +101,23 @@ export default function PosPage() {
   const [completedOrder, setCompletedOrder] = useState(null);
   const [stockConflictDetails, setStockConflictDetails] = useState(null);
   const [priceConflictDetails, setPriceConflictDetails] = useState(null);
+  const [isMobileCartExpanded, setIsMobileCartExpanded] = useState(false);
+  const [mobileDragHeight, setMobileDragHeight] = useState(null);
+  const [mobileDragProgress, setMobileDragProgress] = useState(0);
   const isCheckingOutRef = useRef(false);
   const idempotencyKeyRef = useRef(
     pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
   );
   const requestIdRef = useRef(0);
+  const hasLoadedProductsRef = useRef(false);
+  const mobileSwipeStartYRef = useRef(null);
+  const mobileSwipeStartTimeRef = useRef(0);
+  const mobileSwipeHandledRef = useRef(false);
+  const mobileTouchInCartListRef = useRef(false);
+  const mobileCartPanelRef = useRef(null);
+  const mobileCartListRef = useRef(null);
+  const mobileSheetInnerRef = useRef(null);
+  const mobileSheetMaxHeightRef = useRef(260);
 
   // Đồng bộ lại pendingCheckout/cart nếu đổi tài khoản hoặc đổi chế độ trên cùng trình duyệt
   if (trackedOwnerScope !== ownerScope) {
@@ -137,6 +153,84 @@ export default function PosPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isCheckingOut, pendingCheckout]);
+
+  // Khóa cuộn trang nền và hỗ trợ phím Escape khi đang mở sheet danh sách giỏ hàng trên mobile
+  useEffect(() => {
+    const hasCart = cart.length > 0 || Boolean(pendingCheckout);
+    if (
+      typeof document === 'undefined' ||
+      typeof window === 'undefined' ||
+      !isMobileCartExpanded ||
+      !hasCart
+    ) {
+      return undefined;
+    }
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (
+        shouldCloseMobileCartOnEscape({
+          key: event.key,
+          stockConflictDetails,
+          priceConflictDetails,
+          completedOrder,
+        })
+      ) {
+        setIsMobileCartExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+    };
+  }, [
+    isMobileCartExpanded,
+    cart.length,
+    pendingCheckout,
+    stockConflictDetails,
+    priceConflictDetails,
+    completedOrder,
+  ]);
+
+  // Chặn cuộn trang nền / pull-to-refresh trên Safari iOS & Chrome Android khi kéo giỏ hàng
+  useEffect(() => {
+    const panelEl = mobileCartPanelRef.current;
+    const hasCart = cart.length > 0 || Boolean(pendingCheckout);
+    if (!panelEl || !hasCart) return undefined;
+
+    const handleNativeTouchMove = (event) => {
+      if (
+        typeof window !== 'undefined' &&
+        window.innerWidth > 768
+      ) {
+        return;
+      }
+      if (mobileSwipeStartYRef.current === null || !event.touches?.length) return;
+      const deltaY = event.touches[0].clientY - mobileSwipeStartYRef.current;
+
+      // Cho phép cuộn tự nhiên bên trong danh sách sản phẩm khi đang mở và không kéo đóng ở đầu danh sách
+      if (mobileTouchInCartListRef.current && isMobileCartExpanded) {
+        if (deltaY <= 0 || (mobileCartListRef.current?.scrollTop || 0) > 0) {
+          return;
+        }
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+    };
+
+    panelEl.addEventListener('touchmove', handleNativeTouchMove, { passive: false });
+    return () => {
+      panelEl.removeEventListener('touchmove', handleNativeTouchMove);
+    };
+  }, [cart.length, pendingCheckout, isMobileCartExpanded]);
 
   // Debounce tìm kiếm theo tên sản phẩm hoặc mã SKU
   useEffect(() => {
@@ -192,7 +286,9 @@ export default function PosPage() {
     async function fetchPosProducts() {
       await Promise.resolve();
       if (currentRequestId !== requestIdRef.current) return;
-      setIsLoading(true);
+      if (!hasLoadedProductsRef.current) {
+        setIsLoading(true);
+      }
       setLoadError('');
 
       try {
@@ -213,6 +309,7 @@ export default function PosPage() {
             setCurrentPage(nextTotalPages);
             return;
           }
+          hasLoadedProductsRef.current = true;
           setProducts(res.items || []);
           setTotalProducts(nextTotal);
         }
@@ -291,14 +388,112 @@ export default function PosPage() {
 
   const handleUpdateQty = (productId, nextQty) => {
     if (isCartLocked || isCheckingOutRef.current) return;
-    setCart((prev) => updateCartItemQuantity(prev, productId, nextQty));
+    const nextCart = updateCartItemQuantity(cart, productId, nextQty);
+    setCart(nextCart);
+    if (nextCart.length === 0) {
+      setIsMobileCartExpanded(false);
+    }
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
   const handleClearCart = () => {
     if (isCartLocked || isCheckingOutRef.current) return;
     setCart([]);
+    setIsMobileCartExpanded(false);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+  };
+
+  const handleMobileCartTouchStart = (event) => {
+    if (
+      !event.touches ||
+      event.touches.length === 0 ||
+      (typeof window !== 'undefined' && window.innerWidth > 768)
+    ) {
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest('button, input, label, a') &&
+      !event.target.closest(`.${styles.mobileCartToggle}`)
+    ) {
+      mobileSwipeStartYRef.current = null;
+      return;
+    }
+    const inCartList = Boolean(
+      mobileCartListRef.current && mobileCartListRef.current.contains(event.target)
+    );
+    if (inCartList && mobileCartListRef.current.scrollTop > 0) {
+      mobileSwipeStartYRef.current = null;
+      return;
+    }
+    mobileTouchInCartListRef.current = inCartList;
+    mobileSwipeStartYRef.current = event.touches[0].clientY;
+    mobileSwipeStartTimeRef.current = Date.now();
+    mobileSwipeHandledRef.current = false;
+    const measuredHeight = mobileSheetInnerRef.current?.scrollHeight || 0;
+    const viewportHeight =
+      typeof window !== 'undefined' ? window.innerHeight : null;
+    mobileSheetMaxHeightRef.current = clampMobileSheetMaxHeight(
+      measuredHeight,
+      viewportHeight
+    );
+  };
+
+  const handleMobileCartTouchMove = (event) => {
+    if (mobileSwipeStartYRef.current === null || !event.touches?.length) return;
+    const currentY = event.touches[0].clientY;
+    const deltaY = currentY - mobileSwipeStartYRef.current;
+
+    // Khi vuốt trong danh sách sản phẩm đang mở: ưu tiên cuộn danh sách lên, chỉ kéo đóng khi kéo xuống ở đầu danh sách
+    if (mobileTouchInCartListRef.current && isMobileCartExpanded) {
+      if (deltaY <= 0 || (mobileCartListRef.current?.scrollTop || 0) > 0) {
+        return;
+      }
+    }
+
+    if (mobileDragHeight === null && Math.abs(deltaY) < 4) return;
+
+    const { height, progress } = computeMobileSheetDragState({
+      isExpanded: isMobileCartExpanded,
+      deltaY,
+      maxHeight: mobileSheetMaxHeightRef.current || 260,
+    });
+
+    setMobileDragHeight(height);
+    setMobileDragProgress(progress);
+  };
+
+  const handleMobileCartTouchEnd = (event) => {
+    if (mobileSwipeStartYRef.current === null) return;
+    const endY = event.changedTouches?.[0]?.clientY;
+    const startY = mobileSwipeStartYRef.current;
+    const wasDragging = mobileDragHeight !== null;
+    const elapsedMs = Math.max(1, Date.now() - mobileSwipeStartTimeRef.current);
+    const maxH = mobileSheetMaxHeightRef.current || 260;
+    mobileSwipeStartYRef.current = null;
+    mobileTouchInCartListRef.current = false;
+    setMobileDragHeight(null);
+    setMobileDragProgress(0);
+    if (typeof endY !== 'number' || !wasDragging) return;
+
+    const { nextExpanded, handled } = resolveMobileSheetSwipeEnd({
+      isExpanded: isMobileCartExpanded,
+      deltaY: endY - startY,
+      elapsedMs,
+      maxHeight: maxH,
+    });
+    if (handled) {
+      mobileSwipeHandledRef.current = true;
+      setIsMobileCartExpanded(nextExpanded);
+    }
+  };
+
+  const handleMobileCartToggleClick = () => {
+    if (mobileSwipeHandledRef.current) {
+      mobileSwipeHandledRef.current = false;
+      return;
+    }
+    setIsMobileCartExpanded((prev) => !prev);
   };
 
   const handleAbandonPendingCheckout = () => {
@@ -359,6 +554,7 @@ export default function PosPage() {
         setPendingCheckout(null);
         setManualReconciliationConfirmed(false);
         setCart([]);
+        setIsMobileCartExpanded(false);
         idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
         setRefreshTrigger((prev) => prev + 1);
         return;
@@ -644,8 +840,71 @@ export default function PosPage() {
 
       {/* Giỏ hàng bên phải — CHỈ hiển thị khi có hàng trong giỏ */}
       {hasCartItems && (
-        <aside className={styles.cartPanel} aria-label="Giỏ hàng hiện tại">
-          <div className={styles.cartHeader}>
+        <>
+          <div
+            className={`${styles.mobileCartBackdrop} ${
+              isMobileCartExpanded ? styles.mobileCartBackdropVisible : ''
+            }`}
+            style={
+              mobileDragHeight !== null
+                ? {
+                    opacity: mobileDragProgress,
+                    transition: 'none',
+                    pointerEvents: mobileDragProgress > 0.02 ? 'auto' : 'none',
+                  }
+                : undefined
+            }
+            onClick={() => setIsMobileCartExpanded(false)}
+            aria-hidden="true"
+          />
+          <aside
+            ref={mobileCartPanelRef}
+            className={`${styles.cartPanel} ${
+              isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''
+            }`}
+            onTouchStart={handleMobileCartTouchStart}
+            onTouchMove={handleMobileCartTouchMove}
+            onTouchEnd={handleMobileCartTouchEnd}
+            onTouchCancel={handleMobileCartTouchEnd}
+            aria-label="Giỏ hàng hiện tại"
+          >
+            <button
+              type="button"
+              className={styles.mobileCartToggle}
+              onClick={handleMobileCartToggleClick}
+              aria-expanded={isMobileCartExpanded}
+              aria-label={
+                isMobileCartExpanded
+                  ? 'Thu gọn danh sách giỏ hàng'
+                  : 'Mở danh sách sản phẩm đã chọn'
+              }
+            >
+              <span className={styles.mobileCartHandle} aria-hidden="true" />
+              <div className={styles.mobileCartToggleRow}>
+                <span className={styles.mobileCartToggleTitle}>
+                  Giỏ hàng ({cartTotals.lineCount} món · {cartTotals.totalUnits} SP)
+                </span>
+                <span className={styles.mobileCartToggleAction}>
+                  {isMobileCartExpanded ? 'Thu gọn ▼' : 'Xem chi tiết ▲'}
+                </span>
+              </div>
+            </button>
+
+            <div
+              className={`${styles.mobileCartSheetBody} ${
+                mobileDragHeight !== null ? styles.mobileCartSheetBodyDragging : ''
+              }`}
+              style={
+                mobileDragHeight !== null
+                  ? {
+                      maxHeight: `${mobileDragHeight}px`,
+                      opacity: Math.max(0.15, mobileDragProgress),
+                    }
+                  : undefined
+              }
+            >
+              <div ref={mobileSheetInnerRef} className={styles.mobileCartSheetInner}>
+                <div className={styles.cartHeader}>
             <h2 className={styles.cartTitle}>
               <svg
                 className={styles.cartTitleIcon}
@@ -676,7 +935,7 @@ export default function PosPage() {
             </button>
           </div>
 
-          <div className={styles.cartList}>
+          <div ref={mobileCartListRef} className={styles.cartList}>
             {cart.map((item) => (
               <div key={item.productId} className={styles.cartItem}>
                 <div className={styles.cartItemInfo}>
@@ -684,7 +943,7 @@ export default function PosPage() {
                     {item.name}
                   </p>
                   <span className={styles.cartItemMeta}>
-                    {formatVnd(item.unitPriceVnd)} / sp
+                    Đơn giá: {formatVnd(item.unitPriceVnd)}
                   </span>
                 </div>
 
@@ -730,11 +989,10 @@ export default function PosPage() {
               </div>
             ))}
           </div>
+              </div>
+            </div>
 
           <div className={styles.cartFooter}>
-            <p className={styles.cartQuoteNote}>
-              Giỏ hàng không giữ chỗ tồn kho; tổng tiền chỉ mang tính tạm tính trước khi thanh toán.
-            </p>
             <div className={styles.summaryRow}>
               <span>Tạm tính ({cartTotals.totalUnits} sản phẩm)</span>
               <strong>{formatVnd(cartTotals.totalVnd)}</strong>
@@ -795,6 +1053,7 @@ export default function PosPage() {
             </button>
           </div>
         </aside>
+        </>
       )}
 
       {/* Modal 1: Lỗi tồn kho không đủ (HTTP 409 INSUFFICIENT_STOCK) — dữ liệu thật từ Backend */}

@@ -18,6 +18,7 @@ import { suppliersApi } from '../../api/suppliersApi';
 import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
 import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
+import { triggerDateInputPicker } from '../../utils/posUtils';
 import {
   filterProductsBySupplierCategories,
   findAutoFillSupplierForProduct,
@@ -1463,11 +1464,16 @@ export default function PurchaseList() {
 
         {dateRangeType === 'CUSTOM' && (
           <div className={styles.customDatePopover}>
-            <div className={styles.dateInputGroup}>
+            <div
+              className={styles.dateInputGroup}
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
+            >
               <span>Từ:</span>
               <input
                 type="date"
                 className={styles.dateInput}
+                style={{ cursor: 'pointer' }}
                 value={fromDateFilter}
                 onChange={(e) => {
                   setFromDateFilter(e.target.value);
@@ -1475,11 +1481,16 @@ export default function PurchaseList() {
                 }}
               />
             </div>
-            <div className={styles.dateInputGroup}>
+            <div
+              className={styles.dateInputGroup}
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
+            >
               <span>Đến:</span>
               <input
                 type="date"
                 className={styles.dateInput}
+                style={{ cursor: 'pointer' }}
                 value={toDateFilter}
                 onChange={(e) => {
                   setToDateFilter(e.target.value);

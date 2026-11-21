@@ -1642,6 +1642,13 @@
   color: #94A3B8 !important;
 }
 
+[data-theme='dark'] [class*="loadingState"],
+[data-theme='dark'] [class*="emptyState"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  color: #94A3B8 !important;
+}
+
 /* Khung Giỏ hàng POS (Cart Panel) */
 [data-theme='dark'] [class*="cartPanel"] {
   background-color: var(--color-bg-surface) !important;
