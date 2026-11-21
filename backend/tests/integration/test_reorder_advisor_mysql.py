@@ -231,7 +231,6 @@ def test_sold_units_for_products_and_reorder_advisor_readonly_mysql(
         period = Period(
             start_utc=start_utc,
             end_utc_exclusive=end_utc_exclusive,
-            days=7,
         )
         with Session(migrated_integration_engine) as session:
             sold_map = analytics.sold_units_for_products(
