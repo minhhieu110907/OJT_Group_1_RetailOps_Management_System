@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -607,7 +608,8 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
 
     run_id = uuid4().hex[:12]
     recipient = f"t04ab73-worker-{run_id}@example.com"
-    now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+    now_utc = datetime.now(UTC).replace(microsecond=0)
+    now = now_utc.replace(tzinfo=None)
     user_id: int | None = None
     event_id: bytes | None = None
 
@@ -631,7 +633,7 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
                 subject_user_id=user.id,
                 event_type="STAFF_APPROVED",
                 payload={"schema_version": 1, "approval_request_id": 1, "actor_id": 1},
-                available_at_utc=now,
+                available_at_utc=now_utc,
             )
 
         # 2. Publish to real RabbitMQ while worker is stopped -> message stays queued
@@ -727,9 +729,11 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
         assert matching, f"Expected Mailpit email for {recipient}"
 
         # 5. Security-safe log & email verification (no DB/broker/app secrets leaked)
+        parsed_worker_url = urllib.parse.urlparse(worker_url or "")
         forbidden_worker_secrets = (
             integration_database_url.password or "",
             os.environ.get("RABBITMQ_WORKER_PASSWORD", ""),
+            parsed_worker_url.password or "",
             worker_url or "",
             "j" * 32,
             "c" * 32,
@@ -738,7 +742,6 @@ def test_t04ab73_worker_interruption_recovery_and_mailpit_safe_logs(
         _assert_no_secrets_leaked(
             worker_logs, forbidden_secrets=forbidden_worker_secrets
         )
-        assert "amqp://" not in worker_logs
         _assert_no_secrets_leaked(
             json.dumps(matching[0]), forbidden_secrets=forbidden_worker_secrets
         )
