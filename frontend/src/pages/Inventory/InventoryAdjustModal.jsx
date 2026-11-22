@@ -485,7 +485,7 @@ export default function InventoryAdjustModal({
               <div className={styles.conflictDetailRow}>
                 <span className={styles.conflictDetailLabel} style={{ color: '#c2410c' }}>Số lượng đã yêu cầu:</span>
                 <span className={styles.conflictDetailValue}>
-                  {ambiguousIntent?.payload?.countedQuantity} cái
+                  {ambiguousIntent?.payload?.countedQuantity} sản phẩm
                 </span>
               </div>
               <div className={styles.conflictDetailRow}>
@@ -521,7 +521,7 @@ export default function InventoryAdjustModal({
             </div>
 
             <p className={styles.conflictDesc} style={{ color: '#166534' }}>
-              Đã tải tồn kho mới nhất: hiện tại là <strong>{reconciledResult.latestQuantity} cái</strong> (Phiên bản: <strong>v{reconciledResult.latestVersion}</strong>). Vui lòng kiểm tra kết quả và xác nhận trước khi thực hiện điều chỉnh mới.
+              Đã tải tồn kho mới nhất: hiện tại là <strong>{reconciledResult.latestQuantity} sản phẩm</strong> (Phiên bản: <strong>v{reconciledResult.latestVersion}</strong>). Vui lòng kiểm tra kết quả và xác nhận trước khi thực hiện điều chỉnh mới.
             </p>
 
             <button
@@ -547,9 +547,9 @@ export default function InventoryAdjustModal({
             <span className={styles.statCardTitle}>HIỆN TẠI</span>
             <div className={styles.statCardMain}>
               <span className={styles.statCardNumber}>{formatNumber(currentQty)}</span>
-              <span className={styles.statCardUnit}>cái</span>
+              <span className={styles.statCardUnit}>sản phẩm</span>
             </div>
-            <span className={styles.statCardSub}>Dữ liệu từ máy chủ (v{currentVersion})</span>
+            <span className={styles.statCardSub}>Dữ liệu từ máy chủ</span>
           </div>
 
           <div className={styles.statCard}>
@@ -558,7 +558,7 @@ export default function InventoryAdjustModal({
               <span className={styles.statCardNumberHighlight}>
                 {isValidCounted ? formatNumber(parsedCounted) : '-'}
               </span>
-              <span className={styles.statCardUnit}>cái</span>
+              <span className={styles.statCardUnit}>sản phẩm</span>
             </div>
             <span className={styles.statCardSub}>Đã nhập vào phiếu</span>
           </div>
@@ -569,7 +569,7 @@ export default function InventoryAdjustModal({
               <span className={`${styles.statCardDeltaNumber} ${deltaColorClass}`}>
                 {isValidCounted ? deltaSign : '-'}
               </span>
-              <span className={styles.statCardUnit}>cái</span>
+              <span className={styles.statCardUnit}>sản phẩm</span>
             </div>
             <span className={styles.statCardSub}>
               {isValidCounted ? deltaPercentText : 'Chưa nhập số thực tế'}
@@ -601,7 +601,7 @@ export default function InventoryAdjustModal({
                 disabled={isSubmitting || isReloading || modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS || modalStatus === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT}
                 autoFocus
               />
-              <span className={styles.inputUnit}>cái</span>
+              <span className={styles.inputUnit}>sản phẩm</span>
             </div>
           </div>
 
