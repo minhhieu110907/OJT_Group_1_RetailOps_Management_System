@@ -199,3 +199,28 @@ def get_purchase_receipt(
 ) -> ReceiptRead:
     """Fetch a purchase receipt by ID with its line items (Admin only)."""
     return service.get_receipt(session, receipt_id=receipt_id)
+
+
+@router.post(
+    "/{receipt_id}/notify-draft",
+    response_model=ReceiptRead,
+    status_code=status.HTTP_200_OK,
+)
+def notify_draft_purchase_receipt(
+    receipt_id: Annotated[int, Path(gt=0, description="Purchase receipt ID")],
+    current_admin: Annotated[User, Depends(require_active_admin)],
+    session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[ReceiptDraftService, Depends(get_receipt_draft_service)],
+) -> ReceiptRead:
+    """Queue an outbox email notification for a DRAFT purchase receipt (Admin only)."""
+    try:
+        result = service.notify_draft_created(
+            session,
+            actor_id=current_admin.id,
+            receipt_id=receipt_id,
+        )
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
