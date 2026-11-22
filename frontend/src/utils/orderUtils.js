@@ -2,25 +2,34 @@ export const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
 export const STAFF_CANCEL_WINDOW_MS = 15 * 60 * 1000;
 
 /**
- * Append ' (admin)' to display names of ADMIN users while leaving STAFF names plain.
+ * Append ' (Admin)' to display names of ADMIN users while leaving STAFF names plain.
  */
 export function formatUserDisplayName(fullName, role) {
   const trimmed = typeof fullName === 'string' ? fullName.trim() : '';
-  if (!trimmed) return '';
-  if (role === 'ADMIN' && !/\(admin\)$/i.test(trimmed)) {
-    return `${trimmed} (admin)`;
+  if (!trimmed) {
+    if (role === 'ADMIN') return 'Quản trị viên (Admin)';
+    return '';
+  }
+  if (role === 'ADMIN') {
+    if (/\(admin\)$/i.test(trimmed)) {
+      return trimmed.replace(/\(admin\)$/i, '(Admin)');
+    }
+    return `${trimmed} (Admin)`;
   }
   return trimmed;
 }
 
 /**
- * Format actor display label. Appends ' (admin)' when role is ADMIN and omits it for STAFF.
+ * Format actor display label. Appends ' (Admin)' when role is ADMIN and omits it for STAFF.
  */
 export function formatOrderActorLabel(actorId, currentUser, actorName = null) {
   const trimmedName = typeof actorName === 'string' ? actorName.trim() : '';
   if (trimmedName) {
     if (currentUser && currentUser.id === actorId && currentUser.role === 'ADMIN') {
       return formatUserDisplayName(trimmedName, 'ADMIN');
+    }
+    if (/\(admin\)$/i.test(trimmedName)) {
+      return trimmedName.replace(/\(admin\)$/i, '(Admin)');
     }
     return trimmedName;
   }
@@ -35,7 +44,7 @@ export function formatOrderActorLabel(actorId, currentUser, actorName = null) {
     if (rawName) {
       return formatUserDisplayName(rawName, currentUser.role);
     }
-    if (currentUser.role === 'ADMIN') return `Admin #${actorId}`;
+    if (currentUser.role === 'ADMIN') return 'Quản trị viên (Admin)';
     if (currentUser.role === 'STAFF') return `Nhân viên #${actorId}`;
   }
   return `Tài khoản #${actorId}`;

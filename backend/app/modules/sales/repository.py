@@ -11,16 +11,19 @@ from app.modules.sales.models import Order, OrderItem
 
 
 def format_actor_display_name(full_name: str | None, role: str | None) -> str | None:
-    """Append ' (admin)' suffix for ADMIN actors while leaving STAFF names plain."""
+    """Append ' (Admin)' suffix for ADMIN actors while leaving STAFF names plain."""
     if full_name is None or not full_name.strip():
         if role == "ADMIN":
-            return "Quản trị viên (admin)"
+            return "Quản trị viên (Admin)"
         return None
     cleaned = full_name.strip()
-    if role == "ADMIN" and not cleaned.lower().endswith("(admin)"):
-        suffix = " (admin)"
-        if len(cleaned) + len(suffix) <= 120:
-            return f"{cleaned}{suffix}"
+    if role == "ADMIN":
+        if not cleaned.lower().endswith("(admin)"):
+            suffix = " (Admin)"
+            if len(cleaned) + len(suffix) <= 120:
+                return f"{cleaned}{suffix}"
+        elif cleaned.endswith("(admin)"):
+            return f"{cleaned[:-7]}(Admin)"
     return cleaned
 
 

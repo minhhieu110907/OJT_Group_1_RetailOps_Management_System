@@ -224,12 +224,22 @@ def test_escape_like_helper() -> None:
 
 
 def test_format_actor_display_name() -> None:
-    assert format_actor_display_name("Nguyễn Minh Hiếu", "ADMIN") == "Nguyễn Minh Hiếu (admin)"
-    assert format_actor_display_name("Nguyễn Minh Hiếu (admin)", "ADMIN") == "Nguyễn Minh Hiếu (admin)"
+    assert (
+        format_actor_display_name("Nguyễn Minh Hiếu", "ADMIN")
+        == "Nguyễn Minh Hiếu (Admin)"
+    )
+    assert (
+        format_actor_display_name("Nguyễn Minh Hiếu (admin)", "ADMIN")
+        == "Nguyễn Minh Hiếu (Admin)"
+    )
+    assert (
+        format_actor_display_name("Nguyễn Minh Hiếu (Admin)", "ADMIN")
+        == "Nguyễn Minh Hiếu (Admin)"
+    )
     assert format_actor_display_name("  Nguyễn Văn A  ", "STAFF") == "Nguyễn Văn A"
-    assert format_actor_display_name(None, "ADMIN") == "Quản trị viên (admin)"
-    assert format_actor_display_name("", "ADMIN") == "Quản trị viên (admin)"
-    assert format_actor_display_name("   ", "ADMIN") == "Quản trị viên (admin)"
+    assert format_actor_display_name(None, "ADMIN") == "Quản trị viên (Admin)"
+    assert format_actor_display_name("", "ADMIN") == "Quản trị viên (Admin)"
+    assert format_actor_display_name("   ", "ADMIN") == "Quản trị viên (Admin)"
     assert format_actor_display_name(None, "STAFF") is None
     assert format_actor_display_name("", "STAFF") is None
     assert format_actor_display_name(None, None) is None

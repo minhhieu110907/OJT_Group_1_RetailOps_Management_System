@@ -56,7 +56,13 @@ def seed_admin(
             raise AdminSeedConflictError("A different Admin identity already exists")
         if normalized_full_name and existing_admin.full_name != normalized_full_name:
             existing_admin.full_name = normalized_full_name
-            session.flush()
+            try:
+                session.commit()
+            except IntegrityError as error:
+                session.rollback()
+                raise AdminSeedConflictError(
+                    "Admin seed conflicted with existing data"
+                ) from error
             return True
         return False
 
