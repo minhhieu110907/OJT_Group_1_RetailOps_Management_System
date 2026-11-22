@@ -10,9 +10,7 @@ from app.modules.auth.models import User
 from app.modules.sales.models import Order, OrderItem
 
 
-def format_actor_display_name(
-    full_name: str | None, role: str | None
-) -> str | None:
+def format_actor_display_name(full_name: str | None, role: str | None) -> str | None:
     """Append ' (admin)' suffix for ADMIN actors while leaving STAFF names plain."""
     if full_name is None:
         return None
