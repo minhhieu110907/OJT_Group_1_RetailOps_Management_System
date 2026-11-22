@@ -191,3 +191,25 @@ class ProductListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ProductImportRowError(BaseModel):
+    """Per-row validation or persistence error from CSV product import."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    row_number: int = Field(ge=2)
+    sku: str | None = None
+    reason: str = Field(min_length=1)
+
+
+class ProductImportResponse(BaseModel):
+    """Summary and detailed row error report for CSV product import (T3C9EFC)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_rows: int = Field(ge=0)
+    imported_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    error_count: int = Field(ge=0)
+    errors: list[ProductImportRowError]

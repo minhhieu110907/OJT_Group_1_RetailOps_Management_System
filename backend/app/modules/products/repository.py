@@ -68,6 +68,12 @@ class ProductRepository:
     def get_category(self, session: Session, category_id: int) -> Category | None:
         return session.scalar(select(Category).where(Category.id == category_id))
 
+    def find_categories_by_name(self, session: Session, name: str) -> list[Category]:
+        """Find categories matching a trimmed name with full Unicode case-folding."""
+        target = name.strip().casefold()
+        categories = session.scalars(select(Category).order_by(Category.id.asc()))
+        return [cat for cat in categories if cat.name.strip().casefold() == target]
+
     def get_by_id(self, session: Session, product_id: int) -> Product | None:
         return session.scalar(select(Product).where(Product.id == product_id))
 

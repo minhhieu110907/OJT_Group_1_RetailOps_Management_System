@@ -2,19 +2,26 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Path, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import DomainValidationError
 from app.db.session import get_db_session
 from app.modules.auth.dependencies import (
     get_current_active_user,
     require_active_admin,
 )
 from app.modules.auth.models import User
+from app.modules.products.import_service import (
+    MAX_CSV_FILE_BYTES,
+    ProductImportService,
+    extract_csv_upload,
+)
 from app.modules.products.models import CatalogStatus
 from app.modules.products.schemas import (
     MAX_PRODUCT_SEARCH_LENGTH,
     ProductCreateRequest,
+    ProductImportResponse,
     ProductListResponse,
     ProductRead,
     ProductSortOrder,
@@ -29,6 +36,44 @@ router = APIRouter(prefix="/products", tags=["products"])
 def get_product_service() -> ProductService:
     """Provide the ProductService instance for FastAPI dependency injection."""
     return ProductService()
+
+
+def get_product_import_service(
+    product_service: Annotated[ProductService, Depends(get_product_service)],
+) -> ProductImportService:
+    """Provide ProductImportService reusing the injected ProductService."""
+    return ProductImportService(product_service=product_service)
+
+
+@router.post(
+    "/import/csv",
+    response_model=ProductImportResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def import_products_csv(
+    request: Request,
+    _admin_user: Annotated[User, Depends(require_active_admin)],
+    session: Annotated[Session, Depends(get_db_session)],
+    import_service: Annotated[
+        ProductImportService, Depends(get_product_import_service)
+    ],
+) -> ProductImportResponse:
+    """Import products from CSV with row-by-row validation & partial success (Admin)."""
+    max_wire_bytes = MAX_CSV_FILE_BYTES + 65_536
+    chunks: list[bytes] = []
+    total_bytes = 0
+    async for chunk in request.stream():
+        total_bytes += len(chunk)
+        if total_bytes > max_wire_bytes:
+            raise DomainValidationError(
+                "Kích thước tệp CSV vượt quá giới hạn tối đa 2MB."
+            )
+        chunks.append(chunk)
+
+    raw_bytes, filename = extract_csv_upload(
+        b"".join(chunks), content_type=request.headers.get("content-type")
+    )
+    return import_service.import_csv(session, raw_bytes, filename=filename)
 
 
 @router.get("", response_model=ProductListResponse, status_code=status.HTTP_200_OK)
