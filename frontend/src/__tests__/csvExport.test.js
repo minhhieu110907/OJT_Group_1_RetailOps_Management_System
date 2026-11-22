@@ -4,6 +4,7 @@ import {
   beautifyCsvForExcel,
   downloadCsvReport,
   extractFilenameFromHeader,
+  generateStyledExcelFromCsv,
   parseBlobErrorMessage,
 } from '../utils/csvDownload.js';
 import { ordersApi } from '../api/ordersApi.js';
@@ -303,6 +304,23 @@ describe('T3C9F4A — CSV Export Utility & Integration Suite', () => {
           '#SP-1,SKU-BEV-001,Trà sữa Ô long,Đồ uống,Đang bán,15,35.000 ₫,\u00A001/10/2026 09:00:00\u00A0'
         )
       );
+    });
+  });
+
+  describe('generateStyledExcelFromCsv', () => {
+    it('generates a valid .xlsx Blob with styled KPI banner, wide columns, and visual bar chart', async () => {
+      const rawDailySales =
+        '\ufeffNgày,Doanh thu thuần (VNĐ),Số đơn hoàn tất,Số đơn hủy,Giá trị trung bình đơn (VNĐ)\r\n' +
+        '2026-11-15,150000,2,0,75000\r\n' +
+        '2026-11-16,300000,3,1,100000\r\n';
+
+      const xlsxBlob = await generateStyledExcelFromCsv(rawDailySales);
+      assert.ok(xlsxBlob instanceof Blob);
+      assert.strictEqual(
+        xlsxBlob.type,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      assert.ok(xlsxBlob.size > 1000);
     });
   });
 });

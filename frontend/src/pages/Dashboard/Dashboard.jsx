@@ -394,11 +394,12 @@ export default function Dashboard() {
             from: activeRange.from,
             to: activeRange.to,
           }),
-        `daily_sales_export_${activeRange.from}_${activeRange.to}.csv`
+        `daily_sales_export_${activeRange.from}_${activeRange.to}.xlsx`,
+        { format: 'xlsx' }
       );
-      toast.success('Xuất báo cáo doanh thu theo ngày thành công!');
+      toast.success('Xuất báo cáo Excel doanh thu theo ngày thành công!');
     } catch (err) {
-      toast.error(err.message || 'Không thể xuất báo cáo CSV.');
+      toast.error(err.message || 'Không thể xuất báo cáo.');
     } finally {
       setIsExportingCsv(false);
     }

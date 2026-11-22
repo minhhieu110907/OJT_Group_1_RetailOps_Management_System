@@ -302,11 +302,12 @@ export default function InventoryList() {
             inStock: inStockParam,
             lowStockOnly,
           }),
-        `inventory_export_${selectedCategoryId || 'all'}.csv`
+        `inventory_export_${selectedCategoryId || 'all'}.xlsx`,
+        { format: 'xlsx' }
       );
-      toast.success('Xuất file CSV danh sách tồn kho thành công!');
+      toast.success('Xuất báo cáo Excel danh sách tồn kho thành công!');
     } catch (err) {
-      toast.error(err.message || 'Không thể xuất file CSV tồn kho.');
+      toast.error(err.message || 'Không thể xuất báo cáo tồn kho.');
     } finally {
       setIsExportingCsv(false);
     }
