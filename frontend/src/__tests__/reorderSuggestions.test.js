@@ -494,3 +494,81 @@ describe('T3C9F16 — Reorder Suggestions & Draft Receipt Payload Suite', () => 
     assert.match(purchasePageSource, /replace:\s*true,\s*state:\s*null/);
   });
 });
+
+import {
+  applyLastUnitCosts as _applyLastUnitCosts,
+  buildLastCostMap as _buildLastCostMap,
+  buildLastSupplierMap as _buildLastSupplierMap,
+  filterAndSortReorderRows as _filterAndSortReorderRows,
+  getMatchingProductIdsForSupplier as _getMatchingProductIdsForSupplier,
+  paginateReorderRows as _paginateReorderRows,
+} from '../utils/reorderSuggestions.js';
+
+test('last receipt cost map uses newest CONFIRMED price and never overrides edited cost', () => {
+  const receipts = [
+    { status: 'DRAFT', supplier_id: 99, items: [{ product_id: 1, unit_cost_vnd: 1 }] },
+    {
+      status: 'CONFIRMED',
+      supplier_id: 10,
+      supplier_name_snapshot: 'NCC A',
+      items: [{ product_id: 1, unit_cost_vnd: 12000 }],
+    },
+    {
+      status: 'CONFIRMED',
+      supplier_id: 20,
+      supplier_name_snapshot: 'NCC B',
+      items: [
+        { product_id: 1, unit_cost_vnd: 9000 },
+        { product_id: 2, unit_cost_vnd: 0 },
+      ],
+    },
+  ];
+  const map = _buildLastCostMap(receipts);
+  const supMap = _buildLastSupplierMap(receipts);
+  assert.equal(map.get(1), 12000);
+  assert.equal(map.has(2), false);
+  assert.deepEqual(supMap.get(1), { supplier_id: 10, supplier_name: 'NCC A' });
+
+  const rows = _applyLastUnitCosts(
+    [
+      { product_id: 1, unit_cost_vnd: 0, category_id: 5 },
+      { product_id: 1, unit_cost_vnd: 5000 },
+      { product_id: 3, unit_cost_vnd: 0, category_id: 5 },
+    ],
+    map,
+    supMap
+  );
+  assert.equal(rows[0].unit_cost_vnd, 12000);
+  assert.equal(rows[0].cost_source, 'LAST_RECEIPT');
+  assert.equal(rows[0].last_supplier_id, 10);
+  assert.equal(rows[0].last_supplier_name, 'NCC A');
+  assert.equal(rows[1].unit_cost_vnd, 5000);
+
+  const matched = _getMatchingProductIdsForSupplier(rows, { id: 10, category_ids: [5] });
+  assert.deepEqual(matched, [1, 1, 3]);
+});
+
+test('filterAndSortReorderRows and paginateReorderRows filter, sort, and paginate stably', () => {
+  const rows = [
+    { product_id: 1, classification: 'SLOW_MOVING_HOLD', quantity: 1, sold_units: 0 },
+    { product_id: 2, classification: 'PRIORITY_RESTOCK', quantity: 3, sold_units: 9 },
+    { product_id: 3, classification: 'PRIORITY_RESTOCK', quantity: 0, sold_units: 20 },
+  ];
+  assert.deepEqual(
+    _filterAndSortReorderRows(rows, { sort: 'PRIORITY' }).map((r) => r.product_id),
+    [2, 3, 1]
+  );
+  assert.deepEqual(
+    _filterAndSortReorderRows(rows, { filter: 'PRIORITY_RESTOCK', sort: 'STOCK_ASC' }).map((r) => r.product_id),
+    [3, 2]
+  );
+  assert.deepEqual(
+    _filterAndSortReorderRows(rows, { sort: 'SOLD_DESC' }).map((r) => r.product_id),
+    [3, 2, 1]
+  );
+  const page1 = _paginateReorderRows(rows, { page: 1, pageSize: 2 });
+  assert.equal(page1.totalPages, 2);
+  assert.equal(page1.items.length, 2);
+  const page2 = _paginateReorderRows(rows, { page: 2, pageSize: 2 });
+  assert.equal(page2.items.length, 1);
+});

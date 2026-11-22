@@ -193,6 +193,142 @@ export function buildReorderSuggestions(
 }
 
 /**
+ * Lấy đơn giá nhập gần nhất của từng sản phẩm từ các phiếu CONFIRMED
+ * (danh sách đã sắp xếp mới nhất trước). Chỉ nhận số nguyên >= 0 hợp lệ.
+ */
+export function buildLastCostMap(receipts = []) {
+  const map = new Map();
+  for (const receipt of Array.isArray(receipts) ? receipts : []) {
+    if (receipt?.status !== 'CONFIRMED') continue;
+    for (const item of Array.isArray(receipt?.items) ? receipt.items : []) {
+      const pid = parseStrictInteger(item?.product_id);
+      const cost = parseStrictInteger(item?.unit_cost_vnd);
+      if (pid !== null && pid > 0 && cost !== null && cost > 0 && !map.has(pid)) {
+        map.set(pid, cost);
+      }
+    }
+  }
+  return map;
+}
+
+/** Điền sẵn đơn giá dự kiến và NCC gần nhất từ lịch sử phiếu CONFIRMED; không ghi đè giá Admin đã sửa. */
+export function buildLastSupplierMap(receipts = []) {
+  const map = new Map();
+  for (const receipt of Array.isArray(receipts) ? receipts : []) {
+    if (receipt?.status !== 'CONFIRMED') continue;
+    const supId = parseStrictInteger(receipt?.supplier_id);
+    const supName =
+      typeof receipt?.supplier_name_snapshot === 'string' &&
+      receipt.supplier_name_snapshot.trim()
+        ? receipt.supplier_name_snapshot.trim()
+        : null;
+    if (supId === null || supId <= 0) continue;
+    for (const item of Array.isArray(receipt?.items) ? receipt.items : []) {
+      const pid = parseStrictInteger(item?.product_id);
+      if (pid !== null && pid > 0 && !map.has(pid)) {
+        map.set(pid, { supplier_id: supId, supplier_name: supName });
+      }
+    }
+  }
+  return map;
+}
+
+export function applyLastUnitCosts(rows = [], costMap = new Map(), supplierMap = new Map()) {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const lastCost = costMap.get(row.product_id);
+    const lastSup = supplierMap instanceof Map ? supplierMap.get(row.product_id) : undefined;
+    const next = { ...row };
+    if (lastCost !== undefined && parseStrictInteger(row.unit_cost_vnd) === 0) {
+      next.unit_cost_vnd = lastCost;
+      next.cost_source = 'LAST_RECEIPT';
+    }
+    if (lastSup) {
+      next.last_supplier_id = lastSup.supplier_id;
+      next.last_supplier_name = lastSup.supplier_name;
+    }
+    return next;
+  });
+}
+
+/**
+ * Tìm danh sách product_id phù hợp với nhà cung cấp đang chọn
+ * (dựa trên danh mục category_ids của NCC hoặc lịch sử lần nhập gần nhất).
+ */
+export function getMatchingProductIdsForSupplier(rows = [], supplier = null) {
+  if (!supplier || typeof supplier !== 'object') return [];
+  const supId = parseStrictInteger(supplier.id);
+  const catSet = new Set(
+    Array.isArray(supplier.category_ids)
+      ? supplier.category_ids.map((c) => parseStrictInteger(c)).filter((c) => c !== null && c > 0)
+      : []
+  );
+  const matched = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const pid = parseStrictInteger(row?.product_id);
+    if (pid === null || pid <= 0) continue;
+    const rowCat = parseStrictInteger(row?.category_id);
+    const matchesCategory = rowCat !== null && catSet.has(rowCat);
+    const matchesHistory = supId !== null && row?.last_supplier_id === supId;
+    if (matchesCategory || matchesHistory) {
+      matched.push(pid);
+    }
+  }
+  return matched;
+}
+
+/** Phân trang danh sách gợi ý nhập hàng ở phía client một cách an toàn. */
+export function paginateReorderRows(rows = [], { page = 1, pageSize = 10 } = {}) {
+  const safe = Array.isArray(rows) ? rows : [];
+  const size = Math.max(1, parseStrictInteger(pageSize) || 10);
+  const totalItems = safe.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / size));
+  const currentPage = Math.min(Math.max(1, parseStrictInteger(page) || 1), totalPages);
+  const start = (currentPage - 1) * size;
+  return {
+    items: safe.slice(start, start + size),
+    page: currentPage,
+    pageSize: size,
+    totalItems,
+    totalPages,
+  };
+}
+
+export const REORDER_CLASSIFICATION_FILTERS = [
+  { key: 'ALL', label: 'Tất cả' },
+  { key: 'PRIORITY_RESTOCK', label: 'Ưu tiên nhập' },
+  { key: 'CHECK_DEMAND', label: 'Cần kiểm tra nhu cầu' },
+  { key: 'SLOW_MOVING_HOLD', label: 'Bán chậm' },
+];
+
+const CLASSIFICATION_RANK = {
+  PRIORITY_RESTOCK: 0,
+  CHECK_DEMAND: 1,
+  SLOW_MOVING_HOLD: 2,
+};
+
+/** Lọc theo phân loại và sắp xếp (ổn định) cho bảng gợi ý. */
+export function filterAndSortReorderRows(rows = [], { filter = 'ALL', sort = 'PRIORITY' } = {}) {
+  const safe = Array.isArray(rows) ? rows : [];
+  const filtered =
+    filter === 'ALL' ? safe : safe.filter((row) => row.classification === filter);
+  const indexed = filtered.map((row, index) => ({ row, index }));
+  indexed.sort((a, b) => {
+    let diff = 0;
+    if (sort === 'STOCK_ASC') {
+      diff = a.row.quantity - b.row.quantity;
+    } else if (sort === 'SOLD_DESC') {
+      diff = (b.row.sold_units ?? -1) - (a.row.sold_units ?? -1);
+    } else {
+      diff =
+        (CLASSIFICATION_RANK[a.row.classification] ?? 9) -
+        (CLASSIFICATION_RANK[b.row.classification] ?? 9);
+    }
+    return diff !== 0 ? diff : a.index - b.index;
+  });
+  return indexed.map((entry) => entry.row);
+}
+
+/**
  * Sinh thông điệp hướng dẫn trạng thái nút "Tạo phiếu nháp" & "Mở form tạo phiếu"
  * để Admin biết rõ điều kiện mở khóa nút (chọn sản phẩm + chọn nhà cung cấp).
  */

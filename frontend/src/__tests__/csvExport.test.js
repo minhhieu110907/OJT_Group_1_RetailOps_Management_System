@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  beautifyCsvForExcel,
   downloadCsvReport,
   extractFilenameFromHeader,
   parseBlobErrorMessage,
@@ -265,6 +266,35 @@ describe('T3C9F4A — CSV Export Utility & Integration Suite', () => {
       } finally {
         axiosClient.get = originalGet;
       }
+    });
+  });
+
+  describe('beautifyCsvForExcel', () => {
+    it('formats orders CSV with readable IDs, Vietnamese status, DD/MM/YYYY dates, and VND thousand separators', () => {
+      const rawCsv =
+        '\ufeffMã đơn,Ngày bán (VN),Trạng thái,SKU,Tên sản phẩm,Số lượng,Đơn giá (VNĐ),Thành tiền (VNĐ),Tổng đơn (VNĐ),Người tạo,Lý do hủy\r\n' +
+        '101,2026-11-15 10:30:00,COMPLETED,SKU-001,Cà phê Robusta,2,100000,200000,300000,Admin User (Admin),\r\n' +
+        '102,2026-11-15 11:00:00,CANCELLED,SKU-003,Bánh mì pate,1,50000,50000,50000,Staff User,Khách đổi ý\r\n';
+
+      const output = beautifyCsvForExcel(rawCsv);
+      assert.ok(output.startsWith('\ufeff  MÃ ĐƠN  ,  NGÀY BÁN (VN)  ,  TRẠNG THÁI  '));
+      assert.ok(output.includes('#HD-101, 15/11/2026 10:30:00 ,Hoàn tất,SKU-001,Cà phê Robusta,2,'));
+      assert.ok(output.includes('100.000 ₫,200.000 ₫,300.000 ₫,Admin User (Admin),—'));
+      assert.ok(output.includes('#HD-102, 15/11/2026 11:00:00 ,Đã hủy,SKU-003,Bánh mì pate,1,'));
+      assert.ok(output.includes('50.000 ₫,50.000 ₫,50.000 ₫,Staff User,Khách đổi ý'));
+    });
+
+    it('formats inventory and daily sales CSV cleanly', () => {
+      const rawInventory =
+        '\ufeffMã SP,SKU,Tên sản phẩm,Danh mục,Trạng thái,Tồn kho hiện tại,Giá bán niêm yết (VNĐ),Ngày nhập đầu tiên (VN)\r\n' +
+        '1,SKU-BEV-001,Trà sữa Ô long,Đồ uống,ACTIVE,15,35000,2026-10-01 09:00:00\r\n';
+
+      const outInv = beautifyCsvForExcel(rawInventory);
+      assert.ok(
+        outInv.includes(
+          '#SP-1,SKU-BEV-001,Trà sữa Ô long,Đồ uống,Đang bán,15,35.000 ₫, 01/10/2026 09:00:00 '
+        )
+      );
     });
   });
 });

@@ -14,10 +14,17 @@ import { receiptsApi } from '../../api/receiptsApi';
 import { suppliersApi } from '../../api/suppliersApi';
 import { useAuth } from '../../context/AuthContext';
 import {
+  REORDER_CLASSIFICATION_FILTERS,
+  applyLastUnitCosts,
   buildDraftReceiptPayload,
+  buildLastCostMap,
+  buildLastSupplierMap,
   buildPrefillDraftState,
   buildReorderSuggestions,
+  filterAndSortReorderRows,
   getDraftActionGuidance,
+  getMatchingProductIdsForSupplier,
+  paginateReorderRows,
   parseStrictInteger,
 } from '../../utils/reorderSuggestions';
 import styles from './AiAssistant.module.css';
@@ -233,7 +240,12 @@ export default function AiAssistant() {
   const [reorderReloadSeq, setReorderReloadSeq] = useState(0);
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [draftActionError, setDraftActionError] = useState('');
+  const [reorderFilter, setReorderFilter] = useState('ALL');
+  const [reorderSort, setReorderSort] = useState('PRIORITY');
+  const [reorderPage, setReorderPage] = useState(1);
   const [createdDraftReceipt, setCreatedDraftReceipt] = useState(null);
+  const [isSendingDraftEmail, setIsSendingDraftEmail] = useState(false);
+  const [draftEmailSent, setDraftEmailSent] = useState(false);
   const reorderReqSeqRef = useRef(0);
   const draftCreateLockRef = useRef(false);
 
@@ -455,8 +467,9 @@ export default function AiAssistant() {
 
     const fetchReorderData = async () => {
       try {
-        const [lowResult, topResult, slowResult, supResult] = await Promise.allSettled([
-          inventoryApi.getLowStock({ page: 1, pageSize: 20 }),
+        const [lowResult, topResult, slowResult, supResult, costResult] =
+          await Promise.allSettled([
+          inventoryApi.getLowStock({ page: 1, pageSize: 50 }),
           analyticsApi.getTopProducts({
             isMockMode,
             page: 1,
@@ -474,6 +487,7 @@ export default function AiAssistant() {
             fetchAll: true,
             maxPages: 5,
           }),
+          receiptsApi.list({ page: 1, pageSize: 100, status: 'CONFIRMED' }),
         ]);
 
         if (!isMountedRef.current || currentSeq !== reorderReqSeqRef.current) {
@@ -510,10 +524,16 @@ export default function AiAssistant() {
         const supFailed = supResult.status === 'rejected';
         const activeSups = !supFailed ? supResult.value?.items || [] : [];
 
-        const builtSuggestions = buildReorderSuggestions(
-          lowItems,
-          topFailed ? null : topItems,
-          slowFailed ? null : slowItems
+        const confirmedReceipts =
+          costResult.status === 'fulfilled' ? costResult.value?.items || [] : [];
+        const builtSuggestions = applyLastUnitCosts(
+          buildReorderSuggestions(
+            lowItems,
+            topFailed ? null : topItems,
+            slowFailed ? null : slowItems
+          ),
+          buildLastCostMap(confirmedReceipts),
+          buildLastSupplierMap(confirmedReceipts)
         );
         setReorderRows(builtSuggestions);
         setReorderSuppliers(activeSups);
@@ -553,15 +573,31 @@ export default function AiAssistant() {
     };
   }, [isAdmin, isMockMode, reorderReloadSeq]);
 
+  const visibleReorderRows = filterAndSortReorderRows(reorderRows, {
+    filter: reorderFilter,
+    sort: reorderSort,
+  });
+  const paginatedReorder = paginateReorderRows(visibleReorderRows, {
+    page: reorderPage,
+    pageSize: 10,
+  });
+  const activeSupplierObj = reorderSuppliers.find(
+    (s) => String(s.id) === String(selectedSupplierId)
+  );
+  const supplierMatchingIds = activeSupplierObj
+    ? getMatchingProductIdsForSupplier(reorderRows, activeSupplierObj)
+    : [];
   const isAllSuggestionsSelected =
-    reorderRows.length > 0 && selectedProductIds.length === reorderRows.length;
+    visibleReorderRows.length > 0 &&
+    visibleReorderRows.every((r) => selectedProductIds.includes(r.product_id));
 
   const handleToggleAllSuggestions = () => {
     setDraftActionError('');
+    const visibleIds = visibleReorderRows.map((r) => r.product_id);
     if (isAllSuggestionsSelected) {
-      setSelectedProductIds([]);
+      setSelectedProductIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
     } else {
-      setSelectedProductIds(reorderRows.map((r) => r.product_id));
+      setSelectedProductIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
     }
   };
 
@@ -609,6 +645,7 @@ export default function AiAssistant() {
       const created = await receiptsApi.createDraft(payload);
       if (!isMountedRef.current) return;
       setCreatedDraftReceipt(created);
+      setDraftEmailSent(false);
       setDraftActionError('');
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -647,6 +684,26 @@ export default function AiAssistant() {
       navigateFn('/purchases', {
         state: { openReceiptId: Number(createdDraftReceipt.id) },
       });
+    }
+  };
+
+  const handleSendDraftEmail = async () => {
+    if (!createdDraftReceipt?.id || isSendingDraftEmail || draftEmailSent) return;
+    setIsSendingDraftEmail(true);
+    setDraftActionError('');
+    try {
+      await receiptsApi.notifyDraft(createdDraftReceipt.id);
+      if (!isMountedRef.current) return;
+      setDraftEmailSent(true);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setDraftActionError(
+        getApiErrorMessage(err, 'Không thể xếp hàng gửi email thông báo phiếu nháp.')
+      );
+    } finally {
+      if (isMountedRef.current) {
+        setIsSendingDraftEmail(false);
+      }
     }
   };
 
@@ -697,14 +754,37 @@ export default function AiAssistant() {
             <strong>#{createdDraftReceipt.id}</strong> (trạng thái{' '}
             <strong>DRAFT</strong> — chưa cộng tồn kho). Vui lòng kiểm tra đơn
             giá và xác nhận phiếu khi hàng về kho.
+            {draftEmailSent && (
+              <>
+                {' '}
+                <strong>
+                  Đã xếp hàng gửi email thông báo tới Quản trị viên qua Outbox.
+                </strong>
+              </>
+            )}
           </span>
-          <button
-            type="button"
-            className={styles.inspectDraftBtn}
-            onClick={() => handleInspectCreatedDraft(navigateFn)}
-          >
-            Kiểm tra &amp; Xác nhận phiếu nháp
-          </button>
+          <div className={styles.toolbarActions}>
+            <button
+              type="button"
+              className={styles.openFormBtn}
+              disabled={isSendingDraftEmail || draftEmailSent}
+              onClick={handleSendDraftEmail}
+              data-testid="send-draft-email-btn"
+            >
+              {draftEmailSent
+                ? 'Đã gửi email thông báo'
+                : isSendingDraftEmail
+                ? 'Đang gửi email...'
+                : 'Gửi email thông báo Admin'}
+            </button>
+            <button
+              type="button"
+              className={styles.inspectDraftBtn}
+              onClick={() => handleInspectCreatedDraft(navigateFn)}
+            >
+              Kiểm tra &amp; Xác nhận phiếu nháp
+            </button>
+          </div>
         </div>
       )}
 
@@ -828,6 +908,20 @@ export default function AiAssistant() {
                 </div>
 
                 <div className={styles.toolbarActions}>
+                  {supplierMatchingIds.length > 0 && (
+                    <button
+                      type="button"
+                      className={styles.openFormBtn}
+                      disabled={isCreatingDraft}
+                      onClick={() => {
+                        setDraftActionError('');
+                        setSelectedProductIds(supplierMatchingIds);
+                      }}
+                      title="Chọn nhanh các sản phẩm khớp với Nhà cung cấp đang chọn"
+                    >
+                      Chọn SP của NCC này ({supplierMatchingIds.length})
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={styles.openFormBtn}
@@ -865,6 +959,47 @@ export default function AiAssistant() {
               </div>
 
               <div className={styles.reorderTableWrap}>
+                <div className={styles.reorderToolbar}>
+                  <label className={styles.supplierLabel} htmlFor="ai-reorder-filter">
+                    Phân loại
+                  </label>
+                  <select
+                    id="ai-reorder-filter"
+                    className={styles.supplierSelect}
+                    value={reorderFilter}
+                    onChange={(e) => {
+                      setReorderFilter(e.target.value);
+                      setReorderPage(1);
+                    }}
+                  >
+                    {REORDER_CLASSIFICATION_FILTERS.map((f) => (
+                      <option key={f.key} value={f.key}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                  <label className={styles.supplierLabel} htmlFor="ai-reorder-sort">
+                    Sắp xếp
+                  </label>
+                  <select
+                    id="ai-reorder-sort"
+                    className={styles.supplierSelect}
+                    value={reorderSort}
+                    onChange={(e) => {
+                      setReorderSort(e.target.value);
+                      setReorderPage(1);
+                    }}
+                  >
+                    <option value="PRIORITY">Ưu tiên nhập trước</option>
+                    <option value="STOCK_ASC">Tồn thấp nhất trước</option>
+                    <option value="SOLD_DESC">Bán nhiều nhất trước</option>
+                  </select>
+                </div>
+                {visibleReorderRows.length === 0 && (
+                  <p className={styles.reorderEmptyBox}>
+                    Không có sản phẩm nào thuộc phân loại đã chọn.
+                  </p>
+                )}
                 <table className={styles.reorderTable}>
                   <thead>
                     <tr>
@@ -886,7 +1021,7 @@ export default function AiAssistant() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reorderRows.map((row) => {
+                    {paginatedReorder.items.map((row) => {
                       const isChecked = selectedProductIds.includes(row.product_id);
                       const badgeMeta =
                         row.classification === 'SLOW_MOVING_HOLD'
@@ -947,7 +1082,12 @@ export default function AiAssistant() {
                             <span className={badgeMeta.className}>
                               {badgeMeta.label}
                             </span>
-                            <span className={styles.reasonText}>{row.reason}</span>
+                            <span className={styles.reasonText}>
+                              {row.reason}
+                              {row.last_supplier_name
+                                ? ` · NCC gần nhất: ${row.last_supplier_name}`
+                                : ''}
+                            </span>
                           </td>
                           <td>
                             <input
@@ -973,6 +1113,11 @@ export default function AiAssistant() {
                               step={1000}
                               aria-label={`Đơn giá dự kiến ${row.sku}`}
                               className={styles.cellInput}
+                              title={
+                                row.cost_source === 'LAST_RECEIPT'
+                                  ? 'Đơn giá lấy từ lần nhập gần nhất (có thể chỉnh sửa)'
+                                  : undefined
+                              }
                               value={row.unit_cost_vnd}
                               onChange={(e) =>
                                 handleUpdateSuggestionRow(
@@ -988,6 +1133,33 @@ export default function AiAssistant() {
                     })}
                   </tbody>
                 </table>
+                {paginatedReorder.totalPages > 1 && (
+                  <div className={styles.reorderToolbar} data-testid="reorder-pagination-bar">
+                    <span className={styles.supplierLabel}>
+                      Trang {paginatedReorder.page} / {paginatedReorder.totalPages} ({paginatedReorder.totalItems} sản phẩm)
+                    </span>
+                    <div className={styles.toolbarActions}>
+                      <button
+                        type="button"
+                        className={styles.openFormBtn}
+                        disabled={paginatedReorder.page <= 1}
+                        onClick={() => setReorderPage((p) => Math.max(1, p - 1))}
+                      >
+                        Trang trước
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.openFormBtn}
+                        disabled={paginatedReorder.page >= paginatedReorder.totalPages}
+                        onClick={() =>
+                          setReorderPage((p) => Math.min(paginatedReorder.totalPages, p + 1))
+                        }
+                      >
+                        Trang sau
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           );

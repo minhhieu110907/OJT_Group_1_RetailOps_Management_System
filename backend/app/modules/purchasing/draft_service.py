@@ -13,6 +13,7 @@ from app.core.exceptions import (
     InvalidStateError,
     ResourceNotFoundError,
 )
+from app.modules.outbox.writer import OutboxWriter
 from app.modules.products.models import CatalogStatus, Product
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.purchasing.schemas import (
@@ -36,6 +37,9 @@ def utc_now_naive() -> datetime:
 
 class ReceiptDraftService:
     """Manages draft lifecycle: creation, item normalization, conflict, and update."""
+
+    def __init__(self, outbox_writer: OutboxWriter | None = None) -> None:
+        self._outbox_writer = outbox_writer or OutboxWriter()
 
     def _process_items(
         self, session: Session, items: Sequence[ReceiptLineInput]
@@ -167,6 +171,7 @@ class ReceiptDraftService:
         actor_id: int,
         supplier_id: int,
         items: Sequence[ReceiptLineInput],
+        notify_email: bool = False,
     ) -> ReceiptRead:
         """Create a new purchase receipt in DRAFT status without mutating inventory."""
         supplier = session.get(Supplier, supplier_id)
@@ -210,7 +215,43 @@ class ReceiptDraftService:
             item_rows.append(item_row)
 
         session.flush()
+        if notify_email:
+            # Intent is persisted in the same transaction; email is sent after commit.
+            self._outbox_writer.append(
+                session,
+                subject_user_id=actor_id,
+                event_type="PURCHASE_DRAFT_CREATED",
+                payload={"schema_version": 1, "receipt_id": receipt.id},
+                available_at_utc=now.replace(tzinfo=UTC),
+            )
         return self._to_receipt_read(receipt, item_rows)
+
+    def notify_draft_created(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        receipt_id: int,
+    ) -> ReceiptRead:
+        """Queue an outbox email notification to Admin for a DRAFT receipt."""
+        receipt = session.get(PurchaseReceipt, receipt_id)
+        if receipt is None:
+            raise ResourceNotFoundError(f"Phiếu nhập ID {receipt_id} không tồn tại.")
+        if receipt.status != "DRAFT":
+            raise InvalidStateError(
+                "Chỉ có thể gửi thông báo cho phiếu ở trạng thái DRAFT "
+                f"(hiện tại: {receipt.status})."
+            )
+        now = utc_now_naive()
+        self._outbox_writer.append(
+            session,
+            subject_user_id=actor_id,
+            event_type="PURCHASE_DRAFT_CREATED",
+            payload={"schema_version": 1, "receipt_id": receipt.id},
+            available_at_utc=now.replace(tzinfo=UTC),
+        )
+        session.flush()
+        return self.get_receipt(session, receipt_id=receipt.id)
 
     def update_draft(
         self,
