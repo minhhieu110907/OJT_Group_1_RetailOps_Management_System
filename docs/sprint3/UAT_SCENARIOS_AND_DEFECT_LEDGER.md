@@ -184,7 +184,7 @@ Bảng theo dõi tiến độ và trạng thái tích hợp thực tế của to
 | `T04AAA2` | Đo hiệu năng và xác minh bảo mật | Hiếu | 20–21/11 | `PERF,GATE-E2E` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AABC` | Kiểm thử Purchasing và Email | Na Na | 22–23/11 | `TEST-DB,BE-OUTBOX` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AAD7` | Kiểm thử Product, Order và Analytics | Na Na | 20–21/11 | `TEST-DB,HTTP-ANALYTICS` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
-| `T04AAF1` | Kiểm thử frontend nghiệp vụ | Lâm | 20–21/11 | `GATE-E2E,FE-ADAPTER` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
+| `T04AAF1` | Kiểm thử frontend nghiệp vụ | Lâm | 20–21/11 | `GATE-E2E,FE-ADAPTER` | `PR_OPEN` | **IN_REVIEW** | Nhánh `test/t04aaf1-fe-business-e2e` (base: `ddf13a7`): 18/18 E2E API/DB thật (Auth/RBAC/Refresh/POS/409/Cancel/Dashboard 4 presets + CSV) + 392/392 FE tests PASS; xem `docs/testing/evidence/T04AAF1/T04AAF1_FE_E2E_TEST_REPORT.md` |
 | `T04AB0B` | AI gợi ý nhập hàng | Dương | 22–23/11 | `BE-AI,HTTP-AI` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AB25` | Giao diện Dashboard và AI | Lâm | 22–23/11 | `HTTP-ANALYTICS,HTTP-AI,FE-ADAPTER` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AB3F` | Rà soát bảo mật và concurrency | Hiếu | 22–23/11 | `SECURITY,TEST-DB` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
