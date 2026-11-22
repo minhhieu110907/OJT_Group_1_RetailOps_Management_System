@@ -502,7 +502,7 @@ export default function OrderList() {
               </button>
             )}
 
-            {/* Export CSV button (Admin only) */}
+            {/* Export Excel button (Admin only) */}
             {user?.role === 'ADMIN' && (
               <button
                 type="button"
@@ -510,7 +510,7 @@ export default function OrderList() {
                 onClick={handleExportCsv}
                 disabled={isExporting}
               >
-                {isExporting ? 'Đang xuất...' : 'Xuất CSV'}
+                {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
               </button>
             )}
           </div>

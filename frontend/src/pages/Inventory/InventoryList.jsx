@@ -331,7 +331,7 @@ export default function InventoryList() {
             onClick={handleExportCsv}
             disabled={isExportingCsv}
           >
-            {isExportingCsv ? 'Đang xuất...' : 'Xuất CSV'}
+            {isExportingCsv ? 'Đang xuất...' : 'Xuất Excel'}
           </button>
         )}
       </div>
