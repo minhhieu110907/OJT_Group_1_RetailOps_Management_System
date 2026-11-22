@@ -54,6 +54,10 @@ def seed_admin(
     if existing_admin is not None:
         if existing_admin.email_normalized != normalized_email:
             raise AdminSeedConflictError("A different Admin identity already exists")
+        if normalized_full_name and existing_admin.full_name != normalized_full_name:
+            existing_admin.full_name = normalized_full_name
+            session.flush()
+            return True
         return False
 
     existing_identity = session.scalar(

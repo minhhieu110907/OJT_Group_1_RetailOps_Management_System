@@ -661,6 +661,18 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
     assert.equal(formatOrderActorLabel(99, { id: 2, role: 'STAFF' }), 'Tài khoản #99');
     assert.equal(formatOrderActorLabel(1, { id: 1, role: 'ADMIN' }), 'Admin #1');
     assert.equal(
+      formatOrderActorLabel(1, { id: 1, role: 'ADMIN', name: 'Quản trị viên' }),
+      'Quản trị viên (admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(1, { id: 1, role: 'ADMIN', name: 'Nguyễn Minh Hiếu' }),
+      'Nguyễn Minh Hiếu (admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(2, { id: 2, role: 'STAFF', name: 'Nhân viên A' }),
+      'Nhân viên A'
+    );
+    assert.equal(
       formatUserDisplayName('Vũ Trần Lâm', 'ADMIN'),
       'Vũ Trần Lâm (admin)'
     );

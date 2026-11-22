@@ -115,3 +115,34 @@ def test_admin_seed_fails_closed_when_email_is_occupied(
                 password=SecretStr("password"),
                 password_hasher=PasswordHasher(work_factor=4),
             )
+
+
+def test_admin_seed_syncs_full_name_for_existing_admin(
+    migrated_integration_engine: Engine,
+) -> None:
+    hasher = PasswordHasher(work_factor=4)
+    with Session(migrated_integration_engine) as session:
+        # First seed without full_name
+        assert seed_admin(
+            session,
+            email=SEED_EMAIL,
+            password=SecretStr("first password"),
+            password_hasher=hasher,
+        )
+        admin = session.scalar(select(User).where(User.admin_slot == 1))
+        assert admin is not None
+        assert admin.full_name is None
+
+        # Re-seed with full_name syncs it
+        assert seed_admin(
+            session,
+            email=SEED_EMAIL,
+            password=SecretStr("different password"),
+            full_name="Nguyễn Minh Hiếu",
+            password_hasher=hasher,
+        )
+        session.commit()
+
+        updated_admin = session.scalar(select(User).where(User.admin_slot == 1))
+        assert updated_admin is not None
+        assert updated_admin.full_name == "Nguyễn Minh Hiếu"

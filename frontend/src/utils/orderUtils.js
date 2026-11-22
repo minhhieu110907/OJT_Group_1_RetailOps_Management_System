@@ -28,8 +28,12 @@ export function formatOrderActorLabel(actorId, currentUser, actorName = null) {
     return '—';
   }
   if (currentUser && currentUser.id === actorId) {
-    if (typeof currentUser.full_name === 'string' && currentUser.full_name.trim()) {
-      return formatUserDisplayName(currentUser.full_name, currentUser.role);
+    const rawName =
+      (typeof currentUser.full_name === 'string' && currentUser.full_name.trim()) ||
+      (typeof currentUser.name === 'string' && currentUser.name.trim()) ||
+      '';
+    if (rawName) {
+      return formatUserDisplayName(rawName, currentUser.role);
     }
     if (currentUser.role === 'ADMIN') return `Admin #${actorId}`;
     if (currentUser.role === 'STAFF') return `Nhân viên #${actorId}`;

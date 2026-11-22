@@ -11,7 +11,7 @@ from app.core.exceptions import (
     ResourceNotFoundError,
 )
 from app.modules.sales.models import Order, OrderItem
-from app.modules.sales.repository import _escape_like
+from app.modules.sales.repository import _escape_like, format_actor_display_name
 from app.modules.sales.schemas import OrderPage, OrderRead
 from app.modules.sales.service import OrderQuery, OrderReadService
 
@@ -221,3 +221,15 @@ def test_escape_like_helper() -> None:
     assert _escape_like("item_1") == "item\\_1"
     assert _escape_like("path\\file") == "path\\\\file"
     assert _escape_like("50%_off\\now") == "50\\%\\_off\\\\now"
+
+
+def test_format_actor_display_name() -> None:
+    assert format_actor_display_name("Nguyễn Minh Hiếu", "ADMIN") == "Nguyễn Minh Hiếu (admin)"
+    assert format_actor_display_name("Nguyễn Minh Hiếu (admin)", "ADMIN") == "Nguyễn Minh Hiếu (admin)"
+    assert format_actor_display_name("  Nguyễn Văn A  ", "STAFF") == "Nguyễn Văn A"
+    assert format_actor_display_name(None, "ADMIN") == "Quản trị viên (admin)"
+    assert format_actor_display_name("", "ADMIN") == "Quản trị viên (admin)"
+    assert format_actor_display_name("   ", "ADMIN") == "Quản trị viên (admin)"
+    assert format_actor_display_name(None, "STAFF") is None
+    assert format_actor_display_name("", "STAFF") is None
+    assert format_actor_display_name(None, None) is None
