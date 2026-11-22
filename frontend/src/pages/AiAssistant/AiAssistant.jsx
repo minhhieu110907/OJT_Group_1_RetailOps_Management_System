@@ -959,41 +959,53 @@ export default function AiAssistant() {
               </div>
 
               <div className={styles.reorderTableWrap}>
-                <div className={styles.reorderToolbar}>
-                  <label className={styles.supplierLabel} htmlFor="ai-reorder-filter">
-                    Phân loại
-                  </label>
-                  <select
-                    id="ai-reorder-filter"
-                    className={styles.supplierSelect}
-                    value={reorderFilter}
-                    onChange={(e) => {
-                      setReorderFilter(e.target.value);
-                      setReorderPage(1);
-                    }}
-                  >
-                    {REORDER_CLASSIFICATION_FILTERS.map((f) => (
-                      <option key={f.key} value={f.key}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-                  <label className={styles.supplierLabel} htmlFor="ai-reorder-sort">
-                    Sắp xếp
-                  </label>
-                  <select
-                    id="ai-reorder-sort"
-                    className={styles.supplierSelect}
-                    value={reorderSort}
-                    onChange={(e) => {
-                      setReorderSort(e.target.value);
-                      setReorderPage(1);
-                    }}
-                  >
-                    <option value="PRIORITY">Ưu tiên nhập trước</option>
-                    <option value="STOCK_ASC">Tồn thấp nhất trước</option>
-                    <option value="SOLD_DESC">Bán nhiều nhất trước</option>
-                  </select>
+                <div className={styles.reorderFilterBar}>
+                  <div className={styles.filterGroup}>
+                    <div className={styles.filterControl}>
+                      <label className={styles.filterLabel} htmlFor="ai-reorder-filter">
+                        Phân loại:
+                      </label>
+                      <select
+                        id="ai-reorder-filter"
+                        className={styles.filterSelect}
+                        value={reorderFilter}
+                        onChange={(e) => {
+                          setReorderFilter(e.target.value);
+                          setReorderPage(1);
+                        }}
+                      >
+                        {REORDER_CLASSIFICATION_FILTERS.map((f) => (
+                          <option key={f.key} value={f.key}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className={styles.filterControl}>
+                      <label className={styles.filterLabel} htmlFor="ai-reorder-sort">
+                        Sắp xếp:
+                      </label>
+                      <select
+                        id="ai-reorder-sort"
+                        className={styles.filterSelect}
+                        value={reorderSort}
+                        onChange={(e) => {
+                          setReorderSort(e.target.value);
+                          setReorderPage(1);
+                        }}
+                      >
+                        <option value="PRIORITY">Ưu tiên nhập trước</option>
+                        <option value="STOCK_ASC">Tồn thấp nhất trước</option>
+                        <option value="SOLD_DESC">Bán nhiều nhất trước</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <span className={styles.filterCountSummary}>
+                    Hiển thị <strong>{paginatedReorder.items.length}</strong> /{' '}
+                    <strong>{visibleReorderRows.length}</strong> sản phẩm
+                  </span>
                 </div>
                 {visibleReorderRows.length === 0 && (
                   <p className={styles.reorderEmptyBox}>
@@ -1003,7 +1015,7 @@ export default function AiAssistant() {
                 <table className={styles.reorderTable}>
                   <thead>
                     <tr>
-                      <th>
+                      <th className={styles.colCheck}>
                         <input
                           type="checkbox"
                           aria-label="Chọn tất cả sản phẩm gợi ý"
@@ -1011,13 +1023,13 @@ export default function AiAssistant() {
                           onChange={handleToggleAllSuggestions}
                         />
                       </th>
-                      <th>SKU</th>
-                      <th>Tên sản phẩm</th>
-                      <th>Tồn hiện tại / Ngưỡng</th>
-                      <th>Đã bán (30 ngày)</th>
-                      <th>Phân loại &amp; Lý do gợi ý</th>
-                      <th>Số lượng nhập</th>
-                      <th>Đơn giá dự kiến (VND)</th>
+                      <th className={styles.colSku}>SKU</th>
+                      <th className={styles.colName}>Tên sản phẩm</th>
+                      <th className={styles.colStock}>Tồn / Ngưỡng</th>
+                      <th className={styles.colSold}>Đã bán (30 ngày)</th>
+                      <th className={styles.colReason}>Phân loại &amp; Lý do gợi ý</th>
+                      <th className={styles.colQty}>Số lượng nhập</th>
+                      <th className={styles.colCost}>Đơn giá dự kiến (VND)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1048,7 +1060,7 @@ export default function AiAssistant() {
                             handleToggleSuggestionRow(row.product_id);
                           }}
                         >
-                          <td>
+                          <td className={styles.colCheck}>
                             <input
                               type="checkbox"
                               aria-label={`Chọn sản phẩm ${row.sku}`}
@@ -1058,11 +1070,13 @@ export default function AiAssistant() {
                               }
                             />
                           </td>
-                          <td className={styles.skuCell}>{row.sku}</td>
-                          <td>
-                            <strong>{row.name}</strong>
+                          <td className={`${styles.skuCell} ${styles.colSku}`}>
+                            {row.sku}
                           </td>
-                          <td>
+                          <td className={styles.colName}>
+                            <strong className={styles.productNameText}>{row.name}</strong>
+                          </td>
+                          <td className={styles.colStock}>
                             <span
                               className={
                                 row.quantity === 0
@@ -1073,29 +1087,38 @@ export default function AiAssistant() {
                               {row.quantity} / {row.threshold}
                             </span>
                           </td>
-                          <td>
-                            {row.sold_units === null
-                              ? 'Chưa có dữ liệu bán hàng đầy đủ'
-                              : `${row.sold_units.toLocaleString('vi-VN')} SP`}
+                          <td className={styles.colSold}>
+                            {row.sold_units === null ? (
+                              <span className={styles.mutedSalesText}>
+                                Chưa có dữ liệu bán hàng đầy đủ
+                              </span>
+                            ) : (
+                              <strong>{row.sold_units.toLocaleString('vi-VN')} SP</strong>
+                            )}
                           </td>
-                          <td className={styles.reasonCell}>
-                            <span className={badgeMeta.className}>
-                              {badgeMeta.label}
-                            </span>
-                            <span className={styles.reasonText}>
-                              {row.reason}
-                              {row.last_supplier_name
-                                ? ` · NCC gần nhất: ${row.last_supplier_name}`
-                                : ''}
-                            </span>
+                          <td className={`${styles.reasonCell} ${styles.colReason}`}>
+                            <div className={styles.reasonBadgeRow}>
+                              <span className={badgeMeta.className}>
+                                {badgeMeta.label}
+                              </span>
+                              {row.last_supplier_name && (
+                                <span
+                                  className={styles.lastSupplierChip}
+                                  title={`NCC gần nhất: ${row.last_supplier_name}`}
+                                >
+                                  NCC gần nhất: {row.last_supplier_name}
+                                </span>
+                              )}
+                            </div>
+                            <span className={styles.reasonText}>{row.reason}</span>
                           </td>
-                          <td>
+                          <td className={styles.colQty}>
                             <input
                               type="number"
                               min={1}
                               step={1}
                               aria-label={`Số lượng nhập ${row.sku}`}
-                              className={styles.cellInput}
+                              className={`${styles.cellInput} ${styles.qtyInput}`}
                               value={row.suggested_quantity}
                               onChange={(e) =>
                                 handleUpdateSuggestionRow(
@@ -1106,13 +1129,13 @@ export default function AiAssistant() {
                               }
                             />
                           </td>
-                          <td>
+                          <td className={styles.colCost}>
                             <input
                               type="number"
                               min={0}
                               step={1000}
                               aria-label={`Đơn giá dự kiến ${row.sku}`}
-                              className={styles.cellInput}
+                              className={`${styles.cellInput} ${styles.costInput}`}
                               title={
                                 row.cost_source === 'LAST_RECEIPT'
                                   ? 'Đơn giá lấy từ lần nhập gần nhất (có thể chỉnh sửa)'
@@ -1134,9 +1157,10 @@ export default function AiAssistant() {
                   </tbody>
                 </table>
                 {paginatedReorder.totalPages > 1 && (
-                  <div className={styles.reorderToolbar} data-testid="reorder-pagination-bar">
-                    <span className={styles.supplierLabel}>
-                      Trang {paginatedReorder.page} / {paginatedReorder.totalPages} ({paginatedReorder.totalItems} sản phẩm)
+                  <div className={styles.reorderPaginationBar} data-testid="reorder-pagination-bar">
+                    <span className={styles.filterCountSummary}>
+                      Trang <strong>{paginatedReorder.page}</strong> /{' '}
+                      <strong>{paginatedReorder.totalPages}</strong> ({paginatedReorder.totalItems} sản phẩm)
                     </span>
                     <div className={styles.toolbarActions}>
                       <button
