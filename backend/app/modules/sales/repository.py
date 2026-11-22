@@ -118,6 +118,51 @@ class OrderRepository:
         orders = list(session.scalars(stmt))
         return orders, total
 
+    def count_export_rows(
+        self,
+        session: Session,
+        *,
+        status: str | None = None,
+        sold_from_utc: datetime | None = None,
+        sold_to_utc_exclusive: datetime | None = None,
+        order_id_exact: int | None = None,
+        sku_search: str | None = None,
+    ) -> int:
+        """Count flattened export rows (OrderItem count or Order if empty)."""
+        conditions = []
+        if status is not None:
+            conditions.append(Order.status == status)
+        if sold_from_utc is not None:
+            conditions.append(Order.sold_at >= sold_from_utc)
+        if sold_to_utc_exclusive is not None:
+            conditions.append(Order.sold_at < sold_to_utc_exclusive)
+
+        if sku_search is not None:
+            escaped_sku = _escape_like(sku_search.lower())
+            sku_exists_clause = exists(
+                select(1).where(
+                    OrderItem.order_id == Order.id,
+                    func.lower(OrderItem.sku_snapshot).like(
+                        f"%{escaped_sku}%", escape="\\"
+                    ),
+                )
+            )
+            if order_id_exact is not None:
+                conditions.append(or_(Order.id == order_id_exact, sku_exists_clause))
+            else:
+                conditions.append(sku_exists_clause)
+        elif order_id_exact is not None:
+            conditions.append(Order.id == order_id_exact)
+
+        count_stmt = (
+            select(func.count(func.coalesce(OrderItem.product_id, Order.id)))
+            .select_from(Order)
+            .outerjoin(OrderItem, Order.id == OrderItem.order_id)
+        )
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+        return int(session.scalar(count_stmt) or 0)
+
     def list_items(self, session: Session, order_id: int) -> list[OrderItem]:
         return list(
             session.scalars(

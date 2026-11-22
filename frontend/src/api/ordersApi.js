@@ -201,6 +201,27 @@ export const ordersApi = {
   },
 
   /**
+   * Export orders as CSV via GET /api/v1/orders/export/csv (Real API only).
+   */
+  async exportOrdersCsv({ isMockMode, status, fromDate, toDate, search } = {}) {
+    assertRealApiMode(isMockMode);
+
+    const params = {};
+    if (status) params.status = status;
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
+    const normalizedSearch = normalizeOrderSearchQuery(search);
+    if (normalizedSearch) {
+      params.search = normalizedSearch;
+    }
+
+    return axiosClient.get('/orders/export/csv', {
+      params: Object.keys(params).length > 0 ? params : undefined,
+      responseType: 'blob',
+    });
+  },
+
+  /**
    * Contract alias: ordersApi.list(query) -> GET /api/v1/orders
    */
   async list(options = {}) {

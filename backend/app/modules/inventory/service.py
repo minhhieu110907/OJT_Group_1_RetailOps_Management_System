@@ -23,11 +23,19 @@ Architectural invariants:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
+from typing import Any
+from zoneinfo import ZoneInfo
 
+from fastapi import Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.csv_export import (
+    MAX_EXPORT_ROWS,
+    check_export_limit,
+    generate_csv_response,
+)
 from app.core.exceptions import ResourceNotFoundError
 from app.modules.inventory.exceptions import (
     DuplicateMovementError,
@@ -97,6 +105,13 @@ _KIND_TO_DEFAULT_REFERENCE_TYPE: dict[MovementKind, ReferenceType] = {
 def _utc_now_naive() -> datetime:
     """Return current UTC timestamp as naive datetime(6) for MySQL storage."""
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+VIETNAM_TIMEZONE = timezone(timedelta(hours=7), name="Asia/Ho_Chi_Minh")
+try:
+    VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+except Exception:  # pragma: no cover
+    VN_TZ = VIETNAM_TIMEZONE
 
 
 def _is_strict_int(value: object) -> bool:
@@ -225,6 +240,65 @@ class InventoryQueryService:
             page=page,
             page_size=page_size,
         )
+
+    def export_csv(
+        self,
+        session: Session,
+        *,
+        category_id: int | None = None,
+        status: str | None = None,
+        in_stock: bool | None = None,
+        low_stock_only: bool = False,
+    ) -> Response:
+        """Export inventory records joined with products and categories as CSV."""
+        items, total = self._repository.list_inventory_for_export(
+            session=session,
+            category_id=category_id,
+            status=status,
+            in_stock=in_stock,
+            low_stock_only=low_stock_only,
+            limit=MAX_EXPORT_ROWS + 1,
+        )
+
+        check_export_limit(total, MAX_EXPORT_ROWS)
+
+        headers = [
+            "Mã SP",
+            "SKU",
+            "Tên sản phẩm",
+            "Danh mục",
+            "Trạng thái",
+            "Tồn kho hiện tại",
+            "Giá bán niêm yết (VNĐ)",
+            "Ngày nhập đầu tiên (VN)",
+        ]
+
+        rows: list[list[Any]] = []
+        for item in items:
+            dt = item.get("first_stocked_at")
+            first_stocked_vn = (
+                dt.replace(tzinfo=UTC).astimezone(VN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+                if dt is not None
+                else ""
+            )
+            rows.append(
+                [
+                    item["product_id"],
+                    item["sku"],
+                    item["name"],
+                    item.get("category_name") or "",
+                    item["status"],
+                    item["quantity"],
+                    item["sale_price_vnd"],
+                    first_stocked_vn,
+                ]
+            )
+
+        check_export_limit(len(rows), MAX_EXPORT_ROWS)
+
+        ts = datetime.now(VN_TZ).strftime("%Y%m%d_%H%M%S")
+        filename = f"inventory_export_{ts}.csv"
+        return generate_csv_response(headers=headers, rows=rows, filename=filename)
 
     def list_stock_movements_admin(
         self,
