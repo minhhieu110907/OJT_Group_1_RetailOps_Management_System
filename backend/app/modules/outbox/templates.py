@@ -16,6 +16,7 @@ class EmailTemplateRegistry:
         "STAFF_REGISTERED": "RetailOps đã nhận yêu cầu đăng ký",
         "STAFF_APPROVED": "Tài khoản RetailOps đã được phê duyệt",
         "STAFF_REJECTED": "Kết quả yêu cầu đăng ký RetailOps",
+        "PURCHASE_DRAFT_CREATED": "RetailOps đã tạo phiếu nhập nháp",
     }
     _BODIES = {
         "STAFF_REGISTERED": (
@@ -33,6 +34,19 @@ class EmailTemplateRegistry:
     }
 
     def render(self, event: OutboxEvent) -> RenderedEmail:
+        if event.event_type == "PURCHASE_DRAFT_CREATED":
+            receipt_id = (event.payload or {}).get("receipt_id")
+            if type(receipt_id) is not int or receipt_id <= 0:
+                raise ValueError("Invalid purchase draft payload")
+            return RenderedEmail(
+                subject=self._SUBJECTS["PURCHASE_DRAFT_CREATED"],
+                text=(
+                    f"Phiếu nhập nháp #{receipt_id} đã được tạo (trạng thái DRAFT, "
+                    "chưa cộng tồn kho).\n"
+                    "Vui lòng vào mục Quản lý nhập hàng trên RetailOps để kiểm tra "
+                    "đơn giá và xác nhận phiếu khi hàng về kho."
+                ),
+            )
         try:
             return RenderedEmail(
                 subject=self._SUBJECTS[event.event_type],

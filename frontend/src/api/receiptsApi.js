@@ -891,4 +891,18 @@ export const receiptsApi = {
     });
     return validateReceiptRead(response.data);
   },
+
+  /**
+   * POST /purchase-receipts/:id/notify-draft
+   * Queue an Outbox email notification to Admin for a DRAFT receipt.
+   */
+  async notifyDraft(receiptId) {
+    const id = Number(receiptId);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error('ID phiếu nhập không hợp lệ.');
+    }
+
+    const response = await axiosClient.post(`/purchase-receipts/${id}/notify-draft`);
+    return validateReceiptRead(response.data);
+  },
 };

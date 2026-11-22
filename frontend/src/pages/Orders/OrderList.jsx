@@ -280,11 +280,12 @@ export default function OrderList() {
             toDate: urlDateRange?.to || selectedDate || undefined,
             search: debouncedSearch || undefined,
           }),
-        `orders_export_${urlDateRange ? `${urlDateRange.from}_${urlDateRange.to}` : selectedDate || 'all'}.csv`
+        `orders_export_${urlDateRange ? `${urlDateRange.from}_${urlDateRange.to}` : selectedDate || 'all'}.xlsx`,
+        { format: 'xlsx' }
       );
-      toast.success('Xuất file CSV đơn hàng thành công!');
+      toast.success('Xuất báo cáo Excel đơn hàng thành công!');
     } catch (err) {
-      toast.error(err.message || 'Không thể xuất file CSV đơn hàng.');
+      toast.error(err.message || 'Không thể xuất báo cáo đơn hàng.');
     } finally {
       setIsExporting(false);
     }
@@ -501,7 +502,7 @@ export default function OrderList() {
               </button>
             )}
 
-            {/* Export CSV button (Admin only) */}
+            {/* Export Excel button (Admin only) */}
             {user?.role === 'ADMIN' && (
               <button
                 type="button"
@@ -509,7 +510,7 @@ export default function OrderList() {
                 onClick={handleExportCsv}
                 disabled={isExporting}
               >
-                {isExporting ? 'Đang xuất...' : 'Xuất CSV'}
+                {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
               </button>
             )}
           </div>
