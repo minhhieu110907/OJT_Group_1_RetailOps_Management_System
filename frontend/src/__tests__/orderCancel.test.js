@@ -659,14 +659,29 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
 
     // Feedback clarity checks
     assert.equal(formatOrderActorLabel(99, { id: 2, role: 'STAFF' }), 'Tài khoản #99');
-    assert.equal(formatOrderActorLabel(1, { id: 1, role: 'ADMIN' }), 'Admin #1');
+    assert.equal(
+      formatOrderActorLabel(1, { id: 1, role: 'ADMIN' }),
+      'Quản trị viên (Admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(1, { id: 1, role: 'ADMIN', name: 'Quản trị viên' }),
+      'Quản trị viên (Admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(1, { id: 1, role: 'ADMIN', name: 'Nguyễn Minh Hiếu' }),
+      'Nguyễn Minh Hiếu (Admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(2, { id: 2, role: 'STAFF', name: 'Nhân viên A' }),
+      'Nhân viên A'
+    );
     assert.equal(
       formatUserDisplayName('Vũ Trần Lâm', 'ADMIN'),
-      'Vũ Trần Lâm (admin)'
+      'Vũ Trần Lâm (Admin)'
     );
     assert.equal(
       formatUserDisplayName('Vũ Trần Lâm (admin)', 'ADMIN'),
-      'Vũ Trần Lâm (admin)'
+      'Vũ Trần Lâm (Admin)'
     );
     assert.equal(
       formatUserDisplayName('Nguyễn Văn A', 'STAFF'),
@@ -678,14 +693,14 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
         { id: 1, role: 'ADMIN', full_name: 'Vũ Trần Lâm' },
         'Vũ Trần Lâm'
       ),
-      'Vũ Trần Lâm (admin)'
+      'Vũ Trần Lâm (Admin)'
     );
     assert.equal(
       formatOrderActorLabel(
         1,
         { id: 1, role: 'ADMIN', full_name: 'Vũ Trần Lâm' }
       ),
-      'Vũ Trần Lâm (admin)'
+      'Vũ Trần Lâm (Admin)'
     );
     assert.equal(
       formatOrderActorLabel(
@@ -701,7 +716,7 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
         { id: 2, role: 'STAFF', full_name: 'Nguyễn Văn A' },
         'Vũ Trần Lâm (admin)'
       ),
-      'Vũ Trần Lâm (admin)'
+      'Vũ Trần Lâm (Admin)'
     );
 
     const adminIneligible = classifyCancelOrderError(

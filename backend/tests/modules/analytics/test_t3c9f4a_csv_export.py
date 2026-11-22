@@ -437,14 +437,14 @@ async def test_orders_csv_export_content_and_flattening() -> None:
     # Order 1 Line 1
     exp_l1 = (
         "101,2026-11-15 10:30:00,COMPLETED,SKU-001,Cà phê Robusta,2,"
-        "100000,200000,300000,Admin User (admin),"
+        "100000,200000,300000,Admin User (Admin),"
     )
     assert exp_l1 in lines[1]
 
     # Order 1 Line 2 (sanitized formulas)
     exp_l2 = (
         "101,2026-11-15 10:30:00,COMPLETED,'=SKU-002,'+Trà sữa Oolong,1,"
-        "100000,100000,300000,Admin User (admin),"
+        "100000,100000,300000,Admin User (Admin),"
     )
     assert exp_l2 in lines[2]
 

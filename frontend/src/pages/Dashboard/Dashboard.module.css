@@ -616,12 +616,16 @@
   color: #0f172a;
 }
 
+.dataTable th.numCell,
+.dataTable td.numCell,
 .numCell {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
+.dataTable th.centerCell,
+.dataTable td.centerCell,
 .centerCell {
   text-align: center;
   white-space: nowrap;
