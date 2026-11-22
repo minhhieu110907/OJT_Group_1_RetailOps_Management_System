@@ -15,6 +15,7 @@ from sqlalchemy import case, func, literal, select, text, update
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
+from app.modules.categories.models import Category
 from app.modules.inventory.exceptions import (
     InventoryValidationError,
     StockConflictError,
@@ -118,6 +119,65 @@ class InventoryQueryRepository:
         rows = session.execute(stmt).mappings().all()
         items = [dict(row) for row in rows]
         return items, total
+
+    def list_inventory_for_export(
+        self,
+        session: Session,
+        *,
+        category_id: int | None = None,
+        status: str | None = None,
+        in_stock: bool | None = None,
+        low_stock_only: bool = False,
+        limit: int = 5001,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Query inventory records joined with products and categories for export."""
+        stmt = (
+            select(
+                Product.id.label("product_id"),
+                Product.sku.label("sku"),
+                Product.name.label("name"),
+                Category.name.label("category_name"),
+                Product.status.label("status"),
+                Inventory.quantity.label("quantity"),
+                Product.sale_price_vnd.label("sale_price_vnd"),
+                Inventory.first_stocked_at.label("first_stocked_at"),
+            )
+            .join(Inventory, Product.id == Inventory.product_id)
+            .outerjoin(Category, Product.category_id == Category.id)
+        )
+
+        count_stmt = select(func.count(Product.id)).join(
+            Inventory, Product.id == Inventory.product_id
+        )
+
+        if category_id is not None:
+            stmt = stmt.where(Product.category_id == category_id)
+            count_stmt = count_stmt.where(Product.category_id == category_id)
+
+        if status is not None:
+            status_val = status.value if hasattr(status, "value") else str(status)
+            stmt = stmt.where(Product.status == status_val)
+            count_stmt = count_stmt.where(Product.status == status_val)
+
+        if in_stock is True:
+            stmt = stmt.where(Inventory.quantity > 0)
+            count_stmt = count_stmt.where(Inventory.quantity > 0)
+        elif in_stock is False:
+            stmt = stmt.where(Inventory.quantity == 0)
+            count_stmt = count_stmt.where(Inventory.quantity == 0)
+
+        if low_stock_only:
+            threshold = DEFAULT_LOW_STOCK_THRESHOLD
+            stmt = stmt.where(Inventory.quantity <= threshold)
+            count_stmt = count_stmt.where(Inventory.quantity <= threshold)
+
+        total = session.scalar(count_stmt) or 0
+        if total == 0:
+            return [], 0
+
+        stmt = stmt.order_by(Product.id.asc()).limit(limit)
+        rows = session.execute(stmt).mappings().all()
+        return [dict(row) for row in rows], total
 
     def get_by_product_id(
         self, session: Session, product_id: int

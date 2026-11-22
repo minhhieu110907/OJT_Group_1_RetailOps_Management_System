@@ -155,4 +155,18 @@ export const analyticsApi = {
     });
     return validateProductAnalyticsPage(response.data);
   },
+
+  async exportDailySalesCsv({ isMockMode = false, from, to } = {}) {
+    assertRealApiMode(isMockMode);
+    const params = {};
+    const validFrom = validateDateQueryParam(from, 'from');
+    const validTo = validateDateQueryParam(to, 'to');
+    if (validFrom) params.from = validFrom;
+    if (validTo) params.to = validTo;
+
+    return axiosClient.get('/analytics/sales/daily/export/csv', {
+      params: Object.keys(params).length > 0 ? params : undefined,
+      responseType: 'blob',
+    });
+  },
 };

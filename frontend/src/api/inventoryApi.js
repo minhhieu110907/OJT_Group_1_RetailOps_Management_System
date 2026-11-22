@@ -324,5 +324,29 @@ export const inventoryApi = {
 
     return response.data;
   },
+
+  /**
+   * Xuất danh sách tồn kho dạng CSV (Admin only)
+   */
+  async exportInventoryCsv({ categoryId = null, status = null, inStock = null, lowStockOnly = false } = {}) {
+    const params = {};
+    if (categoryId) {
+      params.category_id = Number(categoryId);
+    }
+    if (status && (status === 'ACTIVE' || status === 'INACTIVE')) {
+      params.status = status;
+    }
+    if (typeof inStock === 'boolean') {
+      params.in_stock = inStock;
+    }
+    if (lowStockOnly) {
+      params.low_stock_only = true;
+    }
+
+    return axiosClient.get('/inventory/export/csv', {
+      params: Object.keys(params).length > 0 ? params : undefined,
+      responseType: 'blob',
+    });
+  },
 };
 

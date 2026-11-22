@@ -50,9 +50,17 @@ export function ToastProvider({ children }) {
 }
 
 // 3. Custom Hook để gọi thông báo ở bất kỳ component nào
-export function useToast() {
+export function useToast(options = {}) {
   const context = useContext(ToastContext);
   if (!context) {
+    if (options?.optional) {
+      return {
+        success: () => {},
+        error: () => {},
+        warning: () => {},
+        info: () => {},
+      };
+    }
     throw new Error('useToast phải được sử dụng bên trong <ToastProvider>');
   }
   return context;

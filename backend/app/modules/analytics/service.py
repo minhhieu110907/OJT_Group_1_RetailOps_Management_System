@@ -4,11 +4,17 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Protocol
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+from fastapi import Response
 from sqlalchemy.orm import Session
 
+from app.core.csv_export import (
+    MAX_EXPORT_ROWS,
+    check_export_limit,
+    generate_csv_response,
+)
 from app.core.exceptions import DomainValidationError
 from app.modules.analytics.repository import SalesAnalyticsRepository
 from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD, LowStockPage
@@ -196,6 +202,122 @@ class SalesAnalyticsService:
             cancelled_orders=cancelled_orders,
             aov_vnd=aov_vnd,
         )
+
+    def export_daily_sales_csv(
+        self,
+        session: Session,
+        *,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        now_fn: Callable[[], datetime] | None = None,
+    ) -> Response:
+        """Export daily sales KPI metrics grouped by Vietnam date as CSV."""
+        now_dt = now_fn() if now_fn is not None else datetime.now(VN_TZ)
+        today_vn = now_dt.astimezone(VN_TZ).date()
+
+        resolved_from = from_date
+        resolved_to = to_date
+
+        if resolved_from is None and resolved_to is None:
+            resolved_from = today_vn - timedelta(days=29)
+            resolved_to = today_vn
+        elif resolved_from is not None and resolved_to is None:
+            resolved_to = today_vn
+        elif resolved_from is None and resolved_to is not None:
+            resolved_from = resolved_to - timedelta(days=29)
+
+        assert resolved_from is not None
+        assert resolved_to is not None
+
+        if resolved_to >= date.max:
+            raise DomainValidationError("Giá trị to vượt giới hạn cho phép.")
+        if resolved_from <= date.min:
+            raise DomainValidationError("Giá trị from vượt giới hạn cho phép.")
+        if resolved_from > resolved_to:
+            raise DomainValidationError("from must not be greater than to")
+        if (resolved_to - resolved_from).days > MAX_QUERY_DAYS:
+            raise DomainValidationError(
+                "Khoảng thời gian tra cứu không được vượt quá 366 ngày."
+            )
+
+        try:
+            start_utc = datetime.combine(
+                resolved_from, time.min, tzinfo=VN_TZ
+            ).astimezone(UTC)
+            end_utc_exclusive = datetime.combine(
+                resolved_to + timedelta(days=1), time.min, tzinfo=VN_TZ
+            ).astimezone(UTC)
+        except OverflowError as err:
+            raise DomainValidationError(
+                "Khoảng ngày lọc vượt giới hạn cho phép."
+            ) from err
+
+        daily_rows = self._repository.get_daily_sales_summary(
+            session,
+            start_utc=start_utc,
+            end_utc_exclusive=end_utc_exclusive,
+        )
+
+        daily_data: dict[date, dict[str, int]] = {}
+        curr = resolved_from
+        while curr <= resolved_to:
+            daily_data[curr] = {
+                "revenue_vnd": 0,
+                "completed_orders": 0,
+                "cancelled_orders": 0,
+            }
+            curr += timedelta(days=1)
+
+        for row in daily_rows:
+            raw_vn_date = row.get("vn_date")
+            if isinstance(raw_vn_date, str):
+                vn_d = date.fromisoformat(raw_vn_date)
+            elif isinstance(raw_vn_date, date):
+                vn_d = raw_vn_date
+            elif isinstance(raw_vn_date, datetime):
+                vn_d = raw_vn_date.date()
+            else:
+                continue
+
+            if vn_d in daily_data:
+                daily_data[vn_d] = {
+                    "revenue_vnd": int(row.get("revenue_vnd") or 0),
+                    "completed_orders": int(row.get("completed_orders") or 0),
+                    "cancelled_orders": int(row.get("cancelled_orders") or 0),
+                }
+
+        headers = [
+            "Ngày",
+            "Doanh thu thuần (VNĐ)",
+            "Số đơn hoàn tất",
+            "Số đơn hủy",
+            "Giá trị trung bình đơn (VNĐ)",
+        ]
+
+        rows: list[list[Any]] = []
+        for d in sorted(daily_data.keys()):
+            stats = daily_data[d]
+            rev = stats["revenue_vnd"]
+            comp = stats["completed_orders"]
+            canc = stats["cancelled_orders"]
+            aov = (
+                int(
+                    (Decimal(rev) / Decimal(comp)).quantize(
+                        Decimal("1"), rounding=ROUND_HALF_UP
+                    )
+                )
+                if comp > 0
+                else 0
+            )
+            rows.append([d.strftime("%Y-%m-%d"), rev, comp, canc, aov])
+
+        check_export_limit(len(rows), MAX_EXPORT_ROWS)
+
+        filename = (
+            f"daily_sales_export_{resolved_from.strftime('%Y%m%d')}_"
+            f"{resolved_to.strftime('%Y%m%d')}.csv"
+        )
+        return generate_csv_response(headers=headers, rows=rows, filename=filename)
 
 
 class ProductAnalyticsPort(Protocol):

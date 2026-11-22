@@ -64,7 +64,10 @@ async def test_cors_allows_configured_origin_with_credentials() -> None:
     assert preflight.headers["access-control-allow-credentials"] == "true"
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == ("http://127.0.0.1:5173")
-    assert response.headers["access-control-expose-headers"] == "X-CSRF-Token"
+    assert (
+        response.headers["access-control-expose-headers"]
+        == "X-CSRF-Token, Content-Disposition"
+    )
 
 
 @pytest.mark.anyio
