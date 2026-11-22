@@ -29,9 +29,10 @@ def test_t3c9efc_csv_import_partial_success_and_zero_stock_in_mysql(
     now = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
 
     try:
+        active_name = f"T3C9EFC_ACTIVE_{run_id}"
         with Session(migrated_integration_engine) as session, session.begin():
             cat_active = Category(
-                name=f"T3C9EFC_ACTIVE_{run_id}",
+                name=active_name,
                 status=CategoryStatus.ACTIVE.value,
                 created_at=now,
                 updated_at=now,
@@ -48,7 +49,7 @@ def test_t3c9efc_csv_import_partial_success_and_zero_stock_in_mysql(
 
         csv_bytes = (
             "\ufeffsku,name,category,sale_price_vnd\r\n"
-            f"T3C9EFC-{run_id}-1,Valid Item One,{cat_active.name},25000\r\n"
+            f"T3C9EFC-{run_id}-1,Valid Item One,{active_name},25000\r\n"
             f"T3C9EFC-{run_id}-BAD1,Negative Price,{active_id},-100\r\n"
             f"T3C9EFC-{run_id}-BAD2,Inactive Cat,{inactive_id},20000\r\n"
             f"T3C9EFC-{run_id}-1,In-file Duplicate,{active_id},25000\r\n"
