@@ -89,7 +89,8 @@ export function serializeCsvRows(rows) {
 /**
  * Format an ISO date/datetime string (`YYYY-MM-DD` or `YYYY-MM-DD HH:mm:ss`)
  * into a clean Vietnamese display string (`DD/MM/YYYY` or `DD/MM/YYYY HH:mm:ss`)
- * with spacious padding so Excel auto-sizes the column instead of showing `#######`.
+ * using non-breaking space padding (`\u00A0`) so Excel treats it as a text label
+ * and never collapses the date into `#######`.
  * @param {string} raw
  * @returns {string}
  */
@@ -99,7 +100,10 @@ function formatDateForExcel(raw) {
   const dtMatch = /^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}:\d{2}(?::\d{2})?))?$/.exec(trimmed);
   if (!dtMatch) return trimmed;
   const [, yyyy, mm, dd, timePart] = dtMatch;
-  return timePart ? ` ${dd}/${mm}/${yyyy} ${timePart} ` : ` ${dd}/${mm}/${yyyy} `;
+  const nbsp = '\u00A0';
+  return timePart
+    ? `${nbsp}${dd}/${mm}/${yyyy} ${timePart}${nbsp}`
+    : `${nbsp}${dd}/${mm}/${yyyy}${nbsp}`;
 }
 
 /**

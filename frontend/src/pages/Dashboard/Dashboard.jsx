@@ -480,7 +480,7 @@ export default function Dashboard() {
                 onClick={handleExportCsv}
                 disabled={isExportingCsv}
               >
-                {isExportingCsv ? 'Đang xuất...' : 'Xuất báo cáo ngày'}
+                {isExportingCsv ? 'Đang xuất...' : 'Xuất CSV'}
               </button>
             )}
           </div>

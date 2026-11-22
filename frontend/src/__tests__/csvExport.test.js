@@ -278,9 +278,17 @@ describe('T3C9F4A — CSV Export Utility & Integration Suite', () => {
 
       const output = beautifyCsvForExcel(rawCsv);
       assert.ok(output.startsWith('\ufeff  MÃ ĐƠN  ,  NGÀY BÁN (VN)  ,  TRẠNG THÁI  '));
-      assert.ok(output.includes('#HD-101, 15/11/2026 10:30:00 ,Hoàn tất,SKU-001,Cà phê Robusta,2,'));
+      assert.ok(
+        output.includes(
+          '#HD-101,\u00A015/11/2026 10:30:00\u00A0,Hoàn tất,SKU-001,Cà phê Robusta,2,'
+        )
+      );
       assert.ok(output.includes('100.000 ₫,200.000 ₫,300.000 ₫,Admin User (Admin),—'));
-      assert.ok(output.includes('#HD-102, 15/11/2026 11:00:00 ,Đã hủy,SKU-003,Bánh mì pate,1,'));
+      assert.ok(
+        output.includes(
+          '#HD-102,\u00A015/11/2026 11:00:00\u00A0,Đã hủy,SKU-003,Bánh mì pate,1,'
+        )
+      );
       assert.ok(output.includes('50.000 ₫,50.000 ₫,50.000 ₫,Staff User,Khách đổi ý'));
     });
 
@@ -292,7 +300,7 @@ describe('T3C9F4A — CSV Export Utility & Integration Suite', () => {
       const outInv = beautifyCsvForExcel(rawInventory);
       assert.ok(
         outInv.includes(
-          '#SP-1,SKU-BEV-001,Trà sữa Ô long,Đồ uống,Đang bán,15,35.000 ₫, 01/10/2026 09:00:00 '
+          '#SP-1,SKU-BEV-001,Trà sữa Ô long,Đồ uống,Đang bán,15,35.000 ₫,\u00A001/10/2026 09:00:00\u00A0'
         )
       );
     });
