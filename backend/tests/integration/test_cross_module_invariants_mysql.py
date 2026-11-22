@@ -263,9 +263,8 @@ def test_cross_module_receipt_inventory_order_cancel_invariants_mysql(
             )
             sup = Supplier(
                 name=f"XModSup-{run_id}",
-                phone="0901234567",
-                email=f"sup-{run_id}@example.com",
-                address="HCM",
+                contact_phone="0901234567",
+                contact_email=f"sup-{run_id}@example.com",
                 status=SupplierStatus.ACTIVE,
                 created_at=now,
                 updated_at=now,
@@ -620,7 +619,7 @@ def test_receipt_confirm_rollback_atomicity_on_inactive_second_item_mysql(
             )
             sup = Supplier(
                 name=f"RollSup-{run_id}",
-                phone="0907654321",
+                contact_phone="0907654321",
                 status=SupplierStatus.ACTIVE,
                 created_at=now,
                 updated_at=now,
