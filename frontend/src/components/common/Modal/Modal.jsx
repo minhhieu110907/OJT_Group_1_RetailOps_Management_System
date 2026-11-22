@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { acquireModalScrollLock } from '../../../utils/modalScrollLock';
 import styles from './Modal.module.css';
 
 export default function Modal({
@@ -9,6 +10,8 @@ export default function Modal({
   footer,
   maxWidth = '420px',
 }) {
+  const backdropMouseDownRef = useRef(false);
+
   // Lắng nghe phím Esc để đóng Modal và khóa cuộn trang nền khi Modal đang mở
   useEffect(() => {
     if (!isOpen) return;
@@ -21,20 +24,26 @@ export default function Modal({
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScrollLock = acquireModalScrollLock();
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = originalOverflow;
+      releaseScrollLock();
     };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  // Đóng Modal khi người dùng bấm trực tiếp vào vùng nền mờ (Backdrop)
+  // Chỉ đóng Modal khi cả thao tác nhấn chuột (mousedown) lẫn thả chuột (click) đều nằm trực tiếp trên nền mờ
+  // Tránh đóng nhầm khi người dùng bôi đen văn bản trong ô nhập rồi kéo chuột ra ngoài
+  const handleBackdropMouseDown = (event) => {
+    backdropMouseDownRef.current = event.target === event.currentTarget;
+  };
+
   const handleBackdropClick = (event) => {
-    if (event.target === event.currentTarget && onClose) {
+    const startedOnBackdrop = backdropMouseDownRef.current;
+    backdropMouseDownRef.current = false;
+    if (startedOnBackdrop && event.target === event.currentTarget && onClose) {
       onClose();
     }
   };
@@ -42,6 +51,7 @@ export default function Modal({
   return (
     <div
       className={styles.backdrop}
+      onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"

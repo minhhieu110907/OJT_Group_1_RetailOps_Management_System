@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Pagination, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import { acquireModalScrollLock } from '../../utils/modalScrollLock';
 import { productsApi } from '../../api/productsApi';
 import { categoriesApi } from '../../api/categoriesApi';
 import {
@@ -197,6 +198,15 @@ export default function PosPage() {
     priceConflictDetails,
     completedOrder,
   ]);
+
+  // Khóa cuộn trang nền khi mở bất kỳ modal kết quả / xung đột thanh toán nào tại POS
+  useEffect(() => {
+    const hasOpenPosModal = Boolean(
+      stockConflictDetails || priceConflictDetails || completedOrder
+    );
+    if (!hasOpenPosModal) return undefined;
+    return acquireModalScrollLock();
+  }, [stockConflictDetails, priceConflictDetails, completedOrder]);
 
   // Chặn cuộn trang nền / pull-to-refresh trên Safari iOS & Chrome Android khi kéo giỏ hàng
   useEffect(() => {

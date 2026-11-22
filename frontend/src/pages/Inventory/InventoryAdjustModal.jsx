@@ -7,6 +7,7 @@ import {
   inventoryApi,
 } from '../../api/inventoryApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import { acquireModalScrollLock } from '../../utils/modalScrollLock';
 import {
   ADJUSTMENT_STATUS,
   canCloseAdjustmentModal,
@@ -101,6 +102,13 @@ export default function InventoryAdjustModal({
   // Track product identity to only reset when switching to a completely different product or first open
   const lastOpenedProductIdRef = useRef(null);
   const isSubmittingSyncRef = useRef(false);
+  const backdropMouseDownRef = useRef(false);
+
+  // Khóa cuộn và thao tác trang nền khi Modal đang mở
+  useEffect(() => {
+    if (!isOpen || !product) return undefined;
+    return acquireModalScrollLock();
+  }, [isOpen, product]);
 
   // Derived loading state flags
   const isSubmitting = modalStatus === ADJUSTMENT_STATUS.SUBMITTING;
@@ -373,20 +381,28 @@ export default function InventoryAdjustModal({
   return (
     <div
       className={styles.backdrop}
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && isModalCloseAllowed) {
+        const startedOnBackdrop = backdropMouseDownRef.current;
+        backdropMouseDownRef.current = false;
+        if (startedOnBackdrop && e.target === e.currentTarget && isModalCloseAllowed) {
           handleRequestClose();
         }
       }}
     >
       <div className={styles.modalBox}>
-        {/* Header với SKU, Category, Tên sản phẩm, stock_version */}
+        {/* Header với Category, Tên sản phẩm, Phiên bản */}
         <div className={styles.header}>
           <div className={styles.headerLeft}>
-            <div className={styles.badgeRow}>
-              {categoryName && <span className={styles.categoryBadge}>{categoryName.toUpperCase()}</span>}
-              <span className={styles.skuText}>Mã SKU: <strong>{product.sku}</strong></span>
-            </div>
+            {categoryName && (
+              <div className={styles.badgeRow}>
+                <span className={styles.categoryBadge}>{categoryName.toUpperCase()}</span>
+              </div>
+            )}
             <h2 className={styles.productName}>{product.name}</h2>
             <div className={styles.subInfo}>
               <span>Danh mục: {categoryName || 'Mặc định'}</span>
@@ -395,10 +411,9 @@ export default function InventoryAdjustModal({
 
           <div className={styles.versionBadgeContainer}>
             <div className={styles.versionBadge}>
-              <span className={styles.versionLabel}>stock_version:</span>
+              <span className={styles.versionLabel}>Phiên bản:</span>
               <span className={styles.versionValue}>{currentVersion}</span>
             </div>
-            <span className={styles.versionSubtext}>Phiên bản tồn kho hiện tại</span>
           </div>
         </div>
 
@@ -506,7 +521,7 @@ export default function InventoryAdjustModal({
             </div>
 
             <p className={styles.conflictDesc} style={{ color: '#166534' }}>
-              Đã tải tồn kho mới nhất: hiện tại là <strong>{reconciledResult.latestQuantity} cái</strong> (stock_version: <strong>v{reconciledResult.latestVersion}</strong>). Vui lòng kiểm tra kết quả và xác nhận trước khi thực hiện điều chỉnh mới.
+              Đã tải tồn kho mới nhất: hiện tại là <strong>{reconciledResult.latestQuantity} cái</strong> (Phiên bản: <strong>v{reconciledResult.latestVersion}</strong>). Vui lòng kiểm tra kết quả và xác nhận trước khi thực hiện điều chỉnh mới.
             </p>
 
             <button
@@ -570,7 +585,6 @@ export default function InventoryAdjustModal({
               <label htmlFor="adjust-counted-qty" className={styles.fieldLabel}>
                 Số lượng kiểm kê thực tế <span className={styles.requiredStar}>*</span>
               </label>
-              <span className={styles.helperLabel}>Số nguyên không âm (≥ 0)</span>
             </div>
             <div className={styles.inputWrapper}>
               <input
@@ -582,6 +596,7 @@ export default function InventoryAdjustModal({
                 className={styles.textInput}
                 value={countedQty}
                 onChange={(e) => setCountedQty(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
                 placeholder="Nhập số lượng đếm được..."
                 disabled={isSubmitting || isReloading || modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS || modalStatus === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT}
                 autoFocus
@@ -596,7 +611,7 @@ export default function InventoryAdjustModal({
               <label htmlFor="adjust-reason" className={styles.fieldLabel}>
                 Lý do điều chỉnh kiểm kê <span className={styles.requiredStar}>*</span>
               </label>
-              <span className={styles.helperLabel}>Tối thiểu 10 ký tự, tối đa 250 ký tự</span>
+              <span className={styles.helperLabel}>Tối thiểu 10 ký tự</span>
             </div>
             <textarea
               id="adjust-reason"
@@ -608,12 +623,9 @@ export default function InventoryAdjustModal({
               disabled={isSubmitting || isReloading || modalStatus === ADJUSTMENT_STATUS.AMBIGUOUS || modalStatus === ADJUSTMENT_STATUS.AWAITING_ACKNOWLEDGEMENT}
             />
             <div className={styles.textareaFooter}>
-              <span className={isReasonValid ? styles.validationPassed : styles.validationWarning}>
-                {isReasonValid
-                  ? 'Độ dài lý do hợp lệ'
-                  : `Cần thêm ít nhất ${Math.max(0, 10 - trimmedReason.length)} ký tự`}
+              <span className={styles.charCount} style={{ marginLeft: 'auto' }}>
+                {trimmedReason.length} / 250 ký tự
               </span>
-              <span className={styles.charCount}>{trimmedReason.length} / 250 ký tự</span>
             </div>
           </div>
 
