@@ -656,12 +656,14 @@ def test_receipt_confirm_rollback_atomicity_on_inactive_second_item_mysql(
                         product_id=p1.id,
                         quantity=5,
                         stock_version=1,
+                        first_stocked_at=now,
                         updated_at=now,
                     ),
                     Inventory(
                         product_id=p2.id,
                         quantity=5,
                         stock_version=1,
+                        first_stocked_at=now,
                         updated_at=now,
                     ),
                 ]
