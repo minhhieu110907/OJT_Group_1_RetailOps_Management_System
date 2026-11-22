@@ -270,7 +270,7 @@ export default function OrderList() {
       {
         key: 'id',
         title: 'MÃ ĐƠN',
-        width: '120px',
+        width: '10%',
         render: (row) => (
           <span className={styles.orderIdCell}>#{row.id}</span>
         ),
@@ -278,7 +278,7 @@ export default function OrderList() {
       {
         key: 'sold_at',
         title: 'THỜI GIAN TẠO',
-        width: '190px',
+        width: '18%',
         render: (row) => {
           const { primary, secondary } = formatOrderCreatedCellVN(
             row.sold_at,
@@ -297,17 +297,17 @@ export default function OrderList() {
       {
         key: 'created_by',
         title: 'NGƯỜI TẠO',
-        width: '150px',
+        width: '16%',
         render: (row) => (
           <span className={styles.creatorCell}>
-            {row.created_by_name || formatOrderActorLabel(row.created_by, user)}
+            {formatOrderActorLabel(row.created_by, user, row.created_by_name)}
           </span>
         ),
       },
       {
         key: 'items_count',
         title: 'SỐ MẶT HÀNG',
-        width: '140px',
+        width: '13%',
         render: (row) => {
           const totalUnits = Array.isArray(row.items)
             ? row.items.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -320,7 +320,7 @@ export default function OrderList() {
       {
         key: 'total_vnd',
         title: 'TỔNG TIỀN',
-        width: '150px',
+        width: '15%',
         render: (row) => (
           <span className={styles.totalAmountCell}>
             {formatVnd(row.total_vnd)}
@@ -330,7 +330,7 @@ export default function OrderList() {
       {
         key: 'status',
         title: 'TRẠNG THÁI',
-        width: '150px',
+        width: '14%',
         render: (row) =>
           row.status === 'COMPLETED' ? (
             <span className={styles.statusCompleted}>Đã hoàn tất</span>
@@ -342,7 +342,7 @@ export default function OrderList() {
         key: 'actions',
         title: 'THAO TÁC',
         align: 'right',
-        width: '140px',
+        width: '14%',
         render: (row) => (
           <div className={styles.actionGroup}>
             <button
@@ -450,29 +450,32 @@ export default function OrderList() {
             )}
           </div>
 
-          {/* Status dropdown */}
-          <select
-            className={styles.statusSelectSingle}
-            aria-label="Lọc theo trạng thái đơn hàng"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">Tất cả trạng thái</option>
-            <option value="COMPLETED">Đã hoàn tất</option>
-            <option value="CANCELLED">Đã hủy</option>
-          </select>
+          {/* Status dropdown + conditional reset button */}
+          <div className={styles.statusAndResetRow}>
+            <select
+              className={styles.statusSelectSingle}
+              aria-label="Lọc theo trạng thái đơn hàng"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">Tất cả trạng thái</option>
+              <option value="COMPLETED">Đã hoàn tất</option>
+              <option value="CANCELLED">Đã hủy</option>
+            </select>
 
-          {/* Reset filters button */}
-          <button
-            type="button"
-            className={styles.resetFilterBtn}
-            onClick={handleResetFilters}
-          >
-            Xóa bộ lọc
-          </button>
+            {(searchQuery.trim() || selectedDate || urlDateRange || statusFilter) && (
+              <button
+                type="button"
+                className={styles.resetFilterBtn}
+                onClick={handleResetFilters}
+              >
+                Xóa bộ lọc
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

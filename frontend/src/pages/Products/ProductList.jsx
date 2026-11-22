@@ -578,12 +578,13 @@ export default function ProductList() {
       {
         key: 'sku',
         title: 'MÃ SKU',
-        width: '110px',
+        width: isStaff ? '11%' : '10%',
         render: (row) => <span className={styles.skuText}>{row.sku}</span>,
       },
       {
         key: 'name',
         title: 'TÊN SẢN PHẨM',
+        width: isStaff ? '29%' : '25%',
         render: (row) => (
           <span className={styles.productNameText}>{row.name}</span>
         ),
@@ -591,7 +592,7 @@ export default function ProductList() {
       {
         key: 'category',
         title: 'DANH MỤC',
-        width: '160px',
+        width: isStaff ? '16%' : '15%',
         render: (row) => (
           <span className={styles.categoryText}>
             {row.category || categoriesMap[row.category_id] || '—'}
@@ -602,7 +603,7 @@ export default function ProductList() {
         key: 'sale_price_vnd',
         title: 'GIÁ BÁN (VND)',
         align: 'center',
-        width: '140px',
+        width: isStaff ? '14%' : '13%',
         render: (row) => (
           <span className={styles.priceText}>
             {formatVND(row.sale_price_vnd ?? row.price)}
@@ -613,7 +614,7 @@ export default function ProductList() {
         key: 'quantity',
         title: 'TỒN KHO',
         align: 'center',
-        width: '150px',
+        width: isStaff ? '14%' : '13%',
         render: (row) => {
           const stockClass = classifyProductStock(row);
           if (stockClass === 'OUT_OF_STOCK') {
@@ -642,7 +643,7 @@ export default function ProductList() {
         key: 'status',
         title: 'TRẠNG THÁI HOẠT ĐỘNG',
         align: 'center',
-        width: '180px',
+        width: isStaff ? '16%' : '15%',
         render: (row) => {
           const isSelling = row.status !== 'INACTIVE';
           return (
@@ -664,7 +665,7 @@ export default function ProductList() {
         key: 'actions',
         title: 'THAO TÁC',
         align: 'center',
-        width: '110px',
+        width: '9%',
         render: (row) => {
           const isSelling = row.status !== 'INACTIVE';
           return (

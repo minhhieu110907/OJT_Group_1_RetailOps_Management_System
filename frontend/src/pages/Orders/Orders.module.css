@@ -188,12 +188,28 @@
   cursor: pointer;
 }
 
+.statusAndResetRow {
+  display: contents;
+}
+
 @media (max-width: 640px) {
   .searchBoxWrap,
-  .dateFilterWrap,
-  .statusSelectSingle {
+  .dateFilterWrap {
     flex: 1 1 100%;
     width: 100%;
+    min-width: 0;
+  }
+
+  .statusAndResetRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .statusAndResetRow .statusSelectSingle {
+    flex: 1 1 0%;
+    width: auto;
     min-width: 0;
   }
 

@@ -14,6 +14,7 @@ import {
   parseAndValidateSupplierPhone,
 } from '../../utils/phoneUtils';
 import SupplierPhoneInput from './SupplierPhoneInput';
+import SupplierCategorySelect from './SupplierCategorySelect';
 import styles from './SupplierList.module.css';
 
 // Component hiển thị tag trạng thái chuẩn thiết kế
@@ -877,56 +878,19 @@ export default function SupplierList() {
 
           {/* Danh mục cung cấp (tùy chọn, dùng gợi ý khi lập phiếu nhập) */}
           <div className={styles.formGroup}>
-            <div className={styles.formLabelRow}>
+            <div className={styles.labelRow}>
               <label className={styles.formLabel}>Danh mục cung cấp</label>
-              <span className={styles.optionalTag}>Tùy chọn</span>
+              <span className={styles.optionalBadge}>Tùy chọn</span>
             </div>
-            <div className={styles.categoryPickerBox}>
-              {categoryLoadError ? (
-                <span className={styles.categoryEmptyHint} role="alert" style={{ color: '#DC2626' }}>
-                  {categoryLoadError}
-                </span>
-              ) : availableCategories.length === 0 ? (
-                <span className={styles.categoryEmptyHint}>Chưa có danh mục nào.</span>
-              ) : (
-                availableCategories
-                  .filter(
-                    (cat) =>
-                      cat.status === 'ACTIVE' ||
-                      (supplierForm.category_ids || []).includes(cat.id)
-                  )
-                  .map((cat) => {
-                    const isSelected = (supplierForm.category_ids || []).includes(cat.id);
-                    const isInactive = cat.status !== 'ACTIVE';
-                    const isDisabled = !isAdmin || isSubmitting || (isInactive && !isSelected);
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        disabled={isDisabled}
-                        onClick={() => {
-                          setSupplierForm((prev) => {
-                            const current = prev.category_ids || [];
-                            const next = current.includes(cat.id)
-                              ? current.filter((id) => id !== cat.id)
-                              : [...current, cat.id];
-                            return { ...prev, category_ids: next };
-                          });
-                        }}
-                        className={`${styles.categoryChip} ${
-                          isSelected ? styles.categoryChipSelected : ''
-                        }`}
-                        aria-pressed={isSelected}
-                      >
-                        <span>{cat.name}</span>
-                        {isInactive && (
-                          <span className={styles.categoryChipInactiveTag}>(Ngừng HĐ)</span>
-                        )}
-                      </button>
-                    );
-                  })
-              )}
-            </div>
+            <SupplierCategorySelect
+              categories={availableCategories}
+              selectedIds={supplierForm.category_ids || []}
+              disabled={!isAdmin || isSubmitting}
+              error={categoryLoadError}
+              onChange={(nextIds) =>
+                setSupplierForm((prev) => ({ ...prev, category_ids: nextIds }))
+              }
+            />
             <p className={styles.fieldHelperText}>
               Chọn các danh mục mà đối tác thường cung cấp để lọc nhanh sản phẩm khi tạo phiếu nhập hàng.
             </p>

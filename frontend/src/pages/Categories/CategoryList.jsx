@@ -362,12 +362,13 @@ export default function CategoryList() {
       {
         key: 'name',
         title: 'TÊN DANH MỤC',
-        width: '200px',
+        width: isAdmin ? '22%' : '24%',
         render: (row) => <span className={styles.categoryName}>{row.name}</span>,
       },
       {
         key: 'description',
         title: 'MÔ TẢ',
+        width: isAdmin ? '36%' : '42%',
         render: (row) => (
           <span className={styles.categoryDesc}>
             {row.description || <span style={{ color: '#9CA3AF' }}>—</span>}
@@ -378,7 +379,7 @@ export default function CategoryList() {
         key: 'product_count',
         title: 'SỐ LƯỢNG SẢN PHẨM',
         align: 'center',
-        width: '130px',
+        width: isAdmin ? '14%' : '15%',
         render: (row) => (
           <span className={styles.productCountBadge}>{row.product_count ?? 0}</span>
         ),
@@ -387,7 +388,7 @@ export default function CategoryList() {
         key: 'status',
         title: 'TRẠNG THÁI HOẠT ĐỘNG',
         align: 'center',
-        width: '160px',
+        width: isAdmin ? '18%' : '19%',
         render: (row) => {
           const isActive = row.status === 'ACTIVE';
           return (
@@ -405,7 +406,7 @@ export default function CategoryList() {
         key: 'actions',
         title: 'THAO TÁC',
         align: 'center',
-        width: '100px',
+        width: '10%',
         render: (row) => {
           const isActive = row.status === 'ACTIVE';
           return (

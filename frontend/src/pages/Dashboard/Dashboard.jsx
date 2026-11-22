@@ -959,11 +959,11 @@ export default function Dashboard() {
                           </td>
                           <td>{formatVietnamDateTime(ord.sold_at || ord.created_at)}</td>
                           <td>
-                            {ord.created_by_name ||
-                              formatOrderActorLabel(ord.created_by, user).replace(
-                                /^Admin #\d+$/,
-                                'Admin'
-                              )}
+                            {formatOrderActorLabel(
+                              ord.created_by,
+                              user,
+                              ord.created_by_name
+                            ).replace(/^Admin #\d+$/, 'Admin')}
                           </td>
                           <td className={styles.centerCell}>
                             {typeof itemCount === 'number' ? `${itemCount} món` : itemCount}

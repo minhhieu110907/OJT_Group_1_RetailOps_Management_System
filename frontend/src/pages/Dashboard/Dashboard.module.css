@@ -736,7 +736,14 @@
 @media (max-width: 680px) {
   .headerRight {
     width: 100%;
-    align-items: flex-start;
+    align-items: stretch;
+  }
+  .periodChipRow {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .refreshBtn {
+    margin-left: auto;
   }
   .segmentedBar {
     width: 100%;

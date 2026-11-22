@@ -151,12 +151,13 @@ export default function StockMovementList() {
       {
         key: 'sku',
         title: 'MÃ SKU',
-        width: '130px',
+        width: isAdmin ? '9%' : '12%',
         render: (row) => <span className={styles.skuHighlight}>{row.sku}</span>,
       },
       {
         key: 'product_name',
         title: 'TÊN SẢN PHẨM',
+        width: isAdmin ? '19%' : '25%',
         render: (row) => {
           const name = productMap.get(row.product_id) || `Sản phẩm #${row.product_id}`;
           return <div className={styles.productName}>{name}</div>;
@@ -165,7 +166,7 @@ export default function StockMovementList() {
       {
         key: 'kind',
         title: 'LOẠI BIẾN ĐỘNG',
-        width: '160px',
+        width: isAdmin ? '13%' : '16%',
         render: (row) => {
           const meta = MOVEMENT_KIND_LABELS[row.kind] || {
             label: row.kind,
@@ -182,7 +183,7 @@ export default function StockMovementList() {
         key: 'quantity_change',
         title: 'SỐ LƯỢNG THAY ĐỔI',
         align: 'center',
-        width: '160px',
+        width: isAdmin ? '11%' : '14%',
         render: (row) => {
           const delta = row.quantity_after - row.quantity_before;
           const isNegative = delta < 0;
@@ -194,7 +195,7 @@ export default function StockMovementList() {
       {
         key: 'occurred_at',
         title: 'THỜI ĐIỂM GHI NHẬN',
-        width: '180px',
+        width: isAdmin ? '14%' : '17%',
         render: (row) => (
           <span className={styles.occurredTime}>{formatVietnamDateTime(row.occurred_at)}</span>
         ),
@@ -202,7 +203,7 @@ export default function StockMovementList() {
       {
         key: 'reference',
         title: 'MÃ CHỨNG TỪ THAM CHIẾU',
-        width: '190px',
+        width: isAdmin ? '13%' : '16%',
         render: (row) => {
           const refCode = formatReferenceCode(row.kind, row.reference_id);
           return <span className={styles.referenceBadge}>{refCode}</span>;
@@ -214,7 +215,7 @@ export default function StockMovementList() {
             {
               key: 'actor',
               title: 'NGƯỜI THỰC HIỆN',
-              width: '140px',
+              width: '10%',
               render: (row) => (
                 <span className={styles.actorBadge}>
                   <span>{row.actor_id ? `User ${row.actor_id}` : 'Hệ thống'}</span>
@@ -224,7 +225,7 @@ export default function StockMovementList() {
             {
               key: 'adjustment_reason',
               title: 'LÝ DO ĐIỀU CHỈNH',
-              width: '160px',
+              width: '11%',
               align: 'center',
               render: (row) => {
                 if (row.kind === 'ADJUSTMENT' && row.adjustment_reason) {
