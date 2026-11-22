@@ -449,7 +449,11 @@ describe('T04A70D Category Management & Real API Integration Test Suite', () => 
       assert.ok(modalCss.includes('flex-shrink: 0'), 'Header/Footer must not shrink under low viewport height');
 
       // Background scroll lock and Esc handling
-      assert.ok(modalJsx.includes("document.body.style.overflow = 'hidden'"), 'Must lock body scroll when open');
+      assert.ok(
+        modalJsx.includes('acquireModalScrollLock') ||
+          modalJsx.includes("document.body.style.overflow = 'hidden'"),
+        'Must lock body scroll when open'
+      );
       assert.ok(modalJsx.includes('Escape'), 'Must support Escape key to close modal');
       assert.ok(modalJsx.includes('handleBackdropClick'), 'Must support backdrop click to close modal');
     });

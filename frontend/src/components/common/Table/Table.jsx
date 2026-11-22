@@ -17,9 +17,21 @@ export default function Table({
   rowClassName,
 }) {
   const colSpan = columns.length || 1;
+  const hasRows = Array.isArray(data) && data.length > 0;
+  const isRefreshingWithRows = isLoading && hasRows;
 
   return (
-    <div className={styles.tableContainer}>
+    <div
+      className={`${styles.tableContainer} ${
+        isRefreshingWithRows ? styles.tableContainerRefreshing : ''
+      }`}
+      aria-busy={isLoading ? 'true' : undefined}
+    >
+      {isRefreshingWithRows && (
+        <div className={styles.loadingBar} aria-hidden="true">
+          <div className={styles.loadingBarIndicator} />
+        </div>
+      )}
       <table className={styles.table}>
         {/* 1. Phần Header (thead) */}
         <thead className={styles.thead}>
@@ -40,8 +52,8 @@ export default function Table({
         </thead>
 
         {/* 2. Phần Body (tbody) */}
-        <tbody>
-          {isLoading ? (
+        <tbody className={isRefreshingWithRows ? styles.tbodyRefreshing : undefined}>
+          {isLoading && !hasRows ? (
             <tr>
               <td colSpan={colSpan} className={styles.stateCell}>
                 <div className={styles.loadingWrap}>
@@ -50,7 +62,7 @@ export default function Table({
                 </div>
               </td>
             </tr>
-          ) : !data || data.length === 0 ? (
+          ) : !hasRows ? (
             <tr>
               <td colSpan={colSpan} className={styles.stateCell}>
                 {emptyText}

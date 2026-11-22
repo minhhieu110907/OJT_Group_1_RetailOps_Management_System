@@ -34,6 +34,8 @@ const PRESET_OPTIONS = [
   { key: DASHBOARD_PRESETS.THIS_MONTH, label: 'Tháng này' },
 ];
 
+const DASHBOARD_CACHE_TTL_MS = 60 * 1000;
+
 export default function Dashboard() {
   const { user, isMockMode } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -66,6 +68,8 @@ export default function Dashboard() {
   const fetchSeqRef = useRef(0);
   const detailSeqRef = useRef(0);
   const isMountedRef = useRef(true);
+  const presetCacheRef = useRef(new Map());
+  const outOfStockCountRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -75,8 +79,29 @@ export default function Dashboard() {
   }, []);
 
   const fetchAllDashboardData = useCallback(
-    async (targetPreset, targetRange, targetBuckets) => {
+    async (targetPreset, targetRange, targetBuckets, { forceRefresh = false } = {}) => {
       if (!isAdmin) return;
+
+      const cacheKey = `${isMockMode ? 'mock' : 'api'}:${targetPreset}:${targetRange.from}:${targetRange.to}`;
+      const cachedEntry = !forceRefresh ? presetCacheRef.current.get(cacheKey) : null;
+      const isCacheFresh =
+        cachedEntry && Date.now() - cachedEntry.cachedAt < DASHBOARD_CACHE_TTL_MS;
+
+      if (isCacheFresh) {
+        fetchSeqRef.current += 1;
+        setLoadedPreset(targetPreset);
+        setDashboardData(cachedEntry.mainData);
+        setOutOfStockCount(cachedEntry.outOfStockCount);
+        setPrevMonthSales(cachedEntry.prevSales);
+        setSeriesRows(cachedEntry.resolvedBuckets);
+        setTodayOrders(cachedEntry.ordersPage.items || []);
+        setTodayOrdersTotal(cachedEntry.ordersPage.total || 0);
+        setErrorMessage('');
+        setErrorStatus(null);
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setErrorMessage('');
       setErrorStatus(null);
@@ -126,9 +151,13 @@ export default function Dashboard() {
                   .catch(() => null)
               : Promise.resolve(null);
 
-          const outOfStockPromise = inventoryApi
-            .getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 })
-            .catch(() => null);
+          // Tồn kho hết hàng không phụ thuộc bộ lọc ngày — tái sử dụng khi chuyển tab trừ khi bấm Làm mới
+          const outOfStockPromise =
+            !forceRefresh && typeof outOfStockCountRef.current === 'number'
+              ? Promise.resolve({ total: outOfStockCountRef.current })
+              : inventoryApi
+                  .getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 })
+                  .catch(() => null);
 
           const [mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes] =
             await Promise.all([
@@ -139,14 +168,40 @@ export default function Dashboard() {
               outOfStockPromise,
             ]);
 
-          return { mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes };
+          const resolvedOutOfStock =
+            typeof outOfStockRes?.total === 'number' ? outOfStockRes.total : null;
+          if (resolvedOutOfStock !== null) {
+            outOfStockCountRef.current = resolvedOutOfStock;
+          }
+
+          return {
+            cacheKey,
+            mainData,
+            resolvedBuckets,
+            ordersPage,
+            prevSales,
+            outOfStockCount: resolvedOutOfStock,
+          };
         },
-        onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes }) => {
+        onSuccess: ({
+          cacheKey: resolvedKey,
+          mainData,
+          resolvedBuckets,
+          ordersPage,
+          prevSales,
+          outOfStockCount: resolvedOutOfStock,
+        }) => {
+          presetCacheRef.current.set(resolvedKey, {
+            cachedAt: Date.now(),
+            mainData,
+            resolvedBuckets,
+            ordersPage,
+            prevSales,
+            outOfStockCount: resolvedOutOfStock,
+          });
           setLoadedPreset(targetPreset);
           setDashboardData(mainData);
-          setOutOfStockCount(
-            typeof outOfStockRes?.total === 'number' ? outOfStockRes.total : null
-          );
+          setOutOfStockCount(resolvedOutOfStock);
           setPrevMonthSales(prevSales);
           setSeriesRows(resolvedBuckets);
           setTodayOrders(ordersPage.items || []);
@@ -220,17 +275,29 @@ export default function Dashboard() {
     (nextPreset) => {
       if (nextPreset === preset) return;
       setPreset(nextPreset);
-      setLoadedPreset(null);
-      setDashboardData(null);
-      setPrevMonthSales(null);
-      setSeriesRows([]);
-      setTodayOrders([]);
-      setTodayOrdersTotal(0);
       setHoveredPointKey(null);
       setErrorMessage('');
       setErrorStatus(null);
+      // Nếu kỳ mới chưa có trong cache thì chỉ xóa series cũ để không nhầm dữ liệu,
+      // nếu đã có cache thì effect sẽ hydrate tức thì trong 0ms không gây nháy/giật layout
+      const nextRange = resolveDashboardDateRange(nextPreset);
+      const nextKey = `${isMockMode ? 'mock' : 'api'}:${nextPreset}:${nextRange.from}:${nextRange.to}`;
+      const cached = presetCacheRef.current.get(nextKey);
+      if (cached && Date.now() - cached.cachedAt < DASHBOARD_CACHE_TTL_MS) {
+        setLoadedPreset(nextPreset);
+        setDashboardData(cached.mainData);
+        setOutOfStockCount(cached.outOfStockCount);
+        setPrevMonthSales(cached.prevSales);
+        setSeriesRows(cached.resolvedBuckets);
+        setTodayOrders(cached.ordersPage.items || []);
+        setTodayOrdersTotal(cached.ordersPage.total || 0);
+      } else {
+        setLoadedPreset(null);
+        setPrevMonthSales(null);
+        setSeriesRows([]);
+      }
     },
-    [preset]
+    [preset, isMockMode]
   );
 
   // Render-time guard: never expose data from a previously loaded preset under a new active preset
@@ -469,7 +536,11 @@ export default function Dashboard() {
             <button
               type="button"
               className={styles.refreshBtn}
-              onClick={() => fetchAllDashboardData(preset, activeRange, seriesBuckets)}
+              onClick={() =>
+                fetchAllDashboardData(preset, activeRange, seriesBuckets, {
+                  forceRefresh: true,
+                })
+              }
               disabled={isLoading}
             >
               {isLoading ? 'Đang tải...' : 'Làm mới'}
@@ -501,7 +572,11 @@ export default function Dashboard() {
           <button
             type="button"
             className={styles.retryBtn}
-            onClick={() => fetchAllDashboardData(preset, activeRange, seriesBuckets)}
+            onClick={() =>
+              fetchAllDashboardData(preset, activeRange, seriesBuckets, {
+                forceRefresh: true,
+              })
+            }
           >
             Thử lại
           </button>

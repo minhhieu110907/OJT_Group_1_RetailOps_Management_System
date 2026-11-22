@@ -1,10 +1,46 @@
 /* Khung bọc ngoài của bảng dữ liệu */
 .tableContainer {
+  position: relative;
   width: 100%;
   background-color: var(--color-bg-surface, #FFFFFF);
   border: 1px solid var(--color-border, #E2E8F0);
   border-radius: 12px;
   overflow-x: auto;
+}
+
+.loadingBar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  overflow: hidden;
+  background-color: rgba(8, 127, 91, 0.12);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.loadingBarIndicator {
+  width: 40%;
+  height: 100%;
+  background-color: var(--color-primary, #087F5B);
+  border-radius: 999px;
+  animation: tableLoadingSlide 1.1s ease-in-out infinite;
+}
+
+@keyframes tableLoadingSlide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+.tbodyRefreshing {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
 .table {

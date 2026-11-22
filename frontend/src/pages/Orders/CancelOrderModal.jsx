@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { acquireModalScrollLock } from '../../utils/modalScrollLock';
 import {
   generateCheckoutIdempotencyKey,
   ordersApi,
@@ -53,6 +54,11 @@ export default function CancelOrderModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isSubmittingRef = useRef(false);
+
+  useEffect(() => {
+    if (!order) return undefined;
+    return acquireModalScrollLock();
+  }, [order]);
 
   if (!order) return null;
 

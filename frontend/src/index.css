@@ -69,6 +69,14 @@
   color: var(--color-neutral);
 }
 
+/* Khóa cuộn hoàn toàn nền phía sau (kể cả thẻ main trong MainLayout) khi bất kỳ Modal nào đang mở */
+html[data-modal-open='true'],
+html[data-modal-open='true'] body,
+html[data-modal-open='true'] main {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
 /* 1. Bảng dữ liệu (Tables) */
 [data-theme='dark'] table {
   background-color: transparent !important;

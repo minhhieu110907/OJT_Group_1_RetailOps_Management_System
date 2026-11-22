@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { acquireModalScrollLock } from '../../utils/modalScrollLock';
 import { formatVnd } from '../../utils/posUtils';
 import {
   evaluateCancelOrderEligibility,
@@ -51,10 +52,11 @@ export default function OrderDetailModal({
 }) {
   const isOpen = Boolean(order);
 
+  const backdropMouseDownRef = useRef(false);
+
   useEffect(() => {
     if (!isOpen) return undefined;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const releaseScrollLock = acquireModalScrollLock();
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && typeof onClose === 'function') {
@@ -65,7 +67,7 @@ export default function OrderDetailModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = originalOverflow;
+      releaseScrollLock();
     };
   }, [isOpen, onClose]);
 
@@ -98,8 +100,13 @@ export default function OrderDetailModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="order-detail-modal-title"
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && typeof onClose === 'function') {
+        const startedOnBackdrop = backdropMouseDownRef.current;
+        backdropMouseDownRef.current = false;
+        if (startedOnBackdrop && e.target === e.currentTarget && typeof onClose === 'function') {
           onClose();
         }
       }}
