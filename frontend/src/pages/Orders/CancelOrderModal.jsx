@@ -272,8 +272,11 @@ export default function CancelOrderModal({
                   <span className={styles.creatorLabel}>
                     Người tạo đơn:{' '}
                     <strong>
-                      {order.created_by_name ||
-                        formatOrderActorLabel(order.created_by, user)}
+                      {formatOrderActorLabel(
+                        order.created_by,
+                        user,
+                        order.created_by_name
+                      )}
                     </strong>
                   </span>
                   <span className={styles.windowBadgeAmber}>

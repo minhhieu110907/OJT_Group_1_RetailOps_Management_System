@@ -15,6 +15,7 @@ import {
   canUserCloseApprovalModal,
   executeStaffApprovalDecision,
 } from './staffApprovalModalHelpers';
+import { formatUserDisplayName } from '../../utils/orderUtils';
 import styles from './StaffApprovalList.module.css';
 
 const STATUS_TABS = [
@@ -898,7 +899,10 @@ export default function StaffApprovalList() {
                     <span className={styles.infoValue}>
                       {selectedApproval.decided_by === user?.id &&
                       (user?.full_name || user?.name)
-                        ? user.full_name || user.name
+                        ? formatUserDisplayName(
+                            user.full_name || user.name,
+                            user?.role
+                          )
                         : `Quản trị viên #${selectedApproval.decided_by}`}
                     </span>
                   </div>

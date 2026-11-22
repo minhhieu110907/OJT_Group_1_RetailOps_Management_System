@@ -194,18 +194,19 @@ export default function InventoryList() {
       {
         key: 'sku',
         title: 'MÃ SKU',
-        width: '150px',
+        width: isAdmin ? '12%' : '13%',
         render: (row) => <span className={styles.skuCell}>{row.sku}</span>,
       },
       {
         key: 'name',
         title: 'TÊN SẢN PHẨM',
+        width: isAdmin ? '24%' : '28%',
         render: (row) => <div className={styles.productNameCell}>{row.name}</div>,
       },
       {
         key: 'category',
         title: 'DANH MỤC',
-        width: '150px',
+        width: isAdmin ? '14%' : '16%',
         render: (row) => (
           <span>{categoryMap.get(row.category_id) || `Danh mục #${row.category_id}`}</span>
         ),
@@ -213,7 +214,7 @@ export default function InventoryList() {
       {
         key: 'status',
         title: 'TRẠNG THÁI BÁN',
-        width: '140px',
+        width: isAdmin ? '13%' : '14%',
         render: (row) => {
           const isActive = row.status === 'ACTIVE';
           return (
@@ -231,13 +232,13 @@ export default function InventoryList() {
         key: 'quantity',
         title: 'TỒN KHO HIỆN TẠI',
         align: 'center',
-        width: '160px',
+        width: isAdmin ? '12%' : '14%',
         render: (row) => <span className={styles.quantityCell}>{row.quantity}</span>,
       },
       {
         key: 'stock_level',
         title: 'TÌNH TRẠNG TỒN',
-        width: '160px',
+        width: isAdmin ? '14%' : '15%',
         render: (row) => {
           const classification = classifyStockLevel(row.quantity, row.status);
           return (
@@ -254,7 +255,7 @@ export default function InventoryList() {
               key: 'action',
               title: 'THAO TÁC',
               align: 'center',
-              width: '130px',
+              width: '11%',
               render: (row) => (
                 <button
                   type="button"
@@ -430,18 +431,6 @@ export default function InventoryList() {
               <button
                 type="button"
                 className={`${styles.chipBtn} ${
-                  stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK ? styles.chipBtnActive : ''
-                }`}
-                onClick={() => {
-                  setStockStatusFilter(STOCK_STATUS_TABS.OUT_OF_STOCK);
-                  setPagination((prev) => ({ ...prev, page: 1 }));
-                }}
-              >
-                Hết hàng
-              </button>
-              <button
-                type="button"
-                className={`${styles.chipBtn} ${
                   stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK ? styles.chipBtnActive : ''
                 }`}
                 onClick={() => {
@@ -450,6 +439,18 @@ export default function InventoryList() {
                 }}
               >
                 Sắp hết
+              </button>
+              <button
+                type="button"
+                className={`${styles.chipBtn} ${
+                  stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK ? styles.chipBtnActive : ''
+                }`}
+                onClick={() => {
+                  setStockStatusFilter(STOCK_STATUS_TABS.OUT_OF_STOCK);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+              >
+                Hết hàng
               </button>
             </div>
           </div>

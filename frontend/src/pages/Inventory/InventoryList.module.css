@@ -533,7 +533,17 @@
 
   .filterChips {
     width: 100%;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    overflow-x: visible;
+    padding: 2px 0;
+  }
+
+  .filterChips .chipBtn {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
   }
 }
 

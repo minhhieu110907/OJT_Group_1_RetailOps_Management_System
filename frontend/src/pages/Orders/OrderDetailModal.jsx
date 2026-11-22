@@ -72,8 +72,7 @@ export default function OrderDetailModal({
   if (!order) return null;
 
   const formatActor = (actorId, actorName) => {
-    if (actorName) return actorName;
-    const label = formatOrderActorLabel(actorId, user);
+    const label = formatOrderActorLabel(actorId, user, actorName);
     if (compactAdminLabel && /^Admin #\d+$/.test(label)) {
       return 'Admin';
     }

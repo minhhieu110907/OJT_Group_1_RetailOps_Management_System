@@ -1259,7 +1259,7 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
 
       const supplierListFile = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
       const supplierListSrc = fs.readFileSync(supplierListFile, 'utf8');
-      assert.ok(supplierListSrc.includes('categoryPickerBox'));
+      assert.ok(supplierListSrc.includes('SupplierCategorySelect'));
       assert.ok(supplierListSrc.includes('category_ids: supplierForm.category_ids'));
     });
   });

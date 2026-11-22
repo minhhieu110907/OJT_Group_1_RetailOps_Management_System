@@ -1100,7 +1100,7 @@ export default function PurchaseList() {
       {
         key: 'id',
         title: 'MÃ PHIẾU',
-        width: '100px',
+        width: '9%',
         render: (row) => {
           const isSelected = selectedReceipt?.id === row.id;
           return (
@@ -1114,6 +1114,7 @@ export default function PurchaseList() {
       {
         key: 'supplier_name_snapshot',
         title: 'NHÀ CUNG CẤP',
+        width: '24%',
         render: (row) => (
           <span
             className={styles.supplierNameCell}
@@ -1127,7 +1128,7 @@ export default function PurchaseList() {
         key: 'items_count',
         title: 'SỐ MẶT HÀNG',
         align: 'center',
-        width: '120px',
+        width: '14%',
         render: (row) => {
           const count = Array.isArray(row.items) ? row.items.length : 0;
           return (
@@ -1140,14 +1141,14 @@ export default function PurchaseList() {
       {
         key: 'created_at',
         title: 'THỜI GIAN TẠO',
-        width: '140px',
+        width: '16%',
         render: (row) => <span className={styles.dateCell}>{formatDate(row.created_at)}</span>,
       },
       {
         key: 'total_vnd',
         title: 'TỔNG TIỀN',
         align: 'right',
-        width: '130px',
+        width: '13%',
         render: (row) => (
           <span className={styles.amountCell}>{formatVND(row.total_vnd)}</span>
         ),
@@ -1155,7 +1156,7 @@ export default function PurchaseList() {
       {
         key: 'status',
         title: 'TRẠNG THÁI',
-        width: '130px',
+        width: '12%',
         align: 'center',
         render: (row) => {
           if (row.status === 'CONFIRMED') {
@@ -1175,7 +1176,7 @@ export default function PurchaseList() {
         key: 'actions',
         title: 'THAO TÁC',
         align: 'center',
-        width: '110px',
+        width: '12%',
         render: (row) => (
           <button
             type="button"
@@ -1449,82 +1450,84 @@ export default function PurchaseList() {
           ))}
         </select>
 
-        {/* Dropdown chọn khoảng thời gian */}
-        <select
-          className={styles.selectBox}
-          value={dateRangeType}
-          onChange={(e) => handleDateRangePreset(e.target.value)}
-        >
-          <option value="ALL">Thời gian: Toàn bộ</option>
-          <option value="30DAYS">Thời gian: 30 ngày gần nhất</option>
-          <option value="7DAYS">Thời gian: 7 ngày gần nhất</option>
-          <option value="TODAY">Thời gian: Hôm nay</option>
-          <option value="CUSTOM">Thời gian: Tùy chỉnh</option>
-        </select>
-
-        {dateRangeType === 'CUSTOM' && (
-          <div className={styles.customDatePopover}>
-            <div
-              className={styles.dateInputGroup}
-              style={{ cursor: 'pointer' }}
-              onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
-            >
-              <span>Từ:</span>
-              <input
-                type="date"
-                className={styles.dateInput}
-                style={{ cursor: 'pointer' }}
-                value={fromDateFilter}
-                onChange={(e) => {
-                  setFromDateFilter(e.target.value);
-                  setPagination((prev) => ({ ...prev, page: 1 }));
-                }}
-              />
-            </div>
-            <div
-              className={styles.dateInputGroup}
-              style={{ cursor: 'pointer' }}
-              onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
-            >
-              <span>Đến:</span>
-              <input
-                type="date"
-                className={styles.dateInput}
-                style={{ cursor: 'pointer' }}
-                value={toDateFilter}
-                onChange={(e) => {
-                  setToDateFilter(e.target.value);
-                  setPagination((prev) => ({ ...prev, page: 1 }));
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {(supplierFilter ||
-          (topTab === 'HISTORY' ? activeTab !== 'ALL_HISTORY' : activeTab !== 'DRAFT') ||
-          fromDateFilter ||
-          toDateFilter ||
-          searchQuery ||
-          dateRangeType !== 'ALL') && (
-          <button
-            type="button"
-            className={styles.clearFilterBtn}
-            onClick={() => {
-              setSupplierFilter('');
-              setActiveTab(topTab === 'HISTORY' ? 'ALL_HISTORY' : 'DRAFT');
-              setDateRangeType('ALL');
-              setFromDateFilter('');
-              setToDateFilter('');
-              setSearchQuery('');
-              setDebouncedSearchQuery('');
-              setSearchValidationError('');
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
+        {/* Dropdown chọn khoảng thời gian + nút Xóa bộ lọc */}
+        <div className={styles.dateAndClearRow}>
+          <select
+            className={styles.selectBox}
+            value={dateRangeType}
+            onChange={(e) => handleDateRangePreset(e.target.value)}
           >
-            Xóa bộ lọc
-          </button>
-        )}
+            <option value="ALL">Thời gian: Toàn bộ</option>
+            <option value="30DAYS">Thời gian: 30 ngày gần nhất</option>
+            <option value="7DAYS">Thời gian: 7 ngày gần nhất</option>
+            <option value="TODAY">Thời gian: Hôm nay</option>
+            <option value="CUSTOM">Thời gian: Tùy chỉnh</option>
+          </select>
+
+          {dateRangeType === 'CUSTOM' && (
+            <div className={styles.customDatePopover}>
+              <div
+                className={styles.dateInputGroup}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
+              >
+                <span>Từ:</span>
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  style={{ cursor: 'pointer' }}
+                  value={fromDateFilter}
+                  onChange={(e) => {
+                    setFromDateFilter(e.target.value);
+                    setPagination((prev) => ({ ...prev, page: 1 }));
+                  }}
+                />
+              </div>
+              <div
+                className={styles.dateInputGroup}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
+              >
+                <span>Đến:</span>
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  style={{ cursor: 'pointer' }}
+                  value={toDateFilter}
+                  onChange={(e) => {
+                    setToDateFilter(e.target.value);
+                    setPagination((prev) => ({ ...prev, page: 1 }));
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {(supplierFilter ||
+            (topTab === 'HISTORY' ? activeTab !== 'ALL_HISTORY' : activeTab !== 'DRAFT') ||
+            fromDateFilter ||
+            toDateFilter ||
+            searchQuery ||
+            dateRangeType !== 'ALL') && (
+            <button
+              type="button"
+              className={styles.clearFilterBtn}
+              onClick={() => {
+                setSupplierFilter('');
+                setActiveTab(topTab === 'HISTORY' ? 'ALL_HISTORY' : 'DRAFT');
+                setDateRangeType('ALL');
+                setFromDateFilter('');
+                setToDateFilter('');
+                setSearchQuery('');
+                setDebouncedSearchQuery('');
+                setSearchValidationError('');
+                setPagination((prev) => ({ ...prev, page: 1 }));
+              }}
+            >
+              Xóa bộ lọc
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Thông báo hướng dẫn nếu người dùng nhập chữ thay vì Mã phiếu vào ô tra cứu mã phiếu */}
@@ -1607,14 +1610,7 @@ export default function PurchaseList() {
           selectedReceipt.status === 'DRAFT' &&
           !isDetailLoading &&
           !detailError ? (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                width: '100%',
-              }}
-            >
+            <div className={styles.detailModalFooterRow}>
               <button
                 type="button"
                 className={modalStyles.dangerBtn}
@@ -1623,7 +1619,7 @@ export default function PurchaseList() {
               >
                 Hủy phiếu
               </button>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div className={styles.detailModalFooterActions}>
                 <button
                   type="button"
                   className={modalStyles.cancelBtn}
@@ -1669,7 +1665,7 @@ export default function PurchaseList() {
         }
       >
         {isDetailLoading ? (
-          <div style={{ padding: '32px 0', textAlign: 'center', color: '#6B7280' }}>
+          <div className={styles.detailLoadingState}>
             <span>Đang tải chi tiết phiếu nhập...</span>
           </div>
         ) : detailError ? (
@@ -1685,29 +1681,7 @@ export default function PurchaseList() {
             </button>
           </div>
         ) : selectedReceipt && selectedReceipt.id === selectedReceiptId ? (
-          <div>
-            {/* Header trạng thái */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '12px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {selectedReceipt.status === 'CONFIRMED' && (
-                  <span className={styles.statusBadgeConfirmed}>ĐÃ NHẬP</span>
-                )}
-                {selectedReceipt.status === 'CANCELLED' && (
-                  <span className={styles.statusBadgeCancelled}>ĐÃ HỦY</span>
-                )}
-                {selectedReceipt.status === 'DRAFT' && (
-                  <span className={styles.statusBadgeDraft}>BẢN NHÁP</span>
-                )}
-              </div>
-            </div>
-
+          <div className={styles.detailModalContent}>
             {/* Banner cảnh báo xung đột phiên bản 409 Conflict */}
             {conflictError && (
               <div className={styles.conflictAlert} role="alert">
@@ -1723,61 +1697,67 @@ export default function PurchaseList() {
               </div>
             )}
 
-            {/* Meta info */}
-            <div className={styles.metaInfoRow}>
-              <div>
-                Tạo lúc: <strong>{formatDate(selectedReceipt.created_at)}</strong>
-              </div>
-              <div>
-                Phiên bản: <strong>{selectedReceipt.draft_version}</strong>
-              </div>
-            </div>
-
-            {/* Thông tin NCC & Trạng thái */}
-            <div className={styles.infoGrid}>
-              <div className={styles.infoBlock}>
-                <span className={styles.infoLabel}>NHÀ CUNG CẤP</span>
-                {selectedReceipt.status === 'DRAFT' && isEditingDraft ? (
-                  <select
-                    className={styles.formSelect}
-                    value={editSupplierId}
-                    onChange={(e) => handleEditSupplierChange(e.target.value)}
-                  >
-                    {!activeSuppliers.some(
-                      (s) => Number(s.id) === Number(selectedReceipt.supplier_id)
-                    ) && (
-                      <option value={selectedReceipt.supplier_id}>
-                        {selectedReceipt.supplier_name_snapshot ||
-                          `NCC #${selectedReceipt.supplier_id}`}
-                      </option>
-                    )}
-                    {activeSuppliers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className={styles.infoValue}>
-                    {selectedReceipt.supplier_name_snapshot ||
-                      `NCC #${selectedReceipt.supplier_id}`}
+            {/* Khung tóm tắt chứng từ */}
+            <div className={styles.detailMetaCard}>
+              <div className={styles.detailMetaTopRow}>
+                <div className={styles.detailStatusGroup}>
+                  {selectedReceipt.status === 'CONFIRMED' && (
+                    <span className={styles.statusBadgeConfirmed}>Đã nhập kho</span>
+                  )}
+                  {selectedReceipt.status === 'CANCELLED' && (
+                    <span className={styles.statusBadgeCancelled}>Đã hủy</span>
+                  )}
+                  {selectedReceipt.status === 'DRAFT' && (
+                    <span className={styles.statusBadgeDraft}>Bản nháp</span>
+                  )}
+                  <span className={styles.detailVersionPill}>
+                    Phiên bản #{selectedReceipt.draft_version}
                   </span>
-                )}
-              </div>
-              <div className={styles.infoBlock}>
-                <span className={styles.infoLabel}>TRẠNG THÁI CHỨNG TỪ</span>
-                <span className={styles.infoValue}>
-                  {selectedReceipt.status === 'CONFIRMED'
-                    ? 'ĐÃ NHẬP'
-                    : selectedReceipt.status === 'CANCELLED'
-                    ? 'ĐÃ HỦY'
-                    : 'BẢN NHÁP'}
+                </div>
+                <span className={styles.detailTimestamp}>
+                  Tạo lúc: <strong>{formatDate(selectedReceipt.created_at)}</strong>
                 </span>
-                {selectedReceipt.closed_at && (
-                  <span className={styles.infoSub}>
-                    Đóng lúc: {formatDate(selectedReceipt.closed_at)}
-                  </span>
-                )}
+              </div>
+
+              <div className={styles.infoGrid}>
+                <div className={styles.infoBlock}>
+                  <span className={styles.infoLabel}>NHÀ CUNG CẤP</span>
+                  {selectedReceipt.status === 'DRAFT' && isEditingDraft ? (
+                    <select
+                      className={styles.formSelect}
+                      value={editSupplierId}
+                      onChange={(e) => handleEditSupplierChange(e.target.value)}
+                    >
+                      {!activeSuppliers.some(
+                        (s) => Number(s.id) === Number(selectedReceipt.supplier_id)
+                      ) && (
+                        <option value={selectedReceipt.supplier_id}>
+                          {selectedReceipt.supplier_name_snapshot ||
+                            `NCC #${selectedReceipt.supplier_id}`}
+                        </option>
+                      )}
+                      {activeSuppliers.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className={styles.infoValue}>
+                      {selectedReceipt.supplier_name_snapshot ||
+                        `NCC #${selectedReceipt.supplier_id}`}
+                    </span>
+                  )}
+                </div>
+                <div className={styles.infoBlock}>
+                  <span className={styles.infoLabel}>KHO ÁP DỤNG</span>
+                  <span className={styles.infoValue}>Kho cửa hàng</span>
+                  {selectedReceipt.closed_at && (
+                    <span className={styles.infoSub}>
+                      Đóng lúc: {formatDate(selectedReceipt.closed_at)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1863,42 +1843,51 @@ export default function PurchaseList() {
 
                   {editLines.map((line, idx) => (
                     <div key={idx} className={styles.lineInputRow}>
-                      <select
-                        className={styles.formSelect}
-                        value={line.product_id}
-                        onChange={(e) =>
-                          handleUpdateEditLine(idx, 'product_id', e.target.value)
-                        }
-                      >
-                        <option value="">-- Chọn sản phẩm --</option>
-                        {editFilteredProducts.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.sku} - {p.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className={`${styles.lineField} ${styles.lineFieldProduct}`}>
+                        <span className={styles.mobileFieldLabel}>Sản phẩm</span>
+                        <select
+                          className={styles.formSelect}
+                          value={line.product_id}
+                          onChange={(e) =>
+                            handleUpdateEditLine(idx, 'product_id', e.target.value)
+                          }
+                        >
+                          <option value="">-- Chọn sản phẩm --</option>
+                          {editFilteredProducts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.sku} - {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                      <input
-                        type="number"
-                        min="1"
-                        className={styles.formInput}
-                        placeholder="Số lượng nhập"
-                        value={line.quantity}
-                        onChange={(e) =>
-                          handleUpdateEditLine(idx, 'quantity', e.target.value)
-                        }
-                      />
+                      <div className={styles.lineField}>
+                        <span className={styles.mobileFieldLabel}>Số lượng</span>
+                        <input
+                          type="number"
+                          min="1"
+                          className={styles.formInput}
+                          placeholder="Số lượng nhập"
+                          value={line.quantity}
+                          onChange={(e) =>
+                            handleUpdateEditLine(idx, 'quantity', e.target.value)
+                          }
+                        />
+                      </div>
 
-                      <input
-                        type="number"
-                        min="0"
-                        className={styles.formInput}
-                        placeholder="Đơn giá nhập"
-                        value={line.unit_cost_vnd}
-                        onChange={(e) =>
-                          handleUpdateEditLine(idx, 'unit_cost_vnd', e.target.value)
-                        }
-                      />
+                      <div className={styles.lineField}>
+                        <span className={styles.mobileFieldLabel}>Đơn giá nhập (đ)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          className={styles.formInput}
+                          placeholder="Đơn giá nhập"
+                          value={line.unit_cost_vnd}
+                          onChange={(e) =>
+                            handleUpdateEditLine(idx, 'unit_cost_vnd', e.target.value)
+                          }
+                        />
+                      </div>
 
                       <button
                         type="button"
@@ -1921,44 +1910,59 @@ export default function PurchaseList() {
                   </button>
                 </div>
               ) : (
-                <table className={styles.itemsTable}>
-                  <thead>
-                    <tr>
-                      <th>Sản phẩm</th>
-                      <th>SL</th>
-                      <th>Đơn giá (đ)</th>
-                      <th>Thành tiền (đ)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(selectedReceipt.items || []).map((item) => (
-                      <tr key={item.product_id}>
-                        <td>
-                          <div className={styles.itemMainName}>
-                            {item.product_name_snapshot}
-                          </div>
-                          <div className={styles.itemSubSku}>
-                            SKU: {item.sku_snapshot}
-                          </div>
-                        </td>
-                        <td className={styles.qtyBadge}>{item.quantity}</td>
-                        <td className={styles.unitPrice}>
-                          {(item.unit_cost_vnd || 0).toLocaleString('vi-VN')}
-                        </td>
-                        <td className={styles.lineTotal}>
-                          {(item.line_total_vnd || 0).toLocaleString('vi-VN')}
-                        </td>
+                <div className={styles.itemsTableWrap}>
+                  <table className={styles.itemsTable}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '46%' }}>Sản phẩm</th>
+                        <th style={{ width: '12%', textAlign: 'center' }}>SL</th>
+                        <th style={{ width: '20%' }}>Đơn giá (đ)</th>
+                        <th style={{ width: '22%' }}>Thành tiền (đ)</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {(selectedReceipt.items || []).map((item) => (
+                        <tr key={item.product_id}>
+                          <td>
+                            <div className={styles.itemMainName}>
+                              {item.product_name_snapshot}
+                            </div>
+                            <div className={styles.itemSubSku}>
+                              SKU: {item.sku_snapshot}
+                            </div>
+                          </td>
+                          <td className={styles.qtyBadge} style={{ textAlign: 'center' }}>
+                            {item.quantity}
+                          </td>
+                          <td className={styles.unitPrice}>
+                            {(item.unit_cost_vnd || 0).toLocaleString('vi-VN')}
+                          </td>
+                          <td className={styles.lineTotal}>
+                            {(item.line_total_vnd || 0).toLocaleString('vi-VN')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 
             {/* Tổng số lượng & Tổng tiền */}
             <div className={styles.summaryBlock}>
+              <div className={styles.summaryRow}>
+                <span>
+                  Tổng số lượng nhập (
+                  {(selectedReceipt.items || []).reduce(
+                    (sum, item) => sum + (Number(item.quantity) || 0),
+                    0
+                  )}{' '}
+                  sản phẩm)
+                </span>
+                <strong>{selectedReceipt.items?.length || 0} mặt hàng</strong>
+              </div>
               <div className={styles.summaryTotalRow}>
-                <span>Tổng tiền phiếu nhập:</span>
+                <span>Tổng tiền phiếu nhập</span>
                 <span className={styles.totalHighlight}>
                   {formatVND(selectedReceipt.total_vnd)}
                 </span>
@@ -2100,45 +2104,54 @@ export default function PurchaseList() {
 
             {createLines.map((line, idx) => (
               <div key={idx} className={styles.lineInputRow}>
-                <select
-                  className={styles.formSelect}
-                  value={line.product_id}
-                  onChange={(e) =>
-                    handleUpdateCreateLine(idx, 'product_id', e.target.value)
-                  }
-                  required
-                >
-                  <option value="">-- Chọn sản phẩm --</option>
-                  {createFilteredProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.sku} - {p.name}
-                    </option>
-                  ))}
-                </select>
+                <div className={`${styles.lineField} ${styles.lineFieldProduct}`}>
+                  <span className={styles.mobileFieldLabel}>Sản phẩm</span>
+                  <select
+                    className={styles.formSelect}
+                    value={line.product_id}
+                    onChange={(e) =>
+                      handleUpdateCreateLine(idx, 'product_id', e.target.value)
+                    }
+                    required
+                  >
+                    <option value="">-- Chọn sản phẩm --</option>
+                    {createFilteredProducts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.sku} - {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                <input
-                  type="number"
-                  min="1"
-                  className={styles.formInput}
-                  placeholder="Số lượng nhập"
-                  value={line.quantity}
-                  onChange={(e) =>
-                    handleUpdateCreateLine(idx, 'quantity', e.target.value)
-                  }
-                  required
-                />
+                <div className={styles.lineField}>
+                  <span className={styles.mobileFieldLabel}>Số lượng</span>
+                  <input
+                    type="number"
+                    min="1"
+                    className={styles.formInput}
+                    placeholder="Số lượng nhập"
+                    value={line.quantity}
+                    onChange={(e) =>
+                      handleUpdateCreateLine(idx, 'quantity', e.target.value)
+                    }
+                    required
+                  />
+                </div>
 
-                <input
-                  type="number"
-                  min="0"
-                  className={styles.formInput}
-                  placeholder="Đơn giá nhập"
-                  value={line.unit_cost_vnd}
-                  onChange={(e) =>
-                    handleUpdateCreateLine(idx, 'unit_cost_vnd', e.target.value)
-                  }
-                  required
-                />
+                <div className={styles.lineField}>
+                  <span className={styles.mobileFieldLabel}>Đơn giá nhập (đ)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className={styles.formInput}
+                    placeholder="Đơn giá nhập"
+                    value={line.unit_cost_vnd}
+                    onChange={(e) =>
+                      handleUpdateCreateLine(idx, 'unit_cost_vnd', e.target.value)
+                    }
+                    required
+                  />
+                </div>
 
                 <button
                   type="button"
