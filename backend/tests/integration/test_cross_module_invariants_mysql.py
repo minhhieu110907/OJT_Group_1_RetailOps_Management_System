@@ -212,10 +212,10 @@ def _cleanup_run(
             session.execute(
                 delete(PurchaseReceipt).where(PurchaseReceipt.id.in_(receipt_ids))
             )
-        if idempotency_keys:
+        if owned_user_ids:
             session.execute(
                 delete(IdempotencyRecord).where(
-                    IdempotencyRecord.idempotency_key.in_(idempotency_keys)
+                    IdempotencyRecord.user_id.in_(owned_user_ids)
                 )
             )
         if product_ids:
