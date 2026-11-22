@@ -10,6 +10,20 @@ from app.modules.auth.models import User
 from app.modules.sales.models import Order, OrderItem
 
 
+def format_actor_display_name(full_name: str | None, role: str | None) -> str | None:
+    """Append ' (admin)' suffix for ADMIN actors while leaving STAFF names plain."""
+    if full_name is None:
+        return None
+    cleaned = full_name.strip()
+    if not cleaned:
+        return None
+    if role == "ADMIN" and not cleaned.lower().endswith("(admin)"):
+        suffix = " (admin)"
+        if len(cleaned) + len(suffix) <= 120:
+            return f"{cleaned}{suffix}"
+    return cleaned
+
+
 def _escape_like(value: str) -> str:
     """Escape LIKE pattern special characters % and _ using backslash."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -178,4 +192,9 @@ class OrderRepository:
         return order
 
     def user_full_name(self, session: Session, user_id: int) -> str | None:
-        return session.scalar(select(User.full_name).where(User.id == user_id))
+        row = session.execute(
+            select(User.full_name, User.role).where(User.id == user_id)
+        ).one_or_none()
+        if row is None:
+            return None
+        return format_actor_display_name(row.full_name, row.role)

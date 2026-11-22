@@ -106,11 +106,13 @@ export default function InventoryList() {
       ]);
 
       if (currentKpiId === kpiRequestIdRef.current) {
+        const outOfStockCount = outOfStockRes?.total ?? 0;
+        const lowStockIncludingZero = lowStockRes?.total ?? 0;
         setKpiStats({
           totalProducts: totalRes?.total ?? 0,
           activeProducts: activeRes?.total ?? 0,
-          lowStock: lowStockRes?.total ?? 0,
-          outOfStock: outOfStockRes?.total ?? 0,
+          lowStock: Math.max(0, lowStockIncludingZero - outOfStockCount),
+          outOfStock: outOfStockCount,
           isLoading: false,
         });
       }
@@ -136,13 +138,26 @@ export default function InventoryList() {
     setIsLoading(true);
 
     try {
+      if (stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK) {
+        const res = await inventoryApi.getLowStock({
+          page: pagination.page,
+          pageSize: pagination.pageSize,
+          categoryId: selectedCategoryId ? Number(selectedCategoryId) : null,
+          excludeOutOfStock: true,
+        });
+        if (currentRequestId === requestIdRef.current) {
+          setInventoryItems(res.items || []);
+          setTotalCount(res.total || 0);
+        }
+        return;
+      }
+
       // Xác định param query theo filter
       let statusParam = null;
       let inStockParam = null;
 
-      if (stockStatusFilter === STOCK_STATUS_TABS.IN_STOCK) {
-        inStockParam = true;
-      } else if (stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK) {
+      if (stockStatusFilter === STOCK_STATUS_TABS.OUT_OF_STOCK) {
+        statusParam = 'ACTIVE';
         inStockParam = false;
       }
 
@@ -181,18 +196,19 @@ export default function InventoryList() {
       {
         key: 'sku',
         title: 'MÃ SKU',
-        width: '150px',
+        width: isAdmin ? '12%' : '13%',
         render: (row) => <span className={styles.skuCell}>{row.sku}</span>,
       },
       {
         key: 'name',
         title: 'TÊN SẢN PHẨM',
+        width: isAdmin ? '24%' : '28%',
         render: (row) => <div className={styles.productNameCell}>{row.name}</div>,
       },
       {
         key: 'category',
         title: 'DANH MỤC',
-        width: '150px',
+        width: isAdmin ? '14%' : '16%',
         render: (row) => (
           <span>{categoryMap.get(row.category_id) || `Danh mục #${row.category_id}`}</span>
         ),
@@ -200,7 +216,7 @@ export default function InventoryList() {
       {
         key: 'status',
         title: 'TRẠNG THÁI BÁN',
-        width: '140px',
+        width: isAdmin ? '13%' : '14%',
         render: (row) => {
           const isActive = row.status === 'ACTIVE';
           return (
@@ -218,13 +234,13 @@ export default function InventoryList() {
         key: 'quantity',
         title: 'TỒN KHO HIỆN TẠI',
         align: 'center',
-        width: '160px',
+        width: isAdmin ? '12%' : '14%',
         render: (row) => <span className={styles.quantityCell}>{row.quantity}</span>,
       },
       {
         key: 'stock_level',
         title: 'TÌNH TRẠNG TỒN',
-        width: '160px',
+        width: isAdmin ? '14%' : '15%',
         render: (row) => {
           const classification = classifyStockLevel(row.quantity, row.status);
           return (
@@ -241,7 +257,7 @@ export default function InventoryList() {
               key: 'action',
               title: 'THAO TÁC',
               align: 'center',
-              width: '130px',
+              width: '11%',
               render: (row) => (
                 <button
                   type="button"
@@ -384,7 +400,7 @@ export default function InventoryList() {
         <div className={styles.statCard}>
           <div className={styles.statHeader}>
             <span className={`${styles.statDot} ${styles.statDotYellow}`} />
-            <span>Tồn thấp</span>
+            <span>Sắp hết</span>
           </div>
           <div className={styles.statBody}>
             <span className={styles.statValue}>
@@ -417,33 +433,26 @@ export default function InventoryList() {
         <div className={styles.filterControls}>
           {/* Lọc danh mục */}
           <div className={styles.filterRow}>
-            <span className={styles.filterLabel}>Danh mục:</span>
-            <div className={styles.filterChips}>
-              <button
-                type="button"
-                className={`${styles.chipBtn} ${selectedCategoryId === '' ? styles.chipBtnActive : ''}`}
-                onClick={() => {
-                  setSelectedCategoryId('');
+            <label htmlFor="inventory-category-filter" className={styles.filterLabel}>
+              Danh mục:
+            </label>
+            <div className={styles.categorySelectWrap}>
+              <select
+                id="inventory-category-filter"
+                className={styles.categorySelect}
+                value={selectedCategoryId}
+                onChange={(e) => {
+                  setSelectedCategoryId(e.target.value);
                   setPagination((prev) => ({ ...prev, page: 1 }));
                 }}
               >
-                Tất cả
-              </button>
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  className={`${styles.chipBtn} ${
-                    String(selectedCategoryId) === String(cat.id) ? styles.chipBtnActive : ''
-                  }`}
-                  onClick={() => {
-                    setSelectedCategoryId(String(cat.id));
-                    setPagination((prev) => ({ ...prev, page: 1 }));
-                  }}
-                >
-                  {cat.name}
-                </button>
-              ))}
+                <option value="">Tất cả</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={String(cat.id)}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -466,14 +475,14 @@ export default function InventoryList() {
               <button
                 type="button"
                 className={`${styles.chipBtn} ${
-                  stockStatusFilter === STOCK_STATUS_TABS.IN_STOCK ? styles.chipBtnActive : ''
+                  stockStatusFilter === STOCK_STATUS_TABS.LOW_STOCK ? styles.chipBtnActive : ''
                 }`}
                 onClick={() => {
-                  setStockStatusFilter(STOCK_STATUS_TABS.IN_STOCK);
+                  setStockStatusFilter(STOCK_STATUS_TABS.LOW_STOCK);
                   setPagination((prev) => ({ ...prev, page: 1 }));
                 }}
               >
-                Còn hàng
+                Sắp hết
               </button>
               <button
                 type="button"

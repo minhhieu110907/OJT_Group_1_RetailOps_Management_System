@@ -1,6 +1,6 @@
 """Service layer for sales analytics calculations and period resolution."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -465,6 +465,29 @@ class ProductAnalyticsService:
             page_size=page_size,
             threshold=DEFAULT_LOW_STOCK_THRESHOLD,
         )
+
+    def sold_units_for_products(
+        self,
+        session: Session,
+        *,
+        product_ids: Sequence[int],
+        period: Period,
+    ) -> dict[int, int]:
+        """Return exact COMPLETED-order sold units in period for each product ID.
+
+        Every requested valid product_id is present in the returned mapping with
+        0 when no COMPLETED orders exist for that product in the period.
+        """
+        unique_ids = sorted({int(pid) for pid in product_ids if int(pid) >= 1})
+        if not unique_ids:
+            return {}
+        sold_map = self._repository.get_sold_units_by_product_ids(
+            session,
+            product_ids=unique_ids,
+            start_utc=period.start_utc,
+            end_utc_exclusive=period.end_utc_exclusive,
+        )
+        return {pid: int(sold_map.get(pid, 0)) for pid in unique_ids}
 
 
 class DashboardService:

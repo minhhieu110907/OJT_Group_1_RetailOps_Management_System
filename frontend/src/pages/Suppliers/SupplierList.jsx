@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import { productsApi } from '../../api/productsApi';
 import {
   suppliersApi,
   normalizeSupplierSnapshot,
@@ -13,6 +14,7 @@ import {
   parseAndValidateSupplierPhone,
 } from '../../utils/phoneUtils';
 import SupplierPhoneInput from './SupplierPhoneInput';
+import SupplierCategorySelect from './SupplierCategorySelect';
 import styles from './SupplierList.module.css';
 
 // Component hiển thị tag trạng thái chuẩn thiết kế
@@ -29,9 +31,10 @@ function SupplierStatusBadge({ status, inModal = false }) {
         borderRadius: '9999px',
         fontSize: '12.5px',
         fontWeight: '500',
-        backgroundColor: isActive ? 'rgba(16, 185, 129, 0.18)' : (inModal ? 'rgba(239, 68, 68, 0.2)' : 'rgba(71, 85, 105, 0.25)'),
-        color: isActive ? '#10B981' : (inModal ? '#EF4444' : '#94A3B8'),
-        border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.4)' : (inModal ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.3)')}`,
+        whiteSpace: 'nowrap',
+        backgroundColor: isActive ? 'rgba(16, 185, 129, 0.18)' : (inModal ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.14)'),
+        color: isActive ? '#10B981' : (inModal ? '#EF4444' : '#DC2626'),
+        border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.4)' : (inModal ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.35)')}`,
       }}
     >
       {isActive ? 'Đang hợp tác' : 'Ngừng hợp tác'}
@@ -67,6 +70,7 @@ const INITIAL_SUPPLIER_FORM = {
   contact_phone: '',
   contact_email: '',
   status: 'ACTIVE',
+  category_ids: [],
 };
 
 export default function SupplierList() {
@@ -100,8 +104,37 @@ export default function SupplierList() {
   const [phoneNationalInput, setPhoneNationalInput] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [initialSnapshot, setInitialSnapshot] = useState(null);
+  const [conflictData, setConflictData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [categoryLoadError, setCategoryLoadError] = useState('');
+
+  // Load danh mục sản phẩm phục vụ gán danh mục cho nhà cung cấp (tùy chọn)
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let active = true;
+    setCategoryLoadError('');
+    productsApi
+      .getCategories({ page: 1, pageSize: 100, fetchAll: true })
+      .then((res) => {
+        if (active) {
+          setAvailableCategories(res.items || []);
+          setCategoryLoadError('');
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setAvailableCategories([]);
+          setCategoryLoadError(
+            getApiErrorMessage(err, 'Không thể tải danh sách danh mục sản phẩm.')
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin]);
 
   // Chống race condition
   const requestIdRef = useRef(0);
@@ -159,7 +192,7 @@ export default function SupplierList() {
   // Xử lý mở modal thêm mới (chỉ ADMIN)
   const handleOpenCreateModal = () => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm nhà cung cấp.');
+      toast.error('Chỉ Quản trị viên mới có quyền thêm nhà cung cấp.');
       return;
     }
     setModalMode('create');
@@ -168,6 +201,7 @@ export default function SupplierList() {
     setPhoneNationalInput('');
     setPhoneError('');
     setInitialSnapshot(null);
+    setConflictData(null);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -175,11 +209,14 @@ export default function SupplierList() {
   // Xử lý mở modal xem chi tiết / cập nhật (chỉ ADMIN)
   const handleOpenEditModal = useCallback((supplier) => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa nhà cung cấp.');
+      toast.error('Chỉ Quản trị viên mới có quyền chỉnh sửa nhà cung cấp.');
       return;
     }
     setModalMode('edit');
-    const snapshot = normalizeSupplierSnapshot(supplier);
+    const snapshot = {
+      ...normalizeSupplierSnapshot(supplier),
+      updated_at: supplier.updated_at,
+    };
     const hydratedPhone = hydrateSupplierPhoneField(snapshot.contact_phone);
     setSupplierForm({
       id: snapshot.id,
@@ -187,11 +224,13 @@ export default function SupplierList() {
       contact_phone: snapshot.contact_phone || '',
       contact_email: snapshot.contact_email || '',
       status: snapshot.status,
+      category_ids: snapshot.category_ids || [],
     });
     setPhoneCountry(hydratedPhone.countryIso);
     setPhoneNationalInput(hydratedPhone.nationalInput);
     setPhoneError('');
     setInitialSnapshot(snapshot);
+    setConflictData(null);
     setFormError('');
     setIsModalOpen(true);
   }, [isAdmin, toast]);
@@ -201,7 +240,42 @@ export default function SupplierList() {
     setIsModalOpen(false);
     setFormError('');
     setPhoneError('');
+    setConflictData(null);
   };
+
+  // Tải lại dữ liệu nhà cung cấp mới nhất khi có xung đột (HTTP 409 / Stale)
+  const handleReloadLatestSupplier = useCallback(async () => {
+    if (!supplierForm.id) return;
+    setIsSubmitting(true);
+    try {
+      const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
+      const newSnapshot = {
+        ...normalizeSupplierSnapshot(latestSupplier),
+        updated_at: latestSupplier.updated_at,
+      };
+      const rehydratedPhone = hydrateSupplierPhoneField(newSnapshot.contact_phone);
+      setInitialSnapshot(newSnapshot);
+      setSupplierForm({
+        id: newSnapshot.id,
+        name: newSnapshot.name,
+        contact_phone: newSnapshot.contact_phone || '',
+        contact_email: newSnapshot.contact_email || '',
+        status: newSnapshot.status,
+        category_ids: newSnapshot.category_ids || [],
+      });
+      setPhoneCountry(rehydratedPhone.countryIso);
+      setPhoneNationalInput(rehydratedPhone.nationalInput);
+      setPhoneError('');
+      setConflictData(null);
+      setFormError('');
+      setRefreshTrigger((prev) => prev + 1);
+      toast.info('Đã cập nhật dữ liệu nhà cung cấp mới nhất từ hệ thống.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể tải dữ liệu nhà cung cấp mới nhất.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [supplierForm.id, toast]);
 
   // Đồng bộ giá trị số điện thoại quốc gia -> E.164 trong supplierForm
   const syncPhoneField = useCallback(
@@ -251,7 +325,7 @@ export default function SupplierList() {
   // Đảo trạng thái tạm thời trong form modal (chưa lưu xuống database cho đến khi bấm "Lưu thay đổi")
   const handleToggleStatus = () => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái đối tác.');
+      toast.error('Chỉ Quản trị viên mới có quyền thay đổi trạng thái đối tác.');
       return;
     }
     if (isSubmitting || modalMode !== 'edit' || !supplierForm.id) return;
@@ -267,7 +341,7 @@ export default function SupplierList() {
       e.preventDefault();
     }
     if (!isAdmin) {
-      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      const msg = 'Chỉ Quản trị viên mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
       return;
@@ -313,6 +387,37 @@ export default function SupplierList() {
     // Với edit mode: kiểm tra dirty state theo Decision Matrix
     let changes = null;
     if (modalMode === 'edit') {
+      // Đối soát trước xem trên máy chủ dữ liệu có thay đổi gần đây không
+      try {
+        const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
+        if (
+          initialSnapshot?.updated_at &&
+          latestSupplier?.updated_at &&
+          latestSupplier.updated_at !== initialSnapshot.updated_at
+        ) {
+          setConflictData({
+            message:
+              'Dữ liệu nhà cung cấp đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+            latest: latestSupplier,
+          });
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+      } catch (fetchErr) {
+        if (fetchErr?.response?.status === 404) {
+          toast.error('Nhà cung cấp không còn tồn tại trên hệ thống.');
+          setIsModalOpen(false);
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+        const errorMsg = getApiErrorMessage(
+          fetchErr,
+          'Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'
+        );
+        setFormError(errorMsg);
+        return;
+      }
+
       changes = detectSupplierChanges(
         { ...supplierForm, contact_phone: normalizedPhone || '' },
         initialSnapshot
@@ -320,6 +425,7 @@ export default function SupplierList() {
       if (!changes.hasInfoChanges && !changes.hasStatusChange) {
         toast.info('Không có thay đổi nào để lưu.');
         setIsModalOpen(false);
+        setRefreshTrigger((prev) => prev + 1);
         return;
       }
     }
@@ -334,6 +440,7 @@ export default function SupplierList() {
           name: trimmedName,
           contact_email: trimmedEmail,
           contact_phone: normalizedPhone,
+          category_ids: supplierForm.category_ids,
         });
         toast.success('Thêm nhà cung cấp mới thành công.');
         setIsModalOpen(false);
@@ -348,6 +455,7 @@ export default function SupplierList() {
             name: normalizedPayload.name,
             contact_email: normalizedPayload.contact_email,
             contact_phone: normalizedPayload.contact_phone,
+            category_ids: normalizedPayload.category_ids,
           });
           infoUpdated = true;
         }
@@ -368,7 +476,10 @@ export default function SupplierList() {
               try {
                 // Thử đồng bộ lại dữ liệu backend thực tế
                 const latestSupplier = await suppliersApi.getSupplier(supplierForm.id);
-                const newSnapshot = normalizeSupplierSnapshot(latestSupplier);
+                const newSnapshot = {
+                  ...normalizeSupplierSnapshot(latestSupplier),
+                  updated_at: latestSupplier.updated_at,
+                };
                 const rehydratedPhone = hydrateSupplierPhoneField(newSnapshot.contact_phone);
                 setInitialSnapshot(newSnapshot);
                 setSupplierForm({
@@ -377,6 +488,7 @@ export default function SupplierList() {
                   contact_phone: newSnapshot.contact_phone || '',
                   contact_email: newSnapshot.contact_email || '',
                   status: newSnapshot.status,
+                  category_ids: newSnapshot.category_ids || [],
                 });
                 setPhoneCountry(rehydratedPhone.countryIso);
                 setPhoneNationalInput(rehydratedPhone.nationalInput);
@@ -400,14 +512,22 @@ export default function SupplierList() {
         setRefreshTrigger((prev) => prev + 1);
       }
     } catch (err) {
-      const errorMsg = getApiErrorMessage(
-        err,
-        modalMode === 'create'
-          ? 'Không thể tạo nhà cung cấp.'
-          : 'Không thể cập nhật nhà cung cấp.'
-      );
-      setFormError(errorMsg);
-      toast.error(errorMsg);
+      if (err?.response?.status === 409) {
+        setConflictData({
+          message:
+            getApiErrorMessage(err) ||
+            'Dữ liệu đã thay đổi gần đây trên hệ thống (HTTP 409). Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
+        });
+      } else {
+        const errorMsg = getApiErrorMessage(
+          err,
+          modalMode === 'create'
+            ? 'Không thể tạo nhà cung cấp.'
+            : 'Không thể cập nhật nhà cung cấp.'
+        );
+        setFormError(errorMsg);
+        toast.error(errorMsg);
+      }
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);
@@ -528,7 +648,7 @@ export default function SupplierList() {
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span>
-            <strong>Truy cập bị giới hạn (403):</strong> Bạn không có quyền Quản trị viên (ADMIN) để thao tác trên danh mục nhà cung cấp.
+            <strong>Truy cập bị giới hạn (403):</strong> Bạn không có quyền Quản trị viên để thao tác trên danh mục nhà cung cấp.
           </span>
         </div>
       )}
@@ -655,6 +775,27 @@ export default function SupplierList() {
           onSubmit={handleSubmitForm}
           className={styles.modalForm}
         >
+          {conflictData && (
+            <div className={styles.conflictCard} role="alert">
+              <div className={styles.conflictHeaderRow}>
+                <div className={styles.conflictTitleBlock}>
+                  <span className={styles.conflictTitle}>Dữ liệu đã thay đổi gần đây</span>
+                  <span className={styles.conflictSubtitle}>Xung đột cập nhật đồng thời</span>
+                </div>
+                <span className={styles.httpBadge}>HTTP 409</span>
+              </div>
+              <p className={styles.conflictDesc}>{conflictData.message}</p>
+              <button
+                type="button"
+                className={styles.conflictReloadBtn}
+                onClick={handleReloadLatestSupplier}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Đang tải dữ liệu...' : 'Tải lại dữ liệu mới nhất'}
+              </button>
+            </div>
+          )}
+
           {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
           {/* Tên nhà cung cấp */}
@@ -733,6 +874,26 @@ export default function SupplierList() {
                 disabled={!isAdmin || isSubmitting}
               />
             </div>
+          </div>
+
+          {/* Danh mục cung cấp (tùy chọn, dùng gợi ý khi lập phiếu nhập) */}
+          <div className={styles.formGroup}>
+            <div className={styles.labelRow}>
+              <label className={styles.formLabel}>Danh mục cung cấp</label>
+              <span className={styles.optionalBadge}>Tùy chọn</span>
+            </div>
+            <SupplierCategorySelect
+              categories={availableCategories}
+              selectedIds={supplierForm.category_ids || []}
+              disabled={!isAdmin || isSubmitting}
+              error={categoryLoadError}
+              onChange={(nextIds) =>
+                setSupplierForm((prev) => ({ ...prev, category_ids: nextIds }))
+              }
+            />
+            <p className={styles.fieldHelperText}>
+              Chọn các danh mục mà đối tác thường cung cấp để lọc nhanh sản phẩm khi tạo phiếu nhập hàng.
+            </p>
           </div>
 
           {/* Tình trạng đối tác (chỉ hiện khi xem chi tiết / cập nhật) */}

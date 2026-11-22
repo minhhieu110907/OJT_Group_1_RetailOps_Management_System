@@ -47,7 +47,10 @@ export default function CategoryList() {
   const [categoryForm, setCategoryForm] = useState(INITIAL_FORM);
   const [initialCategoryForm, setInitialCategoryForm] = useState(INITIAL_FORM);
   const [formError, setFormError] = useState('');
+  const [conflictData, setConflictData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [categoryToToggle, setCategoryToToggle] = useState(null);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
   const requestIdRef = useRef(0);
   const searchInputRef = useRef(null);
@@ -110,19 +113,20 @@ export default function CategoryList() {
   // Xử lý mở Modal tạo mới (chỉ ADMIN)
   const handleOpenCreateModal = useCallback(() => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thêm danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền thêm danh mục.');
       return;
     }
     setModalMode('create');
     setCategoryForm({ ...INITIAL_FORM });
     setFormError('');
+    setConflictData(null);
     setIsModalOpen(true);
   }, [isAdmin, toast]);
 
   // Xử lý mở Modal chỉnh sửa (chỉ ADMIN)
   const handleOpenEditModal = useCallback((category) => {
     if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền chỉnh sửa danh mục.');
+      toast.error('Chỉ Quản trị viên mới có quyền chỉnh sửa danh mục.');
       return;
     }
     const formData = {
@@ -130,11 +134,13 @@ export default function CategoryList() {
       name: category.name || '',
       description: category.description || '',
       status: category.status || 'ACTIVE',
+      updated_at: category.updated_at,
     };
     setModalMode('edit');
     setCategoryForm(formData);
     setInitialCategoryForm(formData);
     setFormError('');
+    setConflictData(null);
     setIsModalOpen(true);
   }, [isAdmin, toast]);
 
@@ -142,6 +148,7 @@ export default function CategoryList() {
     if (isSubmitting) return;
     setIsModalOpen(false);
     setFormError('');
+    setConflictData(null);
   }, [isSubmitting]);
 
   // Lắng nghe phím tắt: F2 (Focus tìm kiếm), F3 (Thêm mới - chỉ ADMIN), Esc (Đóng modal)
@@ -162,25 +169,84 @@ export default function CategoryList() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAdmin, isModalOpen, isSubmitting, handleCloseModal, handleOpenCreateModal]);
 
-  // Toggle trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
-  const handleToggleStatus = useCallback(async (category) => {
-    if (!isAdmin) {
-      toast.error('Chỉ Quản trị viên (ADMIN) mới có quyền thay đổi trạng thái danh mục.');
-      return;
-    }
-    const nextStatus = category.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    try {
-      await categoriesApi.updateCategoryStatus(category.id, nextStatus);
-      if (nextStatus === 'INACTIVE') {
-        toast.error(`Đã ngừng hoạt động danh mục "${category.name}".`);
-      } else {
-        toast.success(`Đã kích hoạt lại danh mục "${category.name}".`);
+  // Mở modal xác nhận đổi trạng thái ACTIVE / INACTIVE (PROD-02 - chỉ ADMIN)
+  const handleToggleStatus = useCallback(
+    (category) => {
+      if (!isAdmin) {
+        toast.error('Chỉ Quản trị viên mới có quyền thay đổi trạng thái danh mục.');
+        return;
       }
+      setCategoryToToggle(category);
+    },
+    [isAdmin, toast]
+  );
+
+  // Xác nhận đổi trạng thái ACTIVE / INACTIVE
+  const handleConfirmToggleStatus = useCallback(async () => {
+    if (!categoryToToggle || isTogglingStatus) return;
+    const nextStatus = categoryToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    setIsTogglingStatus(true);
+    try {
+      // Đối soát trạng thái thực tế từ máy chủ trước khi cập nhật
+      const latest = await categoriesApi.getCategory(categoryToToggle.id);
+      if (latest && latest.status !== categoryToToggle.status) {
+        toast.warning(
+          `Danh mục "${categoryToToggle.name}" đã được thay đổi trạng thái trước đó bởi người dùng khác. Đang làm mới dữ liệu...`
+        );
+        setCategoryToToggle(null);
+        setRefreshTrigger((prev) => prev + 1);
+        return;
+      }
+
+      await categoriesApi.updateCategoryStatus(categoryToToggle.id, nextStatus);
+      if (nextStatus === 'INACTIVE') {
+        toast.error(`Đã ngừng hoạt động danh mục "${categoryToToggle.name}".`);
+      } else {
+        toast.success(`Đã kích hoạt lại danh mục "${categoryToToggle.name}".`);
+      }
+      setCategoryToToggle(null);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Không thể thay đổi trạng thái danh mục.'));
+      if (err?.response?.status === 409) {
+        toast.warning(
+          `Danh mục "${categoryToToggle.name}" đã được sửa trước đó. Đang làm mới dữ liệu...`
+        );
+      } else {
+        const errMsg = getApiErrorMessage(err, 'Không thể thay đổi trạng thái danh mục.');
+        toast.error(errMsg);
+      }
+      setCategoryToToggle(null);
+      setRefreshTrigger((prev) => prev + 1);
+    } finally {
+      setIsTogglingStatus(false);
     }
-  }, [isAdmin, toast]);
+  }, [categoryToToggle, isTogglingStatus, toast]);
+
+  // Tải lại dữ liệu mới nhất khi có xung đột (HTTP 409 / Stale)
+  const handleReloadLatestCategory = useCallback(async () => {
+    if (!categoryForm.id) return;
+    setIsSubmitting(true);
+    try {
+      const latest = await categoriesApi.getCategory(categoryForm.id);
+      const updatedFormData = {
+        id: latest.id,
+        name: latest.name || '',
+        description: latest.description || '',
+        status: latest.status || 'ACTIVE',
+        updated_at: latest.updated_at,
+      };
+      setCategoryForm(updatedFormData);
+      setInitialCategoryForm(updatedFormData);
+      setConflictData(null);
+      setFormError('');
+      setRefreshTrigger((prev) => prev + 1);
+      toast.info('Đã cập nhật dữ liệu danh mục mới nhất từ hệ thống.');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể tải dữ liệu danh mục mới nhất.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [categoryForm.id, toast]);
 
   // Submit form tạo / sửa danh mục (chỉ ADMIN)
   const handleSubmitForm = async (e) => {
@@ -188,7 +254,7 @@ export default function CategoryList() {
       e.preventDefault();
     }
     if (!isAdmin) {
-      const msg = 'Chỉ Quản trị viên (ADMIN) mới có quyền thực hiện thao tác này.';
+      const msg = 'Chỉ Quản trị viên mới có quyền thực hiện thao tác này.';
       setFormError(msg);
       toast.error(msg);
       return;
@@ -214,13 +280,44 @@ export default function CategoryList() {
       return;
     }
 
-    // Dirty-state check: Nếu là modal Sửa và không có bất kỳ thay đổi nào thì KHÔNG gửi API PATCH
+    // Dirty-state check: Nếu là modal Sửa, đối soát xung đột trước
     if (modalMode === 'edit') {
+      try {
+        const latestCategory = await categoriesApi.getCategory(categoryForm.id);
+        if (
+          initialCategoryForm.updated_at &&
+          latestCategory.updated_at &&
+          latestCategory.updated_at !== initialCategoryForm.updated_at
+        ) {
+          setConflictData({
+            message:
+              'Dữ liệu danh mục đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+            latest: latestCategory,
+          });
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+      } catch (fetchErr) {
+        if (fetchErr?.response?.status === 404) {
+          toast.error('Danh mục không còn tồn tại trên hệ thống.');
+          setIsModalOpen(false);
+          setRefreshTrigger((prev) => prev + 1);
+          return;
+        }
+        const errorMsg = getApiErrorMessage(
+          fetchErr,
+          'Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'
+        );
+        setFormError(errorMsg);
+        return;
+      }
+
       const isNameSame = trimmedName === (initialCategoryForm.name || '').trim();
       const isDescSame = (trimmedDescription || null) === ((initialCategoryForm.description || '').trim() || null);
       if (isNameSame && isDescSame) {
         toast.info('Không có thay đổi nào để lưu.');
         setIsModalOpen(false);
+        setRefreshTrigger((prev) => prev + 1);
         return;
       }
     }
@@ -244,7 +341,15 @@ export default function CategoryList() {
       setIsModalOpen(false);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
-      setFormError(getApiErrorMessage(err, 'Lỗi lưu thông tin danh mục.'));
+      if (err?.response?.status === 409) {
+        setConflictData({
+          message:
+            getApiErrorMessage(err) ||
+            'Dữ liệu đã thay đổi gần đây trên hệ thống (HTTP 409). Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
+        });
+      } else {
+        setFormError(getApiErrorMessage(err, 'Lỗi lưu thông tin danh mục.'));
+      }
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);
@@ -257,12 +362,13 @@ export default function CategoryList() {
       {
         key: 'name',
         title: 'TÊN DANH MỤC',
-        width: '200px',
+        width: isAdmin ? '22%' : '24%',
         render: (row) => <span className={styles.categoryName}>{row.name}</span>,
       },
       {
         key: 'description',
         title: 'MÔ TẢ',
+        width: isAdmin ? '36%' : '42%',
         render: (row) => (
           <span className={styles.categoryDesc}>
             {row.description || <span style={{ color: '#9CA3AF' }}>—</span>}
@@ -273,7 +379,7 @@ export default function CategoryList() {
         key: 'product_count',
         title: 'SỐ LƯỢNG SẢN PHẨM',
         align: 'center',
-        width: '130px',
+        width: isAdmin ? '14%' : '15%',
         render: (row) => (
           <span className={styles.productCountBadge}>{row.product_count ?? 0}</span>
         ),
@@ -282,7 +388,7 @@ export default function CategoryList() {
         key: 'status',
         title: 'TRẠNG THÁI HOẠT ĐỘNG',
         align: 'center',
-        width: '160px',
+        width: isAdmin ? '18%' : '19%',
         render: (row) => {
           const isActive = row.status === 'ACTIVE';
           return (
@@ -300,7 +406,7 @@ export default function CategoryList() {
         key: 'actions',
         title: 'THAO TÁC',
         align: 'center',
-        width: '100px',
+        width: '10%',
         render: (row) => {
           const isActive = row.status === 'ACTIVE';
           return (
@@ -358,7 +464,7 @@ export default function CategoryList() {
         <div className={styles.titleGroup}>
           <h1 className={styles.title}>Quản lý danh mục</h1>
           <p className={styles.subtitle}>
-            Quản lý phân loại sản phẩm cho cửa hàng và kho • Múi giờ Asia/Ho_Chi_Minh
+            Quản lý phân loại sản phẩm cho cửa hàng và kho
           </p>
         </div>
 
@@ -501,6 +607,27 @@ export default function CategoryList() {
           onSubmit={handleSubmitForm}
           className={styles.modalForm}
         >
+          {conflictData && (
+            <div className={styles.conflictCard} role="alert">
+              <div className={styles.conflictHeaderRow}>
+                <div className={styles.conflictTitleBlock}>
+                  <span className={styles.conflictTitle}>Dữ liệu đã thay đổi gần đây</span>
+                  <span className={styles.conflictSubtitle}>Xung đột cập nhật đồng thời</span>
+                </div>
+                <span className={styles.httpBadge}>HTTP 409</span>
+              </div>
+              <p className={styles.conflictDesc}>{conflictData.message}</p>
+              <button
+                type="button"
+                className={styles.conflictReloadBtn}
+                onClick={handleReloadLatestCategory}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Đang tải dữ liệu...' : 'Tải lại dữ liệu mới nhất'}
+              </button>
+            </div>
+          )}
+
           {formError && <div className={styles.formErrorBox}>{formError}</div>}
 
           <div className={styles.formField}>
@@ -541,6 +668,65 @@ export default function CategoryList() {
           </div>
         </form>
       </Modal>
+
+      {/* 6. Modal xác nhận ngừng hoạt động / kích hoạt lại danh mục */}
+      {isAdmin && (
+        <Modal
+          isOpen={Boolean(categoryToToggle)}
+          onClose={() => {
+            if (!isTogglingStatus) setCategoryToToggle(null);
+          }}
+          title={
+            categoryToToggle?.status === 'ACTIVE'
+              ? 'Xác nhận ngừng hoạt động danh mục'
+              : 'Xác nhận kích hoạt lại danh mục'
+          }
+          maxWidth="440px"
+          footer={
+            <>
+              <button
+                type="button"
+                className={modalStyles.cancelBtn}
+                onClick={() => setCategoryToToggle(null)}
+                disabled={isTogglingStatus}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className={
+                  categoryToToggle?.status === 'ACTIVE'
+                    ? modalStyles.dangerBtn || modalStyles.confirmBtn
+                    : modalStyles.confirmBtn
+                }
+                onClick={handleConfirmToggleStatus}
+                disabled={isTogglingStatus}
+              >
+                {isTogglingStatus
+                  ? 'Đang xử lý...'
+                  : categoryToToggle?.status === 'ACTIVE'
+                  ? 'Ngừng hoạt động'
+                  : 'Kích hoạt lại'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0, lineHeight: 1.6 }}>
+            Bạn có chắc chắn muốn{' '}
+            {categoryToToggle?.status === 'ACTIVE'
+              ? 'ngừng hoạt động'
+              : 'kích hoạt lại'}{' '}
+            danh mục <strong>&quot;{categoryToToggle?.name}&quot;</strong>?
+            {categoryToToggle?.status === 'ACTIVE' && (
+              <>
+                {' '}
+                Danh mục ngừng hoạt động sẽ không thể gán cho sản phẩm mới; các sản
+                phẩm hiện có thuộc danh mục này vẫn giữ nguyên trạng thái.
+              </>
+            )}
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

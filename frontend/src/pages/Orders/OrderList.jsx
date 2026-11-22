@@ -4,7 +4,7 @@ import { getApiErrorMessage } from '../../api/axiosClient';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
 import { downloadCsvReport } from '../../utils/csvDownload';
-import { formatVnd } from '../../utils/posUtils';
+import { formatVnd, triggerDateInputPicker } from '../../utils/posUtils';
 import {
   executeGuardedOrderListFetch,
   executeVerifiedOrderDetailFetch,
@@ -18,6 +18,12 @@ import styles from './Orders.module.css';
 
 const PAGE_SIZE = 10;
 
+function parseIsoDateParam(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())
+    ? value.trim()
+    : '';
+}
+
 export default function OrderList() {
   const { user, isMockMode } = useAuth();
   const toast = useToast();
@@ -25,8 +31,31 @@ export default function OrderList() {
   // Filter states (Single-row filter bar: Search | Single Date | Status | Reset)
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [urlDateRange, setUrlDateRange] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const from = parseIsoDateParam(params.get('from_date'));
+    const to = parseIsoDateParam(params.get('to_date'));
+    if (from && to && from !== to) {
+      return { from, to };
+    }
+    return null;
+  });
+  const [selectedDate, setSelectedDate] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    const from = parseIsoDateParam(params.get('from_date'));
+    const to = parseIsoDateParam(params.get('to_date'));
+    if (from && (!to || from === to)) {
+      return from;
+    }
+    return '';
+  });
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const param = new URLSearchParams(window.location.search).get('status');
+    return param === 'COMPLETED' || param === 'CANCELLED' ? param : '';
+  });
   const [page, setPage] = useState(1);
 
   // Server data states
@@ -94,8 +123,8 @@ export default function OrderList() {
           page,
           pageSize: PAGE_SIZE,
           status: statusFilter || undefined,
-          fromDate: selectedDate || undefined,
-          toDate: selectedDate || undefined,
+          fromDate: urlDateRange?.from || selectedDate || undefined,
+          toDate: urlDateRange?.to || selectedDate || undefined,
           search: debouncedSearch || undefined,
         }),
       onStart: () => {
@@ -120,7 +149,7 @@ export default function OrderList() {
         setIsLoading(false);
       },
     });
-  }, [isMockMode, page, statusFilter, selectedDate, debouncedSearch]);
+  }, [isMockMode, page, statusFilter, selectedDate, urlDateRange, debouncedSearch]);
 
   useEffect(() => {
     fetchOrders();
@@ -130,6 +159,7 @@ export default function OrderList() {
     setSearchQuery('');
     setDebouncedSearch('');
     setSelectedDate('');
+    setUrlDateRange(null);
     setStatusFilter('');
     setPage(1);
   };
@@ -246,11 +276,11 @@ export default function OrderList() {
           ordersApi.exportOrdersCsv({
             isMockMode,
             status: statusFilter || undefined,
-            fromDate: selectedDate || undefined,
-            toDate: selectedDate || undefined,
+            fromDate: urlDateRange?.from || selectedDate || undefined,
+            toDate: urlDateRange?.to || selectedDate || undefined,
             search: debouncedSearch || undefined,
           }),
-        `orders_export_${selectedDate || 'all'}.csv`
+        `orders_export_${urlDateRange ? `${urlDateRange.from}_${urlDateRange.to}` : selectedDate || 'all'}.csv`
       );
       toast.success('Xuất file CSV đơn hàng thành công!');
     } catch (err) {
@@ -258,14 +288,14 @@ export default function OrderList() {
     } finally {
       setIsExporting(false);
     }
-  }, [user, isMockMode, statusFilter, selectedDate, debouncedSearch, toast]);
+  }, [user, isMockMode, statusFilter, urlDateRange, selectedDate, debouncedSearch, toast]);
 
   const columns = useMemo(
     () => [
       {
         key: 'id',
         title: 'MÃ ĐƠN',
-        width: '120px',
+        width: '10%',
         render: (row) => (
           <span className={styles.orderIdCell}>#{row.id}</span>
         ),
@@ -273,7 +303,7 @@ export default function OrderList() {
       {
         key: 'sold_at',
         title: 'THỜI GIAN TẠO',
-        width: '190px',
+        width: '18%',
         render: (row) => {
           const { primary, secondary } = formatOrderCreatedCellVN(
             row.sold_at,
@@ -292,17 +322,17 @@ export default function OrderList() {
       {
         key: 'created_by',
         title: 'NGƯỜI TẠO',
-        width: '150px',
+        width: '16%',
         render: (row) => (
           <span className={styles.creatorCell}>
-            {row.created_by_name || formatOrderActorLabel(row.created_by, user)}
+            {formatOrderActorLabel(row.created_by, user, row.created_by_name)}
           </span>
         ),
       },
       {
         key: 'items_count',
         title: 'SỐ MẶT HÀNG',
-        width: '140px',
+        width: '13%',
         render: (row) => {
           const totalUnits = Array.isArray(row.items)
             ? row.items.reduce((sum, item) => sum + (item.quantity || 0), 0)
@@ -315,7 +345,7 @@ export default function OrderList() {
       {
         key: 'total_vnd',
         title: 'TỔNG TIỀN',
-        width: '150px',
+        width: '15%',
         render: (row) => (
           <span className={styles.totalAmountCell}>
             {formatVnd(row.total_vnd)}
@@ -325,7 +355,7 @@ export default function OrderList() {
       {
         key: 'status',
         title: 'TRẠNG THÁI',
-        width: '150px',
+        width: '14%',
         render: (row) =>
           row.status === 'COMPLETED' ? (
             <span className={styles.statusCompleted}>Đã hoàn tất</span>
@@ -337,7 +367,7 @@ export default function OrderList() {
         key: 'actions',
         title: 'THAO TÁC',
         align: 'right',
-        width: '140px',
+        width: '14%',
         render: (row) => (
           <div className={styles.actionGroup}>
             <button
@@ -370,7 +400,7 @@ export default function OrderList() {
           </p>
         </div>
         <span className={styles.timezoneBadge}>
-          Quy tắc: Hủy trong 15 phút (Nhân viên) | Cùng ngày (Admin)
+          Quy tắc: Hủy trong 15 phút (Nhân viên) | Cùng ngày (Quản trị viên)
         </span>
       </div>
 
@@ -405,7 +435,11 @@ export default function OrderList() {
           </div>
 
           {/* Single Date filter */}
-          <div className={styles.dateFilterWrap}>
+          <div
+            className={styles.dateFilterWrap}
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
+          >
             <span className={styles.dateCalendarIcon} aria-hidden="true">
               <svg
                 width="16"
@@ -427,9 +461,11 @@ export default function OrderList() {
             <input
               type="date"
               className={styles.dateInputInline}
+              style={{ cursor: 'pointer' }}
               aria-label="Ngày bán"
               value={selectedDate}
               onChange={(e) => {
+                setUrlDateRange(null);
                 setSelectedDate(e.target.value);
                 setPage(1);
               }}
@@ -439,41 +475,44 @@ export default function OrderList() {
             )}
           </div>
 
-          {/* Status dropdown */}
-          <select
-            className={styles.statusSelectSingle}
-            aria-label="Lọc theo trạng thái đơn hàng"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">Tất cả trạng thái</option>
-            <option value="COMPLETED">Đã hoàn tất</option>
-            <option value="CANCELLED">Đã hủy</option>
-          </select>
-
-          {/* Reset filters button */}
-          <button
-            type="button"
-            className={styles.resetFilterBtn}
-            onClick={handleResetFilters}
-          >
-            Xóa bộ lọc
-          </button>
-
-          {/* Export CSV button (Admin only) */}
-          {user?.role === 'ADMIN' && (
-            <button
-              type="button"
-              className={styles.exportCsvBtn}
-              onClick={handleExportCsv}
-              disabled={isExporting}
+          {/* Status dropdown + conditional reset button */}
+          <div className={styles.statusAndResetRow}>
+            <select
+              className={styles.statusSelectSingle}
+              aria-label="Lọc theo trạng thái đơn hàng"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
             >
-              {isExporting ? 'Đang xuất...' : 'Xuất CSV'}
-            </button>
-          )}
+              <option value="">Tất cả trạng thái</option>
+              <option value="COMPLETED">Đã hoàn tất</option>
+              <option value="CANCELLED">Đã hủy</option>
+            </select>
+
+            {(searchQuery.trim() || selectedDate || urlDateRange || statusFilter) && (
+              <button
+                type="button"
+                className={styles.resetFilterBtn}
+                onClick={handleResetFilters}
+              >
+                Xóa bộ lọc
+              </button>
+            )}
+
+            {/* Export CSV button (Admin only) */}
+            {user?.role === 'ADMIN' && (
+              <button
+                type="button"
+                className={styles.exportCsvBtn}
+                onClick={handleExportCsv}
+                disabled={isExporting}
+              >
+                {isExporting ? 'Đang xuất...' : 'Xuất CSV'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -514,8 +553,8 @@ export default function OrderList() {
           </h2>
           <p className={styles.immutableRuleDesc}>
             Đơn hàng sau khi hoàn tất là cố định. Nhân viên chỉ được hủy đơn do
-            chính mình tạo trong 15 phút (Asia/Ho_Chi_Minh). Quản trị viên
-            (Admin) được phép hủy trong ngày.
+            chính mình tạo trong 15 phút. Quản trị viên được phép hủy
+            trong ngày.
           </p>
         </div>
         <span className={styles.autoRestoreBadge}>

@@ -101,6 +101,23 @@
   line-height: 1.5;
 }
 
+:global([data-theme='dark']) .successDesc {
+  color: #D1FAE5;
+}
+
+:global([data-theme='dark']) .errorAlert {
+  background-color: rgba(239, 68, 68, 0.14);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+:global([data-theme='dark']) .errorTitle {
+  color: #FCA5A5;
+}
+
+:global([data-theme='dark']) .errorDesc {
+  color: #FEE2E2;
+}
+
 /* Biểu mẫu & Các trường nhập liệu */
 .form {
   display: flex;

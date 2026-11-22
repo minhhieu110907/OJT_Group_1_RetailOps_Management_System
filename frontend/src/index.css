@@ -185,11 +185,101 @@
 /* 2. Modals & Dialogs */
 [data-theme='dark'] [class*="modalBox"],
 [data-theme='dark'] [class*="modalContainer"],
-[data-theme='dark'] [class*="modalContent"],
+[data-theme='dark'] [class*="modalContent"]:not([class*="Wrapper"]),
+[data-theme='dark'] [class*="modalCard"],
 [data-theme='dark'] [class*="Modal_modalBox"] {
   background-color: var(--color-bg-surface) !important;
   color: var(--color-neutral) !important;
   border: 1px solid var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="modalContentWrapper"] {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+/* CancelOrderModal & Order modal dark mode consistency */
+[data-theme='dark'] [class*="modalSubtitle"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="modalIconDanger"] {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="modalIconAmber"] {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="modalIconNeutral"] {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="modalCard"] [class*="summaryCard"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="creatorLabel"] {
+  color: #CBD5E1 !important;
+}
+
+[data-theme='dark'] [class*="creatorLabel"] strong {
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="summaryBottomRow"] {
+  border-top-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="summaryItemsText"] {
+  color: #E2E8F0 !important;
+}
+
+[data-theme='dark'] [class*="summaryItemsDetail"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="summaryTotalBox"] span {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="summaryTotalBox"] strong {
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="warningListBox"] {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  color: #FDE68A !important;
+}
+
+[data-theme='dark'] [class*="warningListBox"] strong {
+  color: #FBBF24 !important;
+}
+
+[data-theme='dark'] [class*="reasonHeader"] {
+  color: #F1F5F9 !important;
+}
+
+[data-theme='dark'] [class*="reasonCounter"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kvBox"] {
+  background-color: #0E1726 !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme='dark'] [class*="kvLabel"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="kvValue"] {
+  color: #F1F5F9 !important;
 }
 
 [data-theme='dark'] [class*="footerSection"],
@@ -707,16 +797,53 @@
 }
 
 /* Nút hành động trong bảng (ví dụ: nút 'Điều chỉnh') */
-[data-theme='dark'] [class*="actionBtn"] {
+[data-theme='dark'] [class*="actionBtn"]:not([class*="actionBtns"]) {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
   color: #34D399 !important;
 }
 
-[data-theme='dark'] [class*="actionBtn"]:hover {
+[data-theme='dark'] [class*="actionBtn"]:not([class*="actionBtns"]):hover {
   background-color: var(--color-bg-hover) !important;
   border-color: var(--color-primary) !important;
   color: #10B981 !important;
+}
+
+[data-theme='dark'] [class*="actionBtns"] {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+[data-theme='dark'] [class*="actionBtns"] [class*="iconBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="actionBtns"] [class*="iconBtn"]:hover {
+  background-color: rgba(148, 163, 184, 0.16) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="actionBtns"] [class*="iconBtnDeactivate"]:hover {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  color: #F87171 !important;
+}
+
+[data-theme='dark'] [class*="actionBtns"] [class*="iconBtnActivate"]:hover {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+}
+
+/* Nút chuyển trạng thái đối tác trong Modal Chi tiết nhà cung cấp */
+[data-theme='dark'] [class*="statusToggleBtn"] {
+  background-color: #1E293B !important;
+  border: 1px solid #334155 !important;
+  color: #E2E8F0 !important;
+}
+
+[data-theme='dark'] [class*="statusToggleBtn"]:hover:not(:disabled) {
+  background-color: #26354D !important;
+  border-color: #475569 !important;
+  color: #FFFFFF !important;
 }
 
 /* Chi tiết Modal Phiếu nhập, Modal Điều chỉnh tồn kho, Modal Lý do biến động và Modal Đơn hàng */
@@ -782,9 +909,19 @@
   border: 1px solid #334155 !important;
 }
 
-[data-theme='dark'] [class*="versionBadge"] {
+[data-theme='dark'] [class*="versionBadge"]:not([class*="Container"]) {
   background-color: rgba(16, 185, 129, 0.15) !important;
   border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='dark'] [class*="versionBadgeContainer"] {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+[data-theme='dark'] [class*="modalBox"] [class*="statCard"] {
+  background-color: #0E1726 !important;
+  border: none !important;
 }
 
 [data-theme='dark'] [class*="versionLabel"] {
@@ -813,7 +950,7 @@
 
 [data-theme='dark'] [class*="auditBox"] {
   background-color: #0E1726 !important;
-  border: 1px solid var(--color-border) !important;
+  border: none !important;
 }
 
 [data-theme='dark'] [class*="auditLabel"] {
@@ -880,7 +1017,7 @@
 /* Chi tiết Modal Phiếu nhập và Modal Đơn hàng */
 [data-theme='dark'] [class*="metaInfoRow"] {
   background-color: #0E1726 !important;
-  border: 1px solid var(--color-border) !important;
+  border: none !important;
   color: #94A3B8 !important;
 }
 
@@ -895,9 +1032,13 @@
 [data-theme='dark'] [class*="infoValue"],
 [data-theme='dark'] [class*="detailMetaLeft"] strong,
 [data-theme='dark'] [class*="detailTotalRow"] span,
-[data-theme='dark'] [class*="summaryTotalRow"] span,
-[data-theme='dark'] [class*="totalHighlight"] {
+[data-theme='dark'] [class*="summaryTotalRow"] span:not([class*="totalHighlight"]) {
   color: #FFFFFF !important;
+}
+
+[data-theme='dark'] [class*="summaryTotalRow"] [class*="totalHighlight"],
+[data-theme='dark'] [class*="totalHighlight"] {
+  color: #34D399 !important;
 }
 
 [data-theme='dark'] [class*="infoSub"],
@@ -938,7 +1079,7 @@
 
 [data-theme='dark'] [class*="readOnlyNotice"] {
   background-color: #172338 !important;
-  border: 1px solid var(--color-border) !important;
+  border: none !important;
   color: #CBD5E1 !important;
 }
 
@@ -982,10 +1123,23 @@
   color: #94A3B8 !important;
 }
 
-[data-theme='dark'] [class*="removeLineBtn"] {
-  background-color: var(--color-bg-surface) !important;
-  border: 1px solid var(--color-border) !important;
+[data-theme='dark'] button[class*="removeLineBtn"] {
+  background-color: rgba(239, 68, 68, 0.14) !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+  border-radius: 6px !important;
   color: #F87171 !important;
+}
+
+[data-theme='dark'] button[class*="removeLineBtn"]:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.25) !important;
+  color: #FCA5A5 !important;
+}
+
+[data-theme='dark'] button[class*="removeLineBtn"]:disabled {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #F87171 !important;
+  opacity: 0.65 !important;
 }
 
 [data-theme='dark'] [class*="addLineBtn"] {
@@ -1052,8 +1206,8 @@
 }
 
 [data-theme='dark'] [class*="sectionBox"] {
-  background-color: var(--color-bg-surface) !important;
-  border: 1px solid var(--color-border) !important;
+  background-color: #0E1726 !important;
+  border: none !important;
 }
 
 [data-theme='dark'] [class*="sectionTitle"] {
@@ -1245,8 +1399,8 @@
 }
 
 [data-theme='dark'] [class*="sectionBox"] {
-  background-color: var(--color-bg-surface) !important;
-  border-color: var(--color-border) !important;
+  background-color: #0E1726 !important;
+  border: none !important;
 }
 
 [data-theme='dark'] [class*="sectionTitle"] {
@@ -1262,9 +1416,15 @@
   color: #FFFFFF !important;
 }
 
-[data-theme='dark'] [class*="roleBox"] {
-  background-color: #0B1320 !important;
-  border: 1px solid var(--color-border) !important;
+[data-theme='dark'] [class*="roleBox"]:not([class*="Header"]):not([class*="Title"]) {
+  background-color: #151F32 !important;
+  border: none !important;
+}
+
+[data-theme='dark'] [class*="roleBoxHeader"],
+[data-theme='dark'] [class*="roleBoxTitle"] {
+  background-color: transparent !important;
+  border: none !important;
 }
 
 [data-theme='dark'] [class*="roleBoxTitle"] {
@@ -1479,6 +1639,13 @@
 
 [data-theme='dark'] [class*="catalogFootnote"],
 [data-theme='dark'] [class*="footnoteNote"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme='dark'] [class*="loadingState"],
+[data-theme='dark'] [class*="emptyState"] {
+  background-color: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
   color: #94A3B8 !important;
 }
 
@@ -1707,7 +1874,7 @@
   color: #94A3B8 !important;
 }
 
-[data-theme='dark'] [class*="versionBadge"] {
+[data-theme='dark'] [class*="versionBadge"]:not([class*="Container"]) {
   background-color: #1E293B !important;
   color: #34D399 !important;
   border: 1px solid #334155 !important;
@@ -1759,13 +1926,19 @@
   color: #E2E8F0 !important;
 }
 
-[data-theme='dark'] [class*="leftIcon"],
+[data-theme='dark'] [class*="leftIcon"] {
+  color: #94A3B8 !important;
+}
+
 [data-theme='dark'] [class*="eyeBtn"] {
+  background-color: transparent !important;
+  border-color: transparent !important;
   color: #94A3B8 !important;
 }
 
 [data-theme='dark'] [class*="eyeBtn"]:hover {
-  background-color: #1E293B !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
   color: #FFFFFF !important;
 }
 

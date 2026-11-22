@@ -38,6 +38,7 @@
 .headerActions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -52,6 +53,7 @@
   color: #FFFFFF;
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
@@ -96,7 +98,7 @@
 .searchBox {
   position: relative;
   flex: 1;
-  min-width: 220px;
+  min-width: min(220px, 100%);
   max-width: 340px;
 }
 
@@ -158,6 +160,28 @@
   outline: none;
   cursor: pointer;
   transition: border-color 0.15s ease;
+}
+
+@media (max-width: 640px) {
+  .searchBox {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .filterControls {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .filterItem {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+
+  .filterSelect {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .filterSelect:focus {
@@ -297,6 +321,7 @@
   font-size: 14px;
   font-weight: 700;
   color: #111827;
+  white-space: nowrap;
 }
 
 /* Cột Tồn kho kèm icon ổ khóa */
@@ -340,6 +365,7 @@
   border-radius: 999px;
   font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .badgeSuccess {
@@ -348,8 +374,8 @@
 }
 
 .badgeNeutral {
-  background-color: #F3F4F6;
-  color: #6B7280;
+  background-color: #FEF2F2;
+  color: #DC2626;
 }
 
 /* Cụm 2 nút Thao tác icon-only (Sửa và Ngừng / Bật kích hoạt) */
@@ -459,6 +485,85 @@
   font-size: 13px;
   font-weight: 600;
   color: #DC2626;
+}
+
+/* Conflict Card (HTTP 409 / Stale State) */
+.conflictCard {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conflictHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.conflictTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conflictTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.conflictSubtitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.httpBadge {
+  background-color: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.conflictDesc {
+  margin: 0;
+  font-size: 13px;
+  color: #78350f;
+  line-height: 1.5;
+}
+
+.conflictReloadBtn {
+  width: 100%;
+  padding: 8px 14px;
+  background-color: #ffffff;
+  border: 1px solid #d97706;
+  color: #b45309;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.conflictReloadBtn:hover:not(:disabled) {
+  background-color: #fef3c7;
+  border-color: #b45309;
+  color: #92400e;
+}
+
+.conflictReloadBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Quản lý danh mục Modal styles (PROD-02) */

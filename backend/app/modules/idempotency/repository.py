@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from sqlalchemy import delete, insert, select, text, tuple_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.idempotency.models import IdempotencyRecord
@@ -14,6 +14,15 @@ from app.modules.idempotency.models import IdempotencyRecord
 def _is_duplicate_key(error: IntegrityError) -> bool:
     original = error.orig
     return bool(getattr(original, "args", ())) and original.args[0] == 1062
+
+
+def _is_mysql_lock_timeout(error: OperationalError) -> bool:
+    original = error.orig
+    return bool(getattr(original, "args", ())) and original.args[0] == 1205
+
+
+class IdempotencyClaimLockTimeoutError(Exception):
+    """The bounded MySQL wait expired while claiming an idempotency key."""
 
 
 class IdempotencyRepository:
@@ -31,15 +40,22 @@ class IdempotencyRepository:
             raise RuntimeError(
                 "Idempotency claim must precede pending business mutations"
             )
-        with self._bounded_lock_wait(session):
-            return self._claim_or_lock(
-                session,
-                actor_id=actor_id,
-                operation=operation,
-                key_digest=key_digest,
-                request_digest=request_digest,
-                created_at=created_at,
-            )
+        try:
+            with self._bounded_lock_wait(session):
+                return self._claim_or_lock(
+                    session,
+                    actor_id=actor_id,
+                    operation=operation,
+                    key_digest=key_digest,
+                    request_digest=request_digest,
+                    created_at=created_at,
+                )
+        except OperationalError as error:
+            if session.get_bind().dialect.name == "mysql" and _is_mysql_lock_timeout(
+                error
+            ):
+                raise IdempotencyClaimLockTimeoutError from error
+            raise
 
     @contextmanager
     def _bounded_lock_wait(self, session: Session) -> Iterator[None]:
@@ -52,13 +68,21 @@ class IdempotencyRepository:
         bounded = min(original, 2)
         if bounded != original:
             session.execute(text(f"SET SESSION innodb_lock_wait_timeout = {bounded}"))
+        primary_error: BaseException | None = None
         try:
             yield
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
             if bounded != original:
-                session.execute(
-                    text(f"SET SESSION innodb_lock_wait_timeout = {original}")
-                )
+                try:
+                    session.execute(
+                        text(f"SET SESSION innodb_lock_wait_timeout = {original}")
+                    )
+                except Exception:
+                    if primary_error is None:
+                        raise
 
     def _claim_or_lock(
         self,

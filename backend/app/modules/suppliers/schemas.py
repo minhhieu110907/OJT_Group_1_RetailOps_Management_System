@@ -1,6 +1,7 @@
 """Pydantic request and response schemas for Suppliers."""
 
 from datetime import UTC, datetime
+from typing import Annotated
 
 import phonenumbers
 from phonenumbers import NumberParseException, PhoneNumberFormat
@@ -9,6 +10,7 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    StrictInt,
     field_serializer,
     field_validator,
     model_validator,
@@ -18,7 +20,10 @@ from app.modules.suppliers.models import SupplierStatus
 
 DEFAULT_PHONE_REGION = "VN"
 MAX_PHONE_INPUT_LENGTH = 64
+MAX_CATEGORY_IDS = 100
 _ALLOWED_PHONE_CHARACTERS = frozenset("0123456789+ -().")
+
+CategoryId = Annotated[StrictInt, Field(ge=1)]
 
 
 def _ensure_utc_iso(dt: datetime) -> str:
@@ -70,6 +75,9 @@ class SupplierCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=160)
     contact_email: EmailStr | None = None
     contact_phone: str | None = Field(default=None, max_length=MAX_PHONE_INPUT_LENGTH)
+    category_ids: list[CategoryId] = Field(
+        default_factory=list, max_length=MAX_CATEGORY_IDS
+    )
 
     @field_validator("name")
     @classmethod
@@ -99,6 +107,9 @@ class SupplierUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     contact_email: EmailStr | None = None
     contact_phone: str | None = Field(default=None, max_length=MAX_PHONE_INPUT_LENGTH)
+    category_ids: list[CategoryId] | None = Field(
+        default=None, max_length=MAX_CATEGORY_IDS
+    )
 
     @field_validator("name")
     @classmethod
@@ -142,6 +153,7 @@ class SupplierRead(BaseModel):
     contact_email: str | None
     contact_phone: str | None
     status: str
+    category_ids: list[int]
     created_at: datetime
     updated_at: datetime
 

@@ -246,3 +246,84 @@
   font-size: 13px;
   color: #64748B;
 }
+
+/* Dark Mode overrides */
+:global([data-theme='dark']) .countryTrigger {
+  background-color: var(--color-bg-input, #1E293B);
+  border-color: var(--color-border, #2D3D56);
+  color: var(--color-neutral, #F1F5F9);
+}
+
+:global([data-theme='dark']) .countryTrigger:hover:not(:disabled) {
+  background-color: var(--color-bg-hover, #26354D);
+  border-color: #475569;
+}
+
+:global([data-theme='dark']) .countryTrigger:focus-visible,
+:global([data-theme='dark']) .countryTriggerOpen {
+  border-color: var(--color-primary, #10B981);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+}
+
+:global([data-theme='dark']) .countryTrigger:disabled {
+  background-color: var(--color-bg-surface, #151F32);
+  color: #64748B;
+}
+
+:global([data-theme='dark']) .chevronIcon {
+  color: var(--color-secondary, #94A3B8);
+}
+
+:global([data-theme='dark']) .helperText {
+  color: var(--color-secondary, #94A3B8);
+}
+
+:global([data-theme='dark']) .errorText {
+  color: var(--color-danger, #EF4444);
+}
+
+:global([data-theme='dark']) .dropdownPanel {
+  background-color: var(--color-bg-surface, #151F32);
+  border-color: var(--color-border, #2D3D56);
+  box-shadow: 0 16px 32px -4px rgba(0, 0, 0, 0.55),
+    0 4px 12px -2px rgba(0, 0, 0, 0.35);
+}
+
+:global([data-theme='dark']) .searchWrapper {
+  background-color: var(--color-bg-surface, #151F32);
+  border-bottom-color: var(--color-border, #2D3D56);
+}
+
+:global([data-theme='dark']) .countryOption {
+  color: var(--color-neutral, #F1F5F9);
+}
+
+:global([data-theme='dark']) .countryOption:hover,
+:global([data-theme='dark']) .countryOptionActive {
+  background-color: var(--color-bg-hover, #26354D);
+}
+
+:global([data-theme='dark']) .countryOptionSelected {
+  background-color: rgba(16, 185, 129, 0.16);
+  color: #34D399;
+}
+
+:global([data-theme='dark']) .countryOptionSelected.countryOptionActive {
+  background-color: rgba(16, 185, 129, 0.24);
+}
+
+:global([data-theme='dark']) .optionDialCode {
+  color: var(--color-secondary, #94A3B8);
+}
+
+:global([data-theme='dark']) .countryOptionSelected .optionDialCode {
+  color: #6EE7B7;
+}
+
+:global([data-theme='dark']) .checkIcon {
+  color: #34D399;
+}
+
+:global([data-theme='dark']) .emptyState {
+  color: var(--color-secondary, #94A3B8);
+}

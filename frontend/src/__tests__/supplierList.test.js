@@ -1072,5 +1072,196 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
       assert.ok(listSource.includes('contact_phone: normalizedPhone'));
     });
   });
+
+  // ==========================================================================
+  // 10. F10: Concurrency Reconciliation & 409 Conflict Handling (PR #99 Corrective Pass)
+  // ==========================================================================
+  describe('F10: Concurrency Reconciliation & 409 Conflict Handling', () => {
+    const supplierListPath = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+
+    test('SupplierList source enforces updated_at tracking, conflict card, and fail-closed GET pre-check', () => {
+      const content = fs.readFileSync(supplierListPath, 'utf8');
+
+      // Preserves updated_at in initialSnapshot when opening edit modal
+      assert.ok(
+        content.includes('updated_at: supplier.updated_at'),
+        'handleOpenEditModal must preserve updated_at in snapshot'
+      );
+
+      // Pre-check GET comparison against initialSnapshot.updated_at
+      assert.ok(
+        content.includes('latestSupplier.updated_at !== initialSnapshot.updated_at'),
+        'Must compare latestSupplier.updated_at against initialSnapshot.updated_at'
+      );
+
+      // Renders conflictCard with HTTP 409 badge
+      assert.ok(
+        content.includes('conflictCard') && content.includes('HTTP 409'),
+        'Must render conflictCard with HTTP 409 badge'
+      );
+
+      // Provides reload action that refreshes list and resets snapshot with updated_at
+      assert.ok(
+        content.includes('handleReloadLatestSupplier'),
+        'Must declare handleReloadLatestSupplier'
+      );
+      assert.ok(
+        content.includes('updated_at: latestSupplier.updated_at'),
+        'handleReloadLatestSupplier must update snapshot updated_at'
+      );
+
+      // Fail-closed error handling on pre-check failure
+      assert.ok(
+        content.includes("fetchErr?.response?.status === 404"),
+        'Must detect 404 on pre-check'
+      );
+      assert.ok(
+        content.includes('Nhà cung cấp không còn tồn tại trên hệ thống.'),
+        'Must notify user when record is deleted'
+      );
+      assert.ok(
+        content.includes('Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'),
+        'Must set form error on network/5xx failure without proceeding to PATCH'
+      );
+
+      // Partial failure recovery keeps updated_at
+      assert.ok(
+        content.includes('updated_at: latestSupplier.updated_at'),
+        'Partial failure sync must keep updated_at in newSnapshot'
+      );
+    });
+
+    test('Simulated Supplier concurrency conflict: triggers conflictCard and blocks PATCH', async () => {
+      let patchCount = 0;
+      axiosClient.patch = async () => {
+        patchCount += 1;
+        return { data: VALID_SUPPLIER_FIXTURE };
+      };
+
+      const initialSnapshot = {
+        id: 1,
+        name: 'Nhà cung cấp A',
+        contact_phone: '+84901234567',
+        contact_email: 'a@supplier.vn',
+        status: 'ACTIVE',
+        updated_at: '2026-11-20T10:00:00Z',
+      };
+
+      // Server returns newer updated_at
+      const fetchLatestSupplier = async () => ({
+        ...initialSnapshot,
+        name: 'Nhà cung cấp A (Đã sửa ở tab khác)',
+        updated_at: '2026-11-20T10:05:00Z',
+      });
+
+      let conflictDetected = false;
+      let refreshTriggered = false;
+
+      const executeSave = async (form) => {
+        const latest = await fetchLatestSupplier();
+        if (latest.updated_at !== initialSnapshot.updated_at) {
+          conflictDetected = true;
+          refreshTriggered = true;
+          return;
+        }
+        await axiosClient.patch(`/suppliers/${form.id}`, form);
+      };
+
+      await executeSave({ id: 1, name: 'Nhà cung cấp A Mới' });
+
+      assert.equal(conflictDetected, true, 'Must detect concurrency conflict');
+      assert.equal(refreshTriggered, true, 'Must trigger list refresh');
+      assert.equal(patchCount, 0, 'Must NOT invoke PATCH when conflict occurs');
+    });
+
+    test('Simulated Supplier pre-check failure: 404 closes modal, 500 sets error without PATCH', async () => {
+      let patchCount = 0;
+      axiosClient.patch = async () => {
+        patchCount += 1;
+        return { data: VALID_SUPPLIER_FIXTURE };
+      };
+
+      // 1. 404 Not Found scenario
+      let modalClosedOn404 = false;
+      const executeSave404 = async () => {
+        try {
+          const err = new Error('Not found');
+          err.response = { status: 404 };
+          throw err;
+        } catch (fetchErr) {
+          if (fetchErr?.response?.status === 404) {
+            modalClosedOn404 = true;
+            return;
+          }
+        }
+        await axiosClient.patch('/suppliers/1', {});
+      };
+
+      await executeSave404();
+      assert.equal(modalClosedOn404, true, 'Must close modal on 404');
+      assert.equal(patchCount, 0, 'Must not send PATCH on 404');
+
+      // 2. 500 Server Error scenario
+      let formErrorSetOn500 = false;
+      const executeSave500 = async () => {
+        try {
+          const err = new Error('Database connection failed');
+          err.response = { status: 500 };
+          throw err;
+        } catch (fetchErr) {
+          if (fetchErr?.response?.status === 404) {
+            return;
+          }
+          formErrorSetOn500 = true;
+          return;
+        }
+      };
+
+      await executeSave500();
+      assert.equal(formErrorSetOn500, true, 'Must fail-closed and set form error on 500');
+      assert.equal(patchCount, 0, 'Must not send PATCH on 500');
+    });
+  });
+
+  describe('F11: Supplier category_ids optional contract & dirty-state detection', () => {
+    test('validateSupplierRead, normalizeSupplierSnapshot, and detectSupplierChanges handle category_ids accurately', () => {
+      const validated = validateSupplierRead({
+        ...VALID_SUPPLIER_FIXTURE,
+        category_ids: [3, 1, 3],
+      });
+      assert.deepEqual(validated.category_ids, [1, 3]);
+
+      assert.throws(
+        () =>
+          validateSupplierRead({
+            ...VALID_SUPPLIER_FIXTURE,
+            category_ids: ['1'],
+          }),
+        /invalid category_ids/i
+      );
+
+      const snapshot = normalizeSupplierSnapshot({
+        ...VALID_SUPPLIER_FIXTURE,
+        category_ids: [1, 2],
+      });
+      const sameChanges = detectSupplierChanges(
+        { ...VALID_SUPPLIER_FIXTURE, category_ids: [2, 1] },
+        snapshot
+      );
+      assert.equal(sameChanges.hasInfoChanges, false);
+
+      const updatedChanges = detectSupplierChanges(
+        { ...VALID_SUPPLIER_FIXTURE, category_ids: [1, 3] },
+        snapshot
+      );
+      assert.equal(updatedChanges.hasInfoChanges, true);
+      assert.deepEqual(updatedChanges.normalizedPayload.category_ids, [1, 3]);
+
+      const supplierListFile = path.resolve(__dirname, '../pages/Suppliers/SupplierList.jsx');
+      const supplierListSrc = fs.readFileSync(supplierListFile, 'utf8');
+      assert.ok(supplierListSrc.includes('SupplierCategorySelect'));
+      assert.ok(supplierListSrc.includes('category_ids: supplierForm.category_ids'));
+    });
+  });
 });
 

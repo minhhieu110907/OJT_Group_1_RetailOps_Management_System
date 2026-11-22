@@ -226,12 +226,23 @@ class InventoryQueryRepository:
         page: int,
         page_size: int,
         threshold: int = DEFAULT_LOW_STOCK_THRESHOLD,
+        category_id: int | None = None,
+        exclude_out_of_stock: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
         """Query products with active status and inventory quantity <= threshold.
 
         Sorted by quantity ASC and Product.id ASC.
         """
         active_status = CatalogStatus.ACTIVE.value
+        filters = [
+            Product.status == active_status,
+            Inventory.quantity <= threshold,
+        ]
+        if exclude_out_of_stock:
+            filters.append(Inventory.quantity >= 1)
+        if category_id is not None:
+            filters.append(Product.category_id == category_id)
+
         stmt = (
             select(
                 Product.id.label("product_id"),
@@ -241,18 +252,12 @@ class InventoryQueryRepository:
                 literal(threshold).label("threshold"),
             )
             .join(Inventory, Product.id == Inventory.product_id)
-            .where(
-                Product.status == active_status,
-                Inventory.quantity <= threshold,
-            )
+            .where(*filters)
         )
         count_stmt = (
             select(func.count(Product.id))
             .join(Inventory, Product.id == Inventory.product_id)
-            .where(
-                Product.status == active_status,
-                Inventory.quantity <= threshold,
-            )
+            .where(*filters)
         )
 
         total = session.scalar(count_stmt) or 0

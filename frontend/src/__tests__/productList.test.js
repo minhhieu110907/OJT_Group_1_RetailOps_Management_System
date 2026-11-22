@@ -1536,5 +1536,46 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
         );
       }
     });
+
+    test('ProductList source enforces concurrency reconciliation (HTTP 409) and fail-closed pre-check', () => {
+      const productListSource = fs.readFileSync(
+        path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
+        'utf8'
+      );
+
+      // Preserves updated_at
+      assert.ok(
+        productListSource.includes('updated_at: row.updated_at'),
+        'handleOpenEditModal must preserve row.updated_at'
+      );
+      assert.ok(
+        productListSource.includes('latestProduct.updated_at !== initialProductForm.updated_at'),
+        'Must compare latestProduct.updated_at against initialProductForm.updated_at'
+      );
+
+      // Conflict card & badge
+      assert.ok(
+        productListSource.includes('conflictCard') && productListSource.includes('HTTP 409'),
+        'Must render conflictCard with HTTP 409 badge'
+      );
+      assert.ok(
+        productListSource.includes('handleReloadLatestProduct'),
+        'Must declare handleReloadLatestProduct'
+      );
+
+      // Fail-closed pre-check
+      assert.ok(
+        productListSource.includes('fetchErr?.response?.status === 404'),
+        'Must handle 404 on pre-check'
+      );
+      assert.ok(
+        productListSource.includes('Sản phẩm không còn tồn tại trên hệ thống.'),
+        'Must notify user when product is deleted'
+      );
+      assert.ok(
+        productListSource.includes('Không thể kiểm tra phiên bản dữ liệu mới nhất từ máy chủ.'),
+        'Must fail-closed and block PATCH on 5xx/network error'
+      );
+    });
   });
 });

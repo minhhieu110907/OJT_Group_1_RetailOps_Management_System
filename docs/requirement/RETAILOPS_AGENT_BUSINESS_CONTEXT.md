@@ -101,7 +101,7 @@ RetailOps là hệ thống quản lý nội bộ **một cửa hàng / một kho
 ### 3.8 Infrastructure / Outbox (`INF-01` … `INF-05`)
 
 - Nginx reverse proxy, forwarded header chỉ trust khi đến từ configured proxy; không tin client-supplied X-Forwarded-For tùy tiện.
-- Redis rate limits theo SRS: Login **5/min/IP + 20/hour/account**; Registration **3/hour/IP**; Forgot Password **3/hour/IP và email**; Refresh **10/min/session**; AI **10/min/user**; Business API **120/min/user**. Public auth và AI **fail-closed** khi Redis lỗi; internal POS có thể tiếp tục chỉ nếu MySQL session/RBAC còn bảo vệ an toàn.
+- Redis rate limits theo SRS: Login **5/min/IP + 20/hour/account**; Registration **5 requests/60 seconds/IP**; Forgot Password **3/hour/IP và email**; Refresh **10/min/session**; AI **10/min/user**; Business API **120/min/user**. Public auth và AI **fail-closed** khi Redis lỗi; internal POS có thể tiếp tục chỉ nếu MySQL session/RBAC còn bảo vệ an toàn.
 - `Outbox Lite` đã được Tech Lead chốt sau SRS: **một independent publisher** polling MySQL after commit; RabbitMQ durable + persistent messages + broker confirm; **một email worker tuần tự** với retry hữu hạn. Worker không phải Publisher; core business commits không phụ thuộc RabbitMQ/SMTP; at-least-once, không nói external email exactly-once.
 - Phải chứng minh broker outage không làm mất committed intent; lưu FAILED/unprocessed cho retry/replay, không tự xóa; không gửi SMTP trong transaction nghiệp vụ.
 - One-time reset/reapply secret khi gửi qua queue phải bảo vệ trong storage/payload/log; không truyền plaintext secret cho model hoặc để lọt log.

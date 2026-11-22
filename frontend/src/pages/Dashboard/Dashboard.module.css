@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pageHeader {
@@ -35,15 +37,20 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .segmentedBar {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
@@ -77,7 +84,9 @@
 .periodChipRow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  max-width: 100%;
 }
 
 .periodChip {
@@ -750,6 +759,25 @@
 }
 
 @media (max-width: 680px) {
+  .headerRight {
+    width: 100%;
+    align-items: stretch;
+  }
+  .periodChipRow {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .refreshBtn {
+    margin-left: auto;
+  }
+  .segmentedBar {
+    width: 100%;
+  }
+  .segmentBtn {
+    flex: 1 0 auto;
+    padding: 8px 10px;
+    font-size: 12.5px;
+  }
   .kpiGrid {
     grid-template-columns: 1fr;
   }

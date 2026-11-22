@@ -272,15 +272,18 @@ export default function CancelOrderModal({
                   <span className={styles.creatorLabel}>
                     Người tạo đơn:{' '}
                     <strong>
-                      {order.created_by_name ||
-                        formatOrderActorLabel(order.created_by, user)}
+                      {formatOrderActorLabel(
+                        order.created_by,
+                        user,
+                        order.created_by_name
+                      )}
                     </strong>
                   </span>
                   <span className={styles.windowBadgeAmber}>
                     Tạo lúc {formatOrderTimeShortVN(order.sold_at)}
                     {typeof remainingMinutes === 'number'
                       ? ` (Còn ${remainingMinutes} phút hợp lệ)`
-                      : ' (Asia/Ho_Chi_Minh)'}
+                      : ''}
                   </span>
                 </div>
 
@@ -403,7 +406,7 @@ export default function CancelOrderModal({
                   </h2>
                   <p className={styles.modalSubtitle}>
                     {user?.role === 'ADMIN'
-                      ? 'Chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh (Asia/Ho_Chi_Minh)'
+                      ? 'Chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh'
                       : 'Ngoài thời hạn 15 phút, khác người tạo hoặc khác ngày kinh doanh'}
                   </p>
                 </div>
@@ -427,7 +430,7 @@ export default function CancelOrderModal({
                 <div className={styles.kvRow}>
                   <span className={styles.kvLabel}>Thời gian tạo:</span>
                   <span className={styles.kvValue}>
-                    {formatOrderDateTimeVN(order.sold_at)} (Asia/Ho_Chi_Minh)
+                    {formatOrderDateTimeVN(order.sold_at)}
                   </span>
                 </div>
                 <div className={styles.kvRow}>

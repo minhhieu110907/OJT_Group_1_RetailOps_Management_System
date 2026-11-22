@@ -2,15 +2,34 @@ export const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
 export const STAFF_CANCEL_WINDOW_MS = 15 * 60 * 1000;
 
 /**
- * Format neutral actor label without guessing role (since OrderRead only provides user ID).
+ * Append ' (admin)' to display names of ADMIN users while leaving STAFF names plain.
  */
-export function formatOrderActorLabel(actorId, currentUser) {
+export function formatUserDisplayName(fullName, role) {
+  const trimmed = typeof fullName === 'string' ? fullName.trim() : '';
+  if (!trimmed) return '';
+  if (role === 'ADMIN' && !/\(admin\)$/i.test(trimmed)) {
+    return `${trimmed} (admin)`;
+  }
+  return trimmed;
+}
+
+/**
+ * Format actor display label. Appends ' (admin)' when role is ADMIN and omits it for STAFF.
+ */
+export function formatOrderActorLabel(actorId, currentUser, actorName = null) {
+  const trimmedName = typeof actorName === 'string' ? actorName.trim() : '';
+  if (trimmedName) {
+    if (currentUser && currentUser.id === actorId && currentUser.role === 'ADMIN') {
+      return formatUserDisplayName(trimmedName, 'ADMIN');
+    }
+    return trimmedName;
+  }
   if (typeof actorId !== 'number' || !Number.isInteger(actorId) || actorId <= 0) {
     return '—';
   }
   if (currentUser && currentUser.id === actorId) {
     if (typeof currentUser.full_name === 'string' && currentUser.full_name.trim()) {
-      return currentUser.full_name.trim();
+      return formatUserDisplayName(currentUser.full_name, currentUser.role);
     }
     if (currentUser.role === 'ADMIN') return `Admin #${actorId}`;
     if (currentUser.role === 'STAFF') return `Nhân viên #${actorId}`;
@@ -267,7 +286,7 @@ export function classifyCancelOrderError(error, { actorRole } = {}) {
   ) {
     const fallbackIneligibleMessage =
       actorRole === 'ADMIN'
-        ? 'Đơn hàng không đủ điều kiện hủy (chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh Asia/Ho_Chi_Minh hoặc tài khoản không có quyền).'
+        ? 'Đơn hàng không đủ điều kiện hủy (chỉ được hủy đơn hoàn tất trong cùng ngày kinh doanh hoặc tài khoản không có quyền).'
         : 'Đơn hàng không đủ điều kiện hủy (ngoài thời hạn 15 phút, khác người tạo hoặc khác ngày kinh doanh).';
 
     return {

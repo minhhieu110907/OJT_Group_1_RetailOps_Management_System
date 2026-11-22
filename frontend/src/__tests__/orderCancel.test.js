@@ -12,6 +12,7 @@ import {
   executeGuardedOrderListFetch,
   executeVerifiedOrderDetailFetch,
   formatOrderActorLabel,
+  formatUserDisplayName,
   formatOrderDateTimeVN,
   getVietnamBusinessDateKey,
   isCancelReasonLocked,
@@ -315,8 +316,8 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
     assert.ok(orderListSrc.includes('filterRowSingle'));
     assert.ok(orderListSrc.includes('placeholder="Theo mã đơn"'));
     assert.ok(orderListSrc.includes('Ngày bán:'));
-    assert.ok(orderListSrc.includes('fromDate: selectedDate || undefined'));
-    assert.ok(orderListSrc.includes('toDate: selectedDate || undefined'));
+    assert.ok(orderListSrc.includes('fromDate: urlDateRange?.from || selectedDate || undefined'));
+    assert.ok(orderListSrc.includes('toDate: urlDateRange?.to || selectedDate || undefined'));
 
     // Status badge text "Đã hoàn tất" and "Đã hủy" (not "Đơn đã hoàn tất")
     assert.ok(orderListSrc.includes('Đã hoàn tất'));
@@ -659,6 +660,49 @@ describe('T04A883 Order History & Cancel Order Test Suite', () => {
     // Feedback clarity checks
     assert.equal(formatOrderActorLabel(99, { id: 2, role: 'STAFF' }), 'Tài khoản #99');
     assert.equal(formatOrderActorLabel(1, { id: 1, role: 'ADMIN' }), 'Admin #1');
+    assert.equal(
+      formatUserDisplayName('Vũ Trần Lâm', 'ADMIN'),
+      'Vũ Trần Lâm (admin)'
+    );
+    assert.equal(
+      formatUserDisplayName('Vũ Trần Lâm (admin)', 'ADMIN'),
+      'Vũ Trần Lâm (admin)'
+    );
+    assert.equal(
+      formatUserDisplayName('Nguyễn Văn A', 'STAFF'),
+      'Nguyễn Văn A'
+    );
+    assert.equal(
+      formatOrderActorLabel(
+        1,
+        { id: 1, role: 'ADMIN', full_name: 'Vũ Trần Lâm' },
+        'Vũ Trần Lâm'
+      ),
+      'Vũ Trần Lâm (admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(
+        1,
+        { id: 1, role: 'ADMIN', full_name: 'Vũ Trần Lâm' }
+      ),
+      'Vũ Trần Lâm (admin)'
+    );
+    assert.equal(
+      formatOrderActorLabel(
+        2,
+        { id: 2, role: 'STAFF', full_name: 'Nguyễn Văn A' },
+        'Nguyễn Văn A'
+      ),
+      'Nguyễn Văn A'
+    );
+    assert.equal(
+      formatOrderActorLabel(
+        1,
+        { id: 2, role: 'STAFF', full_name: 'Nguyễn Văn A' },
+        'Vũ Trần Lâm (admin)'
+      ),
+      'Vũ Trần Lâm (admin)'
+    );
 
     const adminIneligible = classifyCancelOrderError(
       { response: { status: 403, data: { code: 'FORBIDDEN' } } },

@@ -6,7 +6,7 @@
 }
 
 .posLayoutWithCart {
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
 }
 
 .catalogSection {
@@ -115,11 +115,34 @@
   color: #0f172a;
 }
 
-.categoryRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.categorySelectWrap {
+  display: block;
+  max-width: 320px;
+}
+
+.categorySelectMobile {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  color: #0f172a;
+  font-size: 13.5px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+}
+
+.categorySelectMobile:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+@media (max-width: 640px) {
+  .categorySelectWrap {
+    max-width: 100%;
+  }
 }
 
 .categoryPill {
@@ -158,14 +181,11 @@
   color: #ffffff;
 }
 
-.productGrid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 14px;
-}
-
+.productGrid,
 .productGridWithCart {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  gap: 14px;
 }
 
 .paginationRow {
@@ -183,24 +203,18 @@
   font-weight: 500;
 }
 
-@media (max-width: 1280px) {
-  .productGrid,
-  .productGridWithCart {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 960px) {
-  .productGrid,
-  .productGridWithCart {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 640px) {
   .productGrid,
   .productGridWithCart {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+}
+
+@media (max-width: 360px) {
+  .productGrid,
+  .productGridWithCart {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -208,6 +222,8 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  min-width: 0;
+  overflow: hidden;
   padding: 14px;
   border-radius: 16px;
   border: 1px solid #e2e8f0;
@@ -300,7 +316,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin-bottom: 12px;
   font-size: 12.5px;
   color: #64748b;
@@ -309,6 +326,7 @@
 .stockValue {
   font-weight: 600;
   color: #334155;
+  white-space: nowrap;
 }
 
 .lowStockBadge {
@@ -321,6 +339,7 @@
   color: #b45309;
   font-size: 11.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .outOfStockBadge {
@@ -332,13 +351,15 @@
   color: #b91c1c;
   font-size: 11.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .cardFooter {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   padding-top: 10px;
   border-top: 1px solid #f1f5f9;
 }
@@ -351,17 +372,19 @@
 }
 
 .priceValue {
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 700;
   color: #059669;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .addBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 7px 12px;
   border-radius: 10px;
   border: 1px solid #d1fae5;
   background-color: #ecfdf5;
@@ -370,6 +393,8 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 0;
   transition: all 0.16s ease;
 }
 
@@ -1158,6 +1183,16 @@
   background-color: #047857;
 }
 
+.mobileCartBackdrop,
+.mobileCartToggle {
+  display: none;
+}
+
+.mobileCartSheetBody,
+.mobileCartSheetInner {
+  display: contents;
+}
+
 @media (max-width: 1024px) {
   .posLayoutWithCart {
     grid-template-columns: minmax(0, 1fr);
@@ -1165,5 +1200,139 @@
 
   .cartPanel {
     position: static;
+  }
+}
+
+@media (max-width: 768px) {
+  .posLayoutWithCart {
+    padding-bottom: 190px;
+  }
+
+  .mobileCartBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background-color: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    touch-action: none;
+    overscroll-behavior: contain;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  .mobileCartBackdropVisible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .cartPanel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 40;
+    max-height: 82vh;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.2);
+    touch-action: none;
+    overscroll-behavior: contain;
+  }
+
+  .mobileCartToggle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 16px 8px;
+    border: none;
+    border-bottom: 1px solid var(--color-border, #e2e8f0);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    touch-action: none;
+    outline: none;
+  }
+
+  .mobileCartToggle:focus-visible {
+    outline: 2px solid var(--color-primary, #059669);
+    outline-offset: -2px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .mobileCartHandle {
+    width: 38px;
+    height: 4px;
+    border-radius: 999px;
+    background-color: var(--color-secondary, #94a3b8);
+    opacity: 0.45;
+  }
+
+  .mobileCartToggleRow {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .mobileCartToggleTitle {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--color-text-primary, #0f172a);
+  }
+
+  .mobileCartToggleAction {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--color-primary, #059669);
+  }
+
+  .mobileCartSheetBody {
+    display: block;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    will-change: max-height, opacity;
+    transition: max-height 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.22s ease;
+  }
+
+  .cartPanelMobileExpanded .mobileCartSheetBody {
+    max-height: 56vh;
+    opacity: 1;
+  }
+
+  .mobileCartSheetBodyDragging {
+    transition: none;
+  }
+
+  .mobileCartSheetInner {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .cartHeader {
+    display: flex;
+    padding: 10px 16px;
+    touch-action: none;
+  }
+
+  .cartList {
+    display: flex;
+    max-height: 44vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  .cartFooter {
+    padding: 12px 16px;
+    gap: 8px;
+    touch-action: none;
   }
 }

@@ -32,7 +32,7 @@ from app.modules.sales.inventory_port import (
     StockLockSet,
 )
 from app.modules.sales.models import Order
-from app.modules.sales.repository import OrderRepository
+from app.modules.sales.repository import OrderRepository, format_actor_display_name
 from app.modules.sales.schemas import (
     MAX_SQL_BIGINT,
     MAX_SQL_INT,
@@ -428,10 +428,18 @@ class OrderReadService:
             status=order.status,
             total_vnd=order.total_vnd,
             created_by=order.created_by,
-            created_by_name=(creator.full_name if creator is not None else None),
+            created_by_name=(
+                format_actor_display_name(creator.full_name, creator.role)
+                if creator is not None
+                else None
+            ),
             sold_at=sold_at,
             cancelled_by=order.cancelled_by,
-            cancelled_by_name=(canceller.full_name if canceller is not None else None),
+            cancelled_by_name=(
+                format_actor_display_name(canceller.full_name, canceller.role)
+                if canceller is not None
+                else None
+            ),
             cancelled_at=cancelled_at,
             cancel_reason=order.cancel_reason,
             items=items,
@@ -634,7 +642,8 @@ class OrderReadService:
                 else ""
             )
             creator_name = (
-                order.creator.full_name
+                format_actor_display_name(order.creator.full_name, order.creator.role)
+                or ""
                 if order.creator is not None
                 else (str(order.created_by) if order.created_by else "")
             )

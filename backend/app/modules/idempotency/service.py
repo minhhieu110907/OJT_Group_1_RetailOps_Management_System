@@ -15,7 +15,10 @@ from app.core.exceptions import (
     IdempotencyKeyReusedError,
     RequestInProgressError,
 )
-from app.modules.idempotency.repository import IdempotencyRepository
+from app.modules.idempotency.repository import (
+    IdempotencyClaimLockTimeoutError,
+    IdempotencyRepository,
+)
 from app.modules.idempotency.validation import (
     DEFAULT_MAX_RESPONSE_BYTES,
     key_digest,
@@ -103,14 +106,17 @@ class IdempotencyExecutor:
         key_fingerprint = key_digest(idempotency_key, secret)
         request_fingerprint = request_digest(request_identity)
         now = self._clock()
-        record, claimed = self._repository.claim_or_lock(
-            session,
-            actor_id=actor_id,
-            operation=operation.value,
-            key_digest=key_fingerprint,
-            request_digest=request_fingerprint,
-            created_at=now,
-        )
+        try:
+            record, claimed = self._repository.claim_or_lock(
+                session,
+                actor_id=actor_id,
+                operation=operation.value,
+                key_digest=key_fingerprint,
+                request_digest=request_fingerprint,
+                created_at=now,
+            )
+        except IdempotencyClaimLockTimeoutError as error:
+            raise RequestInProgressError() from error
 
         if not hmac.compare_digest(record.request_digest, request_fingerprint):
             raise IdempotencyKeyReusedError()

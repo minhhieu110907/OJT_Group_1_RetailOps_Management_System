@@ -1,5 +1,6 @@
 """Repository for sales analytics queries."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -369,3 +370,38 @@ class SalesAnalyticsRepository:
             for r in rows
         ]
         return items, total
+
+    def get_sold_units_by_product_ids(
+        self,
+        session: Session,
+        *,
+        product_ids: Sequence[int],
+        start_utc: datetime,
+        end_utc_exclusive: datetime,
+    ) -> dict[int, int]:
+        """Aggregate COMPLETED-order sold units for an explicit set of product IDs."""
+        unique_ids = sorted({int(pid) for pid in product_ids if int(pid) >= 1})
+        if not unique_ids:
+            return {}
+
+        start_utc_naive = _to_utc_naive(start_utc)
+        end_utc_exclusive_naive = _to_utc_naive(end_utc_exclusive)
+        sold_units_col = func.coalesce(func.sum(OrderItem.quantity), 0).label(
+            "sold_units"
+        )
+        stmt = (
+            select(
+                OrderItem.product_id.label("product_id"),
+                sold_units_col,
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.status == OrderStatus.COMPLETED,
+                Order.sold_at >= start_utc_naive,
+                Order.sold_at < end_utc_exclusive_naive,
+                OrderItem.product_id.in_(unique_ids),
+            )
+            .group_by(OrderItem.product_id)
+        )
+        rows = session.execute(stmt).all()
+        return {int(r.product_id): int(r.sold_units) for r in rows}

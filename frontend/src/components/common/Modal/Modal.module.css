@@ -76,6 +76,9 @@
 /* Nội dung bên dưới tiêu đề (cách 8px, căn lề trái thẳng hàng hoàn toàn với tiêu đề) */
 .content {
   margin-top: 8px;
+  margin-right: -14px;
+  padding-right: 14px;
+  padding-bottom: 4px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--color-secondary, #586574);
@@ -84,6 +87,25 @@
   min-height: 0;
   flex: 1;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.75);
 }
 
 /* Phần Footer ngăn cách bởi đường viền mảnh 1px solid */

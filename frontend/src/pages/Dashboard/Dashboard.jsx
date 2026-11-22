@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useToast } from '../../components/common';
 import { analyticsApi } from '../../api/analyticsApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
+import { inventoryApi } from '../../api/inventoryApi';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
 import { downloadCsvReport } from '../../utils/csvDownload';
@@ -44,6 +45,7 @@ export default function Dashboard() {
 
   const [loadedPreset, setLoadedPreset] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
+  const [outOfStockCount, setOutOfStockCount] = useState(null);
   const [prevMonthSales, setPrevMonthSales] = useState(null);
   const [seriesRows, setSeriesRows] = useState([]);
   const [todayOrders, setTodayOrders] = useState([]);
@@ -124,18 +126,27 @@ export default function Dashboard() {
                   .catch(() => null)
               : Promise.resolve(null);
 
-          const [mainData, resolvedBuckets, ordersPage, prevSales] = await Promise.all([
-            mainPromise,
-            Promise.all(bucketPromises),
-            ordersPromise,
-            prevMonthPromise,
-          ]);
+          const outOfStockPromise = inventoryApi
+            .getInventory({ status: 'ACTIVE', inStock: false, page: 1, pageSize: 1 })
+            .catch(() => null);
 
-          return { mainData, resolvedBuckets, ordersPage, prevSales };
+          const [mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes] =
+            await Promise.all([
+              mainPromise,
+              Promise.all(bucketPromises),
+              ordersPromise,
+              prevMonthPromise,
+              outOfStockPromise,
+            ]);
+
+          return { mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes };
         },
-        onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales }) => {
+        onSuccess: ({ mainData, resolvedBuckets, ordersPage, prevSales, outOfStockRes }) => {
           setLoadedPreset(targetPreset);
           setDashboardData(mainData);
+          setOutOfStockCount(
+            typeof outOfStockRes?.total === 'number' ? outOfStockRes.total : null
+          );
           setPrevMonthSales(prevSales);
           setSeriesRows(resolvedBuckets);
           setTodayOrders(ordersPage.items || []);
@@ -235,6 +246,11 @@ export default function Dashboard() {
 
   const sales = activeDashboardData?.sales ?? null;
   const lowStockCount = activeDashboardData ? activeDashboardData.low_stock_count : null;
+  const activeOutOfStockCount = hasActivePeriodData ? outOfStockCount : null;
+  const nearlyOutOfStockCount =
+    lowStockCount !== null && activeOutOfStockCount !== null
+      ? Math.max(0, lowStockCount - activeOutOfStockCount)
+      : null;
 
   const monthDeltas = useMemo(() => {
     if (preset !== DASHBOARD_PRESETS.THIS_MONTH || !sales) return null;
@@ -394,7 +410,7 @@ export default function Dashboard() {
         <div className={styles.stateCard}>
           <h2 className={styles.pageTitle}>Không có quyền truy cập</h2>
           <p className={styles.pageSubtitle}>
-            Trang Tổng quan cửa hàng chỉ dành cho tài khoản Quản trị viên (ADMIN).
+            Trang Tổng quan cửa hàng chỉ dành cho tài khoản Quản trị viên.
           </p>
         </div>
       </div>
@@ -524,7 +540,7 @@ export default function Dashboard() {
         </div>
 
         <Link
-          to="/orders"
+          to={`/orders?status=COMPLETED&from_date=${encodeURIComponent(activeRange.from)}&to_date=${encodeURIComponent(activeRange.to)}`}
           className={`${styles.kpiCard} ${styles.kpiCardLink}`}
           title="Xem danh sách đơn hàng đã hoàn thành"
         >
@@ -562,7 +578,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="/orders"
+          to={`/orders?status=CANCELLED&from_date=${encodeURIComponent(activeRange.from)}&to_date=${encodeURIComponent(activeRange.to)}`}
           className={`${styles.kpiCard} ${styles.kpiCardLink}`}
           title="Xem danh sách đơn hàng đã hủy"
         >
@@ -891,10 +907,18 @@ export default function Dashboard() {
           <div className={styles.lowStockAlertBar}>
             <span>
               ⚠ Cảnh báo tồn kho:{' '}
-              {lowStockCount !== null
-                ? lowStockCount.toLocaleString('vi-VN')
-                : '—'}{' '}
-              sản phẩm sắp hết (≤ 5)
+              <strong>
+                {nearlyOutOfStockCount !== null
+                  ? nearlyOutOfStockCount.toLocaleString('vi-VN')
+                  : '—'}
+              </strong>{' '}
+              sản phẩm sắp hết •{' '}
+              <strong>
+                {activeOutOfStockCount !== null
+                  ? activeOutOfStockCount.toLocaleString('vi-VN')
+                  : '—'}
+              </strong>{' '}
+              sản phẩm hết hàng
             </span>
             <Link to="/inventory" className={styles.lowStockLink}>
               → Xem tồn kho
@@ -970,11 +994,11 @@ export default function Dashboard() {
                           </td>
                           <td>{formatVietnamDateTime(ord.sold_at || ord.created_at)}</td>
                           <td>
-                            {ord.created_by_name ||
-                              formatOrderActorLabel(ord.created_by, user).replace(
-                                /^Admin #\d+$/,
-                                'Admin'
-                              )}
+                            {formatOrderActorLabel(
+                              ord.created_by,
+                              user,
+                              ord.created_by_name
+                            ).replace(/^Admin #\d+$/, 'Admin')}
                           </td>
                           <td className={styles.centerCell}>
                             {typeof itemCount === 'number' ? `${itemCount} món` : itemCount}
@@ -1000,7 +1024,20 @@ export default function Dashboard() {
                               title="Xem chi tiết đơn hàng"
                               onClick={() => handleOpenOrderDetail(ord)}
                             >
-                              👁
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
                             </button>
                           </td>
                         </tr>

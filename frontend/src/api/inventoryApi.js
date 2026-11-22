@@ -206,11 +206,22 @@ export const inventoryApi = {
    * @param {number} params.page
    * @param {number} params.pageSize
    */
-  async getLowStock({ page = 1, pageSize = 20 } = {}) {
+  async getLowStock({
+    page = 1,
+    pageSize = 20,
+    categoryId = null,
+    excludeOutOfStock = false,
+  } = {}) {
     const params = {
       page: Number(page) || 1,
       page_size: Number(pageSize) || 20,
     };
+    if (categoryId !== null && categoryId !== undefined && Number(categoryId) > 0) {
+      params.category_id = Number(categoryId);
+    }
+    if (excludeOutOfStock) {
+      params.exclude_out_of_stock = true;
+    }
     const response = await axiosClient.get('/inventory/low-stock', { params });
     const data = response.data || {};
     return {

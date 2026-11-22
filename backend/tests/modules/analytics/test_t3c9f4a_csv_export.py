@@ -358,8 +358,9 @@ class DummyItem:
 
 
 class DummyCreator:
-    def __init__(self, full_name: str) -> None:
+    def __init__(self, full_name: str, role: str = "ADMIN") -> None:
         self.full_name = full_name
+        self.role = role
 
 
 class DummyOrder:
@@ -372,12 +373,13 @@ class DummyOrder:
         creator_name: str,
         items: list[DummyItem],
         cancel_reason: str | None = None,
+        creator_role: str = "ADMIN",
     ) -> None:
         self.id = id_
         self.sold_at = sold_at
         self.status = status
         self.total_vnd = total_vnd
-        self.creator = DummyCreator(creator_name)
+        self.creator = DummyCreator(creator_name, role=creator_role)
         self.created_by = 1
         self.items = items
         self.cancel_reason = cancel_reason
@@ -392,6 +394,7 @@ async def test_orders_csv_export_content_and_flattening() -> None:
         status=OrderStatus.COMPLETED.value,
         total_vnd=300_000,
         creator_name="Admin User",
+        creator_role="ADMIN",
         items=[
             DummyItem("SKU-001", "Cà phê Robusta", 2, 100_000, 200_000),
             DummyItem("=SKU-002", "+Trà sữa Oolong", 1, 100_000, 100_000),
@@ -402,7 +405,8 @@ async def test_orders_csv_export_content_and_flattening() -> None:
         sold_at=datetime(2026, 11, 15, 4, 0, 0),  # UTC -> 11:00 VN
         status=OrderStatus.CANCELLED.value,
         total_vnd=50_000,
-        creator_name="Admin User",
+        creator_name="Staff User",
+        creator_role="STAFF",
         items=[DummyItem("SKU-003", "Bánh mì pate", 1, 50_000, 50_000)],
         cancel_reason="Khách đổi ý",
     )
@@ -433,21 +437,21 @@ async def test_orders_csv_export_content_and_flattening() -> None:
     # Order 1 Line 1
     exp_l1 = (
         "101,2026-11-15 10:30:00,COMPLETED,SKU-001,Cà phê Robusta,2,"
-        "100000,200000,300000,Admin User,"
+        "100000,200000,300000,Admin User (admin),"
     )
     assert exp_l1 in lines[1]
 
     # Order 1 Line 2 (sanitized formulas)
     exp_l2 = (
         "101,2026-11-15 10:30:00,COMPLETED,'=SKU-002,'+Trà sữa Oolong,1,"
-        "100000,100000,300000,Admin User,"
+        "100000,100000,300000,Admin User (admin),"
     )
     assert exp_l2 in lines[2]
 
     # Order 2 Line 1 (cancelled with reason)
     exp_l3 = (
         "102,2026-11-15 11:00:00,CANCELLED,SKU-003,Bánh mì pate,1,"
-        "50000,50000,50000,Admin User,Khách đổi ý"
+        "50000,50000,50000,Staff User,Khách đổi ý"
     )
     assert exp_l3 in lines[3]
 
