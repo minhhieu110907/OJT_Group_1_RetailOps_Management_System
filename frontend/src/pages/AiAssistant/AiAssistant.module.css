@@ -994,9 +994,6 @@
   background: #ecfeff;
   border: 1px solid #a5f3fc;
   color: #0e7490;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

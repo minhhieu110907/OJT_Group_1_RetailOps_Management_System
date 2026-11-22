@@ -724,12 +724,9 @@ export default function AiAssistant() {
             </span>
           </div>
           <p className={styles.reorderSubtitle}>
-            Gợi ý định lượng theo quy tắc tồn kho (
-            <code>max(2 × ngưỡng − tồn hiện tại, ⌈lượng bán Top 30 ngày / 2⌉, 5)</code>
-            ) từ danh sách tồn thấp (≤ 5) đối chiếu với Top sản phẩm bán chạy 30
-            ngày. Các mặt hàng ngoài danh sách Top được ghi rõ &ldquo;Chưa có dữ
-            liệu bán hàng đầy đủ&rdquo; và chỉ tính theo ngưỡng tồn. Phiếu sinh
-            ra ở trạng thái DRAFT, chưa cộng tồn kho.
+            Tự động đề xuất số lượng nhập cho sản phẩm sắp hết hàng (tồn ≤ 5)
+            dựa trên mức tồn kho và sức bán 30 ngày. Phiếu tạo ra ở trạng thái{' '}
+            <strong>DRAFT</strong> — chưa cộng tồn kho cho đến khi bạn xác nhận.
           </p>
         </div>
 
