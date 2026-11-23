@@ -17,6 +17,8 @@ class EmailTemplateRegistry:
         "STAFF_REGISTERED": "RetailOps đã nhận yêu cầu đăng ký",
         "STAFF_APPROVED": "Tài khoản RetailOps đã được phê duyệt",
         "STAFF_REJECTED": "Kết quả yêu cầu đăng ký RetailOps",
+        "STAFF_LOCKED": "Tài khoản RetailOps của bạn đã bị khóa",
+        "STAFF_UNLOCKED": "Tài khoản RetailOps của bạn đã được mở khóa",
         "PURCHASE_DRAFT_CREATED": "RetailOps đã tạo phiếu nhập nháp",
         "PURCHASE_RECEIPT_CONFIRMED": "RetailOps đã xác nhận phiếu nhập kho",
         "LOW_STOCK_ALERT": "RetailOps cảnh báo sản phẩm sắp hết hàng",
@@ -33,6 +35,14 @@ class EmailTemplateRegistry:
         "STAFF_REJECTED": (
             "Yêu cầu đăng ký của bạn chưa được phê duyệt. "
             "Vui lòng liên hệ quản trị viên nếu cần hỗ trợ."
+        ),
+        "STAFF_LOCKED": (
+            "Tài khoản nhân viên RetailOps của bạn đã bị quản trị viên tạm khóa. "
+            "Vui lòng liên hệ quản trị viên nếu cần hỗ trợ."
+        ),
+        "STAFF_UNLOCKED": (
+            "Tài khoản nhân viên RetailOps của bạn đã được quản trị viên mở khóa. "
+            "Bạn có thể đăng nhập lại vào hệ thống."
         ),
     }
 
