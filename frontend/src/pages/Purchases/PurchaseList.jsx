@@ -25,6 +25,7 @@ import {
   MAX_EXPORT_ROWS,
   buildPurchaseReceiptExportRows,
   collectPurchaseReceiptsForExport,
+  formatPurchaseExportMessage,
 } from '../../utils/exportReportHelpers';
 import {
   filterProductsBySupplierCategories,
@@ -1299,14 +1300,11 @@ export default function PurchaseList() {
         `purchase_receipts_${activeTab.toLowerCase()}.xlsx`
       );
 
-      if (exportResult.isTruncated) {
-        toast.warning(
-          `Đã xuất ${exportResult.items.length}/${exportResult.totalAvailable} phiếu nhập (còn ${exportResult.remainingCount} phiếu chưa xuất do giới hạn ${MAX_EXPORT_ROWS} bản ghi).`
-        );
+      const notice = formatPurchaseExportMessage(exportResult, MAX_EXPORT_ROWS);
+      if (notice.severity === 'warning') {
+        toast.warning(notice.message);
       } else {
-        toast.success(
-          `Xuất Excel thành công (${exportResult.items.length} phiếu nhập)!`
-        );
+        toast.success(notice.message);
       }
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Không thể xuất Excel danh sách phiếu nhập.'));

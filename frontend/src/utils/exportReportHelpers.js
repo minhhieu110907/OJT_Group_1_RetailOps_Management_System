@@ -23,7 +23,13 @@ export async function collectPurchaseReceiptsForExport({
   if (parsedSearch.mode === 'UNSUPPORTED_QUERY' || parsedSearch.mode === 'INVALID_ID') {
     return {
       items: [],
+      total: 0,
+      effectiveTotal: 0,
+      exportedCount: 0,
       totalAvailable: 0,
+      isHistoryWindowCapped: false,
+      unexportedByHistoryWindow: 0,
+      unexportedByExportCap: 0,
       isTruncated: false,
       remainingCount: 0,
       validationError: parsedSearch.error || '',
@@ -40,9 +46,16 @@ export async function collectPurchaseReceiptsForExport({
       toDate: toDateFilter,
     });
     const items = Array.isArray(exactRes?.items) ? exactRes.items : [];
+    const total = Number(exactRes?.total) || items.length;
     return {
       items,
-      totalAvailable: Number(exactRes?.total) || items.length,
+      total,
+      effectiveTotal: total,
+      exportedCount: items.length,
+      totalAvailable: total,
+      isHistoryWindowCapped: false,
+      unexportedByHistoryWindow: 0,
+      unexportedByExportCap: Math.max(0, total - items.length),
       isTruncated: false,
       remainingCount: 0,
       validationError: '',
@@ -52,7 +65,8 @@ export async function collectPurchaseReceiptsForExport({
   const seenIds = new Set();
   const collected = [];
   let currentPage = 1;
-  let totalAvailable = 0;
+  let total = 0;
+  let effectiveTotal = 0;
   let isHistoryWindowCapped = false;
 
   const isAllHistory = topTab === 'HISTORY' && activeTab === 'ALL_HISTORY';
@@ -80,10 +94,11 @@ export async function collectPurchaseReceiptsForExport({
         });
 
     const pageItems = Array.isArray(res?.items) ? res.items : [];
-    totalAvailable = isAllHistory
-      ? Number(res?.effective_total ?? res?.total ?? 0)
-      : Number(res?.total ?? 0);
-    if (res?.is_window_capped) {
+    total = Number(res?.total ?? 0);
+    effectiveTotal = isAllHistory
+      ? Number(res?.effective_total ?? total)
+      : total;
+    if (res?.is_window_capped || (isAllHistory && total > effectiveTotal)) {
       isHistoryWindowCapped = true;
     }
 
@@ -98,7 +113,7 @@ export async function collectPurchaseReceiptsForExport({
     if (
       pageItems.length === 0 ||
       currentPage >= totalPages ||
-      collected.length >= totalAvailable ||
+      collected.length >= effectiveTotal ||
       collected.length >= maxRows
     ) {
       break;
@@ -106,13 +121,67 @@ export async function collectPurchaseReceiptsForExport({
     currentPage += 1;
   }
 
-  const remainingCount = Math.max(0, totalAvailable - collected.length);
+  const exportedCount = collected.length;
+  const unexportedByHistoryWindow = isAllHistory
+    ? Math.max(0, total - effectiveTotal)
+    : 0;
+  const unexportedByExportCap = Math.max(0, effectiveTotal - exportedCount);
+  const remainingCount = Math.max(0, total - exportedCount);
+
   return {
     items: collected,
-    totalAvailable,
+    total,
+    effectiveTotal,
+    exportedCount,
+    totalAvailable: total,
+    isHistoryWindowCapped,
+    unexportedByHistoryWindow,
+    unexportedByExportCap,
     isTruncated: remainingCount > 0 || isHistoryWindowCapped,
     remainingCount,
     validationError: '',
+  };
+}
+
+/**
+ * Format accurate user-facing export result toast distinguishing
+ * ALL_HISTORY window truncation (500) from export row cap (1000).
+ */
+export function formatPurchaseExportMessage(exportResult, maxRows = MAX_EXPORT_ROWS) {
+  const {
+    total = 0,
+    effectiveTotal = 0,
+    exportedCount = 0,
+    isHistoryWindowCapped = false,
+    unexportedByHistoryWindow = 0,
+    unexportedByExportCap = 0,
+    isTruncated = false,
+  } = exportResult || {};
+
+  if (!isTruncated) {
+    return {
+      severity: 'success',
+      message: `Xuất Excel thành công (${exportedCount} phiếu nhập)!`,
+    };
+  }
+
+  if (unexportedByHistoryWindow > 0 && unexportedByExportCap > 0) {
+    return {
+      severity: 'warning',
+      message: `Đã xuất ${exportedCount}/${total} phiếu nhập (${unexportedByHistoryWindow} phiếu nằm ngoài cửa sổ lịch sử ${effectiveTotal} phiếu gần nhất và ${unexportedByExportCap} phiếu vượt giới hạn xuất ${maxRows} bản ghi).`,
+    };
+  }
+
+  if (unexportedByHistoryWindow > 0 || isHistoryWindowCapped) {
+    return {
+      severity: 'warning',
+      message: `Đã xuất ${exportedCount}/${total} phiếu nhập (chỉ truy xuất tối đa ${effectiveTotal} phiếu gần nhất trong cửa sổ lịch sử; còn ${unexportedByHistoryWindow} phiếu ngoài cửa sổ chưa thể xuất).`,
+    };
+  }
+
+  return {
+    severity: 'warning',
+    message: `Đã xuất ${exportedCount}/${total} phiếu nhập (còn ${unexportedByExportCap} phiếu chưa xuất do giới hạn xuất ${maxRows} bản ghi).`,
   };
 }
 

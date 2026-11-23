@@ -14,7 +14,9 @@ from app.core.config import Settings
 from app.core.exceptions import (
     AccountLockedError,
     DomainValidationError,
+    ForbiddenError,
     InvalidCredentialsError,
+    InvalidStateError,
     SessionInvalidError,
 )
 from app.modules.auth.account_service import StaffAccountService
@@ -29,6 +31,7 @@ from app.modules.auth.repository import AuthRepository
 from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import AuthService
 from app.modules.outbox.models import OutboxEvent
+from app.modules.outbox.writer import OutboxWriter
 
 pytestmark = pytest.mark.integration
 EMAIL_PREFIX = "bonus_staff_"
@@ -164,6 +167,95 @@ def test_lock_revoke_unlock_does_not_revive_old_session(
                 )
             )
             == 2
+        )
+        staff_id = staff.id
+        admin_id = admin.id
+
+    with Session(engine) as verify_outbox:
+        outbox_rows = list(
+            verify_outbox.scalars(
+                select(OutboxEvent)
+                .where(OutboxEvent.subject_user_id == staff_id)
+                .order_by(OutboxEvent.created_at.asc(), OutboxEvent.id.asc())
+            )
+        )
+        assert [row.event_type for row in outbox_rows] == [
+            "STAFF_LOCKED",
+            "STAFF_UNLOCKED",
+        ]
+        for row in outbox_rows:
+            assert row.subject_user_id == staff_id
+            assert row.payload == {"schema_version": 1, "actor_id": admin_id}
+            assert row.secret_ciphertext is None
+            serialized = str(row.payload).lower()
+            for forbidden in ("password", "token", "refresh", "csrf"):
+                assert forbidden not in serialized
+
+
+def test_staff_lock_outbox_invalid_and_atomic_rollback(
+    migrated_integration_engine: Engine,
+) -> None:
+    engine = migrated_integration_engine
+
+    class FailingOutboxWriter(OutboxWriter):
+        def append(self, *args, **kwargs):
+            raise RuntimeError("Simulated outbox write failure")
+
+    with Session(engine) as session:
+        admin, staff = _accounts(session, "outbox_atomic")
+        admin_id = admin.id
+        staff_id = staff.id
+
+    # 1. Invalid transitions must not emit any OutboxEvent
+    accounts = StaffAccountService()
+    with Session(engine) as session:
+        with pytest.raises(InvalidStateError):
+            accounts.transition(
+                session, actor_id=admin_id, target_user_id=staff_id, action="UNLOCK"
+            )
+        with pytest.raises(ForbiddenError):
+            accounts.transition(
+                session, actor_id=staff_id, target_user_id=staff_id, action="LOCK"
+            )
+
+    with Session(engine) as verify_invalid:
+        assert (
+            list(
+                verify_invalid.scalars(
+                    select(OutboxEvent).where(OutboxEvent.subject_user_id == staff_id)
+                )
+            )
+            == []
+        )
+
+    # 2. Controlled Outbox failure must roll back account status and audit event
+    failing_accounts = StaffAccountService(outbox_writer=FailingOutboxWriter())
+    with Session(engine) as session, pytest.raises(RuntimeError, match="outbox"):
+        failing_accounts.transition(
+            session, actor_id=admin_id, target_user_id=staff_id, action="LOCK"
+        )
+
+    with Session(engine) as verify_rollback:
+        reloaded_staff = verify_rollback.get(User, staff_id)
+        assert reloaded_staff is not None
+        assert reloaded_staff.status == "ACTIVE"
+        assert (
+            list(
+                verify_rollback.scalars(
+                    select(StaffAccountEvent).where(
+                        StaffAccountEvent.target_user_id == staff_id
+                    )
+                )
+            )
+            == []
+        )
+        assert (
+            list(
+                verify_rollback.scalars(
+                    select(OutboxEvent).where(OutboxEvent.subject_user_id == staff_id)
+                )
+            )
+            == []
         )
 
 

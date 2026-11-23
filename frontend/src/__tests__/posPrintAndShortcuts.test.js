@@ -290,6 +290,119 @@ describe('POS Printable Receipt, Keyboard Shortcuts & Email Alert Enhancements',
     );
   });
 
+  it('Finding P2: ALL_HISTORY export distinguishes total, effective_total, exported_count and formats accurate notices', async () => {
+    const {
+      collectPurchaseReceiptsForExport,
+      formatPurchaseExportMessage,
+    } = await import('../utils/exportReportHelpers.js');
+
+    const makeHistoryApi = ({ total, effectiveTotal, isCapped }) => ({
+      async listHistory({ page }) {
+        const remainingInWindow = Math.max(0, effectiveTotal - (page - 1) * 100);
+        const count = Math.min(100, remainingInWindow);
+        const startId = (page - 1) * 100;
+        return {
+          items: Array.from({ length: count }, (_, idx) => ({
+            id: startId + idx + 1,
+            supplier_id: 1,
+            supplier_name_snapshot: 'NCC Demo',
+            items: [{}],
+            created_at: '2026-11-20T10:00:00Z',
+            total_vnd: 100000,
+            status: 'CONFIRMED',
+          })),
+          total,
+          effective_total: effectiveTotal,
+          total_pages: Math.max(1, Math.ceil(effectiveTotal / 100)),
+          is_window_capped: isCapped,
+        };
+      },
+    });
+
+    // 1. < 500
+    const under500 = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 120, effectiveTotal: 120, isCapped: false }),
+    });
+    assert.strictEqual(under500.total, 120);
+    assert.strictEqual(under500.effectiveTotal, 120);
+    assert.strictEqual(under500.exportedCount, 120);
+    assert.strictEqual(under500.isTruncated, false);
+    const underMsg = formatPurchaseExportMessage(under500);
+    assert.strictEqual(underMsg.severity, 'success');
+    assert.match(underMsg.message, /120 phiếu nhập/);
+
+    // 2. == 500
+    const exact500 = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 500, effectiveTotal: 500, isCapped: false }),
+    });
+    assert.strictEqual(exact500.total, 500);
+    assert.strictEqual(exact500.exportedCount, 500);
+    assert.strictEqual(exact500.isTruncated, false);
+    assert.strictEqual(formatPurchaseExportMessage(exact500).severity, 'success');
+
+    // 3. > 500 (window capped at 500, actual total 650)
+    const over500 = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 650, effectiveTotal: 500, isCapped: true }),
+    });
+    assert.strictEqual(over500.total, 650);
+    assert.strictEqual(over500.effectiveTotal, 500);
+    assert.strictEqual(over500.exportedCount, 500);
+    assert.strictEqual(over500.unexportedByHistoryWindow, 150);
+    assert.strictEqual(over500.unexportedByExportCap, 0);
+    assert.strictEqual(over500.isTruncated, true);
+    const overMsg = formatPurchaseExportMessage(over500);
+    assert.strictEqual(overMsg.severity, 'warning');
+    assert.match(overMsg.message, /500\/650/);
+    assert.match(overMsg.message, /cửa sổ lịch sử/);
+    assert.match(overMsg.message, /150/);
+
+    // 4. Both window cap and export cap (total 1200, effective 1100, maxRows 1000)
+    const bothCaps = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 1200, effectiveTotal: 1100, isCapped: true }),
+      maxRows: 1000,
+    });
+    assert.strictEqual(bothCaps.exportedCount, 1000);
+    assert.strictEqual(bothCaps.unexportedByHistoryWindow, 100);
+    assert.strictEqual(bothCaps.unexportedByExportCap, 100);
+    const bothMsg = formatPurchaseExportMessage(bothCaps, 1000);
+    assert.strictEqual(bothMsg.severity, 'warning');
+    assert.match(bothMsg.message, /1000\/1200/);
+    assert.match(bothMsg.message, /cửa sổ lịch sử/);
+    assert.match(bothMsg.message, /giới hạn xuất 1000/);
+
+    // 5. Next-page API error in ALL_HISTORY rejects cleanly
+    await assert.rejects(
+      () =>
+        collectPurchaseReceiptsForExport({
+          topTab: 'HISTORY',
+          activeTab: 'ALL_HISTORY',
+          receiptsApi: {
+            async listHistory({ page }) {
+              if (page === 1) {
+                return {
+                  items: Array.from({ length: 100 }, (_, i) => ({ id: i + 1 })),
+                  total: 250,
+                  effective_total: 250,
+                  total_pages: 3,
+                  is_window_capped: false,
+                };
+              }
+              throw new Error('History page 2 failed');
+            },
+          },
+        }),
+      /History page 2 failed/
+    );
+  });
+
   it('Finding P2: Stock Movement export caps cleanly with partial flag, resolves product names in batch, and enforces RBAC', async () => {
     const {
       buildStockMovementExportRows,
