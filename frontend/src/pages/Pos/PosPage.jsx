@@ -1101,6 +1101,9 @@ export default function PosPage() {
               const cashDigits = Number(String(cashReceivedInput).replace(/\D/g, '')) || 0;
               const hasCashInput = cashReceivedInput.trim() !== '' && Number.isFinite(cashDigits);
               const changeAmount = hasCashInput ? cashDigits - cartTotals.totalVnd : null;
+              const formattedCashDisplay = hasCashInput
+                ? cashDigits.toLocaleString('vi-VN')
+                : '';
 
               const applyCashChange = (nextVal) => {
                 setCashHistory((prev) => [...prev.slice(-19), cashReceivedInput]);
@@ -1120,26 +1123,55 @@ export default function PosPage() {
                     <label htmlFor="pos-cash-received-input" className={styles.cashCalcLabel}>
                       Tiền khách đưa (VNĐ)
                     </label>
+                    <div className={styles.cashHeaderActions}>
+                      <button
+                        type="button"
+                        className={styles.cashUndoBtn}
+                        onClick={handleUndoCash}
+                        disabled={cashHistory.length === 0}
+                        title="Quay lại số tiền trước đó"
+                        data-testid="pos-cash-undo-btn"
+                      >
+                        ↩ Hoàn tác
+                      </button>
+                      {hasCashInput && (
+                        <button
+                          type="button"
+                          className={styles.cashClearBtn}
+                          onClick={() => applyCashChange('')}
+                          title="Xóa số tiền đã nhập"
+                        >
+                          Xóa
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.cashInputWrap}>
                     <input
                       id="pos-cash-received-input"
                       type="text"
                       inputMode="numeric"
                       className={styles.cashCalcInput}
                       placeholder="Nhập số tiền"
-                      value={cashReceivedInput}
+                      value={formattedCashDisplay}
                       onChange={(e) => {
                         const raw = e.target.value.replace(/\D/g, '');
                         applyCashChange(raw);
                       }}
                     />
+                    <span className={styles.cashCurrencySuffix} aria-hidden="true">
+                      ₫
+                    </span>
                   </div>
-                  <div className={styles.cashChipRow}>
+
+                  <div className={styles.cashChipGrid}>
                     <button
                       type="button"
-                      className={styles.cashChipBtn}
+                      className={`${styles.cashChipBtn} ${styles.cashExactBtn}`}
                       onClick={() => applyCashChange(String(cartTotals.totalVnd))}
                     >
-                      Đủ tiền
+                      Đủ
                     </button>
                     {[
                       { label: '+50k', value: 50000 },
@@ -1156,17 +1188,8 @@ export default function PosPage() {
                         {preset.label}
                       </button>
                     ))}
-                    <button
-                      type="button"
-                      className={styles.cashUndoBtn}
-                      onClick={handleUndoCash}
-                      disabled={cashHistory.length === 0}
-                      title="Quay lại số tiền trước đó"
-                      data-testid="pos-cash-undo-btn"
-                    >
-                      Hoàn tác
-                    </button>
                   </div>
+
                   {hasCashInput && (
                     <div
                       className={
@@ -1175,7 +1198,7 @@ export default function PosPage() {
                           : `${styles.cashChangeRow} ${styles.cashShortRow}`
                       }
                     >
-                      <span>{changeAmount >= 0 ? 'Tiền thừa trả khách:' : 'Còn thiếu:'}</span>
+                      <span>{changeAmount >= 0 ? 'Tiền thừa trả khách' : 'Còn thiếu'}</span>
                       <strong>{formatVnd(Math.abs(changeAmount))}</strong>
                     </div>
                   )}

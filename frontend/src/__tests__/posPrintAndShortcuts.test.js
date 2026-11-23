@@ -105,7 +105,7 @@ describe('POS Printable Receipt, Keyboard Shortcuts & Email Alert Enhancements',
     assert.match(posSource, /data-testid="pos-cash-undo-btn"/);
     assert.match(posSource, /placeholder="Nhập số tiền"/);
     assert.match(posSource, /Tiền khách đưa \(VNĐ\)/);
-    assert.match(posSource, /Tiền thừa trả khách:/);
+    assert.match(posSource, /Tiền thừa trả khách/);
     assert.match(posSource, /cashReceivedVnd=/);
     assert.match(posSource, /changeDueVnd=/);
   });
