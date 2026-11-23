@@ -110,23 +110,19 @@ def notify_low_stock_alert(
     service: Annotated[InventoryQueryService, Depends(get_inventory_service)],
 ) -> dict[str, object]:
     """Queue a low-stock alert email to Admin via Transactional Outbox (Admin only)."""
-    try:
-        count = service.notify_low_stock_alert(
-            session=session,
-            actor_id=current_admin.id,
-        )
-        commit_session(session)
-        return {
-            "queued": True,
-            "low_stock_count": count,
-            "message": (
-                f"Đã xếp hàng gửi email cảnh báo {count} sản phẩm sắp hết hàng "
-                "tới Quản trị viên."
-            ),
-        }
-    except Exception:
-        session.rollback()
-        raise
+    count = service.notify_low_stock_alert(
+        session=session,
+        actor_id=current_admin.id,
+    )
+    commit_session(session)
+    return {
+        "queued": True,
+        "low_stock_count": count,
+        "message": (
+            f"Đã xếp hàng gửi email cảnh báo {count} sản phẩm sắp hết hàng "
+            "tới Quản trị viên."
+        ),
+    }
 
 
 # CRITICAL ROUTE ORDER:
