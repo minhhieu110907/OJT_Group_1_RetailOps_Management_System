@@ -56,14 +56,14 @@ def test_outbox_writer_appends_staff_lock_events() -> None:
     session = MagicMock()
     now = datetime.now(UTC)
 
-    locked = writer.append(
+    locked_id = writer.append(
         session,
         subject_user_id=42,
         event_type="STAFF_LOCKED",
         payload={"schema_version": 1, "actor_id": 1},
         available_at_utc=now,
     )
-    unlocked = writer.append(
+    unlocked_id = writer.append(
         session,
         subject_user_id=42,
         event_type="STAFF_UNLOCKED",
@@ -71,6 +71,10 @@ def test_outbox_writer_appends_staff_lock_events() -> None:
         available_at_utc=now,
     )
 
-    assert locked.event_type == "STAFF_LOCKED"
-    assert unlocked.event_type == "STAFF_UNLOCKED"
+    assert isinstance(locked_id, bytes)
+    assert len(locked_id) == 16
+    assert isinstance(unlocked_id, bytes)
+    assert len(unlocked_id) == 16
     assert session.add.call_count == 2
+    assert session.add.call_args_list[0].args[0].event_type == "STAFF_LOCKED"
+    assert session.add.call_args_list[1].args[0].event_type == "STAFF_UNLOCKED"
