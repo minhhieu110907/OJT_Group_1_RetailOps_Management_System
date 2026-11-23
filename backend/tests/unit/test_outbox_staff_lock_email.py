@@ -6,7 +6,11 @@ from unittest.mock import MagicMock
 from app.modules.outbox.models import OutboxEvent
 from app.modules.outbox.repository import ENABLED_EMAIL_EVENTS
 from app.modules.outbox.templates import EmailTemplateRegistry
-from app.modules.outbox.writer import PAYLOAD_FIELDS, SUPPORTED_EVENT_TYPES, OutboxWriter
+from app.modules.outbox.writer import (
+    PAYLOAD_FIELDS,
+    SUPPORTED_EVENT_TYPES,
+    OutboxWriter,
+)
 
 
 def test_staff_lock_events_registered_in_outbox() -> None:

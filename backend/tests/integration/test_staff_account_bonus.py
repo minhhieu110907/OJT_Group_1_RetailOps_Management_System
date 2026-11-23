@@ -28,6 +28,7 @@ from app.modules.auth.models import (
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.security import PasswordHasher
 from app.modules.auth.service import AuthService
+from app.modules.outbox.models import OutboxEvent
 
 pytestmark = pytest.mark.integration
 EMAIL_PREFIX = "bonus_staff_"
@@ -76,6 +77,9 @@ def cleanup_bonus_rows(migrated_integration_engine: Engine):
         session.execute(delete(AuthSession).where(AuthSession.user_id.in_(ids)))
         session.execute(
             delete(PasswordResetToken).where(PasswordResetToken.user_id.in_(ids))
+        )
+        session.execute(
+            delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(ids))
         )
         session.execute(delete(User).where(User.id.in_(ids)))
 
