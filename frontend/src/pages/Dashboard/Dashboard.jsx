@@ -132,9 +132,9 @@ export default function Dashboard() {
                   .getOrders({
                     isMockMode,
                     page: 1,
-                    page_size: 6,
-                    from_date: targetRange.from,
-                    to_date: targetRange.to,
+                    pageSize: 6,
+                    fromDate: targetRange.from,
+                    toDate: targetRange.to,
                   })
                   .catch(() => ({ items: [], total: 0 }))
               : Promise.resolve({ items: [], total: 0 });

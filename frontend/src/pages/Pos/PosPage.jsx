@@ -1625,7 +1625,7 @@ export default function PosPage() {
                   className={styles.compactPrimaryBtn}
                   onClick={() => setCompletedOrder(null)}
                 >
-                  <span>✓ Xác nhận bán hàng</span>
+                  <span>✓ Đơn hàng mới</span>
                 </button>
               </div>
             </div>

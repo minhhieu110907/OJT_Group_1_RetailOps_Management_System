@@ -301,12 +301,15 @@ export default function Header({
   };
 
   // Tìm tên trang hiện tại dựa trên đường dẫn URL để hiển thị trên Breadcrumb
+  const EXTRA_ROUTE_LABELS = {
+    '/staff/accounts': 'Tài khoản nhân viên',
+  };
   const currentMenu = MENU_ITEMS.find(
     (item) => item.path === location.pathname
   );
   const currentPageLabel = currentMenu
     ? currentMenu.label
-    : 'Không gian làm việc';
+    : EXTRA_ROUTE_LABELS[location.pathname] || 'Không gian làm việc';
 
   // Khi bấm vào hàng "Đăng xuất" trong Dropdown -> Đóng Dropdown và mở Modal xác nhận
   const handleOpenLogoutModal = () => {

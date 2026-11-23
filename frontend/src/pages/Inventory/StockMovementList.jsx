@@ -197,6 +197,17 @@ export default function StockMovementList() {
     }
   }, [isExportingExcel, selectedKind, isAdmin, productMap, toast]);
 
+  const formatActorLabel = useCallback(
+    (actorId) => {
+      if (!actorId) return 'Hệ thống';
+      if (user?.id && Number(actorId) === Number(user.id)) {
+        return user.full_name?.trim() || user.email || `User ${actorId}`;
+      }
+      return `User ${actorId}`;
+    },
+    [user?.id, user?.full_name, user?.email]
+  );
+
   // Cấu hình các cột hiển thị cho STAFF (Không hiển thị giá vốn, lý do nội bộ, actor)
   const columns = useMemo(() => {
     return [
@@ -270,7 +281,7 @@ export default function StockMovementList() {
               width: '10%',
               render: (row) => (
                 <span className={styles.actorBadge}>
-                  <span>{row.actor_id ? `User ${row.actor_id}` : 'Hệ thống'}</span>
+                  <span>{formatActorLabel(row.actor_id)}</span>
                 </span>
               ),
             },
@@ -401,7 +412,7 @@ export default function StockMovementList() {
             <div className={styles.metaRow}>
               <span className={styles.metaLabel}>Người thực hiện:</span>
               <span className={styles.metaValue}>
-                {viewingReasonItem.actor_id ? `User ${viewingReasonItem.actor_id}` : 'Hệ thống'}
+                {formatActorLabel(viewingReasonItem.actor_id)}
               </span>
             </div>
             <div className={styles.metaRow}>
