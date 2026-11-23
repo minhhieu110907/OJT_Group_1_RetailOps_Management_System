@@ -95,4 +95,34 @@ describe('POS Printable Receipt, Keyboard Shortcuts & Email Alert Enhancements',
       axiosClient.post = origPost;
     }
   });
+
+  it('PosPage.jsx includes cash received & change calculator and passes cash meta to PrintableReceipt', () => {
+    const posSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Pos/PosPage.jsx'),
+      'utf8'
+    );
+    assert.match(posSource, /data-testid="pos-cash-calculator"/);
+    assert.match(posSource, /Tiền khách đưa \(VNĐ\)/);
+    assert.match(posSource, /Tiền thừa trả khách:/);
+    assert.match(posSource, /cashReceivedVnd=/);
+    assert.match(posSource, /changeDueVnd=/);
+  });
+
+  it('PrintablePurchaseReceipt.jsx and PurchaseList.jsx wire purchase receipt printing cleanly', () => {
+    const voucherSource = fs.readFileSync(
+      path.join(srcRoot, 'components/purchases/PrintablePurchaseReceipt.jsx'),
+      'utf8'
+    );
+    assert.match(voucherSource, /PHIẾU NHẬP KHO/);
+    assert.match(voucherSource, /data-testid="printable-purchase-receipt"/);
+    assert.match(voucherSource, /#PN-\{receipt\.id\}/);
+    assert.match(voucherSource, /TỔNG GIÁ TRỊ PHIẾU NHẬP:/);
+
+    const purchaseSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Purchases/PurchaseList.jsx'),
+      'utf8'
+    );
+    assert.match(purchaseSource, /data-testid="purchase-print-btn"/);
+    assert.match(purchaseSource, /<PrintablePurchaseReceipt/);
+  });
 });

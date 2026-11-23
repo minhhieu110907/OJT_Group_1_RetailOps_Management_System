@@ -101,6 +101,8 @@ export default function PosPage() {
   const [manualReconciliationConfirmed, setManualReconciliationConfirmed] =
     useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
+  const [cashReceivedInput, setCashReceivedInput] = useState('');
+  const [completedPaymentMeta, setCompletedPaymentMeta] = useState(null);
   const [stockConflictDetails, setStockConflictDetails] = useState(null);
   const [priceConflictDetails, setPriceConflictDetails] = useState(null);
   const [isMobileCartExpanded, setIsMobileCartExpanded] = useState(false);
@@ -610,7 +612,18 @@ export default function PosPage() {
       });
 
       if (result.ok) {
+        const parsedCash = Number(String(cashReceivedInput).replace(/\D/g, ''));
+        const hasCash = Number.isFinite(parsedCash) && parsedCash > 0;
+        setCompletedPaymentMeta(
+          hasCash
+            ? {
+                cashReceivedVnd: parsedCash,
+                changeDueVnd: Math.max(0, parsedCash - (result.order?.total_vnd || 0)),
+              }
+            : null
+        );
         setCompletedOrder(result.order);
+        setCashReceivedInput('');
         setStockConflictDetails(null);
         setPriceConflictDetails(null);
         toast.success(
@@ -1082,6 +1095,64 @@ export default function PosPage() {
               </span>
             </div>
 
+            {!isCartLocked && cartTotals.totalVnd > 0 && (() => {
+              const cashDigits = Number(String(cashReceivedInput).replace(/\D/g, ''));
+              const hasCashInput = cashReceivedInput.trim() !== '' && Number.isFinite(cashDigits);
+              const changeAmount = hasCashInput ? cashDigits - cartTotals.totalVnd : null;
+
+              return (
+                <div className={styles.cashCalcBox} data-testid="pos-cash-calculator">
+                  <div className={styles.cashCalcHeader}>
+                    <label htmlFor="pos-cash-received-input" className={styles.cashCalcLabel}>
+                      Tiền khách đưa (VNĐ)
+                    </label>
+                    <input
+                      id="pos-cash-received-input"
+                      type="text"
+                      inputMode="numeric"
+                      className={styles.cashCalcInput}
+                      placeholder="Nhập số tiền..."
+                      value={cashReceivedInput}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D/g, '');
+                        setCashReceivedInput(raw);
+                      }}
+                    />
+                  </div>
+                  <div className={styles.cashChipRow}>
+                    {[
+                      { label: 'Đủ tiền', value: cartTotals.totalVnd },
+                      { label: '50k', value: 50000 },
+                      { label: '100k', value: 100000 },
+                      { label: '200k', value: 200000 },
+                      { label: '500k', value: 500000 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        className={styles.cashChipBtn}
+                        onClick={() => setCashReceivedInput(String(preset.value))}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  {hasCashInput && (
+                    <div
+                      className={
+                        changeAmount >= 0
+                          ? styles.cashChangeRow
+                          : `${styles.cashChangeRow} ${styles.cashShortRow}`
+                      }
+                    >
+                      <span>{changeAmount >= 0 ? 'Tiền thừa trả khách:' : 'Còn thiếu:'}</span>
+                      <strong>{formatVnd(Math.abs(changeAmount))}</strong>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {pendingCheckout && (
               <div className={styles.ambiguousBanner} role="alert">
                 <strong>Trạng thái đơn hàng chưa xác định</strong>
@@ -1473,6 +1544,8 @@ export default function PosPage() {
                 ? `${user.full_name}${user?.role === 'ADMIN' ? ' (Admin)' : ''}`
                 : user?.email || ''
             }
+            cashReceivedVnd={completedPaymentMeta?.cashReceivedVnd ?? null}
+            changeDueVnd={completedPaymentMeta?.changeDueVnd ?? null}
           />
         </div>
       )}

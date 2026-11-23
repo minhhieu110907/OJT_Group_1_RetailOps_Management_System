@@ -102,6 +102,113 @@
   color: #f8fafc;
 }
 
+.cashCalcBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.cashCalcHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cashCalcLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.cashCalcInput {
+  width: 130px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cashCalcInput:focus {
+  outline: none;
+  border-color: #10b981;
+}
+
+.cashChipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cashChipBtn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cashChipBtn:hover {
+  background-color: #ecfdf5;
+  border-color: #10b981;
+  color: #047857;
+}
+
+.cashChangeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+  border-top: 1px dashed #cbd5e1;
+  font-size: 12.5px;
+  color: #047857;
+}
+
+.cashShortRow {
+  color: #dc2626;
+}
+
+:global([data-theme='dark']) .cashCalcBox {
+  background-color: #111a2b;
+  border-color: #2d3d56;
+}
+
+:global([data-theme='dark']) .cashCalcLabel {
+  color: #cbd5e1;
+}
+
+:global([data-theme='dark']) .cashCalcInput,
+:global([data-theme='dark']) .cashChipBtn {
+  background-color: #1e293b;
+  border-color: #3b4f6b;
+  color: #f8fafc;
+}
+
+:global([data-theme='dark']) .cashChangeRow {
+  border-top-color: #334155;
+  color: #34d399;
+}
+
+:global([data-theme='dark']) .cashShortRow {
+  color: #f87171;
+}
+
 .toolbar {
   display: flex;
   flex-direction: column;

@@ -5,6 +5,7 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
+import PrintablePurchaseReceipt from '../../components/purchases/PrintablePurchaseReceipt';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import {
@@ -1597,6 +1598,11 @@ export default function PurchaseList() {
       </div>
 
       {/* 5. Modal Chi tiết & Thao tác Phiếu nhập kho */}
+      {isDetailModalOpen &&
+        selectedReceipt &&
+        selectedReceipt.id === selectedReceiptId &&
+        !isDetailLoading &&
+        !detailError && <PrintablePurchaseReceipt receipt={selectedReceipt} />}
       <Modal
         isOpen={isDetailModalOpen}
         onClose={handleCloseDetailModal}
@@ -1624,6 +1630,18 @@ export default function PurchaseList() {
                 Hủy phiếu
               </button>
               <div className={styles.detailModalFooterActions}>
+                <button
+                  type="button"
+                  className={modalStyles.cancelBtn}
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+                      window.print();
+                    }
+                  }}
+                  data-testid="purchase-print-btn"
+                >
+                  In phiếu nhập
+                </button>
                 <button
                   type="button"
                   className={modalStyles.cancelBtn}
@@ -1657,14 +1675,33 @@ export default function PurchaseList() {
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              className={modalStyles.cancelBtn}
-              onClick={handleCloseDetailModal}
-              disabled={isActionLoading}
-            >
-              Đóng
-            </button>
+            <div className={styles.detailModalFooterActions}>
+              {selectedReceipt &&
+                selectedReceipt.id === selectedReceiptId &&
+                !isDetailLoading &&
+                !detailError && (
+                  <button
+                    type="button"
+                    className={modalStyles.cancelBtn}
+                    onClick={() => {
+                      if (typeof window !== 'undefined' && typeof window.print === 'function') {
+                        window.print();
+                      }
+                    }}
+                    data-testid="purchase-print-btn"
+                  >
+                    In phiếu nhập
+                  </button>
+                )}
+              <button
+                type="button"
+                className={modalStyles.cancelBtn}
+                onClick={handleCloseDetailModal}
+                disabled={isActionLoading}
+              >
+                Đóng
+              </button>
+            </div>
           )
         }
       >
