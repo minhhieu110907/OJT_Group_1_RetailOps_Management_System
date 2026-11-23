@@ -78,9 +78,7 @@ def cleanup_bonus_rows(migrated_integration_engine: Engine):
         session.execute(
             delete(PasswordResetToken).where(PasswordResetToken.user_id.in_(ids))
         )
-        session.execute(
-            delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(ids))
-        )
+        session.execute(delete(OutboxEvent).where(OutboxEvent.subject_user_id.in_(ids)))
         session.execute(delete(User).where(User.id.in_(ids)))
 
 
