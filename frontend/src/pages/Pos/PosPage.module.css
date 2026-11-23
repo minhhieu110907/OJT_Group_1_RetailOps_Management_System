@@ -127,9 +127,11 @@
 }
 
 .cashCalcInput {
-  width: 130px;
+  flex: 1;
+  min-width: 0;
+  max-width: 142px;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 10px;
   border-radius: 7px;
   border: 1px solid #cbd5e1;
   background-color: #ffffff;
@@ -140,6 +142,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+.cashCalcInput::placeholder {
+  text-align: right;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
 .cashCalcInput:focus {
   outline: none;
   border-color: #10b981;
@@ -148,12 +156,12 @@
 .cashChipRow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
 .cashChipBtn {
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid #cbd5e1;
   background-color: #ffffff;
@@ -168,6 +176,29 @@
   background-color: #ecfdf5;
   border-color: #10b981;
   color: #047857;
+}
+
+.cashUndoBtn {
+  margin-left: auto;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid #fcd34d;
+  background-color: #fffbeb;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cashUndoBtn:hover:not(:disabled) {
+  background-color: #fef3c7;
+  border-color: #d97706;
+}
+
+.cashUndoBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cashChangeRow {
@@ -198,6 +229,12 @@
   background-color: #1e293b;
   border-color: #3b4f6b;
   color: #f8fafc;
+}
+
+:global([data-theme='dark']) .cashUndoBtn {
+  background-color: rgba(245, 158, 11, 0.16);
+  border-color: rgba(251, 191, 36, 0.45);
+  color: #fde68a;
 }
 
 :global([data-theme='dark']) .cashChangeRow {

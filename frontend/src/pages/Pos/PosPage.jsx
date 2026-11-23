@@ -102,6 +102,7 @@ export default function PosPage() {
     useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
   const [cashReceivedInput, setCashReceivedInput] = useState('');
+  const [cashHistory, setCashHistory] = useState([]);
   const [completedPaymentMeta, setCompletedPaymentMeta] = useState(null);
   const [stockConflictDetails, setStockConflictDetails] = useState(null);
   const [priceConflictDetails, setPriceConflictDetails] = useState(null);
@@ -624,6 +625,7 @@ export default function PosPage() {
         );
         setCompletedOrder(result.order);
         setCashReceivedInput('');
+        setCashHistory([]);
         setStockConflictDetails(null);
         setPriceConflictDetails(null);
         toast.success(
@@ -1096,9 +1098,21 @@ export default function PosPage() {
             </div>
 
             {!isCartLocked && cartTotals.totalVnd > 0 && (() => {
-              const cashDigits = Number(String(cashReceivedInput).replace(/\D/g, ''));
+              const cashDigits = Number(String(cashReceivedInput).replace(/\D/g, '')) || 0;
               const hasCashInput = cashReceivedInput.trim() !== '' && Number.isFinite(cashDigits);
               const changeAmount = hasCashInput ? cashDigits - cartTotals.totalVnd : null;
+
+              const applyCashChange = (nextVal) => {
+                setCashHistory((prev) => [...prev.slice(-19), cashReceivedInput]);
+                setCashReceivedInput(nextVal);
+              };
+
+              const handleUndoCash = () => {
+                if (cashHistory.length === 0) return;
+                const previous = cashHistory[cashHistory.length - 1];
+                setCashHistory((prev) => prev.slice(0, -1));
+                setCashReceivedInput(previous);
+              };
 
               return (
                 <div className={styles.cashCalcBox} data-testid="pos-cash-calculator">
@@ -1111,31 +1125,47 @@ export default function PosPage() {
                       type="text"
                       inputMode="numeric"
                       className={styles.cashCalcInput}
-                      placeholder="Nhập số tiền..."
+                      placeholder="Nhập số tiền"
                       value={cashReceivedInput}
                       onChange={(e) => {
                         const raw = e.target.value.replace(/\D/g, '');
-                        setCashReceivedInput(raw);
+                        applyCashChange(raw);
                       }}
                     />
                   </div>
                   <div className={styles.cashChipRow}>
+                    <button
+                      type="button"
+                      className={styles.cashChipBtn}
+                      onClick={() => applyCashChange(String(cartTotals.totalVnd))}
+                    >
+                      Đủ tiền
+                    </button>
                     {[
-                      { label: 'Đủ tiền', value: cartTotals.totalVnd },
-                      { label: '50k', value: 50000 },
-                      { label: '100k', value: 100000 },
-                      { label: '200k', value: 200000 },
-                      { label: '500k', value: 500000 },
+                      { label: '+50k', value: 50000 },
+                      { label: '+100k', value: 100000 },
+                      { label: '+200k', value: 200000 },
+                      { label: '+500k', value: 500000 },
                     ].map((preset) => (
                       <button
                         key={preset.label}
                         type="button"
                         className={styles.cashChipBtn}
-                        onClick={() => setCashReceivedInput(String(preset.value))}
+                        onClick={() => applyCashChange(String(cashDigits + preset.value))}
                       >
                         {preset.label}
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      className={styles.cashUndoBtn}
+                      onClick={handleUndoCash}
+                      disabled={cashHistory.length === 0}
+                      title="Quay lại số tiền trước đó"
+                      data-testid="pos-cash-undo-btn"
+                    >
+                      Hoàn tác
+                    </button>
                   </div>
                   {hasCashInput && (
                     <div
