@@ -95,7 +95,7 @@ export default function PrintableReceipt({
                 <span>{formatVnd(cashReceivedVnd)}</span>
               </div>
               <div className={styles.metaRow}>
-                <span>Tiền thừa trả khách:</span>
+                <span>Tiền trả lại:</span>
                 <strong>{formatVnd(Math.max(0, changeDueVnd || 0))}</strong>
               </div>
             </>

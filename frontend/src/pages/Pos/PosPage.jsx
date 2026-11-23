@@ -27,9 +27,11 @@ import {
   executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
+  loadPosCart,
   prioritizeCategoriesByLatestProducts,
   resolveMobileSheetSwipeEnd,
   resolvePendingCheckoutAction,
+  savePosCart,
   shouldCloseMobileCartOnEscape,
   updateCartItemQuantity,
 } from '../../utils/posUtils';
@@ -94,7 +96,8 @@ export default function PosPage() {
   );
   const [cart, setCart] = useState(() =>
     typeof window !== 'undefined'
-      ? loadPendingCheckout(window.sessionStorage, ownerScope)?.cartSnapshot || []
+      ? loadPendingCheckout(window.sessionStorage, ownerScope)?.cartSnapshot ||
+        loadPosCart(window.localStorage, ownerScope)
       : []
   );
   const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -133,7 +136,10 @@ export default function PosPage() {
         ? loadPendingCheckout(window.sessionStorage, ownerScope)
         : null;
     setPendingCheckout(restored);
-    setCart(restored?.cartSnapshot || []);
+    setCart(
+      restored?.cartSnapshot ||
+        (typeof window !== 'undefined' ? loadPosCart(window.localStorage, ownerScope) : [])
+    );
     setManualReconciliationConfirmed(false);
     setCompletedOrder(null);
     setStockConflictDetails(null);
@@ -144,6 +150,12 @@ export default function PosPage() {
     idempotencyKeyRef.current =
       pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey();
   }, [ownerScope, pendingCheckout?.idempotencyKey]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      savePosCart(window.localStorage, ownerScope, cart);
+    }
+  }, [ownerScope, cart]);
 
   // Cảnh báo nếu người dùng reload hoặc rời trang khi có giao dịch đang xử lý / chưa xác định
   useEffect(() => {

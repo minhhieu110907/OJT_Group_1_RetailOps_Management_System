@@ -127,4 +127,41 @@ describe('POS Printable Receipt, Keyboard Shortcuts & Email Alert Enhancements',
     assert.match(purchaseSource, /data-testid="purchase-print-btn"/);
     assert.match(purchaseSource, /<PrintablePurchaseReceipt/);
   });
+
+  it('PrintableReceipt uses Tiền trả lại, PosPage persists cart, and Purchases/Movements expose Xuất Excel', async () => {
+    const receiptSource = fs.readFileSync(
+      path.join(srcRoot, 'components/pos/PrintableReceipt.jsx'),
+      'utf8'
+    );
+    assert.match(receiptSource, /Tiền khách đưa:/);
+    assert.match(receiptSource, /Tiền trả lại:/);
+    assert.doesNotMatch(receiptSource, /Tiền thối/);
+
+    const { loadPosCart, savePosCart } = await import('../utils/posUtils.js');
+    const store = new Map();
+    const mockStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+    const sampleCart = [{ product_id: 1, name: 'Test', quantity: 2, price_vnd: 10000 }];
+    assert.strictEqual(savePosCart(mockStorage, 'api:7', sampleCart), true);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), sampleCart);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:8'), []);
+    savePosCart(mockStorage, 'api:7', []);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), []);
+
+    const purchaseSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Purchases/PurchaseList.jsx'),
+      'utf8'
+    );
+    const movementSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Inventory/StockMovementList.jsx'),
+      'utf8'
+    );
+    assert.match(purchaseSource, /Xuất Excel/);
+    assert.match(movementSource, /Xuất Excel/);
+    assert.doesNotMatch(purchaseSource, /Xuất CSV/);
+    assert.doesNotMatch(movementSource, /Xuất CSV/);
+  });
 });

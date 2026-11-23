@@ -35,6 +35,39 @@
   margin: 0;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.exportExcelBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #059669;
+  background-color: #ecfdf5;
+  color: #047857;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.exportExcelBtn:hover:not(:disabled) {
+  background-color: #d1fae5;
+  border-color: #047857;
+}
+
+.exportExcelBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .primaryBtn {
   display: inline-flex;
   align-items: center;

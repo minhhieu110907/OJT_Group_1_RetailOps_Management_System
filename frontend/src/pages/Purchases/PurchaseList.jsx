@@ -20,6 +20,7 @@ import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
 import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
 import { triggerDateInputPicker } from '../../utils/posUtils';
+import { downloadStyledExcelRows } from '../../utils/csvDownload';
 import {
   filterProductsBySupplierCategories,
   findAutoFillSupplierForProduct,
@@ -112,6 +113,7 @@ export default function PurchaseList() {
   const [draftCount, setDraftCount] = useState(null);
   const [historyCount, setHistoryCount] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const hasLoadedListOnceRef = useRef(false);
   const pendingOpenReceiptIdRef = useRef(null);
@@ -1261,6 +1263,51 @@ export default function PurchaseList() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
+  const handleExportExcel = useCallback(async () => {
+    if (!isAdmin || isExportingExcel) return;
+    if (!Array.isArray(data) || data.length === 0) {
+      toast.warning('Không có dữ liệu phiếu nhập để xuất Excel.');
+      return;
+    }
+    setIsExportingExcel(true);
+    try {
+      const headers = [
+        'Mã phiếu nhập',
+        'Nhà cung cấp',
+        'Số mặt hàng',
+        'Thời gian tạo',
+        'Tổng tiền (VNĐ)',
+        'Trạng thái',
+      ];
+      const rows = data.map((row) => {
+        const count = Array.isArray(row.items) ? row.items.length : 0;
+        const statusText =
+          row.status === 'CONFIRMED'
+            ? 'Đã nhập'
+            : row.status === 'CANCELLED'
+            ? 'Đã hủy'
+            : `Bản nháp (${row.draft_version ?? 1})`;
+        return [
+          `#PN-${row.id}`,
+          row.supplier_name || (row.supplier_id ? `NCC #${row.supplier_id}` : '—'),
+          count,
+          formatDate(row.created_at),
+          Number(row.total_vnd) || 0,
+          statusText,
+        ];
+      });
+      await downloadStyledExcelRows(
+        [headers, ...rows],
+        `purchase_receipts_${activeTab.toLowerCase()}.xlsx`
+      );
+      toast.success('Xuất Excel danh sách phiếu nhập thành công!');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể xuất Excel danh sách phiếu nhập.'));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  }, [isAdmin, isExportingExcel, data, activeTab, toast]);
+
   // Quyền: ADMIN-only
   if (!isAdmin) {
     return (
@@ -1307,27 +1354,37 @@ export default function PurchaseList() {
           </p>
         </div>
 
-        <button
-          type="button"
-          className={styles.primaryBtn}
-          onClick={handleOpenCreateModal}
-          disabled={isActionLoading}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <div className={styles.headerActions}>
+          <button
+            type="button"
+            className={styles.exportExcelBtn}
+            onClick={handleExportExcel}
+            disabled={isExportingExcel || isLoading || data.length === 0}
           >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span>Thêm phiếu nhập</span>
-        </button>
+            {isExportingExcel ? 'Đang xuất...' : 'Xuất Excel'}
+          </button>
+          <button
+            type="button"
+            className={styles.primaryBtn}
+            onClick={handleOpenCreateModal}
+            disabled={isActionLoading}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Thêm phiếu nhập</span>
+          </button>
+        </div>
       </div>
 
       {/* Cảnh báo lỗi tải Master Data (NCC / Sản phẩm) kèm nút Thử lại */}

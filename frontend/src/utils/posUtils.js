@@ -234,6 +234,64 @@ export function classifyCheckoutError(error) {
 
 export const PENDING_CHECKOUT_STORAGE_KEY = 'retailops_pos_pending_checkout_v1';
 export const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
+export const POS_CART_STORAGE_KEY = 'retailops_pos_cart_v1';
+
+/**
+ * Derive an isolated localStorage key per ownerScope for persisting the active POS cart.
+ */
+export function getPosCartStorageKey(ownerScope) {
+  if (typeof ownerScope !== 'string' || !ownerScope.trim()) {
+    return null;
+  }
+  return `${POS_CART_STORAGE_KEY}:${ownerScope.trim()}`;
+}
+
+/**
+ * Persist current POS cart items to localStorage so accidental refreshes or
+ * page navigation do not lose an in-progress cart.
+ */
+export function savePosCart(storage, ownerScope, cart) {
+  const storageKey = getPosCartStorageKey(ownerScope);
+  if (!storage || !storageKey) return false;
+  try {
+    if (!Array.isArray(cart) || cart.length === 0) {
+      if (typeof storage.removeItem === 'function') {
+        storage.removeItem(storageKey);
+      }
+      return true;
+    }
+    if (typeof storage.setItem !== 'function') return false;
+    storage.setItem(storageKey, JSON.stringify(cart));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Load persisted POS cart items from localStorage for the given ownerScope.
+ */
+export function loadPosCart(storage, ownerScope) {
+  const storageKey = getPosCartStorageKey(ownerScope);
+  if (!storage || typeof storage.getItem !== 'function' || !storageKey) {
+    return [];
+  }
+  try {
+    const raw = storage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item) =>
+        item &&
+        Number.isInteger(Number(item.product_id)) &&
+        Number(item.product_id) > 0 &&
+        Number(item.quantity) > 0
+    );
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Derive an isolated sessionStorage key per validated ownerScope so concurrent
