@@ -23,11 +23,42 @@
   border-color: var(--color-primary, #087F5B);
   color: var(--color-primary, #087F5B);
 }
-.filters { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; margin-bottom: 16px; }
-.filters form { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
-.filters label { font-size: 13px; font-weight: 600; }
-.filters input, .filters select { border: 1px solid var(--color-border, #CBD5E1); border-radius: 7px; background: var(--color-bg-surface, #fff); color: inherit; padding: 9px; }
-.filters button, .unlock { background: var(--color-primary, #087F5B); color: white; border: 0; border-radius: 7px; padding: 9px 14px; cursor: pointer; white-space: nowrap; }
+.filters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.filters form, .statusFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.filters label { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.filters input, .filters select {
+  height: 38px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border, #CBD5E1);
+  border-radius: 7px;
+  background: var(--color-bg-surface, #fff);
+  color: inherit;
+  padding: 0 11px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.filters input:focus, .filters select:focus {
+  border-color: var(--color-primary, #087F5B);
+  box-shadow: 0 0 0 2px rgba(8, 127, 91, 0.15);
+}
+.filters select { min-width: 150px; cursor: pointer; }
+.filters button, .unlock {
+  height: 38px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary, #087F5B);
+  color: white;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 15px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .tableScroll { overflow-x: auto; border: 1px solid var(--color-border, #E2E8F0); border-radius: 9px; }
 .tableScroll table { border-collapse: collapse; width: 100%; text-align: left; }
 .tableScroll th, .tableScroll td { padding: 14px; border-bottom: 1px solid var(--color-border, #E2E8F0); font-size: 14px; }
