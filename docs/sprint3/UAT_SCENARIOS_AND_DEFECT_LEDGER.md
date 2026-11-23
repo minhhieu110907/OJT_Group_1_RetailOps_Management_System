@@ -196,7 +196,7 @@ Bảng theo dõi tiến độ và trạng thái tích hợp thực tế của to
 | `T04ABDD` | Báo cáo QA và tài liệu demo | Lan Anh | 24/11 | `GATE-E2E,DEPLOY` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04ABF9` | Tổng hợp giao diện và bằng chứng QA | Tân | 24/11 | `FE-ADAPTER,GATE-E2E` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
 | `T04AC15` | Đối soát dữ liệu và báo cáo | Na Na | 24/11 | `HTTP-ANALYTICS,GATE-E2E` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
-| `T04AC2F` | Kiểm tra end-to-end frontend | Lâm | 24/11 | `FE-ADAPTER,DEPLOY,GATE-E2E` | `NOT_STARTED` | **STARTABLE** | `[Chờ cập nhật PR / SHA / Test Evidence]` |
+| `T04AC2F` | Kiểm tra end-to-end frontend | Lâm | 24/11 | `FE-ADAPTER,DEPLOY,GATE-E2E` | `PR_OPEN` | **IN_REVIEW** | Nhánh `test/t04ac2f-rc-browser-e2e` (base: `3e0d3c0`): 8/8 Chrome Browser E2E + 8/8 Nginx SPA reload + video & 8 ảnh bằng chứng + 394/394 FE tests PASS (0 blocker); xem `docs/testing/evidence/T04AC2F/T04AC2F_RC_BROWSER_E2E_REPORT.md` |
 
 ---
 
