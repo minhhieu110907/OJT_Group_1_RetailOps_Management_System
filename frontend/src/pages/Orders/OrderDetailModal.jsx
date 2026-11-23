@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import PrintableReceipt from '../../components/pos/PrintableReceipt';
 import { acquireModalScrollLock } from '../../utils/modalScrollLock';
 import { formatVnd } from '../../utils/posUtils';
 import {
@@ -231,6 +232,18 @@ export default function OrderDetailModal({
           <button
             type="button"
             className={styles.compactSecondaryBtn}
+            onClick={() => {
+              if (typeof window !== 'undefined' && typeof window.print === 'function') {
+                window.print();
+              }
+            }}
+            data-testid="order-detail-print-btn"
+          >
+            In hóa đơn
+          </button>
+          <button
+            type="button"
+            className={styles.compactSecondaryBtn}
             onClick={onClose}
           >
             Đóng
@@ -246,6 +259,10 @@ export default function OrderDetailModal({
           )}
         </div>
       </div>
+      <PrintableReceipt
+        order={order}
+        actorLabel={formatActor(order.created_by, order.created_by_name)}
+      />
     </div>
   );
 }

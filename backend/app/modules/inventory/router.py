@@ -100,6 +100,31 @@ def get_low_stock(
     )
 
 
+@router.post(
+    "/low-stock/notify",
+    status_code=status.HTTP_200_OK,
+)
+def notify_low_stock_alert(
+    current_admin: Annotated[User, Depends(require_active_admin)],
+    session: Annotated[Session, Depends(get_db_session)],
+    service: Annotated[InventoryQueryService, Depends(get_inventory_service)],
+) -> dict[str, object]:
+    """Queue a low-stock alert email to Admin via Transactional Outbox (Admin only)."""
+    count = service.notify_low_stock_alert(
+        session=session,
+        actor_id=current_admin.id,
+    )
+    commit_session(session)
+    return {
+        "queued": True,
+        "low_stock_count": count,
+        "message": (
+            f"Đã xếp hàng gửi email cảnh báo {count} sản phẩm sắp hết hàng "
+            "tới Quản trị viên."
+        ),
+    }
+
+
 # CRITICAL ROUTE ORDER:
 # /inventory/export/csv MUST be registered BEFORE /inventory/{product_id}
 # to prevent FastAPI from matching "export" as an integer product_id.

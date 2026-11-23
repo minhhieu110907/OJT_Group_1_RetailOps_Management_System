@@ -35,6 +35,7 @@ export default function InventoryList() {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [isLoading, setIsLoading] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isSendingLowStockEmail, setIsSendingLowStockEmail] = useState(false);
 
   // 4. Danh mục & Thống kê KPI toàn kho (Authoritative Global Counts)
   const [categories, setCategories] = useState([]);
@@ -313,6 +314,27 @@ export default function InventoryList() {
     }
   }, [isAdmin, stockStatusFilter, selectedCategoryId, toast]);
 
+  const handleSendLowStockAlert = useCallback(async () => {
+    if (!isAdmin || isSendingLowStockEmail) return;
+    setIsSendingLowStockEmail(true);
+    try {
+      const res = await inventoryApi.notifyLowStockAlert();
+      toast.success(
+        res?.message ||
+          'Đã xếp hàng gửi email cảnh báo tồn kho thấp tới Quản trị viên.'
+      );
+    } catch (err) {
+      toast.error(
+        getApiErrorMessage(
+          err,
+          'Không thể gửi email cảnh báo tồn kho thấp.'
+        )
+      );
+    } finally {
+      setIsSendingLowStockEmail(false);
+    }
+  }, [isAdmin, isSendingLowStockEmail, toast]);
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pagination.pageSize));
 
   return (
@@ -325,14 +347,25 @@ export default function InventoryList() {
           </p>
         </div>
         {isAdmin && activeMainTab === 'OVERVIEW' && (
-          <button
-            type="button"
-            className={styles.exportCsvBtn}
-            onClick={handleExportCsv}
-            disabled={isExportingCsv}
-          >
-            {isExportingCsv ? 'Đang xuất...' : 'Xuất Excel'}
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.alertEmailBtn}
+              onClick={handleSendLowStockAlert}
+              disabled={isSendingLowStockEmail}
+              title="Gửi email tổng hợp các sản phẩm sắp hết hàng (≤ 5) tới Admin"
+            >
+              {isSendingLowStockEmail ? 'Đang gửi email...' : 'Gửi cảnh báo tồn thấp'}
+            </button>
+            <button
+              type="button"
+              className={styles.exportCsvBtn}
+              onClick={handleExportCsv}
+              disabled={isExportingCsv}
+            >
+              {isExportingCsv ? 'Đang xuất...' : 'Xuất Excel'}
+            </button>
+          </div>
         )}
       </div>
 

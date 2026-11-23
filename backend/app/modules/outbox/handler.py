@@ -110,7 +110,7 @@ class EmailEventHandler:
                         reset_link=reset_link
                     )
                 else:
-                    rendered = self.templates.render(event)
+                    rendered = self._render_domain_event(session, event)
 
             attempt = self._begin_attempt(event_id)
             if attempt is None:
@@ -167,6 +167,77 @@ class EmailEventHandler:
 
         self._finish(event_id, outcome="SENT", error_code=None)
         return EmailOutcome(event_id=event_id, status="SENT")
+
+    def _render_domain_event(self, session: Session, event: object) -> object:
+        """Render non-secret domain events, enriching with DB details if available."""
+        event_type = getattr(event, "event_type", None)
+        payload = getattr(event, "payload", None) or {}
+
+        if event_type == "PURCHASE_RECEIPT_CONFIRMED":
+            receipt_id = payload.get("receipt_id")
+            if type(receipt_id) is int and receipt_id > 0:
+                from sqlalchemy import select
+
+                from app.modules.purchasing.models import (
+                    PurchaseReceipt,
+                    PurchaseReceiptItem,
+                )
+
+                receipt = session.get(PurchaseReceipt, receipt_id)
+                if receipt is not None:
+                    rows = list(
+                        session.scalars(
+                            select(PurchaseReceiptItem)
+                            .where(PurchaseReceiptItem.receipt_id == receipt_id)
+                            .order_by(PurchaseReceiptItem.id.asc())
+                        )
+                    )
+                    items_data = [
+                        {
+                            "sku": it.sku_snapshot,
+                            "name": it.product_name_snapshot,
+                            "quantity": it.quantity,
+                            "unit_cost_vnd": it.unit_cost_vnd,
+                            "line_total_vnd": it.line_total_vnd,
+                        }
+                        for it in rows
+                    ]
+                    return self.templates.render_purchase_confirmed(
+                        receipt_id=receipt_id,
+                        supplier_name=receipt.supplier_name_snapshot,
+                        total_vnd=receipt.total_vnd,
+                        items=items_data,
+                    )
+
+        if event_type == "LOW_STOCK_ALERT":
+            low_stock_count = payload.get("low_stock_count")
+            if type(low_stock_count) is int and low_stock_count > 0:
+                from sqlalchemy import select
+
+                from app.modules.inventory.schemas import DEFAULT_LOW_STOCK_THRESHOLD
+                from app.modules.products.models import Inventory, Product
+
+                stmt = (
+                    select(Product.sku, Product.name, Inventory.quantity)
+                    .join(Inventory, Inventory.product_id == Product.id)
+                    .where(
+                        Product.status == "ACTIVE",
+                        Inventory.quantity <= DEFAULT_LOW_STOCK_THRESHOLD,
+                    )
+                    .order_by(Inventory.quantity.asc(), Product.id.asc())
+                    .limit(50)
+                )
+                rows = session.execute(stmt).all()
+                items_data = [
+                    {"sku": r[0], "name": r[1], "quantity": r[2]} for r in rows
+                ]
+                return self.templates.render_low_stock_alert(
+                    low_stock_count=low_stock_count,
+                    items=items_data,
+                    threshold=DEFAULT_LOW_STOCK_THRESHOLD,
+                )
+
+        return self.templates.render(event)  # type: ignore[arg-type]
 
     def _begin_attempt(self, event_id: bytes) -> int | None:
         attempt: int | None = None

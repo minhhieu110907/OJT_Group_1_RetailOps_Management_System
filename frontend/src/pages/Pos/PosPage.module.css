@@ -52,6 +52,56 @@
   border: 1px solid #e2e8f0;
 }
 
+.shortcutHintBar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shortcutChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.shortcutChip kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.completedModalActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+:global([data-theme='dark']) .shortcutChip {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #cbd5e1;
+}
+
+:global([data-theme='dark']) .shortcutChip kbd {
+  background-color: #0f172a;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
 .toolbar {
   display: flex;
   flex-direction: column;

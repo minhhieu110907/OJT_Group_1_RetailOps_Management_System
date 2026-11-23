@@ -300,6 +300,35 @@ class InventoryQueryService:
         filename = f"inventory_export_{ts}.csv"
         return generate_csv_response(headers=headers, rows=rows, filename=filename)
 
+    def notify_low_stock_alert(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        outbox_writer: Any | None = None,
+    ) -> int:
+        """Queue an Outbox email alert to Admin for active low-stock products."""
+        from app.core.exceptions import DomainValidationError
+        from app.modules.outbox.writer import OutboxWriter
+
+        total = self._repository.count_low_stock(
+            session, threshold=DEFAULT_LOW_STOCK_THRESHOLD
+        )
+        if total <= 0:
+            raise DomainValidationError(
+                "Hiện không có sản phẩm nào dưới ngưỡng tồn kho an toàn "
+                "để gửi cảnh báo."
+            )
+        writer = outbox_writer or OutboxWriter()
+        writer.append(
+            session,
+            subject_user_id=actor_id,
+            event_type="LOW_STOCK_ALERT",
+            payload={"schema_version": 1, "low_stock_count": total},
+            available_at_utc=datetime.now(UTC),
+        )
+        return total
+
     def list_stock_movements_admin(
         self,
         session: Session,

@@ -102,6 +102,10 @@ def confirm_purchase_receipt(
         ReceiptConfirmService,
         Depends(get_receipt_confirm_service),
     ],
+    notify_email: Annotated[
+        bool,
+        Query(description="Queue confirmation email notification to Admin"),
+    ] = False,
 ) -> ReceiptRead:
     """Confirm a DRAFT purchase receipt and increase stock atomically (Admin only)."""
     try:
@@ -112,6 +116,12 @@ def confirm_purchase_receipt(
             expected_draft_version=payload.expected_draft_version,
             idempotency_key=idempotency_key,
         )
+        if notify_email:
+            service.notify_confirmed(
+                session,
+                actor_id=current_admin.id,
+                receipt_id=receipt_id,
+            )
         commit_session(session)
         return result
     except Exception:

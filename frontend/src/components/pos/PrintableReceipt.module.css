@@ -1,0 +1,129 @@
+.printOnlyWrapper {
+  display: none;
+}
+
+@page {
+  margin: 0;
+}
+
+@media print {
+  :global(body > *:not([data-testid='printable-receipt'])) {
+    display: none !important;
+  }
+
+  .printOnlyWrapper {
+    display: block !important;
+    width: 100%;
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .receiptPaper {
+    width: 78mm;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 12mm 6mm;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #000000;
+  }
+
+  .receiptHeader {
+    text-align: center;
+    margin-bottom: 6px;
+  }
+
+  .storeName {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .storeTagline {
+    margin: 2px 0 6px;
+    font-size: 10px;
+  }
+
+  .receiptTitle {
+    margin: 6px 0 4px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .dividerDashed {
+    border-top: 1px dashed #333333;
+    margin: 6px 0;
+  }
+
+  .metaSection {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .metaRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .itemsTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4px 0;
+  }
+
+  .itemsTable th {
+    text-align: left;
+    font-size: 10px;
+    border-bottom: 1px solid #333333;
+    padding: 3px 0;
+  }
+
+  .itemsTable td {
+    padding: 4px 0;
+    vertical-align: top;
+    border-bottom: 1px dotted #999999;
+  }
+
+  .right {
+    text-align: right !important;
+    white-space: nowrap;
+  }
+
+  .itemName {
+    font-weight: 600;
+  }
+
+  .itemMeta {
+    font-size: 9.5px;
+    color: #444444;
+  }
+
+  .totalSection {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 4px 0;
+  }
+
+  .grandTotalRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 800;
+    padding-top: 2px;
+  }
+
+  .receiptFooter {
+    text-align: center;
+    margin-top: 8px;
+    font-size: 10px;
+  }
+
+  .receiptFooter p {
+    margin: 2px 0;
+  }
+}

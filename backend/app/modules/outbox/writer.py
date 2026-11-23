@@ -20,10 +20,14 @@ SUPPORTED_EVENT_TYPES = frozenset(
         "PASSWORD_RESET",
         "STAFF_REAPPLY_PROOF",
         "PURCHASE_DRAFT_CREATED",
+        "PURCHASE_RECEIPT_CONFIRMED",
+        "LOW_STOCK_ALERT",
     }
 )
 PAYLOAD_FIELDS = {
     "PURCHASE_DRAFT_CREATED": frozenset({"schema_version", "receipt_id"}),
+    "PURCHASE_RECEIPT_CONFIRMED": frozenset({"schema_version", "receipt_id"}),
+    "LOW_STOCK_ALERT": frozenset({"schema_version", "low_stock_count"}),
     "STAFF_REGISTERED": frozenset({"schema_version", "approval_request_id"}),
     "STAFF_APPROVED": frozenset({"schema_version", "approval_request_id", "actor_id"}),
     "STAFF_REJECTED": frozenset({"schema_version", "approval_request_id", "actor_id"}),
