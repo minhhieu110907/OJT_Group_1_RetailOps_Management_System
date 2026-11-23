@@ -102,6 +102,197 @@
   color: #f8fafc;
 }
 
+.cashCalcBox {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 12px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.cashCalcHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cashCalcLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.cashHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cashUndoBtn,
+.cashClearBtn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cashUndoBtn:hover:not(:disabled),
+.cashClearBtn:hover:not(:disabled) {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.cashUndoBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cashInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.cashCalcInput {
+  width: 100%;
+  height: 38px;
+  padding: 0 28px 0 12px;
+  border-radius: 9px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cashCalcInput::placeholder {
+  text-align: left;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cashCalcInput:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.cashCurrencySuffix {
+  position: absolute;
+  right: 11px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #64748b;
+  pointer-events: none;
+}
+
+.cashChipGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cashChipBtn {
+  height: 30px;
+  padding: 0 4px;
+  border-radius: 7px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.cashChipBtn:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.cashExactBtn {
+  background-color: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.cashExactBtn:hover {
+  background-color: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
+.cashChangeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  font-size: 12.5px;
+  color: #047857;
+}
+
+.cashShortRow {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+:global([data-theme='dark']) .cashCalcBox {
+  background-color: #111a2b;
+  border-color: #2d3d56;
+}
+
+:global([data-theme='dark']) .cashCalcLabel,
+:global([data-theme='dark']) .cashCurrencySuffix {
+  color: #cbd5e1;
+}
+
+:global([data-theme='dark']) .cashCalcInput,
+:global([data-theme='dark']) .cashChipBtn,
+:global([data-theme='dark']) .cashUndoBtn,
+:global([data-theme='dark']) .cashClearBtn {
+  background-color: #1e293b;
+  border-color: #3b4f6b;
+  color: #f8fafc;
+}
+
+:global([data-theme='dark']) .cashExactBtn {
+  background-color: rgba(16, 185, 129, 0.16);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+
+:global([data-theme='dark']) .cashChangeRow {
+  background-color: rgba(16, 185, 129, 0.14);
+  border-color: rgba(52, 211, 153, 0.35);
+  color: #34d399;
+}
+
+:global([data-theme='dark']) .cashShortRow {
+  background-color: rgba(239, 68, 68, 0.14);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #f87171;
+}
+
 .toolbar {
   display: flex;
   flex-direction: column;

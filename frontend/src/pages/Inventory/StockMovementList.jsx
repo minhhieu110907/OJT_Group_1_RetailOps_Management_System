@@ -9,6 +9,12 @@ import {
   formatVietnamDateTime,
   inventoryApi,
 } from '../../api/inventoryApi';
+import { downloadStyledExcelRows } from '../../utils/csvDownload';
+import {
+  MAX_EXPORT_ROWS,
+  buildStockMovementExportRows,
+  collectStockMovementsForExport,
+} from '../../utils/exportReportHelpers';
 import styles from './StockMovementList.module.css';
 
 export default function StockMovementList() {
@@ -25,6 +31,7 @@ export default function StockMovementList() {
   const [totalCount, setTotalCount] = useState(0);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10 });
   const [isLoading, setIsLoading] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   // 3. Cache thông tin sản phẩm (name) chỉ tra cứu theo IDs xuất hiện trong trang
   const [productMap, setProductMap] = useState(new Map());
@@ -144,6 +151,51 @@ export default function StockMovementList() {
   useEffect(() => {
     loadMovements();
   }, [loadMovements]);
+
+  const handleExportExcel = useCallback(async () => {
+    if (isExportingExcel) return;
+    setIsExportingExcel(true);
+    try {
+      const exportResult = await collectStockMovementsForExport({
+        selectedKind,
+        inventoryApi,
+        existingProductMap: productMap,
+        maxRows: MAX_EXPORT_ROWS,
+      });
+
+      if (exportResult.items.length === 0) {
+        toast.warning('Không có dữ liệu biến động kho để xuất Excel.');
+        return;
+      }
+
+      const rows = buildStockMovementExportRows(exportResult.items, {
+        isAdmin,
+        productMap: exportResult.productMap,
+        formatDateTimeFn: formatVietnamDateTime,
+        formatReferenceCodeFn: formatReferenceCode,
+        movementKindLabels: MOVEMENT_KIND_LABELS,
+      });
+
+      await downloadStyledExcelRows(
+        rows,
+        `stock_movements_${selectedKind || 'all'}.xlsx`
+      );
+
+      if (exportResult.isTruncated) {
+        toast.warning(
+          `Đã xuất ${exportResult.items.length}/${exportResult.totalAvailable} bản ghi biến động kho (còn ${exportResult.remainingCount} bản ghi chưa xuất do giới hạn ${MAX_EXPORT_ROWS} bản ghi).`
+        );
+      } else {
+        toast.success(
+          `Xuất Excel thành công (${exportResult.items.length} bản ghi biến động kho)!`
+        );
+      }
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể xuất Excel lịch sử biến động kho.'));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  }, [isExportingExcel, selectedKind, isAdmin, productMap, toast]);
 
   // Cấu hình các cột hiển thị cho STAFF (Không hiển thị giá vốn, lý do nội bộ, actor)
   const columns = useMemo(() => {
@@ -278,9 +330,19 @@ export default function StockMovementList() {
           </div>
         </div>
 
-        {/* Tổng cộng bản ghi */}
-        <div className={styles.totalSummary}>
-          Tổng cộng: <strong>{totalCount}</strong> bản ghi biến động
+        {/* Tổng cộng bản ghi & Xuất Excel */}
+        <div className={styles.rightSummaryActions}>
+          <div className={styles.totalSummary}>
+            Tổng cộng: <strong>{totalCount}</strong> bản ghi biến động
+          </div>
+          <button
+            type="button"
+            className={styles.exportExcelBtn}
+            onClick={handleExportExcel}
+            disabled={isExportingExcel || isLoading || totalCount === 0}
+          >
+            {isExportingExcel ? 'Đang xuất...' : 'Xuất Excel'}
+          </button>
         </div>
       </div>
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
@@ -26,10 +28,14 @@ from app.modules.auth.schemas import (
     normalize_full_name,
 )
 from app.modules.auth.service import utc_now_naive
+from app.modules.outbox.writer import OutboxWriter
 
 
 class StaffAccountService:
     """Own admin status transitions, session revocation and account audit."""
+
+    def __init__(self, outbox_writer: OutboxWriter | None = None) -> None:
+        self.outbox_writer = outbox_writer or OutboxWriter()
 
     def list_staff(
         self,
@@ -137,6 +143,13 @@ class StaffAccountService:
                     action=action,
                     created_at=now,
                 )
+            )
+            self.outbox_writer.append(
+                session,
+                subject_user_id=user.id,
+                event_type="STAFF_LOCKED" if action == "LOCK" else "STAFF_UNLOCKED",
+                payload={"schema_version": 1, "actor_id": actor_id},
+                available_at_utc=now.replace(tzinfo=UTC),
             )
             response = StaffAccountRead.model_validate(user)
             session.commit()

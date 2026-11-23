@@ -24,12 +24,15 @@ import {
   clampMobileSheetMaxHeight,
   clearPendingCheckout,
   computeMobileSheetDragState,
+  evaluatePosCashInput,
   executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
+  loadPosCart,
   prioritizeCategoriesByLatestProducts,
   resolveMobileSheetSwipeEnd,
   resolvePendingCheckoutAction,
+  savePosCart,
   shouldCloseMobileCartOnEscape,
   updateCartItemQuantity,
 } from '../../utils/posUtils';
@@ -94,13 +97,17 @@ export default function PosPage() {
   );
   const [cart, setCart] = useState(() =>
     typeof window !== 'undefined'
-      ? loadPendingCheckout(window.sessionStorage, ownerScope)?.cartSnapshot || []
+      ? loadPendingCheckout(window.sessionStorage, ownerScope)?.cartSnapshot ||
+        loadPosCart(window.localStorage, ownerScope)
       : []
   );
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [manualReconciliationConfirmed, setManualReconciliationConfirmed] =
     useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
+  const [cashReceivedInput, setCashReceivedInput] = useState('');
+  const [cashHistory, setCashHistory] = useState([]);
+  const [completedPaymentMeta, setCompletedPaymentMeta] = useState(null);
   const [stockConflictDetails, setStockConflictDetails] = useState(null);
   const [priceConflictDetails, setPriceConflictDetails] = useState(null);
   const [isMobileCartExpanded, setIsMobileCartExpanded] = useState(false);
@@ -130,7 +137,10 @@ export default function PosPage() {
         ? loadPendingCheckout(window.sessionStorage, ownerScope)
         : null;
     setPendingCheckout(restored);
-    setCart(restored?.cartSnapshot || []);
+    setCart(
+      restored?.cartSnapshot ||
+        (typeof window !== 'undefined' ? loadPosCart(window.localStorage, ownerScope) : [])
+    );
     setManualReconciliationConfirmed(false);
     setCompletedOrder(null);
     setStockConflictDetails(null);
@@ -141,6 +151,12 @@ export default function PosPage() {
     idempotencyKeyRef.current =
       pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey();
   }, [ownerScope, pendingCheckout?.idempotencyKey]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      savePosCart(window.localStorage, ownerScope, cart);
+    }
+  }, [ownerScope, cart]);
 
   // Cảnh báo nếu người dùng reload hoặc rời trang khi có giao dịch đang xử lý / chưa xác định
   useEffect(() => {
@@ -584,6 +600,11 @@ export default function PosPage() {
 
   const handleConfirmCheckout = async () => {
     if (isCheckingOutRef.current) return;
+    const cashCheck = evaluatePosCashInput(cashReceivedInput, cartTotals.totalVnd);
+    if (!pendingCheckout && !cashCheck.canCheckout) {
+      toast.warning(cashCheck.errorMessage || 'Tiền khách đưa chưa đủ để thanh toán.');
+      return;
+    }
     const snapshotItems = pendingCheckout
       ? pendingCheckout.itemsSnapshot
       : buildCheckoutPayload(cart);
@@ -610,7 +631,21 @@ export default function PosPage() {
       });
 
       if (result.ok) {
+        const postCheck = evaluatePosCashInput(
+          cashReceivedInput,
+          result.order?.total_vnd ?? 0
+        );
+        setCompletedPaymentMeta(
+          postCheck.hasInput && postCheck.isValid && postCheck.canCheckout
+            ? {
+                cashReceivedVnd: postCheck.cashReceivedVnd,
+                changeDueVnd: postCheck.changeDueVnd,
+              }
+            : null
+        );
         setCompletedOrder(result.order);
+        setCashReceivedInput('');
+        setCashHistory([]);
         setStockConflictDetails(null);
         setPriceConflictDetails(null);
         toast.success(
@@ -1082,6 +1117,130 @@ export default function PosPage() {
               </span>
             </div>
 
+            {!isCartLocked && cartTotals.totalVnd > 0 && (() => {
+              const cashEval = evaluatePosCashInput(cashReceivedInput, cartTotals.totalVnd);
+              const cashDigits = cashEval.isValid && cashEval.hasInput ? cashEval.cashReceivedVnd : 0;
+              const hasCashInput = cashEval.hasInput;
+              const formattedCashDisplay =
+                hasCashInput && cashEval.isValid
+                  ? cashDigits.toLocaleString('vi-VN')
+                  : cashReceivedInput;
+
+              const applyCashChange = (nextVal) => {
+                setCashHistory((prev) => [...prev.slice(-19), cashReceivedInput]);
+                setCashReceivedInput(nextVal);
+              };
+
+              const handleUndoCash = () => {
+                if (cashHistory.length === 0) return;
+                const previous = cashHistory[cashHistory.length - 1];
+                setCashHistory((prev) => prev.slice(0, -1));
+                setCashReceivedInput(previous);
+              };
+
+              return (
+                <div className={styles.cashCalcBox} data-testid="pos-cash-calculator">
+                  <div className={styles.cashCalcHeader}>
+                    <label htmlFor="pos-cash-received-input" className={styles.cashCalcLabel}>
+                      Tiền khách đưa (VNĐ)
+                    </label>
+                    <div className={styles.cashHeaderActions}>
+                      <button
+                        type="button"
+                        className={styles.cashUndoBtn}
+                        onClick={handleUndoCash}
+                        disabled={cashHistory.length === 0}
+                        title="Quay lại số tiền trước đó"
+                        data-testid="pos-cash-undo-btn"
+                      >
+                        ↩ Hoàn tác
+                      </button>
+                      {hasCashInput && (
+                        <button
+                          type="button"
+                          className={styles.cashClearBtn}
+                          onClick={() => applyCashChange('')}
+                          title="Xóa số tiền đã nhập"
+                        >
+                          Xóa
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.cashInputWrap}>
+                    <input
+                      id="pos-cash-received-input"
+                      type="text"
+                      inputMode="numeric"
+                      className={styles.cashCalcInput}
+                      placeholder="Nhập số tiền"
+                      value={formattedCashDisplay}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D/g, '');
+                        applyCashChange(raw);
+                      }}
+                    />
+                    <span className={styles.cashCurrencySuffix} aria-hidden="true">
+                      ₫
+                    </span>
+                  </div>
+
+                  <div className={styles.cashChipGrid}>
+                    <button
+                      type="button"
+                      className={`${styles.cashChipBtn} ${styles.cashExactBtn}`}
+                      onClick={() => applyCashChange(String(cartTotals.totalVnd))}
+                    >
+                      Đủ
+                    </button>
+                    {[
+                      { label: '+50k', value: 50000 },
+                      { label: '+100k', value: 100000 },
+                      { label: '+200k', value: 200000 },
+                      { label: '+500k', value: 500000 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        className={styles.cashChipBtn}
+                        onClick={() => applyCashChange(String(cashDigits + preset.value))}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {hasCashInput && (
+                    <div
+                      className={
+                        cashEval.canCheckout
+                          ? styles.cashChangeRow
+                          : `${styles.cashChangeRow} ${styles.cashShortRow}`
+                      }
+                    >
+                      <span>
+                        {!cashEval.isValid
+                          ? cashEval.errorMessage
+                          : cashEval.canCheckout
+                          ? 'Tiền trả lại'
+                          : 'Còn thiếu'}
+                      </span>
+                      <strong>
+                        {cashEval.isValid
+                          ? formatVnd(
+                              cashEval.canCheckout
+                                ? cashEval.changeDueVnd
+                                : cashEval.shortAmountVnd
+                            )
+                          : '—'}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {pendingCheckout && (
               <div className={styles.ambiguousBanner} role="alert">
                 <strong>Trạng thái đơn hàng chưa xác định</strong>
@@ -1120,7 +1279,12 @@ export default function PosPage() {
               type="button"
               className={styles.checkoutBtn}
               onClick={handleConfirmCheckout}
-              disabled={isCheckingOut || Boolean(pendingCheckout?.isExpired)}
+              disabled={
+                isCheckingOut ||
+                Boolean(pendingCheckout?.isExpired) ||
+                (!pendingCheckout &&
+                  !evaluatePosCashInput(cashReceivedInput, cartTotals.totalVnd).canCheckout)
+              }
             >
               {isCheckingOut
                 ? 'Đang xử lý đơn hàng...'
@@ -1473,6 +1637,8 @@ export default function PosPage() {
                 ? `${user.full_name}${user?.role === 'ADMIN' ? ' (Admin)' : ''}`
                 : user?.email || ''
             }
+            cashReceivedVnd={completedPaymentMeta?.cashReceivedVnd ?? null}
+            changeDueVnd={completedPaymentMeta?.changeDueVnd ?? null}
           />
         </div>
       )}

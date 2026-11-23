@@ -1,0 +1,149 @@
+.printOnlyWrapper {
+  display: none;
+}
+
+@page {
+  margin: 0;
+}
+
+@media print {
+  :global(body > *:not([data-testid='printable-purchase-receipt'])) {
+    display: none !important;
+  }
+
+  .printOnlyWrapper {
+    display: block !important;
+    width: 100%;
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .voucherPaper {
+    width: 100%;
+    max-width: 190mm;
+    margin: 0 auto;
+    padding: 14mm 12mm;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #0f172a;
+  }
+
+  .voucherHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+  }
+
+  .storeName {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .storeSub {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: #475569;
+  }
+
+  .voucherCodeBox {
+    text-align: right;
+  }
+
+  .voucherTitle {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .voucherNumber {
+    margin: 2px 0 0;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .metaGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 18px;
+    margin-bottom: 14px;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+  }
+
+  .metaRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .itemsTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 14px;
+  }
+
+  .itemsTable th,
+  .itemsTable td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: left;
+  }
+
+  .itemsTable th {
+    background: #f1f5f9;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .right {
+    text-align: right !important;
+    white-space: nowrap;
+  }
+
+  .summaryBox {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    margin-bottom: 26px;
+  }
+
+  .summaryRow,
+  .grandTotalRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    min-width: 280px;
+  }
+
+  .grandTotalRow {
+    font-size: 14px;
+    border-top: 1px solid #0f172a;
+    padding-top: 4px;
+  }
+
+  .signatureGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    text-align: center;
+    margin-top: 24px;
+  }
+
+  .sigCol {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .sigCol span {
+    font-size: 10.5px;
+    color: #475569;
+  }
+}

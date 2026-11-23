@@ -25,7 +25,7 @@ class OutboxEvent(Base):
             "event_type IN ('STAFF_REGISTERED','STAFF_APPROVED',"
             "'STAFF_REJECTED','PASSWORD_RESET','STAFF_REAPPLY_PROOF',"
             "'PURCHASE_DRAFT_CREATED','PURCHASE_RECEIPT_CONFIRMED',"
-            "'LOW_STOCK_ALERT')",
+            "'LOW_STOCK_ALERT','STAFF_LOCKED','STAFF_UNLOCKED')",
             name="ck_outbox_events_event_type",
         ),
         CheckConstraint(

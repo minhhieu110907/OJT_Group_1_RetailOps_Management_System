@@ -1,37 +1,7 @@
 import { Outlet } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
 import styles from './AuthLayout.module.css';
 
 export default function AuthLayout() {
-  const {
-    backendOnline,
-    isCheckingBackend,
-    isMockMode,
-    canUseMock,
-    checkBackendConnection,
-    toggleMockMode,
-  } = useAuth();
-
-  let statusLabel = 'Hệ thống trực tuyến';
-  let dotClass = styles.statusDot;
-
-  if (isCheckingBackend) {
-    statusLabel = 'Đang kiểm tra kết nối BE...';
-    dotClass = styles.statusDotReady;
-  } else if (backendOnline && !isMockMode) {
-    statusLabel = 'Backend: Đã kết nối (API thật)';
-    dotClass = styles.statusDot;
-  } else if (!backendOnline && !isMockMode) {
-    statusLabel = 'Backend: Mất kết nối (Cần bật BE)';
-    dotClass = styles.statusDotMock;
-  } else if (backendOnline && isMockMode) {
-    statusLabel = 'Chế độ: Mock Demo (BE sẵn sàng)';
-    dotClass = styles.statusDotReady;
-  } else {
-    statusLabel = 'Chế độ: Mock Demo (BE ngoại tuyến)';
-    dotClass = styles.statusDotMock;
-  }
-
   return (
     <div className={styles.authLayout}>
       {/* 1. Phần Header trên cùng */}
@@ -56,54 +26,6 @@ export default function AuthLayout() {
               Hệ thống điều hành bán lẻ đơn điểm &amp; Kho nội bộ
             </p>
           </div>
-        </div>
-
-        {/* Bên phải: Trạng thái kết nối FE - BE (Chỉ cho phép bật/tắt Mock khi môi trường DEV cho phép) */}
-        <div className={styles.onlineStatusGroup}>
-          {canUseMock ? (
-            <button
-              type="button"
-              className={styles.onlineStatus}
-              onClick={toggleMockMode}
-              title="Môi trường DEV: Bấm để chuyển đổi giữa API thật và Mock Demo"
-            >
-              <span className={dotClass} aria-hidden="true" />
-              <span>{statusLabel}</span>
-            </button>
-          ) : (
-            <div
-              className={styles.onlineStatus}
-              role="status"
-              title="Trạng thái kết nối tới FastAPI Backend (/api/v1/health)"
-            >
-              <span className={dotClass} aria-hidden="true" />
-              <span>{statusLabel}</span>
-            </div>
-          )}
-
-          <button
-            type="button"
-            className={styles.pingBtn}
-            onClick={() => checkBackendConnection({ notify: true })}
-            disabled={isCheckingBackend}
-            title="Kiểm tra lại kết nối tới FastAPI Backend (/api/v1/health)"
-            aria-label="Kiểm tra kết nối Backend"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={isCheckingBackend ? styles.spinIcon : ''}
-            >
-              <polyline points="23 4 23 10 17 10" />
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-            </svg>
-          </button>
         </div>
       </header>
 

@@ -232,8 +232,235 @@ export function classifyCheckoutError(error) {
   };
 }
 
+export const MAX_POS_CASH_VND = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Evaluate optional cash-received input on POS against order total.
+ * - Empty input: optional calculator is unused -> checkout remains allowed.
+ * - Non-empty input: must be a safe non-negative integer >= totalVnd.
+ */
+export function evaluatePosCashInput(rawInput, totalVnd) {
+  const safeTotal = Number.isFinite(Number(totalVnd)) ? Math.max(0, Math.round(Number(totalVnd))) : 0;
+
+  if (rawInput === null || rawInput === undefined) {
+    return {
+      hasInput: false,
+      isValid: true,
+      canCheckout: true,
+      cashReceivedVnd: null,
+      changeDueVnd: null,
+      shortAmountVnd: 0,
+      errorMessage: '',
+    };
+  }
+
+  if (typeof rawInput === 'number') {
+    if (!Number.isInteger(rawInput) || rawInput < 0 || rawInput > MAX_POS_CASH_VND) {
+      return {
+        hasInput: true,
+        isValid: false,
+        canCheckout: false,
+        cashReceivedVnd: null,
+        changeDueVnd: null,
+        shortAmountVnd: 0,
+        errorMessage: 'Số tiền khách đưa không hợp lệ.',
+      };
+    }
+    if (rawInput < safeTotal) {
+      return {
+        hasInput: true,
+        isValid: true,
+        canCheckout: false,
+        cashReceivedVnd: rawInput,
+        changeDueVnd: null,
+        shortAmountVnd: safeTotal - rawInput,
+        errorMessage: 'Tiền khách đưa chưa đủ để thanh toán.',
+      };
+    }
+    return {
+      hasInput: true,
+      isValid: true,
+      canCheckout: true,
+      cashReceivedVnd: rawInput,
+      changeDueVnd: rawInput - safeTotal,
+      shortAmountVnd: 0,
+      errorMessage: '',
+    };
+  }
+
+  const trimmed = String(rawInput).trim();
+  if (trimmed === '') {
+    return {
+      hasInput: false,
+      isValid: true,
+      canCheckout: true,
+      cashReceivedVnd: null,
+      changeDueVnd: null,
+      shortAmountVnd: 0,
+      errorMessage: '',
+    };
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    return {
+      hasInput: true,
+      isValid: false,
+      canCheckout: false,
+      cashReceivedVnd: null,
+      changeDueVnd: null,
+      shortAmountVnd: 0,
+      errorMessage: 'Số tiền khách đưa không hợp lệ.',
+    };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_POS_CASH_VND) {
+    return {
+      hasInput: true,
+      isValid: false,
+      canCheckout: false,
+      cashReceivedVnd: null,
+      changeDueVnd: null,
+      shortAmountVnd: 0,
+      errorMessage: 'Số tiền khách đưa vượt quá giới hạn an toàn.',
+    };
+  }
+
+  if (parsed < safeTotal) {
+    return {
+      hasInput: true,
+      isValid: true,
+      canCheckout: false,
+      cashReceivedVnd: parsed,
+      changeDueVnd: null,
+      shortAmountVnd: safeTotal - parsed,
+      errorMessage: 'Tiền khách đưa chưa đủ để thanh toán.',
+    };
+  }
+
+  return {
+    hasInput: true,
+    isValid: true,
+    canCheckout: true,
+    cashReceivedVnd: parsed,
+    changeDueVnd: parsed - safeTotal,
+    shortAmountVnd: 0,
+    errorMessage: '',
+  };
+}
+
 export const PENDING_CHECKOUT_STORAGE_KEY = 'retailops_pos_pending_checkout_v1';
 export const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
+export const POS_CART_STORAGE_KEY = 'retailops_pos_cart_v1';
+
+/**
+ * Derive an isolated localStorage key per ownerScope for persisting the active POS cart.
+ */
+export function getPosCartStorageKey(ownerScope) {
+  if (typeof ownerScope !== 'string' || !ownerScope.trim()) {
+    return null;
+  }
+  return `${POS_CART_STORAGE_KEY}:${ownerScope.trim()}`;
+}
+
+/**
+ * Persist current POS cart items to localStorage so accidental refreshes or
+ * page navigation do not lose an in-progress cart.
+ */
+export function savePosCart(storage, ownerScope, cart) {
+  const storageKey = getPosCartStorageKey(ownerScope);
+  if (!storage || !storageKey) return false;
+  try {
+    if (!Array.isArray(cart) || cart.length === 0) {
+      if (typeof storage.removeItem === 'function') {
+        storage.removeItem(storageKey);
+      }
+      return true;
+    }
+    if (typeof storage.setItem !== 'function') return false;
+    const sanitized = cart
+      .filter(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          Number.isInteger(item.productId) &&
+          item.productId > 0 &&
+          typeof item.sku === 'string' &&
+          item.sku.trim() !== '' &&
+          typeof item.name === 'string' &&
+          item.name.trim() !== '' &&
+          Number.isInteger(item.quantity) &&
+          item.quantity > 0 &&
+          Number.isFinite(item.unitPriceVnd) &&
+          item.unitPriceVnd >= 0 &&
+          Number.isFinite(item.availableStock) &&
+          item.availableStock >= 0
+      )
+      .map((item) => ({
+        productId: item.productId,
+        sku: item.sku,
+        name: item.name,
+        unitPriceVnd: item.unitPriceVnd,
+        quantity: item.quantity,
+        availableStock: item.availableStock,
+      }));
+    if (sanitized.length === 0) {
+      if (typeof storage.removeItem === 'function') {
+        storage.removeItem(storageKey);
+      }
+      return true;
+    }
+    storage.setItem(storageKey, JSON.stringify(sanitized));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Load persisted POS cart items from localStorage for the given ownerScope.
+ * Validates the exact camelCase structure produced by addProductToCart().
+ */
+export function loadPosCart(storage, ownerScope) {
+  const storageKey = getPosCartStorageKey(ownerScope);
+  if (!storage || typeof storage.getItem !== 'function' || !storageKey) {
+    return [];
+  }
+  try {
+    const raw = storage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          Number.isInteger(item.productId) &&
+          item.productId > 0 &&
+          typeof item.sku === 'string' &&
+          item.sku.trim() !== '' &&
+          typeof item.name === 'string' &&
+          item.name.trim() !== '' &&
+          Number.isInteger(item.quantity) &&
+          item.quantity > 0 &&
+          Number.isFinite(item.unitPriceVnd) &&
+          item.unitPriceVnd >= 0 &&
+          Number.isFinite(item.availableStock) &&
+          item.availableStock >= 0
+      )
+      .map((item) => ({
+        productId: item.productId,
+        sku: item.sku,
+        name: item.name,
+        unitPriceVnd: item.unitPriceVnd,
+        quantity: item.quantity,
+        availableStock: item.availableStock,
+      }));
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Derive an isolated sessionStorage key per validated ownerScope so concurrent

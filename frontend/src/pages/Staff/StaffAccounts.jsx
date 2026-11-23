@@ -104,15 +104,17 @@ export default function StaffAccounts() {
             onChange={(e) => setSearch(e.target.value)} placeholder="Email hoặc họ tên" />
           <button type="submit">Tìm kiếm</button>
         </form>
-        <label htmlFor="staff-status">Trạng thái</label>
-        <select id="staff-status" value={status} onChange={(e) => {
-          setStatus(e.target.value);
-          setPage(1);
-        }}>
-          <option value="">Tất cả</option>
-          <option value="ACTIVE">Đang hoạt động</option>
-          <option value="LOCKED">Đã khóa</option>
-        </select>
+        <div className={styles.statusFilter}>
+          <label htmlFor="staff-status">Trạng thái</label>
+          <select id="staff-status" value={status} onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}>
+            <option value="">Tất cả</option>
+            <option value="ACTIVE">Đang hoạt động</option>
+            <option value="LOCKED">Đã khóa</option>
+          </select>
+        </div>
       </div>
       {isMockMode && <p role="alert">Chức năng này chỉ hỗ trợ API thật.</p>}
       {error && <p role="alert" className={styles.error}>{error}</p>}

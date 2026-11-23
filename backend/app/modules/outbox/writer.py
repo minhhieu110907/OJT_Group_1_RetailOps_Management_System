@@ -22,6 +22,8 @@ SUPPORTED_EVENT_TYPES = frozenset(
         "PURCHASE_DRAFT_CREATED",
         "PURCHASE_RECEIPT_CONFIRMED",
         "LOW_STOCK_ALERT",
+        "STAFF_LOCKED",
+        "STAFF_UNLOCKED",
     }
 )
 PAYLOAD_FIELDS = {
@@ -31,6 +33,8 @@ PAYLOAD_FIELDS = {
     "STAFF_REGISTERED": frozenset({"schema_version", "approval_request_id"}),
     "STAFF_APPROVED": frozenset({"schema_version", "approval_request_id", "actor_id"}),
     "STAFF_REJECTED": frozenset({"schema_version", "approval_request_id", "actor_id"}),
+    "STAFF_LOCKED": frozenset({"schema_version", "actor_id"}),
+    "STAFF_UNLOCKED": frozenset({"schema_version", "actor_id"}),
     "PASSWORD_RESET": frozenset({"schema_version"}),
     "STAFF_REAPPLY_PROOF": frozenset({"schema_version"}),
 }

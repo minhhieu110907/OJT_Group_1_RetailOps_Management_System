@@ -5,6 +5,7 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { Modal, Pagination, Table, useToast } from '../../components/common';
+import PrintablePurchaseReceipt from '../../components/purchases/PrintablePurchaseReceipt';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import {
@@ -19,6 +20,13 @@ import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
 import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
 import { triggerDateInputPicker } from '../../utils/posUtils';
+import { downloadStyledExcelRows } from '../../utils/csvDownload';
+import {
+  MAX_EXPORT_ROWS,
+  buildPurchaseReceiptExportRows,
+  collectPurchaseReceiptsForExport,
+  formatPurchaseExportMessage,
+} from '../../utils/exportReportHelpers';
 import {
   filterProductsBySupplierCategories,
   findAutoFillSupplierForProduct,
@@ -111,6 +119,7 @@ export default function PurchaseList() {
   const [draftCount, setDraftCount] = useState(null);
   const [historyCount, setHistoryCount] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const hasLoadedListOnceRef = useRef(false);
   const pendingOpenReceiptIdRef = useRef(null);
@@ -1260,6 +1269,60 @@ export default function PurchaseList() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   };
 
+  const handleExportExcel = useCallback(async () => {
+    if (!isAdmin || isExportingExcel) return;
+    setIsExportingExcel(true);
+    try {
+      const exportResult = await collectPurchaseReceiptsForExport({
+        topTab,
+        activeTab,
+        supplierFilter,
+        debouncedSearchQuery,
+        fromDateFilter,
+        toDateFilter,
+        receiptsApi,
+        maxRows: MAX_EXPORT_ROWS,
+      });
+
+      if (exportResult.validationError) {
+        toast.warning(exportResult.validationError);
+        return;
+      }
+
+      if (exportResult.items.length === 0) {
+        toast.warning('Không có dữ liệu phiếu nhập để xuất Excel.');
+        return;
+      }
+
+      const rows = buildPurchaseReceiptExportRows(exportResult.items, formatDate);
+      await downloadStyledExcelRows(
+        rows,
+        `purchase_receipts_${activeTab.toLowerCase()}.xlsx`
+      );
+
+      const notice = formatPurchaseExportMessage(exportResult, MAX_EXPORT_ROWS);
+      if (notice.severity === 'warning') {
+        toast.warning(notice.message);
+      } else {
+        toast.success(notice.message);
+      }
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Không thể xuất Excel danh sách phiếu nhập.'));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  }, [
+    isAdmin,
+    isExportingExcel,
+    topTab,
+    activeTab,
+    supplierFilter,
+    debouncedSearchQuery,
+    fromDateFilter,
+    toDateFilter,
+    toast,
+  ]);
+
   // Quyền: ADMIN-only
   if (!isAdmin) {
     return (
@@ -1306,27 +1369,37 @@ export default function PurchaseList() {
           </p>
         </div>
 
-        <button
-          type="button"
-          className={styles.primaryBtn}
-          onClick={handleOpenCreateModal}
-          disabled={isActionLoading}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <div className={styles.headerActions}>
+          <button
+            type="button"
+            className={styles.exportExcelBtn}
+            onClick={handleExportExcel}
+            disabled={isExportingExcel || isLoading || data.length === 0}
           >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span>Thêm phiếu nhập</span>
-        </button>
+            {isExportingExcel ? 'Đang xuất...' : 'Xuất Excel'}
+          </button>
+          <button
+            type="button"
+            className={styles.primaryBtn}
+            onClick={handleOpenCreateModal}
+            disabled={isActionLoading}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Thêm phiếu nhập</span>
+          </button>
+        </div>
       </div>
 
       {/* Cảnh báo lỗi tải Master Data (NCC / Sản phẩm) kèm nút Thử lại */}
@@ -1597,6 +1670,11 @@ export default function PurchaseList() {
       </div>
 
       {/* 5. Modal Chi tiết & Thao tác Phiếu nhập kho */}
+      {isDetailModalOpen &&
+        selectedReceipt &&
+        selectedReceipt.id === selectedReceiptId &&
+        !isDetailLoading &&
+        !detailError && <PrintablePurchaseReceipt receipt={selectedReceipt} />}
       <Modal
         isOpen={isDetailModalOpen}
         onClose={handleCloseDetailModal}
@@ -1624,6 +1702,18 @@ export default function PurchaseList() {
                 Hủy phiếu
               </button>
               <div className={styles.detailModalFooterActions}>
+                <button
+                  type="button"
+                  className={modalStyles.cancelBtn}
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+                      window.print();
+                    }
+                  }}
+                  data-testid="purchase-print-btn"
+                >
+                  In phiếu nhập
+                </button>
                 <button
                   type="button"
                   className={modalStyles.cancelBtn}
@@ -1657,14 +1747,33 @@ export default function PurchaseList() {
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              className={modalStyles.cancelBtn}
-              onClick={handleCloseDetailModal}
-              disabled={isActionLoading}
-            >
-              Đóng
-            </button>
+            <div className={styles.detailModalFooterActions}>
+              {selectedReceipt &&
+                selectedReceipt.id === selectedReceiptId &&
+                !isDetailLoading &&
+                !detailError && (
+                  <button
+                    type="button"
+                    className={modalStyles.cancelBtn}
+                    onClick={() => {
+                      if (typeof window !== 'undefined' && typeof window.print === 'function') {
+                        window.print();
+                      }
+                    }}
+                    data-testid="purchase-print-btn"
+                  >
+                    In phiếu nhập
+                  </button>
+                )}
+              <button
+                type="button"
+                className={modalStyles.cancelBtn}
+                onClick={handleCloseDetailModal}
+                disabled={isActionLoading}
+              >
+                Đóng
+              </button>
+            </div>
           )
         }
       >

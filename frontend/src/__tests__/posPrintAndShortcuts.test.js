@@ -95,4 +95,440 @@ describe('POS Printable Receipt, Keyboard Shortcuts & Email Alert Enhancements',
       axiosClient.post = origPost;
     }
   });
+
+  it('PosPage.jsx includes cash received & change calculator and passes cash meta to PrintableReceipt', () => {
+    const posSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Pos/PosPage.jsx'),
+      'utf8'
+    );
+    assert.match(posSource, /data-testid="pos-cash-calculator"/);
+    assert.match(posSource, /data-testid="pos-cash-undo-btn"/);
+    assert.match(posSource, /placeholder="Nhập số tiền"/);
+    assert.match(posSource, /Tiền khách đưa \(VNĐ\)/);
+    assert.match(posSource, /evaluatePosCashInput/);
+    assert.match(posSource, /cashReceivedVnd=/);
+    assert.match(posSource, /changeDueVnd=/);
+
+    const receiptSource = fs.readFileSync(
+      path.join(srcRoot, 'components/pos/PrintableReceipt.jsx'),
+      'utf8'
+    );
+    assert.doesNotMatch(receiptSource, /Math\.max\(0,\s*changeDueVnd/);
+  });
+
+  it('PrintablePurchaseReceipt.jsx and PurchaseList.jsx wire purchase receipt printing cleanly', () => {
+    const voucherSource = fs.readFileSync(
+      path.join(srcRoot, 'components/purchases/PrintablePurchaseReceipt.jsx'),
+      'utf8'
+    );
+    assert.match(voucherSource, /PHIẾU NHẬP KHO/);
+    assert.match(voucherSource, /data-testid="printable-purchase-receipt"/);
+    assert.match(voucherSource, /#PN-\{receipt\.id\}/);
+    assert.match(voucherSource, /TỔNG GIÁ TRỊ PHIẾU NHẬP:/);
+
+    const purchaseSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Purchases/PurchaseList.jsx'),
+      'utf8'
+    );
+    assert.match(purchaseSource, /data-testid="purchase-print-btn"/);
+    assert.match(purchaseSource, /<PrintablePurchaseReceipt/);
+  });
+
+  it('Finding P1: evaluatePosCashInput enforces optional cash >= total and rejects invalid/underpaid inputs', async () => {
+    const { evaluatePosCashInput } = await import('../utils/posUtils.js');
+
+    // 1. Optional (empty) -> allowed
+    const emptyRes = evaluatePosCashInput('', 100000);
+    assert.strictEqual(emptyRes.hasInput, false);
+    assert.strictEqual(emptyRes.canCheckout, true);
+
+    // 2. Underpaid -> blocked with exact short amount
+    const shortRes = evaluatePosCashInput('50000', 100000);
+    assert.strictEqual(shortRes.hasInput, true);
+    assert.strictEqual(shortRes.isValid, true);
+    assert.strictEqual(shortRes.canCheckout, false);
+    assert.strictEqual(shortRes.shortAmountVnd, 50000);
+
+    // 3. Exact -> allowed with 0 change
+    const exactRes = evaluatePosCashInput('100000', 100000);
+    assert.strictEqual(exactRes.canCheckout, true);
+    assert.strictEqual(exactRes.changeDueVnd, 0);
+
+    // 4. Overpaid -> allowed with exact change
+    const overRes = evaluatePosCashInput('150000', 100000);
+    assert.strictEqual(overRes.canCheckout, true);
+    assert.strictEqual(overRes.changeDueVnd, 50000);
+
+    // 5. Negative, decimal, non-numeric, unsafe -> blocked
+    for (const bad of [-5000, '-5000', '12.5', 'abc', Number.MAX_SAFE_INTEGER + 1]) {
+      const badRes = evaluatePosCashInput(bad, 100000);
+      assert.strictEqual(badRes.isValid, false);
+      assert.strictEqual(badRes.canCheckout, false);
+    }
+  });
+
+  it('Finding P2: POS cart persistence round-trips addProductToCart items and isolates users/corrupt storage', async () => {
+    const { addProductToCart, loadPosCart, savePosCart } = await import('../utils/posUtils.js');
+    const store = new Map();
+    const mockStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+
+    const p1 = { id: 11, sku: 'SKU-11', name: 'Sản phẩm A', sale_price_vnd: 25000, quantity: 10 };
+    const p2 = { id: 22, sku: 'SKU-22', name: 'Sản phẩm B', sale_price_vnd: 40000, quantity: 5 };
+
+    let { nextCart } = addProductToCart([], p1);
+    ({ nextCart } = addProductToCart(nextCart, p1));
+    ({ nextCart } = addProductToCart(nextCart, p2));
+
+    assert.strictEqual(savePosCart(mockStorage, 'api:7', nextCart), true);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), nextCart);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:8'), []);
+
+    // Corrupt JSON
+    mockStorage.setItem('retailops_pos_cart_v1:api:7', '{not-json');
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), []);
+
+    // Legacy/wrong schema & invalid quantity/productId
+    mockStorage.setItem(
+      'retailops_pos_cart_v1:api:7',
+      JSON.stringify([
+        { product_id: 1, name: 'Legacy', quantity: 2 },
+        { productId: 0, sku: 'X', name: 'BadId', unitPriceVnd: 1000, quantity: 1, availableStock: 5 },
+        { productId: 3, sku: 'Y', name: 'BadQty', unitPriceVnd: 1000, quantity: 0, availableStock: 5 },
+      ])
+    );
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), []);
+
+    // Storage throwing exception
+    const throwingStorage = {
+      getItem: () => {
+        throw new Error('QuotaExceeded');
+      },
+      setItem: () => {
+        throw new Error('QuotaExceeded');
+      },
+      removeItem: () => {
+        throw new Error('QuotaExceeded');
+      },
+    };
+    assert.strictEqual(savePosCart(throwingStorage, 'api:7', nextCart), false);
+    assert.deepStrictEqual(loadPosCart(throwingStorage, 'api:7'), []);
+  });
+
+  it('Finding P2: Purchase Receipt export uses supplier_name_snapshot, paginates, deduplicates, and fails cleanly', async () => {
+    const {
+      buildPurchaseReceiptExportRows,
+      collectPurchaseReceiptsForExport,
+    } = await import('../utils/exportReportHelpers.js');
+
+    const calls = [];
+    const mockReceiptsApi = {
+      async list(params) {
+        calls.push(params);
+        if (params.page === 1) {
+          return {
+            items: [
+              { id: 10, supplier_id: 2, supplier_name_snapshot: 'NCC Miền Bắc', items: [{}], created_at: '2026-11-20T10:00:00Z', total_vnd: 500000, status: 'CONFIRMED' },
+              { id: 9, supplier_id: 3, supplier_name_snapshot: 'NCC Miền Nam', items: [{}, {}], created_at: '2026-11-20T09:00:00Z', total_vnd: 300000, status: 'DRAFT', draft_version: 2 },
+            ],
+            total: 3,
+            total_pages: 2,
+          };
+        }
+        return {
+          items: [
+            { id: 9, supplier_id: 3, supplier_name_snapshot: 'NCC Miền Nam', items: [{}, {}], created_at: '2026-11-20T09:00:00Z', total_vnd: 300000, status: 'DRAFT', draft_version: 2 },
+            { id: 8, supplier_id: 4, supplier_name_snapshot: 'NCC Trung Bộ', items: [{}], created_at: '2026-11-20T08:00:00Z', total_vnd: 200000, status: 'CANCELLED' },
+          ],
+          total: 3,
+          total_pages: 2,
+        };
+      },
+    };
+
+    const res = await collectPurchaseReceiptsForExport({
+      topTab: 'RECEIPTS',
+      activeTab: 'ALL',
+      supplierFilter: '2',
+      fromDateFilter: '2026-11-01',
+      toDateFilter: '2026-11-23',
+      receiptsApi: mockReceiptsApi,
+    });
+    assert.strictEqual(res.items.length, 3);
+    assert.deepStrictEqual(res.items.map((r) => r.id), [10, 9, 8]);
+    assert.strictEqual(calls[0].supplierId, 2);
+    assert.strictEqual(calls[1].supplierId, 2);
+
+    const rows = buildPurchaseReceiptExportRows(res.items, (d) => d);
+    assert.strictEqual(rows[1][1], 'NCC Miền Bắc');
+
+    // Empty result
+    const emptyRes = await collectPurchaseReceiptsForExport({
+      topTab: 'RECEIPTS',
+      activeTab: 'DRAFT',
+      receiptsApi: { async list() { return { items: [], total: 0, total_pages: 1 }; } },
+    });
+    assert.strictEqual(emptyRes.items.length, 0);
+
+    // Mid-export failure rejects cleanly
+    await assert.rejects(
+      () =>
+        collectPurchaseReceiptsForExport({
+          topTab: 'RECEIPTS',
+          activeTab: 'ALL',
+          receiptsApi: {
+            async list({ page }) {
+              if (page === 1) return { items: [{ id: 1 }], total: 2, total_pages: 2 };
+              throw new Error('Network failure');
+            },
+          },
+        }),
+      /Network failure/
+    );
+  });
+
+  it('Finding P2: ALL_HISTORY export distinguishes total, effective_total, exported_count and formats accurate notices', async () => {
+    const {
+      collectPurchaseReceiptsForExport,
+      formatPurchaseExportMessage,
+    } = await import('../utils/exportReportHelpers.js');
+
+    const makeHistoryApi = ({ total, effectiveTotal, isCapped }) => ({
+      async listHistory({ page }) {
+        const remainingInWindow = Math.max(0, effectiveTotal - (page - 1) * 100);
+        const count = Math.min(100, remainingInWindow);
+        const startId = (page - 1) * 100;
+        return {
+          items: Array.from({ length: count }, (_, idx) => ({
+            id: startId + idx + 1,
+            supplier_id: 1,
+            supplier_name_snapshot: 'NCC Demo',
+            items: [{}],
+            created_at: '2026-11-20T10:00:00Z',
+            total_vnd: 100000,
+            status: 'CONFIRMED',
+          })),
+          total,
+          effective_total: effectiveTotal,
+          total_pages: Math.max(1, Math.ceil(effectiveTotal / 100)),
+          is_window_capped: isCapped,
+        };
+      },
+    });
+
+    // 1. < 500
+    const under500 = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 120, effectiveTotal: 120, isCapped: false }),
+    });
+    assert.strictEqual(under500.total, 120);
+    assert.strictEqual(under500.effectiveTotal, 120);
+    assert.strictEqual(under500.exportedCount, 120);
+    assert.strictEqual(under500.isTruncated, false);
+    const underMsg = formatPurchaseExportMessage(under500);
+    assert.strictEqual(underMsg.severity, 'success');
+    assert.match(underMsg.message, /120 phiếu nhập/);
+
+    // 2. == 500
+    const exact500 = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 500, effectiveTotal: 500, isCapped: false }),
+    });
+    assert.strictEqual(exact500.total, 500);
+    assert.strictEqual(exact500.exportedCount, 500);
+    assert.strictEqual(exact500.isTruncated, false);
+    assert.strictEqual(formatPurchaseExportMessage(exact500).severity, 'success');
+
+    // 3. > 500 (window capped at 500, actual total 650)
+    const over500 = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 650, effectiveTotal: 500, isCapped: true }),
+    });
+    assert.strictEqual(over500.total, 650);
+    assert.strictEqual(over500.effectiveTotal, 500);
+    assert.strictEqual(over500.exportedCount, 500);
+    assert.strictEqual(over500.unexportedByHistoryWindow, 150);
+    assert.strictEqual(over500.unexportedByExportCap, 0);
+    assert.strictEqual(over500.isTruncated, true);
+    const overMsg = formatPurchaseExportMessage(over500);
+    assert.strictEqual(overMsg.severity, 'warning');
+    assert.match(overMsg.message, /500\/650/);
+    assert.match(overMsg.message, /cửa sổ lịch sử/);
+    assert.match(overMsg.message, /150/);
+
+    // 4. Both window cap and export cap (total 1200, effective 1100, maxRows 1000)
+    const bothCaps = await collectPurchaseReceiptsForExport({
+      topTab: 'HISTORY',
+      activeTab: 'ALL_HISTORY',
+      receiptsApi: makeHistoryApi({ total: 1200, effectiveTotal: 1100, isCapped: true }),
+      maxRows: 1000,
+    });
+    assert.strictEqual(bothCaps.exportedCount, 1000);
+    assert.strictEqual(bothCaps.unexportedByHistoryWindow, 100);
+    assert.strictEqual(bothCaps.unexportedByExportCap, 100);
+    const bothMsg = formatPurchaseExportMessage(bothCaps, 1000);
+    assert.strictEqual(bothMsg.severity, 'warning');
+    assert.match(bothMsg.message, /1000\/1200/);
+    assert.match(bothMsg.message, /cửa sổ lịch sử/);
+    assert.match(bothMsg.message, /giới hạn xuất 1000/);
+
+    // 5. Next-page API error in ALL_HISTORY rejects cleanly
+    await assert.rejects(
+      () =>
+        collectPurchaseReceiptsForExport({
+          topTab: 'HISTORY',
+          activeTab: 'ALL_HISTORY',
+          receiptsApi: {
+            async listHistory({ page }) {
+              if (page === 1) {
+                return {
+                  items: Array.from({ length: 100 }, (_, i) => ({ id: i + 1 })),
+                  total: 250,
+                  effective_total: 250,
+                  total_pages: 3,
+                  is_window_capped: false,
+                };
+              }
+              throw new Error('History page 2 failed');
+            },
+          },
+        }),
+      /History page 2 failed/
+    );
+  });
+
+  it('Finding P2: Stock Movement export caps cleanly with partial flag, resolves product names in batch, and enforces RBAC', async () => {
+    const {
+      buildStockMovementExportRows,
+      collectStockMovementsForExport,
+    } = await import('../utils/exportReportHelpers.js');
+
+    let invCalls = 0;
+    const mockInventoryApi = {
+      async getStockMovements({ page, kind }) {
+        assert.strictEqual(kind, 'ADJUSTMENT');
+        if (page === 1) {
+          return {
+            items: Array.from({ length: 100 }, (_, i) => ({
+              id: i + 1,
+              product_id: 500 + (i % 2),
+              sku: `SKU-${i}`,
+              kind: 'ADJUSTMENT',
+              quantity_before: 10,
+              quantity_after: 12,
+              occurred_at: '2026-11-20T10:00:00Z',
+              reference_id: null,
+              actor_id: 1,
+              adjustment_reason: 'Kiểm kê',
+            })),
+            total: 125,
+          };
+        }
+        return {
+          items: Array.from({ length: 25 }, (_, i) => ({
+            id: 101 + i,
+            product_id: 500 + (i % 2),
+            sku: `SKU-${100 + i}`,
+            kind: 'ADJUSTMENT',
+            quantity_before: 10,
+            quantity_after: 8,
+            occurred_at: '2026-11-20T09:00:00Z',
+            reference_id: null,
+            actor_id: 1,
+            adjustment_reason: 'Hư hỏng',
+          })),
+          total: 125,
+        };
+      },
+      async getInventory() {
+        invCalls += 1;
+        return {
+          items: [
+            { product_id: 500, name: 'Sản phẩm Batch A' },
+            { product_id: 501, name: 'Sản phẩm Batch B' },
+          ],
+          total: 2,
+        };
+      },
+    };
+
+    const capped = await collectStockMovementsForExport({
+      selectedKind: 'ADJUSTMENT',
+      inventoryApi: mockInventoryApi,
+      maxRows: 100,
+    });
+    assert.strictEqual(capped.items.length, 100);
+    assert.strictEqual(capped.isTruncated, true);
+    assert.strictEqual(capped.remainingCount, 25);
+    assert.strictEqual(invCalls, 1);
+
+    const staffRows = buildStockMovementExportRows(capped.items.slice(0, 1), {
+      isAdmin: false,
+      productMap: capped.productMap,
+      formatDateTimeFn: (d) => d,
+      formatReferenceCodeFn: () => '-',
+      movementKindLabels: { ADJUSTMENT: { label: 'Điều chỉnh kho' } },
+    });
+    assert.strictEqual(staffRows[0].includes('Người thực hiện'), false);
+    assert.strictEqual(staffRows[1][1], 'Sản phẩm Batch A');
+
+    const adminRows = buildStockMovementExportRows(capped.items.slice(0, 1), {
+      isAdmin: true,
+      productMap: capped.productMap,
+      formatDateTimeFn: (d) => d,
+      formatReferenceCodeFn: () => '-',
+      movementKindLabels: { ADJUSTMENT: { label: 'Điều chỉnh kho' } },
+    });
+    assert.strictEqual(adminRows[0].includes('Người thực hiện'), true);
+    assert.strictEqual(adminRows[1][7], 'Kiểm kê');
+  });
+
+  it('PrintableReceipt uses Tiền trả lại, PosPage persists cart, and Purchases/Movements expose Xuất Excel', async () => {
+    const receiptSource = fs.readFileSync(
+      path.join(srcRoot, 'components/pos/PrintableReceipt.jsx'),
+      'utf8'
+    );
+    assert.match(receiptSource, /Tiền khách đưa:/);
+    assert.match(receiptSource, /Tiền trả lại:/);
+    assert.doesNotMatch(receiptSource, /Tiền thối/);
+
+    const { addProductToCart, loadPosCart, savePosCart } = await import('../utils/posUtils.js');
+    const store = new Map();
+    const mockStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+    const sampleCart = addProductToCart([], {
+      id: 1,
+      sku: 'SKU-1',
+      name: 'Test',
+      sale_price_vnd: 10000,
+      quantity: 5,
+    }).nextCart;
+    assert.strictEqual(savePosCart(mockStorage, 'api:7', sampleCart), true);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), sampleCart);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:8'), []);
+    savePosCart(mockStorage, 'api:7', []);
+    assert.deepStrictEqual(loadPosCart(mockStorage, 'api:7'), []);
+
+    const purchaseSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Purchases/PurchaseList.jsx'),
+      'utf8'
+    );
+    const movementSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Inventory/StockMovementList.jsx'),
+      'utf8'
+    );
+    assert.match(purchaseSource, /Xuất Excel/);
+    assert.match(movementSource, /Xuất Excel/);
+    assert.doesNotMatch(purchaseSource, /Xuất CSV/);
+    assert.doesNotMatch(movementSource, /Xuất CSV/);
+  });
 });

@@ -7,7 +7,12 @@ import styles from './PrintableReceipt.module.css';
  * Printable retail receipt (80mm thermal / A5 friendly).
  * Hidden on screen; becomes the sole visible content when `window.print()` runs.
  */
-export default function PrintableReceipt({ order, actorLabel = '' }) {
+export default function PrintableReceipt({
+  order,
+  actorLabel = '',
+  cashReceivedVnd = null,
+  changeDueVnd = null,
+}) {
   if (!order || typeof document === 'undefined' || !document.body) {
     return null;
   }
@@ -83,6 +88,23 @@ export default function PrintableReceipt({ order, actorLabel = '' }) {
             <span>TỔNG THANH TOÁN:</span>
             <strong>{formatVnd(order.total_vnd)}</strong>
           </div>
+          {typeof cashReceivedVnd === 'number' &&
+            Number.isFinite(cashReceivedVnd) &&
+            cashReceivedVnd >= (Number(order.total_vnd) || 0) &&
+            typeof changeDueVnd === 'number' &&
+            Number.isFinite(changeDueVnd) &&
+            changeDueVnd >= 0 && (
+              <>
+                <div className={styles.metaRow}>
+                  <span>Tiền khách đưa:</span>
+                  <span>{formatVnd(cashReceivedVnd)}</span>
+                </div>
+                <div className={styles.metaRow}>
+                  <span>Tiền trả lại:</span>
+                  <strong>{formatVnd(changeDueVnd)}</strong>
+                </div>
+              </>
+            )}
         </section>
 
         <div className={styles.dividerDashed} />

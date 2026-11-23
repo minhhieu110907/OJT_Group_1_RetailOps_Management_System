@@ -243,6 +243,26 @@ function resolveReportMeta(headers) {
       metricColIdx: lower.indexOf('tồn kho hiện tại'),
     };
   }
+  if (lower.includes('mã phiếu nhập')) {
+    return {
+      type: 'PURCHASES',
+      sheetName: 'Báo cáo Nhập hàng',
+      title: 'BÁO CÁO DANH SÁCH PHIẾU NHẬP HÀNG — RETAILOPS',
+      subtitle: 'Tổng hợp phiếu nhập kho từ nhà cung cấp, trạng thái và giá trị nhập',
+      chartHeader: 'BIỂU ĐỒ GIÁ TRỊ NHẬP',
+      metricColIdx: lower.indexOf('tổng tiền (vnđ)'),
+    };
+  }
+  if (lower.includes('loại biến động')) {
+    return {
+      type: 'STOCK_MOVEMENTS',
+      sheetName: 'Báo cáo Biến động kho',
+      title: 'BÁO CÁO LỊCH SỬ BIẾN ĐỘNG KHO — RETAILOPS',
+      subtitle: 'Chi tiết xuất nhập kho, điều chỉnh kiểm kê và chứng từ tham chiếu',
+      chartHeader: null,
+      metricColIdx: -1,
+    };
+  }
   return {
     type: 'GENERIC',
     sheetName: 'Báo cáo RetailOps',
@@ -776,4 +796,28 @@ export async function downloadCsvReport(
     customErr.originalError = error;
     throw customErr;
   }
+}
+
+/**
+ * Generate and download a styled Excel (.xlsx) workbook directly from a 2D array
+ * of rows (header row + data rows).
+ * @param {Array<Array<string | number>>} rows
+ * @param {string} fallbackFilename
+ * @returns {Promise<void>}
+ */
+export async function downloadStyledExcelRows(rows, fallbackFilename = 'report.xlsx') {
+  const csvText = serializeCsvRows(rows);
+  const excelBlob = await generateStyledExcelFromCsv(csvText);
+  const finalName = /\.xlsx$/i.test(fallbackFilename)
+    ? fallbackFilename
+    : `${fallbackFilename.replace(/\.csv$/i, '')}.xlsx`;
+  triggerBlobDownload(
+    {
+      data: excelBlob,
+      headers: {
+        'content-disposition': `attachment; filename="${finalName}"`,
+      },
+    },
+    finalName
+  );
 }
