@@ -348,5 +348,13 @@ export const inventoryApi = {
       responseType: 'blob',
     });
   },
+
+  /**
+   * Xếp hàng gửi email cảnh báo tồn kho thấp cho Quản trị viên (Admin only)
+   */
+  async notifyLowStockAlert() {
+    const response = await axiosClient.post('/inventory/low-stock/notify');
+    return response.data;
+  },
 };
 

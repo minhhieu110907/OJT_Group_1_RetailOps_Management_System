@@ -1,7 +1,7 @@
 """Domain service for atomic Purchase Receipt confirmation (PUR-03 / ENG-02)."""
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from app.modules.inventory.exceptions import InactiveProductStockError
 from app.modules.inventory.models import ProductStatus
 from app.modules.inventory.schemas import StockLine
 from app.modules.inventory.service import InventoryService
+from app.modules.outbox.writer import OutboxWriter
 from app.modules.purchasing.draft_service import utc_now_naive
 from app.modules.purchasing.models import PurchaseReceipt, PurchaseReceiptItem
 from app.modules.purchasing.schemas import ReceiptItemRead, ReceiptRead
@@ -36,10 +37,12 @@ class ReceiptConfirmService:
         inventory: InventoryService | None = None,
         idempotency: IdempotencyExecutor | None = None,
         clock: Callable[[], datetime] | None = None,
+        outbox_writer: OutboxWriter | None = None,
     ) -> None:
         self._inventory = inventory or InventoryService()
         self._idempotency = idempotency or IdempotencyExecutor()
         self._clock = clock or utc_now_naive
+        self._outbox_writer = outbox_writer or OutboxWriter()
 
     def confirm(
         self,
@@ -164,6 +167,7 @@ class ReceiptConfirmService:
 
             session.flush()
             session.refresh(receipt)
+
             receipt_read = ReceiptRead(
                 id=receipt.id,
                 supplier_id=receipt.supplier_id,
@@ -206,3 +210,19 @@ class ReceiptConfirmService:
             command=_command,
         )
         return ReceiptRead.model_validate(outcome.body)
+
+    def notify_confirmed(
+        self,
+        session: Session,
+        *,
+        actor_id: int,
+        receipt_id: int,
+    ) -> None:
+        """Queue a confirmation email in the active transaction."""
+        self._outbox_writer.append(
+            session,
+            subject_user_id=actor_id,
+            event_type="PURCHASE_RECEIPT_CONFIRMED",
+            payload={"schema_version": 1, "receipt_id": receipt_id},
+            available_at_utc=datetime.now(UTC),
+        )

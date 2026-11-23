@@ -839,7 +839,10 @@ export const receiptsApi = {
    * POST /purchase-receipts/:id/confirm
    * Confirm DRAFT receipt and mutate stock with Idempotency-Key.
    */
-  async confirm(receiptId, { expected_draft_version, idempotencyKey = null }) {
+  async confirm(
+    receiptId,
+    { expected_draft_version, idempotencyKey = null, notifyEmail = false }
+  ) {
     const id = Number(receiptId);
     if (!Number.isInteger(id) || id <= 0) {
       throw new Error('ID phiếu nhập không hợp lệ.');
@@ -863,6 +866,7 @@ export const receiptsApi = {
       `/purchase-receipts/${id}/confirm`,
       { expected_draft_version: expVersion },
       {
+        params: notifyEmail ? { notify_email: true } : undefined,
         headers: {
           'Idempotency-Key': finalKey,
         },

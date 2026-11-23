@@ -1,0 +1,98 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import axiosClient from '../api/axiosClient.js';
+import { inventoryApi } from '../api/inventoryApi.js';
+import { receiptsApi } from '../api/receiptsApi.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const srcRoot = path.resolve(__dirname, '..');
+
+describe('POS Printable Receipt, Keyboard Shortcuts & Email Alert Enhancements', () => {
+  it('PrintableReceipt.jsx renders thermal receipt fields and print-only testid', () => {
+    const source = fs.readFileSync(
+      path.join(srcRoot, 'components/pos/PrintableReceipt.jsx'),
+      'utf8'
+    );
+    assert.match(source, /RETAILOPS STORE/);
+    assert.match(source, /HÓA ĐƠN BÁN LẺ/);
+    assert.match(source, /data-testid="printable-receipt"/);
+    assert.match(source, /#HD-\{order\.id\}/);
+    assert.match(source, /TỔNG THANH TOÁN:/);
+  });
+
+  it('PosPage.jsx wires F2, F9, Ctrl+Enter, Escape shortcuts and print receipt button', () => {
+    const posSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Pos/PosPage.jsx'),
+      'utf8'
+    );
+    assert.match(posSource, /event\.key === 'F2'/);
+    assert.match(posSource, /event\.key === 'F9'/);
+    assert.match(posSource, /event\.key === 'Enter'/);
+    assert.match(posSource, /event\.key === 'Escape'/);
+    assert.match(posSource, /data-testid="pos-print-receipt-btn"/);
+    assert.match(posSource, /<PrintableReceipt/);
+  });
+
+  it('OrderDetailModal.jsx wires print receipt button and PrintableReceipt', () => {
+    const detailSource = fs.readFileSync(
+      path.join(srcRoot, 'pages/Orders/OrderDetailModal.jsx'),
+      'utf8'
+    );
+    assert.match(detailSource, /data-testid="order-detail-print-btn"/);
+    assert.match(detailSource, /<PrintableReceipt/);
+  });
+
+  it('inventoryApi.notifyLowStockAlert posts to /inventory/low-stock/notify', async () => {
+    let calledUrl = null;
+    const origPost = axiosClient.post;
+    axiosClient.post = async (url) => {
+      calledUrl = url;
+      return { data: { queued: true, low_stock_count: 3 } };
+    };
+    try {
+      const res = await inventoryApi.notifyLowStockAlert();
+      assert.strictEqual(calledUrl, '/inventory/low-stock/notify');
+      assert.strictEqual(res.queued, true);
+      assert.strictEqual(res.low_stock_count, 3);
+    } finally {
+      axiosClient.post = origPost;
+    }
+  });
+
+  it('receiptsApi.confirm forwards notify_email=true query param when notifyEmail is enabled', async () => {
+    let capturedConfig = null;
+    const origPost = axiosClient.post;
+    axiosClient.post = async (_url, _body, config) => {
+      capturedConfig = config;
+      return {
+        data: {
+          id: 10,
+          supplier_id: 1,
+          supplier_name_snapshot: 'NCC A',
+          status: 'CONFIRMED',
+          draft_version: 2,
+          total_vnd: 100000,
+          created_by: 1,
+          closed_by: 1,
+          created_at: '2026-11-23T09:00:00Z',
+          updated_at: '2026-11-23T09:00:00Z',
+          closed_at: '2026-11-23T09:00:00Z',
+          items: [],
+        },
+      };
+    };
+    try {
+      await receiptsApi.confirm(10, {
+        expected_draft_version: 1,
+        idempotencyKey: 'test-confirm-key-123456',
+        notifyEmail: true,
+      });
+      assert.deepStrictEqual(capturedConfig.params, { notify_email: true });
+    } finally {
+      axiosClient.post = origPost;
+    }
+  });
+});

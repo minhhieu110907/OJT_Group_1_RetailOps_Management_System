@@ -957,7 +957,11 @@ export default function PurchaseList() {
     try {
       const result = await confirmIntentRef.current.executeConfirm(
         targetId,
-        expectedVersion
+        expectedVersion,
+        {
+          confirmFn: (id, opts) =>
+            receiptsApi.confirm(id, { ...opts, notifyEmail: true }),
+        }
       );
 
       if (result.outcome === 'IGNORED_IN_FLIGHT') {

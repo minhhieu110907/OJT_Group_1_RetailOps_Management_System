@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Pagination, useToast } from '../../components/common';
+import PrintableReceipt from '../../components/pos/PrintableReceipt';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { acquireModalScrollLock } from '../../utils/modalScrollLock';
 import { productsApi } from '../../api/productsApi';
@@ -106,6 +107,7 @@ export default function PosPage() {
   const [mobileDragHeight, setMobileDragHeight] = useState(null);
   const [mobileDragProgress, setMobileDragProgress] = useState(0);
   const isCheckingOutRef = useRef(false);
+  const searchInputRef = useRef(null);
   const idempotencyKeyRef = useRef(
     pendingCheckout?.idempotencyKey || generateCheckoutIdempotencyKey()
   );
@@ -198,6 +200,59 @@ export default function PosPage() {
     priceConflictDetails,
     completedOrder,
   ]);
+
+  // Phím tắt thao tác nhanh tại quầy POS: F2 (tìm SP), F9 / Ctrl+Enter (thanh toán), Esc (đóng modal)
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handlePosShortcut = (event) => {
+      if (event.key === 'F2') {
+        event.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          if (typeof searchInputRef.current.select === 'function') {
+            searchInputRef.current.select();
+          }
+        }
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        if (completedOrder) {
+          setCompletedOrder(null);
+          return;
+        }
+        if (stockConflictDetails) {
+          setStockConflictDetails(null);
+          return;
+        }
+        if (priceConflictDetails) {
+          setPriceConflictDetails(null);
+          return;
+        }
+        return;
+      }
+
+      const isCheckoutShortcut =
+        event.key === 'F9' || ((event.ctrlKey || event.metaKey) && event.key === 'Enter');
+
+      if (
+        isCheckoutShortcut &&
+        cart.length > 0 &&
+        !isCheckingOutRef.current &&
+        !completedOrder &&
+        !stockConflictDetails &&
+        !priceConflictDetails &&
+        !pendingCheckout?.isExpired
+      ) {
+        event.preventDefault();
+        handleConfirmCheckout();
+      }
+    };
+
+    window.addEventListener('keydown', handlePosShortcut);
+    return () => window.removeEventListener('keydown', handlePosShortcut);
+  });
 
   // Khóa cuộn trang nền khi mở bất kỳ modal kết quả / xung đột thanh toán nào tại POS
   useEffect(() => {
@@ -675,6 +730,17 @@ export default function PosPage() {
           <div className={styles.titleGroup}>
             <h1 className={styles.pageTitle}>Bán hàng tại quầy</h1>
           </div>
+          <div className={styles.shortcutHintBar} aria-label="Phím tắt quầy thu ngân">
+            <span className={styles.shortcutChip}>
+              <kbd>F2</kbd> Tìm SP
+            </span>
+            <span className={styles.shortcutChip}>
+              <kbd>F9</kbd> / <kbd>Ctrl+Enter</kbd> Thanh toán
+            </span>
+            <span className={styles.shortcutChip}>
+              <kbd>Esc</kbd> Đóng
+            </span>
+          </div>
         </div>
 
         <div className={styles.toolbar}>
@@ -695,9 +761,10 @@ export default function PosPage() {
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <input
+              ref={searchInputRef}
               type="text"
               className={styles.searchInput}
-              placeholder="Tìm kiếm theo tên sản phẩm hoặc mã SKU..."
+              placeholder="Tìm kiếm theo tên sản phẩm hoặc mã SKU (F2)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               aria-label="Tìm kiếm theo tên sản phẩm hoặc mã SKU"
@@ -1376,15 +1443,37 @@ export default function PosPage() {
                 <span>Tổng tiền ({completedOrder.items.length} món):</span>
                 <strong>{formatVnd(completedOrder.total_vnd)}</strong>
               </div>
-              <button
-                type="button"
-                className={styles.compactPrimaryBtn}
-                onClick={() => setCompletedOrder(null)}
-              >
-                <span>✓ Xác nhận bán hàng</span>
-              </button>
+              <div className={styles.completedModalActions}>
+                <button
+                  type="button"
+                  className={styles.compactSecondaryBtn}
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+                      window.print();
+                    }
+                  }}
+                  data-testid="pos-print-receipt-btn"
+                >
+                  In hóa đơn
+                </button>
+                <button
+                  type="button"
+                  className={styles.compactPrimaryBtn}
+                  onClick={() => setCompletedOrder(null)}
+                >
+                  <span>✓ Xác nhận bán hàng</span>
+                </button>
+              </div>
             </div>
           </div>
+          <PrintableReceipt
+            order={completedOrder}
+            actorLabel={
+              user?.full_name
+                ? `${user.full_name}${user?.role === 'ADMIN' ? ' (Admin)' : ''}`
+                : user?.email || ''
+            }
+          />
         </div>
       )}
     </div>
