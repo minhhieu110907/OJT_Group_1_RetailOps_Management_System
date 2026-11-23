@@ -815,7 +815,7 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     assert.ok(posContent.includes('Tồn kho không đủ (Insufficient Stock)'));
     assert.ok(posContent.includes('Xung đột giá bán (HTTP 409)'));
     assert.ok(posContent.includes('Xác nhận bán hàng thành công'));
-    assert.ok(posContent.includes('✓ Xác nhận bán hàng'));
+    assert.ok(posContent.includes('✓ Đơn hàng mới'));
     assert.equal(posContent.includes('Trigger:'), false);
   });
 
