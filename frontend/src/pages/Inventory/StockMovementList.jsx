@@ -10,6 +10,11 @@ import {
   inventoryApi,
 } from '../../api/inventoryApi';
 import { downloadStyledExcelRows } from '../../utils/csvDownload';
+import {
+  MAX_EXPORT_ROWS,
+  buildStockMovementExportRows,
+  collectStockMovementsForExport,
+} from '../../utils/exportReportHelpers';
 import styles from './StockMovementList.module.css';
 
 export default function StockMovementList() {
@@ -151,68 +156,40 @@ export default function StockMovementList() {
     if (isExportingExcel) return;
     setIsExportingExcel(true);
     try {
-      const exportRows = [];
-      let currentPage = 1;
-      const pageSize = 100;
-      let totalAvailable = 0;
+      const exportResult = await collectStockMovementsForExport({
+        selectedKind,
+        inventoryApi,
+        existingProductMap: productMap,
+        maxRows: MAX_EXPORT_ROWS,
+      });
 
-      do {
-        const res = await inventoryApi.getStockMovements({
-          page: currentPage,
-          pageSize,
-          kind: selectedKind || null,
-        });
-        const items = res.items || [];
-        totalAvailable = res.total || 0;
-        exportRows.push(...items);
-        if (items.length < pageSize || exportRows.length >= totalAvailable || exportRows.length >= 1000) {
-          break;
-        }
-        currentPage += 1;
-      } while (true);
-
-      if (exportRows.length === 0) {
+      if (exportResult.items.length === 0) {
         toast.warning('Không có dữ liệu biến động kho để xuất Excel.');
         return;
       }
 
-      const headers = [
-        'Mã SKU',
-        'Tên sản phẩm',
-        'Loại biến động',
-        'Số lượng thay đổi',
-        'Thời điểm ghi nhận',
-        'Mã chứng từ tham chiếu',
-        ...(isAdmin ? ['Người thực hiện', 'Lý do điều chỉnh'] : []),
-      ];
-
-      const dataRows = exportRows.map((row) => {
-        const delta = (Number(row.quantity_after) || 0) - (Number(row.quantity_before) || 0);
-        const sign = delta < 0 ? '' : '+';
-        const kindLabel = (MOVEMENT_KIND_LABELS[row.kind] && MOVEMENT_KIND_LABELS[row.kind].label) || row.kind || '—';
-        const productName = productMap.get(row.product_id) || `Sản phẩm #${row.product_id}`;
-        const refCode = formatReferenceCode(row.kind, row.reference_id);
-        return [
-          row.sku || '',
-          productName,
-          kindLabel,
-          `${sign}${delta}`,
-          formatVietnamDateTime(row.occurred_at),
-          refCode,
-          ...(isAdmin
-            ? [
-                row.actor_id ? `User ${row.actor_id}` : 'Hệ thống',
-                row.kind === 'ADJUSTMENT' && row.adjustment_reason ? row.adjustment_reason : '—',
-              ]
-            : []),
-        ];
+      const rows = buildStockMovementExportRows(exportResult.items, {
+        isAdmin,
+        productMap: exportResult.productMap,
+        formatDateTimeFn: formatVietnamDateTime,
+        formatReferenceCodeFn: formatReferenceCode,
+        movementKindLabels: MOVEMENT_KIND_LABELS,
       });
 
       await downloadStyledExcelRows(
-        [headers, ...dataRows],
+        rows,
         `stock_movements_${selectedKind || 'all'}.xlsx`
       );
-      toast.success('Xuất Excel lịch sử biến động kho thành công!');
+
+      if (exportResult.isTruncated) {
+        toast.warning(
+          `Đã xuất ${exportResult.items.length}/${exportResult.totalAvailable} bản ghi biến động kho (còn ${exportResult.remainingCount} bản ghi chưa xuất do giới hạn ${MAX_EXPORT_ROWS} bản ghi).`
+        );
+      } else {
+        toast.success(
+          `Xuất Excel thành công (${exportResult.items.length} bản ghi biến động kho)!`
+        );
+      }
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Không thể xuất Excel lịch sử biến động kho.'));
     } finally {

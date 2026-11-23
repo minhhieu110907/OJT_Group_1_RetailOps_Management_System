@@ -24,6 +24,7 @@ import {
   clampMobileSheetMaxHeight,
   clearPendingCheckout,
   computeMobileSheetDragState,
+  evaluatePosCashInput,
   executeSafePosCheckout,
   formatVnd,
   loadPendingCheckout,
@@ -599,6 +600,11 @@ export default function PosPage() {
 
   const handleConfirmCheckout = async () => {
     if (isCheckingOutRef.current) return;
+    const cashCheck = evaluatePosCashInput(cashReceivedInput, cartTotals.totalVnd);
+    if (!pendingCheckout && !cashCheck.canCheckout) {
+      toast.warning(cashCheck.errorMessage || 'Tiền khách đưa chưa đủ để thanh toán.');
+      return;
+    }
     const snapshotItems = pendingCheckout
       ? pendingCheckout.itemsSnapshot
       : buildCheckoutPayload(cart);
@@ -625,13 +631,15 @@ export default function PosPage() {
       });
 
       if (result.ok) {
-        const parsedCash = Number(String(cashReceivedInput).replace(/\D/g, ''));
-        const hasCash = Number.isFinite(parsedCash) && parsedCash > 0;
+        const postCheck = evaluatePosCashInput(
+          cashReceivedInput,
+          result.order?.total_vnd ?? 0
+        );
         setCompletedPaymentMeta(
-          hasCash
+          postCheck.hasInput && postCheck.isValid && postCheck.canCheckout
             ? {
-                cashReceivedVnd: parsedCash,
-                changeDueVnd: Math.max(0, parsedCash - (result.order?.total_vnd || 0)),
+                cashReceivedVnd: postCheck.cashReceivedVnd,
+                changeDueVnd: postCheck.changeDueVnd,
               }
             : null
         );
@@ -1110,12 +1118,13 @@ export default function PosPage() {
             </div>
 
             {!isCartLocked && cartTotals.totalVnd > 0 && (() => {
-              const cashDigits = Number(String(cashReceivedInput).replace(/\D/g, '')) || 0;
-              const hasCashInput = cashReceivedInput.trim() !== '' && Number.isFinite(cashDigits);
-              const changeAmount = hasCashInput ? cashDigits - cartTotals.totalVnd : null;
-              const formattedCashDisplay = hasCashInput
-                ? cashDigits.toLocaleString('vi-VN')
-                : '';
+              const cashEval = evaluatePosCashInput(cashReceivedInput, cartTotals.totalVnd);
+              const cashDigits = cashEval.isValid && cashEval.hasInput ? cashEval.cashReceivedVnd : 0;
+              const hasCashInput = cashEval.hasInput;
+              const formattedCashDisplay =
+                hasCashInput && cashEval.isValid
+                  ? cashDigits.toLocaleString('vi-VN')
+                  : cashReceivedInput;
 
               const applyCashChange = (nextVal) => {
                 setCashHistory((prev) => [...prev.slice(-19), cashReceivedInput]);
@@ -1205,13 +1214,27 @@ export default function PosPage() {
                   {hasCashInput && (
                     <div
                       className={
-                        changeAmount >= 0
+                        cashEval.canCheckout
                           ? styles.cashChangeRow
                           : `${styles.cashChangeRow} ${styles.cashShortRow}`
                       }
                     >
-                      <span>{changeAmount >= 0 ? 'Tiền thừa trả khách' : 'Còn thiếu'}</span>
-                      <strong>{formatVnd(Math.abs(changeAmount))}</strong>
+                      <span>
+                        {!cashEval.isValid
+                          ? cashEval.errorMessage
+                          : cashEval.canCheckout
+                          ? 'Tiền trả lại'
+                          : 'Còn thiếu'}
+                      </span>
+                      <strong>
+                        {cashEval.isValid
+                          ? formatVnd(
+                              cashEval.canCheckout
+                                ? cashEval.changeDueVnd
+                                : cashEval.shortAmountVnd
+                            )
+                          : '—'}
+                      </strong>
                     </div>
                   )}
                 </div>
@@ -1256,7 +1279,12 @@ export default function PosPage() {
               type="button"
               className={styles.checkoutBtn}
               onClick={handleConfirmCheckout}
-              disabled={isCheckingOut || Boolean(pendingCheckout?.isExpired)}
+              disabled={
+                isCheckingOut ||
+                Boolean(pendingCheckout?.isExpired) ||
+                (!pendingCheckout &&
+                  !evaluatePosCashInput(cashReceivedInput, cartTotals.totalVnd).canCheckout)
+              }
             >
               {isCheckingOut
                 ? 'Đang xử lý đơn hàng...'

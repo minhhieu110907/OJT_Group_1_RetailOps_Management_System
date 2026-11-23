@@ -22,6 +22,11 @@ import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
 import { triggerDateInputPicker } from '../../utils/posUtils';
 import { downloadStyledExcelRows } from '../../utils/csvDownload';
 import {
+  MAX_EXPORT_ROWS,
+  buildPurchaseReceiptExportRows,
+  collectPurchaseReceiptsForExport,
+} from '../../utils/exportReportHelpers';
+import {
   filterProductsBySupplierCategories,
   findAutoFillSupplierForProduct,
   resetIncompatibleProductLines,
@@ -1265,48 +1270,60 @@ export default function PurchaseList() {
 
   const handleExportExcel = useCallback(async () => {
     if (!isAdmin || isExportingExcel) return;
-    if (!Array.isArray(data) || data.length === 0) {
-      toast.warning('Không có dữ liệu phiếu nhập để xuất Excel.');
-      return;
-    }
     setIsExportingExcel(true);
     try {
-      const headers = [
-        'Mã phiếu nhập',
-        'Nhà cung cấp',
-        'Số mặt hàng',
-        'Thời gian tạo',
-        'Tổng tiền (VNĐ)',
-        'Trạng thái',
-      ];
-      const rows = data.map((row) => {
-        const count = Array.isArray(row.items) ? row.items.length : 0;
-        const statusText =
-          row.status === 'CONFIRMED'
-            ? 'Đã nhập'
-            : row.status === 'CANCELLED'
-            ? 'Đã hủy'
-            : `Bản nháp (${row.draft_version ?? 1})`;
-        return [
-          `#PN-${row.id}`,
-          row.supplier_name || (row.supplier_id ? `NCC #${row.supplier_id}` : '—'),
-          count,
-          formatDate(row.created_at),
-          Number(row.total_vnd) || 0,
-          statusText,
-        ];
+      const exportResult = await collectPurchaseReceiptsForExport({
+        topTab,
+        activeTab,
+        supplierFilter,
+        debouncedSearchQuery,
+        fromDateFilter,
+        toDateFilter,
+        receiptsApi,
+        maxRows: MAX_EXPORT_ROWS,
       });
+
+      if (exportResult.validationError) {
+        toast.warning(exportResult.validationError);
+        return;
+      }
+
+      if (exportResult.items.length === 0) {
+        toast.warning('Không có dữ liệu phiếu nhập để xuất Excel.');
+        return;
+      }
+
+      const rows = buildPurchaseReceiptExportRows(exportResult.items, formatDate);
       await downloadStyledExcelRows(
-        [headers, ...rows],
+        rows,
         `purchase_receipts_${activeTab.toLowerCase()}.xlsx`
       );
-      toast.success('Xuất Excel danh sách phiếu nhập thành công!');
+
+      if (exportResult.isTruncated) {
+        toast.warning(
+          `Đã xuất ${exportResult.items.length}/${exportResult.totalAvailable} phiếu nhập (còn ${exportResult.remainingCount} phiếu chưa xuất do giới hạn ${MAX_EXPORT_ROWS} bản ghi).`
+        );
+      } else {
+        toast.success(
+          `Xuất Excel thành công (${exportResult.items.length} phiếu nhập)!`
+        );
+      }
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Không thể xuất Excel danh sách phiếu nhập.'));
     } finally {
       setIsExportingExcel(false);
     }
-  }, [isAdmin, isExportingExcel, data, activeTab, toast]);
+  }, [
+    isAdmin,
+    isExportingExcel,
+    topTab,
+    activeTab,
+    supplierFilter,
+    debouncedSearchQuery,
+    fromDateFilter,
+    toDateFilter,
+    toast,
+  ]);
 
   // Quyền: ADMIN-only
   if (!isAdmin) {

@@ -88,18 +88,23 @@ export default function PrintableReceipt({
             <span>TỔNG THANH TOÁN:</span>
             <strong>{formatVnd(order.total_vnd)}</strong>
           </div>
-          {typeof cashReceivedVnd === 'number' && cashReceivedVnd > 0 && (
-            <>
-              <div className={styles.metaRow}>
-                <span>Tiền khách đưa:</span>
-                <span>{formatVnd(cashReceivedVnd)}</span>
-              </div>
-              <div className={styles.metaRow}>
-                <span>Tiền trả lại:</span>
-                <strong>{formatVnd(Math.max(0, changeDueVnd || 0))}</strong>
-              </div>
-            </>
-          )}
+          {typeof cashReceivedVnd === 'number' &&
+            Number.isFinite(cashReceivedVnd) &&
+            cashReceivedVnd >= (Number(order.total_vnd) || 0) &&
+            typeof changeDueVnd === 'number' &&
+            Number.isFinite(changeDueVnd) &&
+            changeDueVnd >= 0 && (
+              <>
+                <div className={styles.metaRow}>
+                  <span>Tiền khách đưa:</span>
+                  <span>{formatVnd(cashReceivedVnd)}</span>
+                </div>
+                <div className={styles.metaRow}>
+                  <span>Tiền trả lại:</span>
+                  <strong>{formatVnd(changeDueVnd)}</strong>
+                </div>
+              </>
+            )}
         </section>
 
         <div className={styles.dividerDashed} />
