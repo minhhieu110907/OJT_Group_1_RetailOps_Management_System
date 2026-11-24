@@ -189,7 +189,7 @@ class EmailEventHandler:
                         session.scalars(
                             select(PurchaseReceiptItem)
                             .where(PurchaseReceiptItem.receipt_id == receipt_id)
-                            .order_by(PurchaseReceiptItem.id.asc())
+                            .order_by(PurchaseReceiptItem.product_id.asc())
                         )
                     )
                     items_data = [
