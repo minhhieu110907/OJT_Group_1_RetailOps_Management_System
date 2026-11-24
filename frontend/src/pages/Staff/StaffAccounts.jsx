@@ -21,6 +21,7 @@ export default function StaffAccounts() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [target, setTarget] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -62,6 +63,7 @@ export default function StaffAccounts() {
   const performAction = async () => {
     if (saving || !target) return;
     setSaving(true);
+    setActionError('');
     try {
       if (target.status === 'ACTIVE') {
         await accountApi.lockStaff(target.id, isMockMode);
@@ -76,7 +78,15 @@ export default function StaffAccounts() {
       setTarget(null);
       setVersion((v) => v + 1);
     } catch (err) {
-      setError(getApiErrorMessage(err) || err.message);
+      const status = err?.response?.status;
+      const conflictMsg =
+        status === 409
+          ? target.status === 'ACTIVE'
+            ? 'Tài khoản nhân viên này đã được khóa ở một phiên làm việc khác. Danh sách đã được cập nhật.'
+            : 'Tài khoản nhân viên này đã được mở khóa ở một phiên làm việc khác. Danh sách đã được cập nhật.'
+          : getApiErrorMessage(err) || err.message;
+      setActionError(conflictMsg);
+      toast.error(conflictMsg);
       setTarget(null);
       setVersion((v) => v + 1);
     } finally {
@@ -117,7 +127,11 @@ export default function StaffAccounts() {
         </div>
       </div>
       {isMockMode && <p role="alert">Chức năng này chỉ hỗ trợ API thật.</p>}
-      {error && <p role="alert" className={styles.error}>{error}</p>}
+      {(actionError || error) && (
+        <p role="alert" className={styles.error}>
+          {actionError || error}
+        </p>
+      )}
       {loading ? <p role="status">Đang tải tài khoản...</p> : (
         <div className={styles.tableScroll}>
           <table>

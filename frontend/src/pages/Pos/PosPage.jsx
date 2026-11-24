@@ -1435,7 +1435,7 @@ export default function PosPage() {
                   🏷
                 </span>
                 <h2 id="pos-price-conflict-title" className={styles.posModalTitle}>
-                  Xung đột giá bán (HTTP 409)
+                  Xung đột giá bán
                 </h2>
               </div>
               <button
@@ -1461,10 +1461,7 @@ export default function PosPage() {
                 {priceConflictVm.changedItems.map((item) => (
                   <div key={item.productId} className={styles.priceDiffCard}>
                     <div className={styles.priceDiffCardHeader}>
-                      <strong>
-                        {item.name}
-                        {item.sku ? ` (Mã: ${item.sku})` : ''}
-                      </strong>
+                      <strong>{item.name}</strong>
                       <span>Số lượng: {item.quantity}</span>
                     </div>
                     <div className={styles.priceMetricGrid}>

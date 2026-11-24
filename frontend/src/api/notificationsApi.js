@@ -163,9 +163,7 @@ export function formatNotificationTimeVN(
   const diffDays = Math.round((currentDayUtc - targetDayUtc) / 86400000);
 
   if (diffDays === 0) {
-    return includeTimezoneLabel
-      ? `${timeStr} • Hôm nay (Asia/Ho_Chi_Minh)`
-      : `${timeStr} • Hôm nay`;
+    return `${timeStr} • Hôm nay`;
   }
 
   if (diffDays === 1) {

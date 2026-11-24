@@ -1555,8 +1555,8 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
 
       // Conflict card & badge
       assert.ok(
-        productListSource.includes('conflictCard') && productListSource.includes('HTTP 409'),
-        'Must render conflictCard with HTTP 409 badge'
+        productListSource.includes('conflictCard') && !productListSource.includes('>HTTP 409<'),
+        'Must render conflictCard without exposing raw HTTP 409 badge'
       );
       assert.ok(
         productListSource.includes('handleReloadLatestProduct'),

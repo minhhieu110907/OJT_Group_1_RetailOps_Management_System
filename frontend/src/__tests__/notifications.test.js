@@ -118,7 +118,7 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
           isRead: false,
           nowDate,
         }),
-        '10:24 • Hôm nay (Asia/Ho_Chi_Minh)'
+        '10:24 • Hôm nay'
       );
       assert.equal(
         formatNotificationTimeVN('2026-11-11T02:15:00Z', {
@@ -936,7 +936,7 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
       assert.equal(postCalls, 1);
       assert.equal(h.state.isModalStale, true);
       assert.notEqual(h.state.selectedApproval, null);
-      assert.match(h.state.modalError, /409 Conflict/);
+      assert.match(h.state.modalError, /không còn ở trạng thái chờ duyệt|đã được xử lý trước đó/);
       assert.equal(h.state.refreshCount, 1);
       assert.equal(h.state.toasts.length, 0);
     });

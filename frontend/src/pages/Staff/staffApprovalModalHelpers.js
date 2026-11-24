@@ -79,8 +79,8 @@ export async function executeStaffApprovalDecision({
       setIsModalStale(true);
       setModalError(
         action === 'approve'
-          ? 'Hồ sơ này không còn ở trạng thái chờ duyệt (HTTP 409 Conflict). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
-          : 'Hồ sơ này đã được xử lý trước đó (HTTP 409 Conflict). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
+          ? 'Hồ sơ này không còn ở trạng thái chờ duyệt. Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
+          : 'Hồ sơ này đã được xử lý trước đó. Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
       );
       onRefresh();
       return { status: 'conflict' };

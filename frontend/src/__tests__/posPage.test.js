@@ -813,7 +813,8 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     // 3. Verify PosPage.jsx contains the 3 real-API modals without trigger badges or mock data
     const posContent = fs.readFileSync(posPagePath, 'utf8');
     assert.ok(posContent.includes('Tồn kho không đủ (Insufficient Stock)'));
-    assert.ok(posContent.includes('Xung đột giá bán (HTTP 409)'));
+    assert.ok(posContent.includes('Xung đột giá bán'));
+    assert.equal(posContent.includes('Xung đột giá bán (HTTP 409)'), false);
     assert.ok(posContent.includes('Xác nhận bán hàng thành công'));
     assert.ok(posContent.includes('✓ Đơn hàng mới'));
     assert.equal(posContent.includes('Trigger:'), false);

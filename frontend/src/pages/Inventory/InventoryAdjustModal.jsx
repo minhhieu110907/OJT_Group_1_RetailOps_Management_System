@@ -212,12 +212,12 @@ export default function InventoryAdjustModal({
     ? `${user.name || user.email || 'Admin'} (ID #${user.id})`
     : 'Chưa xác thực';
 
-  // Dự kiến bản ghi Stock Movement
+  // Dự kiến hành động hệ thống
   let expectedMovementText = 'Số đếm trùng tồn kho ghi nhận • Không phát sinh biến động';
   if (delta > 0) {
-    expectedMovementText = `Tạo bản ghi Stock Movement (IN) +${delta} • Tăng tồn kho hệ thống`;
+    expectedMovementText = 'Tăng tồn kho hệ thống';
   } else if (delta < 0) {
-    expectedMovementText = `Tạo bản ghi Stock Movement (OUT) ${delta} • Giảm tồn kho hệ thống`;
+    expectedMovementText = 'Giảm tồn kho hệ thống';
   }
 
   // Validation
@@ -417,31 +417,18 @@ export default function InventoryAdjustModal({
           </div>
         </div>
 
-        {/* Khối Cảnh báo Xung đột phiên bản dữ liệu (HTTP 409 - STALE_STOCK_VERSION) */}
+        {/* Khối Cảnh báo Xung đột phiên bản dữ liệu */}
         {conflictData && (
           <div className={styles.conflictCard}>
             <div className={styles.conflictHeaderRow}>
               <div className={styles.conflictTitleBlock}>
                 <span className={styles.conflictTitle}>Xung đột phiên bản dữ liệu</span>
-                <span className={styles.conflictSubtitle}>STALE_STOCK_VERSION • Optimistic Lock</span>
               </div>
-              <span className={styles.httpBadge}>HTTP 409</span>
             </div>
 
             <p className={styles.conflictDesc}>
-              Dữ liệu tồn kho của sản phẩm này vừa được cập nhật trên máy chủ (Phiên bản gửi lên: <span className={styles.versionChip}>v{conflictData.expectedVersion}</span>, Phiên bản thực tế trên máy chủ: <span className={styles.versionChipHighlight}>v{conflictData.actualVersion}</span>). Vui lòng nhấn &quot;Tải lại dữ liệu mới nhất&quot; để đối soát lại tồn kho trước khi gửi.
+              Vui lòng nhấn &quot;Tải lại dữ liệu mới nhất&quot; để đối soát lại tồn kho trước khi gửi.
             </p>
-
-            <div className={styles.conflictDetailsBox}>
-              <div className={styles.conflictDetailRow}>
-                <span className={styles.conflictDetailLabel}>Thông báo máy chủ:</span>
-                <span className={styles.conflictDetailValue}>{conflictData.detailsMsg}</span>
-              </div>
-              <div className={styles.conflictDetailRow}>
-                <span className={styles.conflictDetailLabel}>Hành vi bảo vệ:</span>
-                <span className={styles.conflictActionProtect}>Hủy bỏ commit để bảo đảm tính toàn vẹn tồn kho</span>
-              </div>
-            </div>
 
             <button
               type="button"
