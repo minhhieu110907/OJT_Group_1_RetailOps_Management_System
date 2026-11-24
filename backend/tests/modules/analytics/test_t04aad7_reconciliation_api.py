@@ -616,10 +616,10 @@ class StandaloneProductAnalyticsReferenceModel:
                 sku=p["sku"],
                 name=p["name"],
                 quantity=p["quantity"],
-                threshold=5,
+                threshold=15,
             )
             for p in self.products
-            if p.get("status") == "ACTIVE" and (p.get("quantity") or 0) <= 5
+            if p.get("status") == "ACTIVE" and (p.get("quantity") or 0) <= 15
         ]
         low_items.sort(key=lambda x: (x.quantity, x.product_id))
         total = len(low_items)
@@ -646,7 +646,7 @@ def test_t04a947_contract_reference_model_signatures_and_logic() -> None:
             "sku": "SKU-01",
             "name": "Nước ngọt",
             "status": "ACTIVE",
-            "quantity": 10,
+            "quantity": 20,
             "first_stocked_at": now_utc - timedelta(days=20),
         },
         {

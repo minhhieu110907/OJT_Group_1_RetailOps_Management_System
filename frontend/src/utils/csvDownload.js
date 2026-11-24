@@ -371,11 +371,11 @@ export async function generateStyledExcelFromCsv(rawCsvText) {
       `   |   Tổng giá trị dòng hàng: ${totalLineVnd.toLocaleString('vi-VN')} ₫`;
   } else if (meta.type === 'INVENTORY') {
     const totalStock = dataRows.reduce((acc, r) => acc + (Number(r[5]) || 0), 0);
-    const lowStockCount = dataRows.filter((r) => (Number(r[5]) || 0) <= 5).length;
+    const lowStockCount = dataRows.filter((r) => (Number(r[5]) || 0) <= 15).length;
     kpiSummaryText =
       `📊 TỔNG QUAN KHO:   Tổng số mã SP: ${dataRows.length}` +
       `   |   Tổng số lượng tồn: ${totalStock.toLocaleString('vi-VN')} đơn vị` +
-      `   |   Số mã cảnh báo tồn thấp (≤ 5): ${lowStockCount} mã`;
+      `   |   Số mã cảnh báo tồn thấp (≤ 15): ${lowStockCount} mã`;
   }
 
   const kpiRow = sheet.addRow([kpiSummaryText]);
@@ -491,7 +491,7 @@ export async function generateStyledExcelFromCsv(rawCsvText) {
           isSummableCol[colIdx] = true;
           const isCancelOrLow =
             (hLower.includes('đơn hủy') && num > 0) ||
-            (hLower.includes('tồn kho') && num <= 5);
+            (hLower.includes('tồn kho') && num <= 15);
           cellMeta.push({
             align: 'right',
             numFmt: '#,##0',

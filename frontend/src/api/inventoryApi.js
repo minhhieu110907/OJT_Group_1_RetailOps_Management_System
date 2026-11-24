@@ -7,7 +7,7 @@ export const STOCK_STATUS_TABS = {
   OUT_OF_STOCK: 'OUT_OF_STOCK',
 };
 
-export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
+export const DEFAULT_LOW_STOCK_THRESHOLD = 15;
 
 export const MAX_STOCK_QUANTITY = 2147483647;
 

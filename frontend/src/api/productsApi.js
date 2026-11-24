@@ -35,7 +35,7 @@ export const ALLOWED_PRODUCT_SORTS = new Set([
 /**
  * Ngưỡng tồn kho thấp hiện hành của hệ thống (INV-04 / ProductList baseline: 1..5).
  */
-export const LOW_STOCK_THRESHOLD = 5;
+export const LOW_STOCK_THRESHOLD = 15;
 
 /**
  * 3 bộ lọc thống kê tồn kho cố định trên trang Quản lý sản phẩm (CHANGE A).

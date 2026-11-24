@@ -200,7 +200,7 @@ def test_low_stock_item_valid() -> None:
     assert item.name == "Cà phê Robusta"
     assert item.quantity == 3
     assert item.threshold == DEFAULT_LOW_STOCK_THRESHOLD
-    assert item.threshold == 5
+    assert item.threshold == 15
 
 
 def test_low_stock_item_extra_fields_forbidden() -> None:

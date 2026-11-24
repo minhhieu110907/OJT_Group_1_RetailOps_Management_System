@@ -5,7 +5,7 @@
       "sku": "SKU12",
       "name": "Sản phẩm mẫu",
       "quantity": 3,
-      "threshold": 5
+      "threshold": 15
     }
   ],
   "total": 1,

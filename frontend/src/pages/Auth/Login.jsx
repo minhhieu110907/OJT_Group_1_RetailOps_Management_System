@@ -156,6 +156,11 @@ export default function Login() {
           error?.message ||
             'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Quản trị viên.'
         );
+      } else if (error?.status === 429 || error?.code === 'RATE_LIMITED') {
+        setErrorTitle('Thử đăng nhập quá nhiều lần');
+        setErrorDesc(
+          'Bạn đã thử đăng nhập quá số lần cho phép trong thời gian ngắn. Vui lòng đợi khoảng 1 phút rồi thử lại.'
+        );
       } else {
         setErrorTitle('Thông tin đăng nhập không hợp lệ');
         setErrorDesc(

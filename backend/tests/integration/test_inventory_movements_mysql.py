@@ -268,10 +268,10 @@ def _seed_test_dataset(session: Session) -> dict[str, object]:
         session, category.id, "P1_QTY2", quantity=2, status=CatalogStatus.ACTIVE
     )
     p2, inv2 = _create_product_with_inventory(
-        session, category.id, "P2_QTY5", quantity=5, status=CatalogStatus.ACTIVE
+        session, category.id, "P2_QTY5", quantity=15, status=CatalogStatus.ACTIVE
     )
     p3, inv3 = _create_product_with_inventory(
-        session, category.id, "P3_QTY6", quantity=6, status=CatalogStatus.ACTIVE
+        session, category.id, "P3_QTY6", quantity=16, status=CatalogStatus.ACTIVE
     )
     p4, inv4 = _create_product_with_inventory(
         session, category.id, "P4_INACT", quantity=1, status=CatalogStatus.INACTIVE
@@ -596,7 +596,7 @@ def test_inventory_low_stock_filters_and_ordering(
         assert filtered_items[0].product_id == p1_id
         assert filtered_items[0].quantity == 2
         assert filtered_items[1].product_id == p2_id
-        assert filtered_items[1].quantity == 5
+        assert filtered_items[1].quantity == 15
 
         # Verify each item threshold is 5
         for item in filtered_items:

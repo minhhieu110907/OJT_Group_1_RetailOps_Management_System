@@ -134,8 +134,8 @@ def _build_sqlite_session() -> Session:
     products_setup = [
         (1, "SKU-001", "Cà phê Sữa", CatalogStatus.ACTIVE.value, 3),
         (2, "SKU-002", "Trà Xanh", CatalogStatus.ACTIVE.value, 0),
-        (3, "SKU-003", "Trà Đào", CatalogStatus.ACTIVE.value, 5),
-        (4, "SKU-004", "Nước Suối", CatalogStatus.ACTIVE.value, 6),
+        (3, "SKU-003", "Trà Đào", CatalogStatus.ACTIVE.value, 15),
+        (4, "SKU-004", "Nước Suối", CatalogStatus.ACTIVE.value, 16),
         (5, "SKU-005", "Trà Ô Long", CatalogStatus.INACTIVE.value, 2),
         (6, "SKU-006", "Cà phê Đen", CatalogStatus.ACTIVE.value, 0),
     ]
@@ -204,10 +204,10 @@ async def test_low_stock_filters_active_and_threshold_and_sorting(app: object) -
     items = body["items"]
     assert len(items) == 4
 
-    # Verify order: qty=0 (id=2, id=6), qty=3 (id=1), qty=5 (id=3)
+    # Verify order: qty=0 (id=2, id=6), qty=3 (id=1), qty=15 (id=3)
     assert items[0]["product_id"] == 2
     assert items[0]["quantity"] == 0
-    assert items[0]["threshold"] == 5
+    assert items[0]["threshold"] == 15
 
     assert items[1]["product_id"] == 6
     assert items[1]["quantity"] == 0
@@ -216,7 +216,7 @@ async def test_low_stock_filters_active_and_threshold_and_sorting(app: object) -
     assert items[2]["quantity"] == 3
 
     assert items[3]["product_id"] == 3
-    assert items[3]["quantity"] == 5
+    assert items[3]["quantity"] == 15
 
     # Verify P4 (qty=6) and P5 (inactive, qty=2) are excluded
     product_ids = [item["product_id"] for item in items]
@@ -292,9 +292,9 @@ async def test_low_stock_fixed_p0_threshold(app: object) -> None:
     assert 4 not in product_ids  # P4 (qty=6) is excluded
     assert 5 not in product_ids  # P5 (inactive) is excluded
 
-    # Verify each item returns the fixed threshold 5
+    # Verify each item returns the fixed threshold 15
     for item in body["items"]:
-        assert item["threshold"] == 5
+        assert item["threshold"] == 15
 
 
 @pytest.mark.anyio

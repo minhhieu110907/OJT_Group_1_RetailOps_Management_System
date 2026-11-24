@@ -1185,7 +1185,7 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       const tabKeys = Object.keys(STOCK_FILTER_TABS);
       assert.deepEqual(tabKeys, ['ALL', 'OUT_OF_STOCK', 'LOW_STOCK']);
       assert.equal(tabKeys.length, 3, 'Must strictly have only 3 stock filter tabs');
-      assert.equal(LOW_STOCK_THRESHOLD, 5, 'Must reuse existing low-stock threshold of 5');
+      assert.equal(LOW_STOCK_THRESHOLD, 15, 'Must reuse unified low-stock threshold of 15');
 
       const productListSource = fs.readFileSync(
         path.resolve(process.cwd(), 'src/pages/Products/ProductList.jsx'),
@@ -1231,7 +1231,7 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
         lowFiltered.map((p) => p.sku),
         ['SKU-D', 'SKU-C']
       );
-      assert.ok(lowFiltered.every((p) => p.quantity > 0 && p.quantity <= 5));
+      assert.ok(lowFiltered.every((p) => p.quantity > 0 && p.quantity <= 15));
     });
 
     test('CHANGE B: isOutOfStockProduct highlights only actual quantity === 0 and never coerces null/undefined/invalid', () => {

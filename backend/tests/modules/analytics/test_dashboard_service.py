@@ -205,4 +205,4 @@ def test_dashboard_service_default_low_stock_counter_calls_count_low_stock(
 
     count = DashboardService._default_low_stock_count(mock_session)
     assert count == 42
-    mock_inv_repo.count_low_stock.assert_called_once_with(mock_session, threshold=5)
+    mock_inv_repo.count_low_stock.assert_called_once_with(mock_session, threshold=15)

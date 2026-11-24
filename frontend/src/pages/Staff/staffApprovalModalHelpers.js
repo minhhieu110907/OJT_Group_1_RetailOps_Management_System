@@ -88,7 +88,7 @@ export async function executeStaffApprovalDecision({
     if (httpStatus === 404) {
       setIsModalStale(true);
       setModalError(
-        'Yêu cầu xét duyệt không tồn tại (HTTP 404). Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
+        'Yêu cầu xét duyệt không tồn tại. Danh sách đã được làm mới — vui lòng đóng hộp thoại.'
       );
       onRefresh();
       return { status: 'not_found' };
@@ -96,14 +96,14 @@ export async function executeStaffApprovalDecision({
     if (httpStatus === 403) {
       setModalError(
         action === 'approve'
-          ? 'Bạn không có quyền thực hiện phê duyệt nhân viên (HTTP 403 Forbidden).'
-          : 'Bạn không có quyền từ chối hồ sơ nhân viên (HTTP 403 Forbidden).'
+          ? 'Bạn không có quyền thực hiện phê duyệt nhân viên.'
+          : 'Bạn không có quyền từ chối hồ sơ nhân viên.'
       );
       return { status: 'forbidden' };
     }
     if (httpStatus === 401) {
       setModalError(
-        'Phiên đăng nhập đã hết hạn (HTTP 401). Vui lòng đăng nhập lại.'
+        'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'
       );
       return { status: 'unauthorized' };
     }

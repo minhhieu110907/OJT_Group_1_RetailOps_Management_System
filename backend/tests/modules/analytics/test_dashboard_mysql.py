@@ -131,7 +131,7 @@ def test_dashboard_mysql_aggregation_and_sources(
     # Check baseline low stock count before inserting test data
     with Session(migrated_integration_engine) as session:
         baseline_low_stock = InventoryQueryRepository().count_low_stock(
-            session, threshold=5
+            session, threshold=15
         )
 
     with (
@@ -771,7 +771,7 @@ def test_low_stock_count_boundaries(
 
     repo = InventoryQueryRepository()
     with Session(migrated_integration_engine) as session:
-        baseline = repo.count_low_stock(session, threshold=5)
+        baseline = repo.count_low_stock(session, threshold=15)
 
     with (
         Session(migrated_integration_engine, expire_on_commit=False) as session,
@@ -844,14 +844,14 @@ def test_low_stock_count_boundaries(
                 ),
                 Inventory(
                     product_id=p_act_5.id,
-                    quantity=5,
+                    quantity=15,
                     stock_version=0,
                     first_stocked_at=now_unaware,
                     updated_at=now_unaware,
                 ),
                 Inventory(
                     product_id=p_act_6.id,
-                    quantity=6,
+                    quantity=16,
                     stock_version=0,
                     first_stocked_at=now_unaware,
                     updated_at=now_unaware,
@@ -875,7 +875,7 @@ def test_low_stock_count_boundaries(
         session.flush()
 
     with Session(migrated_integration_engine) as session:
-        new_count = repo.count_low_stock(session, threshold=5)
+        new_count = repo.count_low_stock(session, threshold=15)
 
     # Only p_act_0 and p_act_5 must increment the count
     assert new_count == baseline + 2

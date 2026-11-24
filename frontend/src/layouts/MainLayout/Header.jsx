@@ -93,6 +93,7 @@ export default function Header({
   const notificationRef = useRef(null);
   const fetchGenRef = useRef(0);
   const badgeGenRef = useRef(0);
+  const prevUnreadCountRef = useRef(null);
   const markingIdsRef = useRef(new Set());
   const isMarkingAllRef = useRef(false);
 
@@ -197,7 +198,21 @@ export default function Header({
         .getUnreadCount({ isMockMode })
         .then((res) => {
           if (badgeGen === badgeGenRef.current) {
-            setUnreadCount(Math.max(0, res.count));
+            const nextCount = Math.max(0, res.count);
+            if (
+              prevUnreadCountRef.current !== null &&
+              nextCount > prevUnreadCountRef.current &&
+              typeof window !== 'undefined' &&
+              typeof window.dispatchEvent === 'function'
+            ) {
+              window.dispatchEvent(
+                new CustomEvent('retailops:admin-unread-increased', {
+                  detail: { count: nextCount },
+                })
+              );
+            }
+            prevUnreadCountRef.current = nextCount;
+            setUnreadCount(nextCount);
           }
         })
         .catch(() => {

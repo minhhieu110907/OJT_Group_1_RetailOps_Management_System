@@ -13,7 +13,7 @@ from app.modules.inventory.models import MovementKind, MovementType, ReferenceTy
 
 # inventory.quantity / stock_movements.quantity_* are signed MySQL INT columns.
 MAX_STOCK_QUANTITY = 2_147_483_647
-DEFAULT_LOW_STOCK_THRESHOLD: int = 5
+DEFAULT_LOW_STOCK_THRESHOLD: int = 15
 
 StockMovementKind = Literal[
     "PURCHASE_CONFIRM",

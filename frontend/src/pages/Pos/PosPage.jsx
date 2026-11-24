@@ -1312,7 +1312,7 @@ export default function PosPage() {
                   ⚠
                 </span>
                 <h2 id="pos-stock-conflict-title" className={styles.posModalTitle}>
-                  Tồn kho không đủ (Insufficient Stock)
+                  Tồn kho không đủ
                 </h2>
               </div>
               <button
