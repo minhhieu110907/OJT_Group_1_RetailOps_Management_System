@@ -218,7 +218,7 @@ export default function Header({
     const isNodeTestEnv = Boolean(globalThis.process?.versions?.node);
     const pollTimer = isNodeTestEnv
       ? null
-      : window.setInterval(refreshUnreadBadge, 15000);
+      : window.setInterval(refreshUnreadBadge, 5000);
 
     return () => {
       badgeGenRef.current += 1;
