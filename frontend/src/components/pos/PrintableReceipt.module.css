@@ -7,7 +7,12 @@
 }
 
 @media print {
-  :global(body > *:not([data-testid='printable-receipt'])) {
+  :global(
+    body
+      > *:not([data-testid='printable-receipt']):not(
+        [data-testid='printable-purchase-receipt']
+      )
+  ) {
     display: none !important;
   }
 
