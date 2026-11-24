@@ -104,7 +104,7 @@ def _make_sqlite_session_factory() -> sessionmaker[Session]:
 def _seed_store_data(
     sf: sessionmaker[Session],
 ) -> tuple[int, int, int, int]:
-    now = datetime(2026, 11, 20, 6, 0, tzinfo=UTC).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     hasher = PasswordHasher(work_factor=4)
     with sf() as session, session.begin():
         admin = User(
