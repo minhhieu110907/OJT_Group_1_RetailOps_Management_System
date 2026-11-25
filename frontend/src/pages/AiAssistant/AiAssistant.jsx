@@ -22,6 +22,7 @@ import {
   buildPrefillDraftState,
   buildReorderSuggestions,
   filterAndSortReorderRows,
+  filterReorderRowsBySupplier,
   getDraftActionGuidance,
   getMatchingProductIdsForSupplier,
   paginateReorderRows,
@@ -234,6 +235,7 @@ export default function AiAssistant() {
     suppliersFailed: false,
   });
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [showAllReorderProducts, setShowAllReorderProducts] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [isReorderLoading, setIsReorderLoading] = useState(false);
   const [reorderLoadError, setReorderLoadError] = useState('');
@@ -573,7 +575,20 @@ export default function AiAssistant() {
     };
   }, [isAdmin, isMockMode, reorderReloadSeq]);
 
-  const visibleReorderRows = filterAndSortReorderRows(reorderRows, {
+  const activeSupplierObj = reorderSuppliers.find(
+    (s) => String(s.id) === String(selectedSupplierId)
+  );
+  const hasSupplierCategoryFilter = Boolean(
+    activeSupplierObj &&
+      Array.isArray(activeSupplierObj.category_ids) &&
+      activeSupplierObj.category_ids.length > 0
+  );
+  const supplierScopedRows = filterReorderRowsBySupplier(reorderRows, {
+    supplier: activeSupplierObj,
+    selectedIds: selectedProductIds,
+    showAll: showAllReorderProducts,
+  });
+  const visibleReorderRows = filterAndSortReorderRows(supplierScopedRows, {
     filter: reorderFilter,
     sort: reorderSort,
   });
@@ -581,9 +596,6 @@ export default function AiAssistant() {
     page: reorderPage,
     pageSize: 10,
   });
-  const activeSupplierObj = reorderSuppliers.find(
-    (s) => String(s.id) === String(selectedSupplierId)
-  );
   const supplierMatchingIds = activeSupplierObj
     ? getMatchingProductIdsForSupplier(reorderRows, activeSupplierObj)
     : [];
@@ -892,6 +904,8 @@ export default function AiAssistant() {
                     disabled={isCreatingDraft}
                     onChange={(e) => {
                       setSelectedSupplierId(e.target.value);
+                      setShowAllReorderProducts(false);
+                      setReorderPage(1);
                       setDraftActionError('');
                     }}
                   >
@@ -902,6 +916,20 @@ export default function AiAssistant() {
                       </option>
                     ))}
                   </select>
+                  {hasSupplierCategoryFilter && (
+                    <label className={styles.showAllProductsToggle}>
+                      <input
+                        type="checkbox"
+                        checked={showAllReorderProducts}
+                        disabled={isCreatingDraft}
+                        onChange={(e) => {
+                          setShowAllReorderProducts(e.target.checked);
+                          setReorderPage(1);
+                        }}
+                      />
+                      <span>Hiện tất cả sản phẩm (ngoài danh mục của NCC)</span>
+                    </label>
+                  )}
                 </div>
 
                 <div className={styles.toolbarActions}>
