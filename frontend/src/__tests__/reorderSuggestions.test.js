@@ -8,6 +8,7 @@ import {
   buildDraftReceiptPayload,
   buildPrefillDraftState,
   buildReorderSuggestions,
+  filterReorderRowsBySupplier,
   getDraftActionGuidance,
   parseStrictInteger,
   validateSelectedReorderLines,
@@ -571,4 +572,47 @@ test('filterAndSortReorderRows and paginateReorderRows filter, sort, and paginat
   assert.equal(page1.items.length, 2);
   const page2 = _paginateReorderRows(rows, { page: 2, pageSize: 2 });
   assert.equal(page2.items.length, 1);
+});
+
+test('buildReorderSuggestions preserves category_id and filterReorderRowsBySupplier scopes by supplier categories with override', () => {
+  const built = buildReorderSuggestions(
+    [
+      { product_id: 1, category_id: 2, sku: 'SKU-1', name: 'Nước ngọt', quantity: 1, threshold: 15 },
+      { product_id: 2, category_id: 5, sku: 'SKU-2', name: 'Gà rán KFC', quantity: 2, threshold: 15 },
+      { product_id: 3, category_id: 3, sku: 'SKU-3', name: 'Bánh quy', quantity: 3, threshold: 15 },
+    ],
+    [],
+    []
+  );
+  assert.deepEqual(built.map((r) => r.category_id), [2, 5, 3]);
+
+  const supWithCat = { id: 10, category_ids: [2] };
+  assert.deepEqual(
+    filterReorderRowsBySupplier(built, { supplier: supWithCat }).map((r) => r.product_id),
+    [1]
+  );
+
+  // Preserves already-selected products even if outside supplier categories
+  assert.deepEqual(
+    filterReorderRowsBySupplier(built, { supplier: supWithCat, selectedIds: [2] }).map(
+      (r) => r.product_id
+    ),
+    [1, 2]
+  );
+
+  // showAll=true shows everything
+  assert.deepEqual(
+    filterReorderRowsBySupplier(built, { supplier: supWithCat, showAll: true }).map(
+      (r) => r.product_id
+    ),
+    [1, 2, 3]
+  );
+
+  // Supplier without linked category_ids shows all rows
+  assert.deepEqual(
+    filterReorderRowsBySupplier(built, { supplier: { id: 11, category_ids: [] } }).map(
+      (r) => r.product_id
+    ),
+    [1, 2, 3]
+  );
 });

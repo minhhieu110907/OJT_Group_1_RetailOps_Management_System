@@ -713,6 +713,22 @@
   color: #334155;
 }
 
+.showAllProductsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+}
+
+.showAllProductsToggle input {
+  accent-color: #087f5b;
+  cursor: pointer;
+}
+
 .supplierSelect {
   padding: 8px 10px;
   border-radius: 8px;
