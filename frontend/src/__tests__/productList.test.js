@@ -1425,7 +1425,7 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       // 1. "Mặc định" and "Tồn kho: ít → nhiều" options must be completely removed from sort dropdown
       assert.doesNotMatch(
         productListSource,
-        /<option[^>]*>\s*Mặc định\s*<\/option>/,
+        /label:\s*['"]Mặc định['"]|<option[^>]*>\s*Mặc định\s*<\/option>/,
         'Must completely remove "Mặc định" option from sort dropdown'
       );
       assert.doesNotMatch(
@@ -1437,7 +1437,7 @@ describe('T3C9C86 Product Management & Real API Integration Test Suite', () => {
       // 2. "Cần nhập trước" must be present and default sort state must be DEFAULT_PRODUCT_SORT (restock_first)
       assert.match(
         productListSource,
-        /<option value=\{RESTOCK_FIRST_SORT\}>Cần nhập trước<\/option>/,
+        /\{\s*value:\s*RESTOCK_FIRST_SORT,\s*label:\s*'Cần nhập trước'\s*\}/,
         'Must render "Cần nhập trước" option as default in sort dropdown'
       );
       assert.match(

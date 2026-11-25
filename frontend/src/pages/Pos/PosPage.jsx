@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Pagination, useToast } from '../../components/common';
+import { CustomSelect, Pagination, useToast } from '../../components/common';
 import PrintableReceipt from '../../components/pos/PrintableReceipt';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { acquireModalScrollLock } from '../../utils/modalScrollLock';
@@ -354,10 +354,10 @@ export default function PosPage() {
   }, [isMockMode, refreshTrigger]);
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
-  const posPageSize = hasCartItems ? 10 : 12;
+  const posPageSize = hasCartItems ? 10 : 14;
 
   // Tải danh sách sản phẩm hiển thị tại POS:
-  // - Chưa có sản phẩm trong giỏ: 12 sản phẩm/trang (2 dòng x 6 cột)
+  // - Chưa có sản phẩm trong giỏ: 14 sản phẩm/trang (2 dòng x 7 cột)
   // - Có ít nhất 1 sản phẩm trong giỏ: 10 sản phẩm/trang (2 dòng x 5 cột)
   const isFiltering = Boolean(debouncedSearch || selectedCategoryId);
 
@@ -421,6 +421,38 @@ export default function PosPage() {
     () => prioritizeCategoriesByLatestProducts(categories, latestProductsSnapshot),
     [categories, latestProductsSnapshot]
   );
+
+  const categoryRailRef = useRef(null);
+  const [canScrollCatLeft, setCanScrollCatLeft] = useState(false);
+  const [canScrollCatRight, setCanScrollCatRight] = useState(false);
+
+  const updateCategoryScrollState = useCallback(() => {
+    const el = categoryRailRef.current;
+    if (!el) return;
+    setCanScrollCatLeft(el.scrollLeft > 4);
+    setCanScrollCatRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    updateCategoryScrollState();
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener('resize', updateCategoryScrollState);
+    let observer = null;
+    if (typeof ResizeObserver !== 'undefined' && categoryRailRef.current) {
+      observer = new ResizeObserver(updateCategoryScrollState);
+      observer.observe(categoryRailRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', updateCategoryScrollState);
+      if (observer) observer.disconnect();
+    };
+  }, [orderedCategories, hasCartItems, updateCategoryScrollState]);
+
+  const scrollCategoryRail = (direction) => {
+    const el = categoryRailRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * 260, behavior: 'smooth' });
+  };
 
   const cartTotals = useMemo(() => {
     if (cart.length > 0) {
@@ -816,23 +848,108 @@ export default function PosPage() {
             )}
           </div>
 
-          <div className={styles.categorySelectWrap}>
-            <select
-              className={styles.categorySelectMobile}
-              value={selectedCategoryId}
-              onChange={(e) => {
-                setSelectedCategoryId(e.target.value);
-                setCurrentPage(1);
-              }}
+          <div className={styles.posCategoryToolbarRow}>
+            {canScrollCatLeft && (
+              <button
+                type="button"
+                className={styles.categoryScrollBtn}
+                onClick={() => scrollCategoryRail(-1)}
+                aria-label="Cuộn danh mục sang trái"
+                title="Cuộn sang trái"
+              >
+                ‹
+              </button>
+            )}
+
+            <div
+              ref={categoryRailRef}
+              className={styles.posCategoryRail}
+              role="tablist"
               aria-label="Lọc theo danh mục"
+              onScroll={updateCategoryScrollState}
+              onWheel={(e) => {
+                const el = categoryRailRef.current;
+                if (!el || el.scrollWidth <= el.clientWidth) return;
+                if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                  e.preventDefault();
+                  el.scrollLeft += e.deltaY;
+                }
+              }}
             >
-              <option value="">Tất cả danh mục</option>
-              {orderedCategories.map((cat) => (
-                <option key={cat.id} value={String(cat.id)}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selectedCategoryId === ''}
+                className={`${styles.categoryPill} ${
+                  selectedCategoryId === '' ? styles.categoryPillActive : ''
+                }`}
+                onClick={() => {
+                  setSelectedCategoryId('');
+                  setCurrentPage(1);
+                }}
+              >
+                <span>Tất cả</span>
+              </button>
+              {orderedCategories.map((cat) => {
+                const catValue = String(cat.id);
+                const isSelected = selectedCategoryId === catValue;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelected}
+                    className={`${styles.categoryPill} ${
+                      isSelected ? styles.categoryPillActive : ''
+                    }`}
+                    onClick={() => {
+                      setSelectedCategoryId(isSelected ? '' : catValue);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <span>{cat.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {canScrollCatRight && (
+              <button
+                type="button"
+                className={styles.categoryScrollBtn}
+                onClick={() => scrollCategoryRail(1)}
+                aria-label="Cuộn danh mục sang phải"
+                title="Cuộn sang phải"
+              >
+                ›
+              </button>
+            )}
+
+            {orderedCategories.length > 6 && (
+              <div className={styles.posCategoryQuickJump}>
+                <CustomSelect
+                  size="sm"
+                  searchable
+                  searchPlaceholder="Tìm nhanh danh mục..."
+                  ariaLabel="Tìm nhanh danh mục sản phẩm"
+                  value={selectedCategoryId}
+                  onChange={(e) => {
+                    setSelectedCategoryId(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  options={[
+                    {
+                      value: '',
+                      label: `Danh mục (${orderedCategories.length})`,
+                    },
+                    ...orderedCategories.map((cat) => ({
+                      value: String(cat.id),
+                      label: cat.name,
+                    })),
+                  ]}
+                />
+              </div>
+            )}
           </div>
         </div>
 

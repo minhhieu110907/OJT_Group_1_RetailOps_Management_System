@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useInventorySession } from '../../context/InventorySessionContext';
-import { Pagination, Table, useToast } from '../../components/common';
+import { CustomSelect, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { categoriesApi } from '../../api/categoriesApi';
 import {
@@ -471,22 +471,22 @@ export default function InventoryList() {
               Danh mục:
             </label>
             <div className={styles.categorySelectWrap}>
-              <select
+              <CustomSelect
                 id="inventory-category-filter"
-                className={styles.categorySelect}
                 value={selectedCategoryId}
+                searchPlaceholder="Tìm danh mục..."
                 onChange={(e) => {
                   setSelectedCategoryId(e.target.value);
                   setPagination((prev) => ({ ...prev, page: 1 }));
                 }}
-              >
-                <option value="">Tất cả</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={String(cat.id)}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'Tất cả danh mục' },
+                  ...categories.map((cat) => ({
+                    value: String(cat.id),
+                    label: cat.name,
+                  })),
+                ]}
+              />
             </div>
           </div>
 

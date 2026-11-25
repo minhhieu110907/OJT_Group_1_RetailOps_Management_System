@@ -92,6 +92,11 @@
   box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
 }
 
+.orderDatePicker {
+  flex: 1.1;
+  min-width: min(255px, 100%);
+}
+
 .dateFilterWrap {
   flex: 1.1;
   min-width: min(240px, 100%);
@@ -194,6 +199,7 @@
 
 @media (max-width: 640px) {
   .searchBoxWrap,
+  .orderDatePicker,
   .dateFilterWrap {
     flex: 1 1 100%;
     width: 100%;

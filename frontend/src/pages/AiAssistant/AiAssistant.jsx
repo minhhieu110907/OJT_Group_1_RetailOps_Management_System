@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useInRouterContext, useNavigate } from 'react-router-dom';
+import { CustomSelect } from '../../components/common';
 import {
   AI_QUERY_MAX_LENGTH,
   aiApi,
@@ -884,24 +885,25 @@ export default function AiAssistant() {
                   >
                     Nhà cung cấp dự kiến *
                   </label>
-                  <select
+                  <CustomSelect
                     id="ai-reorder-supplier-select"
-                    aria-label="Chọn nhà cung cấp cho phiếu nhập nháp"
-                    className={styles.supplierSelect}
+                    ariaLabel="Chọn nhà cung cấp cho phiếu nhập nháp"
+                    fullWidth
                     value={selectedSupplierId}
                     disabled={isCreatingDraft}
+                    searchPlaceholder="Tìm nhà cung cấp..."
                     onChange={(e) => {
                       setSelectedSupplierId(e.target.value);
                       setDraftActionError('');
                     }}
-                  >
-                    <option value="">-- Chọn nhà cung cấp --</option>
-                    {reorderSuppliers.map((sup) => (
-                      <option key={sup.id} value={sup.id}>
-                        {sup.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: '-- Chọn nhà cung cấp --' },
+                      ...reorderSuppliers.map((sup) => ({
+                        value: String(sup.id),
+                        label: sup.name,
+                      })),
+                    ]}
+                  />
                 </div>
 
                 <div className={styles.toolbarActions}>
@@ -962,40 +964,39 @@ export default function AiAssistant() {
                       <label className={styles.filterLabel} htmlFor="ai-reorder-filter">
                         Phân loại:
                       </label>
-                      <select
+                      <CustomSelect
                         id="ai-reorder-filter"
-                        className={styles.filterSelect}
+                        size="sm"
                         value={reorderFilter}
                         onChange={(e) => {
                           setReorderFilter(e.target.value);
                           setReorderPage(1);
                         }}
-                      >
-                        {REORDER_CLASSIFICATION_FILTERS.map((f) => (
-                          <option key={f.key} value={f.key}>
-                            {f.label}
-                          </option>
-                        ))}
-                      </select>
+                        options={REORDER_CLASSIFICATION_FILTERS.map((f) => ({
+                          value: f.key,
+                          label: f.label,
+                        }))}
+                      />
                     </div>
 
                     <div className={styles.filterControl}>
                       <label className={styles.filterLabel} htmlFor="ai-reorder-sort">
                         Sắp xếp:
                       </label>
-                      <select
+                      <CustomSelect
                         id="ai-reorder-sort"
-                        className={styles.filterSelect}
+                        size="sm"
                         value={reorderSort}
                         onChange={(e) => {
                           setReorderSort(e.target.value);
                           setReorderPage(1);
                         }}
-                      >
-                        <option value="PRIORITY">Ưu tiên nhập trước</option>
-                        <option value="STOCK_ASC">Tồn thấp nhất trước</option>
-                        <option value="SOLD_DESC">Bán nhiều nhất trước</option>
-                      </select>
+                        options={[
+                          { value: 'PRIORITY', label: 'Ưu tiên nhập trước' },
+                          { value: 'STOCK_ASC', label: 'Tồn thấp nhất trước' },
+                          { value: 'SOLD_DESC', label: 'Bán nhiều nhất trước' },
+                        ]}
+                      />
                     </div>
                   </div>
 

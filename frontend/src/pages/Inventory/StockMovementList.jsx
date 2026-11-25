@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Modal, Pagination, Table, useToast } from '../../components/common';
+import { CustomSelect, Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { productsApi } from '../../api/productsApi';
 import {
@@ -323,21 +323,21 @@ export default function StockMovementList() {
             <label htmlFor="kindSelect" className={styles.filterLabel}>
               Loại biến động:
             </label>
-            <select
+            <CustomSelect
               id="kindSelect"
-              className={styles.selectInput}
               value={selectedKind}
               onChange={(e) => {
                 setSelectedKind(e.target.value);
                 setPagination((prev) => ({ ...prev, page: 1 }));
               }}
-            >
-              <option value="">Tất cả biến động</option>
-              <option value="SALE">Bán hàng POS</option>
-              <option value="PURCHASE_CONFIRM">Nhập hàng</option>
-              <option value="ORDER_CANCEL">Hoàn trả hủy đơn</option>
-              <option value="ADJUSTMENT">Điều chỉnh kho</option>
-            </select>
+              options={[
+                { value: '', label: 'Tất cả biến động' },
+                { value: 'SALE', label: 'Bán hàng POS' },
+                { value: 'PURCHASE_CONFIRM', label: 'Nhập hàng' },
+                { value: 'ORDER_CANCEL', label: 'Hoàn trả hủy đơn' },
+                { value: 'ADJUSTMENT', label: 'Điều chỉnh kho' },
+              ]}
+            />
           </div>
         </div>
 

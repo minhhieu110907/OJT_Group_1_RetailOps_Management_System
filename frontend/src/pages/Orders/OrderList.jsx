@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pagination, Table, useToast } from '../../components/common';
+import { CustomDatePicker, CustomSelect, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { ordersApi } from '../../api/ordersApi';
 import { useAuth } from '../../context/AuthContext';
 import { downloadCsvReport } from '../../utils/csvDownload';
-import { formatVnd, triggerDateInputPicker } from '../../utils/posUtils';
+import { formatVnd } from '../../utils/posUtils';
 import {
   executeGuardedOrderListFetch,
   executeVerifiedOrderDetailFetch,
@@ -435,62 +435,36 @@ export default function OrderList() {
             />
           </div>
 
-          {/* Single Date filter */}
-          <div
-            className={styles.dateFilterWrap}
-            style={{ cursor: 'pointer' }}
-            onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
-          >
-            <span className={styles.dateCalendarIcon} aria-hidden="true">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-            </span>
-            <span className={styles.datePrefixLabel}>Ngày bán:</span>
-            <input
-              type="date"
-              className={styles.dateInputInline}
-              style={{ cursor: 'pointer' }}
-              aria-label="Ngày bán"
-              value={selectedDate}
-              onChange={(e) => {
-                setUrlDateRange(null);
-                setSelectedDate(e.target.value);
-                setPage(1);
-              }}
-            />
-            {selectedDate === todayKey && (
-              <span className={styles.todayBadgeInline}>(Hôm nay)</span>
-            )}
-          </div>
+          {/* Single Date filter — full-box clickable themed calendar */}
+          <CustomDatePicker
+            className={styles.orderDatePicker}
+            prefixLabel="Ngày bán:"
+            placeholder="Tất cả các ngày"
+            ariaLabel="Ngày bán"
+            value={selectedDate}
+            badgeText={selectedDate === todayKey ? '(Hôm nay)' : ''}
+            onChange={(e) => {
+              setUrlDateRange(null);
+              setSelectedDate(e.target.value);
+              setPage(1);
+            }}
+          />
 
           {/* Status dropdown + conditional reset button */}
           <div className={styles.statusAndResetRow}>
-            <select
-              className={styles.statusSelectSingle}
-              aria-label="Lọc theo trạng thái đơn hàng"
+            <CustomSelect
+              ariaLabel="Lọc theo trạng thái đơn hàng"
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="COMPLETED">Đã hoàn tất</option>
-              <option value="CANCELLED">Đã hủy</option>
-            </select>
+              options={[
+                { value: '', label: 'Tất cả trạng thái' },
+                { value: 'COMPLETED', label: 'Đã hoàn tất' },
+                { value: 'CANCELLED', label: 'Đã hủy' },
+              ]}
+            />
 
             {(searchQuery.trim() || selectedDate || urlDateRange || statusFilter) && (
               <button

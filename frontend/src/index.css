@@ -1559,19 +1559,19 @@ html[data-modal-open='true'] main {
   color: #CBD5E1 !important;
 }
 
-[data-theme='dark'] [class*="categoryPill"] {
+[data-theme='dark'] button[class*="categoryPill"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
   color: #CBD5E1 !important;
 }
 
-[data-theme='dark'] [class*="categoryPill"]:hover:not([class*="categoryPillActive"]) {
+[data-theme='dark'] button[class*="categoryPill"]:hover:not([class*="categoryPillActive"]) {
   background-color: var(--color-bg-hover) !important;
   color: #FFFFFF !important;
   border-color: #475569 !important;
 }
 
-[data-theme='dark'] [class*="categoryPillActive"] {
+[data-theme='dark'] button[class*="categoryPillActive"] {
   background-color: #059669 !important;
   border-color: #10B981 !important;
   color: #FFFFFF !important;

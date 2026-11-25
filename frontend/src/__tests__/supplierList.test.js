@@ -567,7 +567,7 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
 
     test('SupplierList imports shared Modal and modalStyles cleanly', () => {
       const content = fs.readFileSync(supplierListPath, 'utf8');
-      assert.ok(content.includes("import { Modal, Pagination, Table, useToast } from '../../components/common';"));
+      assert.ok(content.includes("import { CustomSelect, Modal, Pagination, Table, useToast } from '../../components/common';"));
       assert.ok(content.includes("import modalStyles from '../../components/common/Modal/Modal.module.css';"));
     });
 
