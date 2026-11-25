@@ -4,7 +4,14 @@ import {
   useLocation,
   useNavigate,
 } from 'react-router-dom';
-import { Modal, Pagination, Table, useToast } from '../../components/common';
+import {
+  CustomDatePicker,
+  CustomSelect,
+  Modal,
+  Pagination,
+  Table,
+  useToast,
+} from '../../components/common';
 import PrintablePurchaseReceipt from '../../components/purchases/PrintablePurchaseReceipt';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
@@ -19,7 +26,6 @@ import { suppliersApi } from '../../api/suppliersApi';
 import { productsApi } from '../../api/productsApi';
 import { useAuth } from '../../context/AuthContext';
 import { buildPrefillDraftState } from '../../utils/reorderSuggestions';
-import { triggerDateInputPicker } from '../../utils/posUtils';
 import { downloadStyledExcelRows } from '../../utils/csvDownload';
 import {
   MAX_EXPORT_ROWS,
@@ -445,7 +451,6 @@ export default function PurchaseList() {
             totalPages: 1,
           }));
           setListError(errMsg);
-          toast.error(errMsg);
         }
       } finally {
         if (currentRequestId === requestIdRef.current) {
@@ -482,7 +487,6 @@ export default function PurchaseList() {
     fromDateFilter,
     toDateFilter,
     refreshTrigger,
-    toast,
   ]);
 
   // Load số lượng đếm thống kê cho 2 tab "Phiếu nhập" (DRAFT) và "Lịch sử nhập hàng" (CONFIRMED + CANCELLED)
@@ -706,7 +710,10 @@ export default function PurchaseList() {
 
   const handleRetryList = useCallback(() => {
     setRefreshTrigger((prev) => prev + 1);
-  }, []);
+    if (masterDataError) {
+      reloadMasterData();
+    }
+  }, [masterDataError, reloadMasterData]);
 
   // Thao tác: Mở Modal Tạo phiếu nhập mới (Create Mode)
   const handleOpenCreateModal = () => {
@@ -1441,8 +1448,8 @@ export default function PurchaseList() {
         </div>
       </div>
 
-      {/* Cảnh báo lỗi tải Master Data (NCC / Sản phẩm) kèm nút Thử lại */}
-      {masterDataError && (
+      {/* Cảnh báo lỗi tải Master Data (NCC / Sản phẩm) — ẩn khi đã có banner lỗi danh sách chính để tránh trùng lặp */}
+      {masterDataError && !listError && (
         <div className={styles.conflictAlert} role="alert" style={{ marginBottom: '12px' }}>
           <span>{masterDataError}</span>
           <button
@@ -1522,32 +1529,32 @@ export default function PurchaseList() {
         </div>
 
         {/* Dropdown lọc theo Trạng thái */}
-        <select
-          className={styles.selectBox}
+        <CustomSelect
+          ariaLabel="Lọc theo trạng thái phiếu nhập"
           value={activeTab}
           onChange={(e) => {
             setActiveTab(e.target.value);
             setPagination((prev) => ({ ...prev, page: 1 }));
           }}
-        >
-          {topTab === 'HISTORY' ? (
-            <>
-              <option value="ALL_HISTORY">Trạng thái: Tất cả lịch sử</option>
-              <option value="CONFIRMED">Trạng thái: Đã nhập</option>
-              <option value="CANCELLED">Trạng thái: Đã hủy</option>
-            </>
-          ) : (
-            <>
-              <option value="DRAFT">Trạng thái: Bản nháp</option>
-              <option value="ALL">Trạng thái: Tất cả trạng thái</option>
-            </>
-          )}
-        </select>
+          options={
+            topTab === 'HISTORY'
+              ? [
+                  { value: 'ALL_HISTORY', label: 'Trạng thái: Tất cả lịch sử' },
+                  { value: 'CONFIRMED', label: 'Trạng thái: Đã nhập' },
+                  { value: 'CANCELLED', label: 'Trạng thái: Đã hủy' },
+                ]
+              : [
+                  { value: 'DRAFT', label: 'Trạng thái: Bản nháp' },
+                  { value: 'ALL', label: 'Trạng thái: Tất cả trạng thái' },
+                ]
+          }
+        />
 
         {/* Dropdown lọc Nhà cung cấp (truyền supplier_id lên Backend) */}
-        <select
-          className={styles.selectBox}
+        <CustomSelect
+          ariaLabel="Lọc theo nhà cung cấp"
           value={supplierFilter}
+          searchPlaceholder="Tìm nhà cung cấp..."
           onChange={(e) => {
             setSupplierFilter(e.target.value);
             setPagination((prev) => ({ ...prev, page: 1 }));
@@ -1557,65 +1564,54 @@ export default function PurchaseList() {
               ? `Đang hiển thị ${activeSuppliers.length}/${suppliersMeta.total} nhà cung cấp đang hoạt động đầu tiên`
               : 'Lọc theo nhà cung cấp'
           }
-        >
-          <option value="">Nhà cung cấp: Tất cả</option>
-          {activeSuppliers.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'Nhà cung cấp: Tất cả' },
+            ...activeSuppliers.map((s) => ({
+              value: String(s.id),
+              label: s.name,
+            })),
+          ]}
+        />
 
         {/* Dropdown chọn khoảng thời gian + nút Xóa bộ lọc */}
         <div className={styles.dateAndClearRow}>
-          <select
-            className={styles.selectBox}
+          <CustomSelect
+            ariaLabel="Lọc theo khoảng thời gian"
             value={dateRangeType}
             onChange={(e) => handleDateRangePreset(e.target.value)}
-          >
-            <option value="ALL">Thời gian: Toàn bộ</option>
-            <option value="30DAYS">Thời gian: 30 ngày gần nhất</option>
-            <option value="7DAYS">Thời gian: 7 ngày gần nhất</option>
-            <option value="TODAY">Thời gian: Hôm nay</option>
-            <option value="CUSTOM">Thời gian: Tùy chỉnh</option>
-          </select>
+            options={[
+              { value: 'ALL', label: 'Thời gian: Toàn bộ' },
+              { value: '30DAYS', label: 'Thời gian: 30 ngày gần nhất' },
+              { value: '7DAYS', label: 'Thời gian: 7 ngày gần nhất' },
+              { value: 'TODAY', label: 'Thời gian: Hôm nay' },
+              { value: 'CUSTOM', label: 'Thời gian: Tùy chỉnh' },
+            ]}
+          />
 
           {dateRangeType === 'CUSTOM' && (
             <div className={styles.customDatePopover}>
-              <div
-                className={styles.dateInputGroup}
-                style={{ cursor: 'pointer' }}
-                onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
-              >
-                <span>Từ:</span>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  style={{ cursor: 'pointer' }}
-                  value={fromDateFilter}
-                  onChange={(e) => {
-                    setFromDateFilter(e.target.value);
-                    setPagination((prev) => ({ ...prev, page: 1 }));
-                  }}
-                />
-              </div>
-              <div
-                className={styles.dateInputGroup}
-                style={{ cursor: 'pointer' }}
-                onClick={(e) => triggerDateInputPicker(e.currentTarget, e.target)}
-              >
-                <span>Đến:</span>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  style={{ cursor: 'pointer' }}
-                  value={toDateFilter}
-                  onChange={(e) => {
-                    setToDateFilter(e.target.value);
-                    setPagination((prev) => ({ ...prev, page: 1 }));
-                  }}
-                />
-              </div>
+              <CustomDatePicker
+                prefixLabel="Từ:"
+                placeholder="Chọn ngày"
+                ariaLabel="Từ ngày"
+                max={toDateFilter || undefined}
+                value={fromDateFilter}
+                onChange={(e) => {
+                  setFromDateFilter(e.target.value);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+              />
+              <CustomDatePicker
+                prefixLabel="Đến:"
+                placeholder="Chọn ngày"
+                ariaLabel="Đến ngày"
+                min={fromDateFilter || undefined}
+                value={toDateFilter}
+                onChange={(e) => {
+                  setToDateFilter(e.target.value);
+                  setPagination((prev) => ({ ...prev, page: 1 }));
+                }}
+              />
             </div>
           )}
 
@@ -1875,25 +1871,30 @@ export default function PurchaseList() {
                 <div className={styles.infoBlock}>
                   <span className={styles.infoLabel}>NHÀ CUNG CẤP</span>
                   {selectedReceipt.status === 'DRAFT' && isEditingDraft ? (
-                    <select
-                      className={styles.formSelect}
+                    <CustomSelect
+                      fullWidth
                       value={editSupplierId}
+                      searchPlaceholder="Tìm nhà cung cấp..."
                       onChange={(e) => handleEditSupplierChange(e.target.value)}
-                    >
-                      {!activeSuppliers.some(
-                        (s) => Number(s.id) === Number(selectedReceipt.supplier_id)
-                      ) && (
-                        <option value={selectedReceipt.supplier_id}>
-                          {selectedReceipt.supplier_name_snapshot ||
-                            `NCC #${selectedReceipt.supplier_id}`}
-                        </option>
-                      )}
-                      {activeSuppliers.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        ...(!activeSuppliers.some(
+                          (s) => Number(s.id) === Number(selectedReceipt.supplier_id)
+                        )
+                          ? [
+                              {
+                                value: String(selectedReceipt.supplier_id),
+                                label:
+                                  selectedReceipt.supplier_name_snapshot ||
+                                  `NCC #${selectedReceipt.supplier_id}`,
+                              },
+                            ]
+                          : []),
+                        ...activeSuppliers.map((s) => ({
+                          value: String(s.id),
+                          label: s.name,
+                        })),
+                      ]}
+                    />
                   ) : (
                     <span className={styles.infoValue}>
                       {selectedReceipt.supplier_name_snapshot ||
@@ -1997,20 +1998,21 @@ export default function PurchaseList() {
                     <div key={idx} className={styles.lineInputRow}>
                       <div className={`${styles.lineField} ${styles.lineFieldProduct}`}>
                         <span className={styles.mobileFieldLabel}>Sản phẩm</span>
-                        <select
-                          className={styles.formSelect}
+                        <CustomSelect
+                          fullWidth
                           value={line.product_id}
+                          searchPlaceholder="Tìm theo SKU hoặc tên SP..."
                           onChange={(e) =>
                             handleUpdateEditLine(idx, 'product_id', e.target.value)
                           }
-                        >
-                          <option value="">-- Chọn sản phẩm --</option>
-                          {editFilteredProducts.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.sku} - {p.name}
-                            </option>
-                          ))}
-                        </select>
+                          options={[
+                            { value: '', label: '-- Chọn sản phẩm --' },
+                            ...editFilteredProducts.map((p) => ({
+                              value: String(p.id),
+                              label: `${p.sku} - ${p.name}`,
+                            })),
+                          ]}
+                        />
                       </div>
 
                       <div className={styles.lineField}>
@@ -2195,19 +2197,20 @@ export default function PurchaseList() {
             <label className={styles.formLabel}>
               Nhà cung cấp <span style={{ color: '#DC2626' }}>*</span>
             </label>
-            <select
-              className={styles.formSelect}
+            <CustomSelect
+              fullWidth
               value={createSupplierId}
+              searchPlaceholder="Tìm nhà cung cấp..."
               onChange={(e) => handleCreateSupplierChange(e.target.value)}
               required
-            >
-              <option value="">-- Chọn nhà cung cấp --</option>
-              {activeSuppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: '-- Chọn nhà cung cấp --' },
+                ...activeSuppliers.map((s) => ({
+                  value: String(s.id),
+                  label: s.name,
+                })),
+              ]}
+            />
           </div>
 
           <div className={styles.formGroup}>
@@ -2258,21 +2261,22 @@ export default function PurchaseList() {
               <div key={idx} className={styles.lineInputRow}>
                 <div className={`${styles.lineField} ${styles.lineFieldProduct}`}>
                   <span className={styles.mobileFieldLabel}>Sản phẩm</span>
-                  <select
-                    className={styles.formSelect}
+                  <CustomSelect
+                    fullWidth
                     value={line.product_id}
+                    searchPlaceholder="Tìm theo SKU hoặc tên SP..."
                     onChange={(e) =>
                       handleUpdateCreateLine(idx, 'product_id', e.target.value)
                     }
                     required
-                  >
-                    <option value="">-- Chọn sản phẩm --</option>
-                    {createFilteredProducts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.sku} - {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: '-- Chọn sản phẩm --' },
+                      ...createFilteredProducts.map((p) => ({
+                        value: String(p.id),
+                        label: `${p.sku} - ${p.name}`,
+                      })),
+                    ]}
+                  />
                 </div>
 
                 <div className={styles.lineField}>

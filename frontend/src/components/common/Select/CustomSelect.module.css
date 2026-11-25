@@ -1,0 +1,324 @@
+.customSelectRoot {
+  position: relative;
+  display: inline-flex;
+  min-width: 165px;
+  max-width: 100%;
+}
+
+.customSelectFullWidth {
+  display: flex;
+  width: 100%;
+}
+
+.srOnlyNativeSelect {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.customSelectTrigger {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px 0 13px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background-color: var(--color-bg-surface, #ffffff);
+  color: var(--color-neutral, #0f172a);
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.customSelectTriggerSm {
+  min-height: 34px;
+  padding: 0 10px 0 11px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.customSelectTrigger:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.customSelectTrigger:focus-visible,
+.customSelectTriggerOpen {
+  outline: none;
+  border-color: var(--color-primary, #087f5b);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+}
+
+.customSelectTrigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: #f1f5f9;
+}
+
+.customSelectTriggerPlaceholder {
+  color: #64748b;
+}
+
+.customSelectLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customSelectChevron {
+  flex-shrink: 0;
+  color: #64748b;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.customSelectChevronOpen {
+  transform: rotate(180deg);
+  color: var(--color-primary, #087f5b);
+}
+
+.customSelectMenu {
+  position: fixed;
+  z-index: 12000;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 14px 32px -6px rgba(15, 23, 42, 0.16),
+    0 4px 12px -2px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  animation: customSelectFadeIn 0.14s ease-out;
+}
+
+@keyframes customSelectFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.customSelectSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.customSelectSearchIcon {
+  position: absolute;
+  left: 18px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.customSelectSearchInput {
+  width: 100%;
+  height: 34px;
+  padding: 0 28px 0 30px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.customSelectSearchInput:focus {
+  border-color: var(--color-primary, #087f5b);
+  background-color: #ffffff;
+}
+
+.customSelectClearBtn {
+  position: absolute;
+  right: 14px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.customSelectOptionsList {
+  padding: 5px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.customSelectOption {
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.customSelectOption:hover:not(:disabled),
+.customSelectOptionActive:not(:disabled) {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.customSelectOptionSelected {
+  background-color: #ecfdf5;
+  color: #047857;
+  font-weight: 600;
+}
+
+.customSelectOptionSelected:hover:not(:disabled),
+.customSelectOptionSelected.customSelectOptionActive:not(:disabled) {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.customSelectOption:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.customSelectOptionText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customSelectCheck {
+  flex-shrink: 0;
+  color: var(--color-primary, #059669);
+}
+
+.customSelectEmpty {
+  padding: 14px 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+/* =========================================================
+   DARK MODE SUPPORT
+   ========================================================= */
+:global([data-theme='dark']) .customSelectTrigger {
+  background-color: var(--color-bg-input, #1e293b);
+  border-color: var(--color-border, #2d3d56);
+  color: #f1f5f9;
+}
+
+:global([data-theme='dark']) .customSelectTrigger:hover:not(:disabled) {
+  background-color: #26354d;
+  border-color: #3b4f6b;
+}
+
+:global([data-theme='dark']) .customSelectTrigger:focus-visible,
+:global([data-theme='dark']) .customSelectTriggerOpen {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+
+:global([data-theme='dark']) .customSelectTriggerPlaceholder {
+  color: #94a3b8;
+}
+
+:global([data-theme='dark']) .customSelectChevron {
+  color: #94a3b8;
+}
+
+:global([data-theme='dark']) .customSelectChevronOpen {
+  color: #34d399;
+}
+
+:global([data-theme='dark']) .customSelectMenu {
+  background-color: #151f32;
+  border-color: #2d3d56;
+  box-shadow: 0 18px 38px -6px rgba(2, 6, 23, 0.65),
+    0 6px 14px -4px rgba(2, 6, 23, 0.45);
+}
+
+:global([data-theme='dark']) .customSelectSearchWrap {
+  border-bottom-color: #26354d;
+}
+
+:global([data-theme='dark']) .customSelectSearchInput {
+  background-color: #0f172a;
+  border-color: #2d3d56;
+  color: #f8fafc;
+}
+
+:global([data-theme='dark']) .customSelectSearchInput:focus {
+  border-color: #10b981;
+}
+
+:global([data-theme='dark']) .customSelectClearBtn {
+  background-color: #26354d;
+  color: #cbd5e1;
+}
+
+:global([data-theme='dark']) .customSelectOption {
+  color: #e2e8f0;
+}
+
+:global([data-theme='dark']) .customSelectOption:hover:not(:disabled),
+:global([data-theme='dark']) .customSelectOptionActive:not(:disabled) {
+  background-color: #26354d;
+  color: #ffffff;
+}
+
+:global([data-theme='dark']) .customSelectOptionSelected {
+  background-color: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+}
+
+:global([data-theme='dark']) .customSelectOptionSelected:hover:not(:disabled),
+:global([data-theme='dark']) .customSelectOptionSelected.customSelectOptionActive:not(:disabled) {
+  background-color: rgba(16, 185, 129, 0.24);
+  color: #6ee7b7;
+}
+
+:global([data-theme='dark']) .customSelectCheck {
+  color: #34d399;
+}
+
+:global([data-theme='dark']) .customSelectEmpty {
+  color: #94a3b8;
+}

@@ -847,7 +847,12 @@ describe('T04A7A8 POS Sales UI & Checkout Integration Suite', () => {
     const posCssPath = path.resolve(__dirname, '../pages/Pos/PosPage.module.css');
     const posCssContent = fs.readFileSync(posCssPath, 'utf8');
 
-    // 1. hasLoadedProductsRef prevents setIsLoading(true) flash on 12 <-> 10 pageSize switches
+    // 1. hasLoadedProductsRef prevents setIsLoading(true) flash on 14 <-> 10 pageSize switches
+    assert.ok(posContent.includes('const posPageSize = hasCartItems ? 10 : 14;'));
+    assert.ok(posCssContent.includes('grid-template-columns: repeat(7, minmax(0, 1fr));'));
+    assert.ok(posContent.includes('styles.categorySelectWrap'));
+    assert.ok(posContent.includes('<CustomSelect'));
+    assert.equal(posContent.includes('<select'), false);
     assert.ok(posContent.includes('const hasLoadedProductsRef = useRef(false)'));
     assert.ok(posContent.includes('if (!hasLoadedProductsRef.current)'));
     assert.ok(posContent.includes('hasLoadedProductsRef.current = true'));

@@ -745,11 +745,23 @@
   padding: 16px 20px;
   border-bottom: 1px solid var(--color-border);
   background-color: #FFFFFF;
+  cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .notificationCard:hover {
-  background-color: #FAFDFC;
+  background-color: #F0FDF4;
+}
+
+.notificationCard:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  background-color: #F0FDF4;
+}
+
+.notificationCardBusy {
+  cursor: wait;
+  opacity: 0.78;
 }
 
 .notificationAvatarUnread {
@@ -999,7 +1011,6 @@
   gap: 10px;
   padding: 13px 20px;
   background-color: #F8FAFC;
-  border-bottom: 1px solid var(--color-border);
 }
 
 .safeguardIcon {
@@ -1013,30 +1024,6 @@
   color: #334155;
   line-height: 1.5;
   margin: 0;
-}
-
-.notificationFooter {
-  padding: 13px 20px;
-  background-color: #FFFFFF;
-  text-align: center;
-}
-
-.viewAllQueueBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: none;
-  background: transparent;
-  color: var(--color-primary);
-  font-size: 13.5px;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 2px 6px;
-}
-
-.viewAllQueueBtn:hover {
-  text-decoration: underline;
 }
 
 /* ============================================================================

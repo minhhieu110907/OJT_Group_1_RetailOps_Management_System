@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Pagination, useToast } from '../../components/common';
+import { CustomSelect, Pagination, useToast } from '../../components/common';
 import PrintableReceipt from '../../components/pos/PrintableReceipt';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { acquireModalScrollLock } from '../../utils/modalScrollLock';
@@ -354,10 +354,10 @@ export default function PosPage() {
   }, [isMockMode, refreshTrigger]);
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
-  const posPageSize = hasCartItems ? 10 : 12;
+  const posPageSize = hasCartItems ? 10 : 14;
 
   // Tải danh sách sản phẩm hiển thị tại POS:
-  // - Chưa có sản phẩm trong giỏ: 12 sản phẩm/trang (2 dòng x 6 cột)
+  // - Chưa có sản phẩm trong giỏ: 14 sản phẩm/trang (2 dòng x 7 cột)
   // - Có ít nhất 1 sản phẩm trong giỏ: 10 sản phẩm/trang (2 dòng x 5 cột)
   const isFiltering = Boolean(debouncedSearch || selectedCategoryId);
 
@@ -817,22 +817,24 @@ export default function PosPage() {
           </div>
 
           <div className={styles.categorySelectWrap}>
-            <select
-              className={styles.categorySelectMobile}
+            <CustomSelect
+              fullWidth
+              searchable
+              searchPlaceholder="Tìm nhanh danh mục..."
+              ariaLabel="Lọc theo danh mục"
               value={selectedCategoryId}
               onChange={(e) => {
                 setSelectedCategoryId(e.target.value);
                 setCurrentPage(1);
               }}
-              aria-label="Lọc theo danh mục"
-            >
-              <option value="">Tất cả danh mục</option>
-              {orderedCategories.map((cat) => (
-                <option key={cat.id} value={String(cat.id)}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'Tất cả' },
+                ...orderedCategories.map((cat) => ({
+                  value: String(cat.id),
+                  label: cat.name,
+                })),
+              ]}
+            />
           </div>
         </div>
 

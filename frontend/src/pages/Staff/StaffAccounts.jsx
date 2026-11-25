@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal, useToast } from '../../components/common';
+import { CustomSelect, Modal, useToast } from '../../components/common';
 import { accountApi } from '../../api/accountApi';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { useAuth } from '../../context/AuthContext';
@@ -24,6 +24,19 @@ export default function StaffAccounts() {
   const [actionError, setActionError] = useState('');
   const [target, setTarget] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const nextQuery = search.trim();
+      setQuery((prev) => {
+        if (prev !== nextQuery) {
+          setPage(1);
+        }
+        return nextQuery;
+      });
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const load = useCallback(async (signal) => {
     setLoading(true);
@@ -103,27 +116,88 @@ export default function StaffAccounts() {
         </div>
         <Link className={styles.back} to="/staff">Hồ sơ xét duyệt</Link>
       </div>
-      <div className={styles.filters}>
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          setQuery(search.trim());
-          setPage(1);
-        }}>
-          <label htmlFor="staff-search">Tìm theo email hoặc họ tên</label>
-          <input id="staff-search" value={search} maxLength={120}
-            onChange={(e) => setSearch(e.target.value)} placeholder="Email hoặc họ tên" />
-          <button type="submit">Tìm kiếm</button>
-        </form>
-        <div className={styles.statusFilter}>
-          <label htmlFor="staff-status">Trạng thái</label>
-          <select id="staff-status" value={status} onChange={(e) => {
-            setStatus(e.target.value);
+      <div className={styles.filterBar}>
+        <form
+          className={styles.searchForm}
+          onSubmit={(event) => {
+            event.preventDefault();
+            setQuery(search.trim());
             setPage(1);
-          }}>
-            <option value="">Tất cả</option>
-            <option value="ACTIVE">Đang hoạt động</option>
-            <option value="LOCKED">Đã khóa</option>
-          </select>
+          }}
+        >
+          <div className={styles.searchBoxWrap}>
+            <svg
+              className={styles.searchIcon}
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              id="staff-search"
+              className={styles.searchInput}
+              value={search}
+              maxLength={120}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm theo email hoặc họ tên nhân viên..."
+              aria-label="Tìm theo email hoặc họ tên"
+            />
+            {search && (
+              <button
+                type="button"
+                className={styles.clearSearchBtn}
+                onClick={() => {
+                  setSearch('');
+                  setQuery('');
+                  setPage(1);
+                }}
+                aria-label="Xóa từ khóa tìm kiếm"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </form>
+
+        <div className={styles.statusFilter}>
+          <label htmlFor="staff-status" className={styles.filterLabel}>
+            Trạng thái:
+          </label>
+          <CustomSelect
+            id="staff-status"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+            options={[
+              { value: '', label: 'Tất cả trạng thái' },
+              { value: 'ACTIVE', label: 'Đang hoạt động' },
+              { value: 'LOCKED', label: 'Đã khóa' },
+            ]}
+          />
+          {(search.trim() || status) && (
+            <button
+              type="button"
+              className={styles.resetFilterBtn}
+              onClick={() => {
+                setSearch('');
+                setQuery('');
+                setStatus('');
+                setPage(1);
+              }}
+            >
+              Đặt lại
+            </button>
+          )}
         </div>
       </div>
       {isMockMode && <p role="alert">Chức năng này chỉ hỗ trợ API thật.</p>}

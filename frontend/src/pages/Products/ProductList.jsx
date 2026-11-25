@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Modal, Pagination, Table, useToast } from '../../components/common';
+import { CustomSelect, Modal, Pagination, Table, useToast } from '../../components/common';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import {
   DEFAULT_PRODUCT_SORT,
@@ -836,26 +836,28 @@ export default function ProductList() {
         <div className={styles.filterControls}>
           <div className={styles.filterItem}>
             <span className={styles.filterLabel}>Danh mục:</span>
-            <select
+            <CustomSelect
               name="categoryId"
               value={searchParams.categoryId}
               onChange={handleFilterChange}
               className={styles.filterSelect}
               disabled={isCategoriesLoading}
-            >
-              <option value="">
-                {isCategoriesLoading
-                  ? 'Đang tải danh mục...'
-                  : categoryLoadError
-                  ? 'Lỗi tải danh mục'
-                  : 'Tất cả danh mục'}
-              </option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
+              searchPlaceholder="Tìm danh mục..."
+              options={[
+                {
+                  value: '',
+                  label: isCategoriesLoading
+                    ? 'Đang tải danh mục...'
+                    : categoryLoadError
+                    ? 'Lỗi tải danh mục'
+                    : 'Tất cả danh mục',
+                },
+                ...categories.map((cat) => ({
+                  value: String(cat.id),
+                  label: cat.name,
+                })),
+              ]}
+            />
             {categoryLoadError && (
               <button
                 type="button"
@@ -870,33 +872,35 @@ export default function ProductList() {
 
           <div className={styles.filterItem}>
             <span className={styles.filterLabel}>Trạng thái:</span>
-            <select
+            <CustomSelect
               name="status"
               value={searchParams.status}
               onChange={handleFilterChange}
               className={styles.filterSelect}
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="ACTIVE">Đang bán</option>
-              <option value="INACTIVE">Ngừng bán</option>
-            </select>
+              options={[
+                { value: '', label: 'Tất cả trạng thái' },
+                { value: 'ACTIVE', label: 'Đang bán' },
+                { value: 'INACTIVE', label: 'Ngừng bán' },
+              ]}
+            />
           </div>
 
           <div className={styles.filterItem}>
             <span className={styles.filterLabel}>Sắp xếp:</span>
-            <select
+            <CustomSelect
               name="sort"
               value={searchParams.sort}
               onChange={handleFilterChange}
               className={styles.filterSelect}
-            >
-              <option value={RESTOCK_FIRST_SORT}>Cần nhập trước</option>
-              <option value="name_asc">Tên (A-Z)</option>
-              <option value="name_desc">Tên (Z-A)</option>
-              <option value="sku_asc">Mã SKU (A-Z)</option>
-              <option value="sku_desc">Mã SKU (Z-A)</option>
-              <option value="created_desc">Mới nhất</option>
-            </select>
+              options={[
+                { value: RESTOCK_FIRST_SORT, label: 'Cần nhập trước' },
+                { value: 'name_asc', label: 'Tên (A-Z)' },
+                { value: 'name_desc', label: 'Tên (Z-A)' },
+                { value: 'sku_asc', label: 'Mã SKU (A-Z)' },
+                { value: 'sku_desc', label: 'Mã SKU (Z-A)' },
+                { value: 'created_desc', label: 'Mới nhất' },
+              ]}
+            />
           </div>
 
           <button
@@ -906,17 +910,19 @@ export default function ProductList() {
             title="Đặt lại bộ lọc"
           >
             <svg
-              width="15"
-              height="15"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="2.2"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
             </svg>
+            <span>Đặt lại</span>
           </button>
         </div>
       </div>
@@ -1097,7 +1103,8 @@ export default function ProductList() {
                 <label className={styles.formLabel}>
                   DANH MỤC <span className={styles.requiredMark}>*</span>
                 </label>
-                <select
+                <CustomSelect
+                  fullWidth
                   value={productForm.category_id}
                   onChange={(e) =>
                     setProductForm((prev) => ({
@@ -1105,23 +1112,24 @@ export default function ProductList() {
                       category_id: e.target.value,
                     }))
                   }
-                  className={styles.formInput}
                   disabled={isSubmittingForm}
-                >
-                  <option value="">-- Chọn danh mục --</option>
-                  {categories
-                    .filter(
-                      (c) =>
-                        c.status === 'ACTIVE' ||
-                        String(c.id) === String(productForm.category_id)
-                    )
-                    .map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                        {cat.status === 'INACTIVE' ? ' (Ngừng hoạt động)' : ''}
-                      </option>
-                    ))}
-                </select>
+                  searchPlaceholder="Tìm danh mục..."
+                  options={[
+                    { value: '', label: '-- Chọn danh mục --' },
+                    ...categories
+                      .filter(
+                        (c) =>
+                          c.status === 'ACTIVE' ||
+                          String(c.id) === String(productForm.category_id)
+                      )
+                      .map((cat) => ({
+                        value: String(cat.id),
+                        label: `${cat.name}${
+                          cat.status === 'INACTIVE' ? ' (Ngừng hoạt động)' : ''
+                        }`,
+                      })),
+                  ]}
+                />
                 {categoryLoadError && (
                   <div style={{ marginTop: '4px' }}>
                     <span style={{ fontSize: '11px', color: '#DC2626' }}>

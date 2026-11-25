@@ -323,8 +323,11 @@ export default function Header({
     }
   };
 
-  // Mở danh sách chờ duyệt từ 1 thông báo cụ thể
+  // Mở danh sách chờ duyệt từ 1 thông báo cụ thể (và tự động đánh dấu đã đọc nếu chưa đọc)
   const handleOpenApprovalFromNotification = async (item) => {
+    if (markingIdsRef.current.has(item.id)) {
+      return;
+    }
     if (item.read_at === null) {
       await handleMarkSingleRead(item.id);
     }
@@ -332,12 +335,6 @@ export default function Header({
     navigate(`/staff?approval_request_id=${item.approval_request_id}`, {
       state: { approvalRequestId: item.approval_request_id },
     });
-  };
-
-  // Mở toàn bộ hàng đợi phê duyệt (AUTH-03)
-  const handleViewAllApprovalQueue = () => {
-    setIsNotificationOpen(false);
-    navigate('/staff');
   };
 
   // Tìm tên trang hiện tại dựa trên đường dẫn URL để hiển thị trên Breadcrumb
@@ -565,7 +562,28 @@ export default function Header({
                         return (
                           <div
                             key={item.id}
-                            className={styles.notificationCard}
+                            className={`${styles.notificationCard} ${
+                              isItemMarking ? styles.notificationCardBusy : ''
+                            }`}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Mở danh sách chờ duyệt cho hồ sơ #${item.approval_request_id}`}
+                            onClick={() => {
+                              if (!isItemMarking) {
+                                handleOpenApprovalFromNotification(item);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.target !== event.currentTarget) {
+                                return;
+                              }
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                if (!isItemMarking) {
+                                  handleOpenApprovalFromNotification(item);
+                                }
+                              }
+                            }}
                           >
                             {/* Icon bên trái: User-plus xanh khi chưa đọc, Thẻ ID xám khi đã đọc */}
                             <div
@@ -678,9 +696,10 @@ export default function Header({
                                     type="button"
                                     className={styles.openQueueBtnPrimary}
                                     disabled={isItemMarking}
-                                    onClick={() =>
-                                      handleOpenApprovalFromNotification(item)
-                                    }
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenApprovalFromNotification(item);
+                                    }}
                                   >
                                     <svg
                                       width="15"
@@ -703,9 +722,10 @@ export default function Header({
                                     type="button"
                                     className={styles.openQueueBtnSecondary}
                                     disabled={isItemMarking}
-                                    onClick={() =>
-                                      handleOpenApprovalFromNotification(item)
-                                    }
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenApprovalFromNotification(item);
+                                    }}
                                   >
                                     <span>Mở danh sách chờ duyệt</span>
                                     <span aria-hidden="true">→</span>
@@ -717,9 +737,10 @@ export default function Header({
                                     type="button"
                                     className={styles.markSingleReadBtn}
                                     disabled={isItemMarking}
-                                    onClick={() =>
-                                      handleMarkSingleRead(item.id)
-                                    }
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleMarkSingleRead(item.id);
+                                    }}
                                     title="Chỉ đánh dấu đã xem thông báo này (không duyệt tài khoản)"
                                   >
                                     {isItemMarking
@@ -735,7 +756,7 @@ export default function Header({
                     </div>
                   )}
 
-                  {/* 3. Hộp thông tin Cơ chế chống thông báo trùng lặp (AUTH-05) */}
+                  {/* 3. Hộp thông tin Cơ chế chống thông báo trùng lặp */}
                   <div className={styles.notificationSafeguardBanner}>
                     <span className={styles.safeguardIcon} aria-hidden="true">
                       <svg
@@ -757,18 +778,6 @@ export default function Header({
                       thử lại kết nối, hệ thống tự động nhận diện và không tạo
                       thông báo trùng lặp cho Quản trị viên.
                     </p>
-                  </div>
-
-                  {/* 4. Footer chuyển hướng sang toàn bộ hàng đợi phê duyệt (AUTH-03) */}
-                  <div className={styles.notificationFooter}>
-                    <button
-                      type="button"
-                      className={styles.viewAllQueueBtn}
-                      onClick={handleViewAllApprovalQueue}
-                    >
-                      <span>Xem toàn bộ hàng đợi phê duyệt (AUTH-03)</span>
-                      <span aria-hidden="true">→</span>
-                    </button>
                   </div>
                 </div>
               )}

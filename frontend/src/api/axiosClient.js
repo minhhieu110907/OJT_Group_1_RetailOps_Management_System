@@ -108,6 +108,12 @@ export function getApiErrorMessage(error) {
   if (error?.response) {
     const status = error.response.status;
     const detail = error.response.data?.message || error.response.data?.detail;
+    if (
+      status === 429 &&
+      (!detail || /^too many requests/i.test(String(detail).trim()))
+    ) {
+      return 'Thao tác quá nhanh, vui lòng đợi vài giây rồi thử lại.';
+    }
     if (typeof detail === 'string' && detail.trim().length > 0) {
       return detail;
     }

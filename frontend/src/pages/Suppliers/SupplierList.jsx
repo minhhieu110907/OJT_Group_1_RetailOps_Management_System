@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Modal, Pagination, Table, useToast } from '../../components/common';
+import { CustomSelect, Modal, Pagination, Table, useToast } from '../../components/common';
 import modalStyles from '../../components/common/Modal/Modal.module.css';
 import { getApiErrorMessage } from '../../api/axiosClient';
 import { productsApi } from '../../api/productsApi';
@@ -680,18 +680,19 @@ export default function SupplierList() {
             />
           </div>
 
-          <select
-            className={styles.statusSelect}
+          <CustomSelect
+            ariaLabel="Lọc theo trạng thái nhà cung cấp"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPagination((prev) => ({ ...prev, page: 1 }));
             }}
-          >
-            <option value="">Tất cả trạng thái</option>
-            <option value="ACTIVE">Đang hợp tác</option>
-            <option value="INACTIVE">Ngừng hợp tác</option>
-          </select>
+            options={[
+              { value: '', label: 'Tất cả trạng thái' },
+              { value: 'ACTIVE', label: 'Đang hợp tác' },
+              { value: 'INACTIVE', label: 'Ngừng hợp tác' },
+            ]}
+          />
         </div>
 
         <div className={styles.totalBadge}>
