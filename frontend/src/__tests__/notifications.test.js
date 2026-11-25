@@ -251,7 +251,16 @@ describe('AUTH-05 Admin In-App Notifications Real API Test Suite', () => {
       assert.match(headerSource, /notificationsApi\.markAllAsRead/);
       assert.match(headerSource, /Thông báo xét duyệt tài khoản nhân viên/);
       assert.match(headerSource, /Cơ chế chống thông báo trùng lặp:/);
-      assert.match(headerSource, /Xem toàn bộ hàng đợi phê duyệt \(AUTH-03\)/);
+      assert.doesNotMatch(headerSource, /Xem toàn bộ hàng đợi phê duyệt/);
+      assert.doesNotMatch(headerSource, /handleViewAllApprovalQueue/);
+      assert.match(
+        headerSource,
+        /className=\{`\$\{styles\.notificationCard\}[\s\S]*?role="button"[\s\S]*?onClick=\{\(\) => \{[\s\S]*?handleOpenApprovalFromNotification\(item\)/
+      );
+      assert.match(
+        headerSource,
+        /event\.stopPropagation\(\);\s*handleMarkSingleRead\(item\.id\);/
+      );
       assert.doesNotMatch(headerSource, /minh\.nguyen@retailops\.vn/);
       assert.doesNotMatch(headerSource, /mai\.tran@retailops\.vn/);
       assert.doesNotMatch(headerSource, /long\.le@retailops\.vn/);

@@ -605,14 +605,14 @@ html[data-modal-open='true'] main {
 [data-theme='dark'] [class*="notificationHeader"],
 [data-theme='dark'] [class*="notificationList"],
 [data-theme='dark'] [class*="notificationCard"],
-[data-theme='dark'] [class*="notificationFooter"],
 [data-theme='dark'] [class*="notificationSafeguardBanner"],
 [data-theme='dark'] [class*="notificationStateBox"] {
   background-color: var(--color-bg-surface) !important;
   border-color: var(--color-border) !important;
 }
 
-[data-theme='dark'] [class*="notificationCard"]:hover {
+[data-theme='dark'] [class*="notificationCard"]:hover,
+[data-theme='dark'] [class*="notificationCard"]:focus-visible {
   background-color: var(--color-bg-hover) !important;
 }
 
