@@ -1,6 +1,6 @@
 export const DEFAULT_POS_PRODUCT_LIMIT = 6;
 export const SEARCH_POS_PRODUCT_LIMIT = 24;
-export const LOW_STOCK_THRESHOLD = 10;
+export const LOW_STOCK_THRESHOLD = 15;
 
 /**
  * Format integer VND amount into readable Vietnamese currency string.

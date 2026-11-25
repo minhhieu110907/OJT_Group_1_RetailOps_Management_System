@@ -435,11 +435,33 @@ export function setCsrfToken(token) {
 }
 
 export function getCsrfToken() {
-  return inMemoryCsrfToken;
+  return readBrowserCsrfCookie() || inMemoryCsrfToken;
 }
 
 /**
- * Lấy CSRF Token từ Backend (`GET /api/v1/auth/csrf`) nếu trong RAM chưa có.
+ * Đọc trực tiếp cookie `retailops_csrf` (httponly=False) từ trình duyệt
+ * để luôn đồng bộ giữa nhiều tab khi một tab khác vừa gọi /auth/refresh xoay vòng cookie.
+ */
+function readBrowserCsrfCookie() {
+  if (typeof document === 'undefined' || typeof document.cookie !== 'string' || !document.cookie) {
+    return null;
+  }
+  const match = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('retailops_csrf='));
+  if (!match) return null;
+  const rawVal = match.slice('retailops_csrf='.length);
+  if (!rawVal) return null;
+  try {
+    return decodeURIComponent(rawVal);
+  } catch {
+    return rawVal;
+  }
+}
+
+/**
+ * Lấy CSRF Token từ Backend (`GET /api/v1/auth/csrf`) nếu trong Cookie/RAM chưa có.
  * Có kiểm tra session generation để không ghi đè trạng thái của phiên khác.
  */
 export async function ensureCsrfToken(
@@ -447,6 +469,11 @@ export async function ensureCsrfToken(
 ) {
   if (expectedGeneration !== currentSessionGeneration) {
     return null;
+  }
+  const cookieCsrf = readBrowserCsrfCookie();
+  if (cookieCsrf) {
+    inMemoryCsrfToken = cookieCsrf;
+    return inMemoryCsrfToken;
   }
   if (inMemoryCsrfToken) {
     return inMemoryCsrfToken;
@@ -537,7 +564,9 @@ async function callRefreshTokenApiCore(
   }
 
   const csrfToken =
-    inMemoryCsrfToken || (await ensureCsrfToken(expectedGeneration));
+    readBrowserCsrfCookie() ||
+    inMemoryCsrfToken ||
+    (await ensureCsrfToken(expectedGeneration));
 
   if (expectedGeneration !== currentSessionGeneration) {
     throw new Error('Phiên làm việc đã thay đổi trước khi gọi refresh.');
@@ -608,7 +637,7 @@ export async function callLogoutApi({
 
   activeLogoutPromise = (async () => {
     try {
-      let csrfToUse = csrfToken;
+      let csrfToUse = readBrowserCsrfCookie() || csrfToken;
       if (!csrfToUse) {
         try {
           const csrfRes = await authTransport.get(`${BASE_URL}/auth/csrf`, {
@@ -803,8 +832,10 @@ axiosClient.interceptors.request.use(
       delete config.headers.Authorization;
     }
 
-    if (inMemoryCsrfToken) {
-      config.headers['X-CSRF-Token'] = inMemoryCsrfToken;
+    const activeCsrf = readBrowserCsrfCookie() || inMemoryCsrfToken;
+    if (activeCsrf) {
+      inMemoryCsrfToken = activeCsrf;
+      config.headers['X-CSRF-Token'] = activeCsrf;
     }
     return config;
   },

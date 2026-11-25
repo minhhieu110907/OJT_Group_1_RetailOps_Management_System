@@ -20,7 +20,7 @@ from app.modules.categories.models import Category
 from app.modules.products.models import CatalogStatus, Inventory, Product
 from app.modules.products.schemas import ProductSortOrder
 
-LOW_STOCK_THRESHOLD = 5
+LOW_STOCK_THRESHOLD = 15
 
 _QUANTITY_NULL_LAST_EXPR = case(
     (Inventory.quantity.is_(None), 1),

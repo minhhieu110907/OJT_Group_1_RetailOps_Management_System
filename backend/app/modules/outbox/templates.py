@@ -140,7 +140,7 @@ class EmailTemplateRegistry:
         *,
         low_stock_count: int,
         items: Sequence[Mapping[str, object]],
-        threshold: int = 5,
+        threshold: int = 15,
     ) -> RenderedEmail:
         """Render low-stock alert email summarizing products below threshold."""
         lines = [

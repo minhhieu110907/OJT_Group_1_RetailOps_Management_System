@@ -1096,8 +1096,8 @@ describe('T04A70D Supplier Management & Real API Integration Test Suite', () => 
 
       // Renders conflictCard with HTTP 409 badge
       assert.ok(
-        content.includes('conflictCard') && content.includes('HTTP 409'),
-        'Must render conflictCard with HTTP 409 badge'
+        content.includes('conflictCard') && !content.includes('>HTTP 409<'),
+        'Must render conflictCard without exposing raw HTTP 409 badge'
       );
 
       // Provides reload action that refreshes list and resets snapshot with updated_at

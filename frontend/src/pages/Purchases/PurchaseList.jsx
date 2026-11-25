@@ -616,6 +616,10 @@ export default function PurchaseList() {
     };
   }, []);
 
+  // Theo dõi tab hiện tại để phát hiện phiếu nháp đã chuyển trạng thái khi người dùng bấm Xem chi tiết
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
   // Load chi tiết phiếu nhập chỉ khi Modal Chi tiết ĐANG MỞ và khớp generation guard
   useEffect(() => {
     const detailGuard = detailGuardRef.current;
@@ -663,6 +667,14 @@ export default function PurchaseList() {
           });
         } else {
           setIsEditingDraft(false);
+          if (activeTabRef.current === 'DRAFT') {
+            setConflictError(
+              receipt.status === 'CONFIRMED'
+                ? `Phiếu nhập #${receipt.id} đã được xác nhận ở phiên làm việc khác. Danh sách đã được cập nhật.`
+                : `Phiếu nhập #${receipt.id} đã bị hủy ở phiên làm việc khác. Danh sách đã được cập nhật.`
+            );
+            setRefreshTrigger((prev) => prev + 1);
+          }
         }
       } catch (err) {
         if (!detailGuard.isCurrent(reqId, targetReceiptId)) {
@@ -993,14 +1005,13 @@ export default function PurchaseList() {
 
       if (result.outcome === 'RECONCILED_CONFIRMED') {
         const confirmedReceipt = result.receipt;
-        toast.info(
-          `Phiếu nhập #${confirmedReceipt.id} đã ở trạng thái Đã nhập. Dữ liệu đã được đồng bộ.`
-        );
-        setSelectedReceipt(confirmedReceipt);
-        setIsEditingDraft(false);
-        detailGuardRef.current.invalidate();
-        setIsDetailModalOpen(false);
-        setSelectedReceiptId(null);
+        const reconciledMsg = `Phiếu nhập #${confirmedReceipt.id} đã được xác nhận ở phiên làm việc khác. Dữ liệu đã được đồng bộ lại.`;
+        toast.info(reconciledMsg);
+        if (detailGuardRef.current.getActiveReceiptId() === targetId) {
+          setSelectedReceipt(confirmedReceipt);
+          setIsEditingDraft(false);
+          setConflictError(reconciledMsg);
+        }
         setRefreshTrigger((prev) => prev + 1);
         return;
       }
@@ -1095,10 +1106,38 @@ export default function PurchaseList() {
       const errMsg = getApiErrorMessage(err, 'Lỗi khi hủy phiếu nhập.');
       if (err.response?.status === 409) {
         setIsCancelModalOpen(false);
-        setConflictError(
-          errMsg || 'Phiên bản nháp đã thay đổi. Vui lòng tải lại phiếu mới nhất.'
-        );
-        handleRetryDetail();
+        let latestReceipt = null;
+        try {
+          latestReceipt = await receiptsApi.get(targetId);
+        } catch {
+          // Fallback: giữ trạng thái hiện có và vẫn hiển thị cảnh báo xung đột
+        }
+        if (
+          latestReceipt &&
+          detailGuardRef.current.getActiveReceiptId() === targetId
+        ) {
+          setSelectedReceipt(latestReceipt);
+          if (latestReceipt.status === 'DRAFT') {
+            setEditSupplierId(String(latestReceipt.supplier_id));
+            setEditLines(
+              latestReceipt.items.map((it) => ({
+                product_id: String(it.product_id),
+                quantity: it.quantity,
+                unit_cost_vnd: it.unit_cost_vnd,
+              }))
+            );
+          } else {
+            setIsEditingDraft(false);
+          }
+        }
+        const conflictMsg =
+          latestReceipt?.status === 'CONFIRMED'
+            ? `Phiếu nhập #${targetId} đã được xác nhận ở phiên làm việc khác. Dữ liệu đã được đồng bộ lại.`
+            : latestReceipt?.status === 'CANCELLED'
+            ? `Phiếu nhập #${targetId} đã bị hủy ở phiên làm việc khác. Dữ liệu đã được đồng bộ lại.`
+            : errMsg || 'Phiên bản nháp đã thay đổi hoặc phiếu đã được xử lý. Dữ liệu đã được đồng bộ lại.';
+        setConflictError(conflictMsg);
+        setRefreshTrigger((prev) => prev + 1);
       }
       toast.error(errMsg);
     } finally {

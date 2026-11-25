@@ -489,18 +489,18 @@ def test_low_stock_matches_inventory_threshold(
                 session,
                 category_id=cat.id,
                 sku_suffix="LOW_5",
-                name="Qty 5",
+                name="Qty 15",
                 price_vnd=10000,
-                quantity=5,
+                quantity=15,
                 first_stocked_at=now,
             )
             p_ok_6 = ctx.add_product(
                 session,
                 category_id=cat.id,
                 sku_suffix="OK_6",
-                name="Qty 6",
+                name="Qty 16",
                 price_vnd=10000,
-                quantity=6,
+                quantity=16,
                 first_stocked_at=now,
             )
             p_inact_2 = ctx.add_product(

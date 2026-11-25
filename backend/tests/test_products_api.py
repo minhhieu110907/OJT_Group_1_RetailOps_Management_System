@@ -173,7 +173,7 @@ class FakeProductRepository(ProductRepository):
                     return (3, 0, p.id)
                 if qty == 0:
                     return (0, 0, p.id)
-                if qty <= 5:
+                if qty <= 15:
                     return (1, qty, p.id)
                 return (2, qty, p.id)
 

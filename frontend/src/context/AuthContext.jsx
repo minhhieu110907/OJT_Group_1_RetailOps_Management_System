@@ -444,6 +444,9 @@ export function AuthProvider({ children }) {
         msg ||
           'Thông tin đăng nhập không chính xác hoặc tài khoản chưa sẵn sàng.'
       );
+      if (error?.response?.status) {
+        authError.status = error.response.status;
+      }
       if (error?.response?.data?.code) {
         authError.code = error.response.data.code;
       }

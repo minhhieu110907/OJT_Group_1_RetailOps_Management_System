@@ -257,7 +257,7 @@ def test_notify_low_stock_alert_queues_when_items_exist_and_fails_when_empty() -
     )
     inv = Inventory(
         product_id=1,
-        quantity=10,
+        quantity=20,
         stock_version=1,
         first_stocked_at=now,
         updated_at=now,

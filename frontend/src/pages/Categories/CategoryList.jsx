@@ -291,7 +291,7 @@ export default function CategoryList() {
         ) {
           setConflictData({
             message:
-              'Dữ liệu danh mục đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+              'Dữ liệu danh mục đã được thay đổi gần đây bởi một phiên làm việc khác. Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
             latest: latestCategory,
           });
           setRefreshTrigger((prev) => prev + 1);
@@ -345,7 +345,7 @@ export default function CategoryList() {
         setConflictData({
           message:
             getApiErrorMessage(err) ||
-            'Dữ liệu đã thay đổi gần đây trên hệ thống (HTTP 409). Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
+            'Dữ liệu đã thay đổi gần đây trên hệ thống. Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
         });
       } else {
         setFormError(getApiErrorMessage(err, 'Lỗi lưu thông tin danh mục.'));
@@ -614,7 +614,6 @@ export default function CategoryList() {
                   <span className={styles.conflictTitle}>Dữ liệu đã thay đổi gần đây</span>
                   <span className={styles.conflictSubtitle}>Xung đột cập nhật đồng thời</span>
                 </div>
-                <span className={styles.httpBadge}>HTTP 409</span>
               </div>
               <p className={styles.conflictDesc}>{conflictData.message}</p>
               <button

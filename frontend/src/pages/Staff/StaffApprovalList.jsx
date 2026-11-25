@@ -70,6 +70,18 @@ export default function StaffApprovalList() {
 
   const targetRequestIdParam = urlSearchParams.get('approval_request_id');
 
+  // Tự động đồng bộ bảng xét duyệt khi chuông thông báo Admin phát hiện có yêu cầu đăng ký mới
+  useEffect(() => {
+    if (isMock || typeof window === 'undefined') return undefined;
+    const handleNewApprovalNotification = () => {
+      setRefreshTrigger((prev) => prev + 1);
+    };
+    window.addEventListener('retailops:admin-unread-increased', handleNewApprovalNotification);
+    return () => {
+      window.removeEventListener('retailops:admin-unread-increased', handleNewApprovalNotification);
+    };
+  }, [isMock]);
+
   // Tải danh sách yêu cầu duyệt nhân viên + đồng bộ số lượng từng tab (chỉ fetch 3 tab counts khi khởi tạo hoặc refresh)
   useEffect(() => {
     if (isMock) return undefined;
@@ -157,11 +169,11 @@ export default function StaffApprovalList() {
         const status = error?.response?.status;
         if (status === 403) {
           setLoadError(
-            'Bạn không có quyền truy cập danh sách xét duyệt nhân viên (HTTP 403 — Chỉ dành cho Quản trị viên ACTIVE).'
+            'Bạn không có quyền truy cập danh sách xét duyệt nhân viên (Chỉ dành cho Quản trị viên đang hoạt động).'
           );
         } else if (status === 401) {
           setLoadError(
-            'Phiên đăng nhập đã hết hạn hoặc không hợp lệ (HTTP 401). Vui lòng đăng nhập lại.'
+            'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.'
           );
         } else {
           setLoadError(

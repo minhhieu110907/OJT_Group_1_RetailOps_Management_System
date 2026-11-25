@@ -186,14 +186,14 @@ describe('T04A89D Inventory & Storage Management Regression Suite', () => {
   // WORKSTREAM 2 — KPI SEMANTICS & NO CURRENT-PAGE BIAS
   // =========================================================================
   describe('Global KPI Calculation Semantics (INV-01)', () => {
-    test('classifyStockLevel classifies levels strictly by ACTIVE status and threshold <= 5', () => {
-      // ACTIVE in-stock (> 5) -> code: 'NORMAL', label: 'Bình thường'
-      const normal = classifyStockLevel(10, 'ACTIVE');
+    test('classifyStockLevel classifies levels strictly by ACTIVE status and threshold <= 15', () => {
+      // ACTIVE in-stock (> 15) -> code: 'NORMAL', label: 'Bình thường'
+      const normal = classifyStockLevel(20, 'ACTIVE');
       assert.equal(normal.code, 'NORMAL');
       assert.equal(normal.label, 'Bình thường');
 
-      // ACTIVE low-stock (1..5) -> code: 'LOW', label: 'Tồn thấp'
-      const low = classifyStockLevel(3, 'ACTIVE');
+      // ACTIVE low-stock (1..15) -> code: 'LOW', label: 'Tồn thấp'
+      const low = classifyStockLevel(15, 'ACTIVE');
       assert.equal(low.code, 'LOW');
       assert.equal(low.label, 'Tồn thấp');
 

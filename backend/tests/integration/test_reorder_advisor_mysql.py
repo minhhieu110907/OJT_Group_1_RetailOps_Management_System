@@ -277,7 +277,7 @@ def test_sold_units_for_products_and_reorder_advisor_readonly_mysql(
             )
             by_id = {r.product_id: r for r in report.recommendations}
             assert by_id[sold_pid].sold_units == 7
-            assert by_id[sold_pid].suggested_quantity == 5  # max(1, 5-2, 7-2)
+            assert by_id[sold_pid].suggested_quantity == 13  # max(1, 15-2, 7-2)
             assert by_id[zero_pid].sold_units == 0
             assert by_id[zero_pid].suggested_quantity is None
 

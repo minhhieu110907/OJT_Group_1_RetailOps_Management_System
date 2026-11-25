@@ -412,7 +412,7 @@ export default function Sidebar({
                 {(user.name || '').replace(/\s*\(admin\)/gi, '').trim()}
               </span>
               <span className={styles.accountRole}>
-                {isAdmin ? 'Quản lý' : 'Nhân viên'}
+                {isAdmin ? 'Quản trị viên' : 'Nhân viên'}
               </span>
             </div>
 

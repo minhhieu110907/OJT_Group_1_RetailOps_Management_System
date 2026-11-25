@@ -93,6 +93,7 @@ export default function Header({
   const notificationRef = useRef(null);
   const fetchGenRef = useRef(0);
   const badgeGenRef = useRef(0);
+  const prevUnreadCountRef = useRef(null);
   const markingIdsRef = useRef(new Set());
   const isMarkingAllRef = useRef(false);
 
@@ -188,20 +189,59 @@ export default function Header({
       });
       return undefined;
     }
-    const badgeGen = ++badgeGenRef.current;
-    notificationsApi
-      .getUnreadCount({ isMockMode })
-      .then((res) => {
-        if (badgeGen === badgeGenRef.current) {
-          setUnreadCount(Math.max(0, res.count));
-        }
-      })
-      .catch(() => {
-        // Không làm gián đoạn giao diện chung khi nền kiểm tra badge lỗi
-      });
+    const refreshUnreadBadge = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      const badgeGen = ++badgeGenRef.current;
+      notificationsApi
+        .getUnreadCount({ isMockMode })
+        .then((res) => {
+          if (badgeGen === badgeGenRef.current) {
+            const nextCount = Math.max(0, res.count);
+            if (
+              prevUnreadCountRef.current !== null &&
+              nextCount > prevUnreadCountRef.current &&
+              typeof window !== 'undefined' &&
+              typeof window.dispatchEvent === 'function'
+            ) {
+              window.dispatchEvent(
+                new CustomEvent('retailops:admin-unread-increased', {
+                  detail: { count: nextCount },
+                })
+              );
+            }
+            prevUnreadCountRef.current = nextCount;
+            setUnreadCount(nextCount);
+          }
+        })
+        .catch(() => {
+          // Không làm gián đoạn giao diện chung khi nền kiểm tra badge lỗi
+        });
+    };
+
+    refreshUnreadBadge();
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        refreshUnreadBadge();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    const isNodeTestEnv = Boolean(globalThis.process?.versions?.node);
+    const pollTimer = isNodeTestEnv
+      ? null
+      : window.setInterval(refreshUnreadBadge, 5000);
 
     return () => {
       badgeGenRef.current += 1;
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+      }
     };
   }, [isAdmin, isMockMode, location.pathname, user?.id]);
 

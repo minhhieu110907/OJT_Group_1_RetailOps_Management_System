@@ -397,7 +397,7 @@ export default function SupplierList() {
         ) {
           setConflictData({
             message:
-              'Dữ liệu nhà cung cấp đã được thay đổi gần đây bởi một phiên làm việc khác (HTTP 409 Conflict). Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
+              'Dữ liệu nhà cung cấp đã được thay đổi gần đây bởi một phiên làm việc khác. Vui lòng tải lại dữ liệu mới nhất để đối soát trước khi cập nhật.',
             latest: latestSupplier,
           });
           setRefreshTrigger((prev) => prev + 1);
@@ -516,7 +516,7 @@ export default function SupplierList() {
         setConflictData({
           message:
             getApiErrorMessage(err) ||
-            'Dữ liệu đã thay đổi gần đây trên hệ thống (HTTP 409). Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
+            'Dữ liệu đã thay đổi gần đây trên hệ thống. Vui lòng tải lại dữ liệu mới nhất trước khi tiếp tục.',
         });
       } else {
         const errorMsg = getApiErrorMessage(
@@ -782,7 +782,6 @@ export default function SupplierList() {
                   <span className={styles.conflictTitle}>Dữ liệu đã thay đổi gần đây</span>
                   <span className={styles.conflictSubtitle}>Xung đột cập nhật đồng thời</span>
                 </div>
-                <span className={styles.httpBadge}>HTTP 409</span>
               </div>
               <p className={styles.conflictDesc}>{conflictData.message}</p>
               <button

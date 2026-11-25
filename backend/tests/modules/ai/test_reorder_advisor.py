@@ -104,7 +104,7 @@ def _make_sqlite_session_factory() -> sessionmaker[Session]:
 def _seed_store_data(
     sf: sessionmaker[Session],
 ) -> tuple[int, int, int, int]:
-    now = datetime(2026, 11, 20, 6, 0, tzinfo=UTC).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     hasher = PasswordHasher(work_factor=4)
     with sf() as session, session.begin():
         admin = User(
@@ -782,11 +782,11 @@ def test_low_stock_outside_top_20_and_zero_vs_missing_sales() -> None:
     )
     by_id = {item.product_id: item for item in report.recommendations}
 
-    # Product outside Top 20 still gets exact sold_units=8 and Q=max(1, 5-2, 8-2)=6
+    # Product outside Top 20 still gets exact sold_units=8 and Q=max(1, 15-2, 8-2)=13
     rec_outside = by_id[outside_id]
     assert rec_outside.sold_units == 8
     assert rec_outside.classification == "PRIORITY_RESTOCK"
-    assert rec_outside.suggested_quantity == 6
+    assert rec_outside.suggested_quantity == 13
 
     # Product with truly 0 sales is explicitly sold_units=0 (distinct from missing)
     rec_zero = by_id[zero_id]
@@ -960,7 +960,7 @@ def test_pagination_handles_more_than_20_low_stock_and_signals_truncation() -> N
     by_id_full = {item.product_id: item for item in rep_full.recommendations}
     assert len(by_id_full) == 25
     assert by_id_full[target_pid].sold_units == 10
-    assert by_id_full[target_pid].suggested_quantity == 8  # max(1, 5-2, 10-2)
+    assert by_id_full[target_pid].suggested_quantity == 13  # max(1, 15-2, 10-2)
 
     # Capped pagination (page_size=10, max_pages=2 -> 20/25 => PARTIAL_DATA)
     bound_cap = bind_authenticated_request(principal, request_id="req-page-cap")
