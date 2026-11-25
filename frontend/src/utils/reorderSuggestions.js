@@ -173,8 +173,11 @@ export function buildReorderSuggestions(
       reason = `${stockLabel} · Chưa có dữ liệu bán hàng đầy đủ`;
     }
 
+    const categoryId = parseStrictInteger(lowItem?.category_id);
+
     results.push({
       product_id: productId,
+      ...(categoryId !== null && categoryId > 0 ? { category_id: categoryId } : {}),
       sku: rawSku,
       name: rawName,
       quantity,
@@ -274,6 +277,35 @@ export function getMatchingProductIdsForSupplier(rows = [], supplier = null) {
     }
   }
   return matched;
+}
+
+/**
+ * Lọc danh sách gợi ý nhập hàng theo danh mục của Nhà cung cấp đang chọn
+ * (hoặc lịch sử nhập gần nhất), luôn giữ lại các sản phẩm đã tick chọn.
+ */
+export function filterReorderRowsBySupplier(
+  rows = [],
+  { supplier = null, selectedIds = [], showAll = false } = {}
+) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  if (showAll || !supplier || typeof supplier !== 'object') {
+    return safeRows;
+  }
+  const hasLinkedCategories =
+    Array.isArray(supplier.category_ids) && supplier.category_ids.length > 0;
+  if (!hasLinkedCategories) {
+    return safeRows;
+  }
+  const matchedSet = new Set(getMatchingProductIdsForSupplier(safeRows, supplier));
+  const selectedSet = new Set(
+    (Array.isArray(selectedIds) ? selectedIds : [])
+      .map((id) => parseStrictInteger(id))
+      .filter((id) => id !== null && id > 0)
+  );
+  return safeRows.filter((row) => {
+    const pid = parseStrictInteger(row?.product_id);
+    return pid !== null && (matchedSet.has(pid) || selectedSet.has(pid));
+  });
 }
 
 /** Phân trang danh sách gợi ý nhập hàng ở phía client một cách an toàn. */
