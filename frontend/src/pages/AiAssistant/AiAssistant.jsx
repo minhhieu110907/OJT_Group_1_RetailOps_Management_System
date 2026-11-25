@@ -910,39 +910,29 @@ export default function AiAssistant() {
                       setReorderPage(1);
                       setDraftActionError('');
                     }}
-<<<<<<< HEAD
                     options={[
-                      { value: '', label: '-- Chọn nhà cung cấp --' },
-                      ...reorderSuppliers.map((sup) => ({
-                        value: String(sup.id),
-                        label: sup.name,
-                      })),
-                    ]}
-                  />
-=======
-                  >
-                    <option value="">-- Chọn nhà cung cấp --</option>
-                    {reorderSuppliers.map((sup) => (
-                      <option key={sup.id} value={sup.id}>
-                        {sup.name}
-                      </option>
-                    ))}
-                  </select>
-                  {hasSupplierCategoryFilter && (
-                    <label className={styles.showAllProductsToggle}>
-                      <input
-                        type="checkbox"
-                        checked={showAllReorderProducts}
-                        disabled={isCreatingDraft}
-                        onChange={(e) => {
-                          setShowAllReorderProducts(e.target.checked);
-                          setReorderPage(1);
-                        }}
-                      />
-                      <span>Hiện tất cả sản phẩm (ngoài danh mục của NCC)</span>
-                    </label>
-                  )}
->>>>>>> origin/develop
+                        { value: '', label: '-- Chọn nhà cung cấp --' },
+                        ...reorderSuppliers.map((sup) => ({
+                          value: String(sup.id),
+                          label: sup.name,
+                        })),
+                      ]}
+                    />
+
+                    {hasSupplierCategoryFilter && (
+                      <label className={styles.showAllProductsToggle}>
+                        <input
+                          type="checkbox"
+                          checked={showAllReorderProducts}
+                          disabled={isCreatingDraft}
+                          onChange={(e) => {
+                            setShowAllReorderProducts(e.target.checked);
+                            setReorderPage(1);
+                          }}
+                        />
+                        <span>Hiện tất cả sản phẩm (ngoài danh mục của NCC)</span>
+                      </label>
+                    )}
                 </div>
 
                 <div className={styles.toolbarActions}>
