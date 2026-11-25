@@ -6,6 +6,7 @@ Project retailops_v1 {
 Table users {
   id bigint [pk, increment]
   email_normalized varchar(254) [not null, unique, note: 'ASCII canonical email, binary collation in migration']
+  full_name varchar(120)
   password_hash varchar(255) [not null]
   role varchar(5) [not null]
   status varchar(16) [not null]
@@ -14,7 +15,7 @@ Table users {
   created_at datetime(6) [not null]
   updated_at datetime(6) [not null]
   checks {
-    `(role = 'ADMIN' AND admin_slot IS NOT NULL AND admin_slot = 1 AND status = 'ACTIVE') OR (role = 'STAFF' AND admin_slot IS NULL AND status IN ('PENDING_APPROVAL','ACTIVE','REJECTED'))`
+    `(role = 'ADMIN' AND admin_slot IS NOT NULL AND admin_slot = 1 AND status = 'ACTIVE') OR (role = 'STAFF' AND admin_slot IS NULL AND status IN ('PENDING_APPROVAL','ACTIVE','REJECTED','LOCKED'))`
   }
 }
 
@@ -116,6 +117,7 @@ Table products {
   category_id bigint [not null]
   sku varchar(64) [not null, unique, note: 'ASCII canonical SKU, binary collation in migration']
   name varchar(160) [not null]
+  image_url varchar(500)
   status varchar(8) [not null, default: 'ACTIVE']
   sale_price_vnd bigint [not null]
   created_at datetime(6) [not null]
@@ -316,7 +318,7 @@ Table outbox_events {
     (outcome, finished_at, id) [note: 'Retention and terminal status query']
   }
   checks {
-    `event_type IN ('STAFF_REGISTERED','STAFF_APPROVED','STAFF_REJECTED','PASSWORD_RESET','STAFF_REAPPLY_PROOF')`
+    `event_type IN ('STAFF_REGISTERED','STAFF_APPROVED','STAFF_REJECTED','PASSWORD_RESET','STAFF_REAPPLY_PROOF','PURCHASE_DRAFT_CREATED','PURCHASE_RECEIPT_CONFIRMED','LOW_STOCK_ALERT','STAFF_LOCKED','STAFF_UNLOCKED')`
     `(outcome IS NULL AND finished_at IS NULL) OR (outcome IN ('SENT','FAILED','SKIPPED') AND finished_at IS NOT NULL)`
     `publish_attempts >= 0 AND delivery_attempts >= 0`
     `secret_ciphertext IS NULL OR secret_expires_at IS NOT NULL`
@@ -335,11 +337,54 @@ Table admin_notifications {
   }
 }
 
+Table password_reset_tokens {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  token_hash varchar(64) [not null, unique, note: 'SHA-256 hex digest, ascii_bin collation in migration']
+  expires_at datetime(6) [not null]
+  used_at datetime(6)
+  created_at datetime(6) [not null]
+  indexes {
+    (user_id, used_at, expires_at)
+  }
+  checks {
+    `expires_at > created_at AND (used_at IS NULL OR used_at >= created_at)`
+  }
+}
+
+Table staff_account_events {
+  id bigint [pk, increment]
+  actor_id bigint [not null]
+  target_user_id bigint [not null]
+  action varchar(6) [not null]
+  created_at datetime(6) [not null]
+  indexes {
+    (target_user_id, created_at, id)
+  }
+  checks {
+    `action IN ('LOCK','UNLOCK')`
+  }
+}
+
+Table supplier_categories {
+  supplier_id bigint [not null]
+  category_id bigint [not null]
+  indexes {
+    (supplier_id, category_id) [pk]
+    (category_id)
+  }
+}
+
 Ref: staff_approval_requests.user_id > users.id
 Ref: staff_approval_requests.decided_by > users.id
 Ref: auth_sessions.user_id > users.id
 Ref: refresh_tokens.session_id > auth_sessions.id
 Ref: account_action_tokens.user_id > users.id
+Ref: password_reset_tokens.user_id > users.id [delete: cascade]
+Ref: staff_account_events.actor_id > users.id
+Ref: staff_account_events.target_user_id > users.id
+Ref: supplier_categories.supplier_id > suppliers.id [delete: cascade]
+Ref: supplier_categories.category_id > categories.id [delete: restrict]
 Ref: products.category_id > categories.id
 Ref: purchase_receipts.supplier_id > suppliers.id
 Ref: purchase_receipts.created_by > users.id
@@ -369,10 +414,13 @@ TableGroup Authentication {
   auth_sessions
   refresh_tokens
   account_action_tokens
+  password_reset_tokens
+  staff_account_events
 }
 TableGroup Master_Data {
   categories
   suppliers
+  supplier_categories
   products
 }
 TableGroup Purchasing {
