@@ -101,6 +101,7 @@ export default function PosPage() {
         loadPosCart(window.localStorage, ownerScope)
       : []
   );
+  const [draftQuantities, setDraftQuantities] = useState({});
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [manualReconciliationConfirmed, setManualReconciliationConfirmed] =
     useState(false);
@@ -354,11 +355,10 @@ export default function PosPage() {
   }, [isMockMode, refreshTrigger]);
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
-  const posPageSize = hasCartItems ? 10 : 14;
+  const posPageSize = 10;
 
-  // Tải danh sách sản phẩm hiển thị tại POS:
-  // - Chưa có sản phẩm trong giỏ: 14 sản phẩm/trang (2 dòng x 7 cột)
-  // - Có ít nhất 1 sản phẩm trong giỏ: 10 sản phẩm/trang (2 dòng x 5 cột)
+  // Tải danh sách sản phẩm hiển thị tại POS với pageSize cố định (10 SP/trang)
+  // để tránh đổi bố cục / gọi lại API khi thêm sản phẩm đầu tiên vào giỏ hàng.
   const isFiltering = Boolean(debouncedSearch || selectedCategoryId);
 
   useEffect(() => {
@@ -467,8 +467,18 @@ export default function PosPage() {
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
+  const clearDraftQuantity = (productId) => {
+    setDraftQuantities((prev) => {
+      if (!(productId in prev)) return prev;
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  };
+
   const handleUpdateQty = (productId, nextQty) => {
     if (isCartLocked || isCheckingOutRef.current) return;
+    clearDraftQuantity(productId);
     const nextCart = updateCartItemQuantity(cart, productId, nextQty);
     setCart(nextCart);
     if (nextCart.length === 0) {
@@ -477,9 +487,36 @@ export default function PosPage() {
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
+  const handleQtyInputChange = (item, rawValue) => {
+    if (isCartLocked || isCheckingOutRef.current) return;
+    const digitsOnly = String(rawValue || '').replace(/\D/g, '');
+    if (digitsOnly === '') {
+      setDraftQuantities((prev) => ({ ...prev, [item.productId]: '' }));
+      return;
+    }
+    const parsed = Number.parseInt(digitsOnly, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setDraftQuantities((prev) => ({ ...prev, [item.productId]: '' }));
+      return;
+    }
+    const nextCart = updateCartItemQuantity(cart, item.productId, parsed);
+    const updatedItem = nextCart.find((entry) => entry.productId === item.productId);
+    setCart(nextCart);
+    setDraftQuantities((prev) => ({
+      ...prev,
+      [item.productId]: String(updatedItem ? updatedItem.quantity : parsed),
+    }));
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+  };
+
+  const handleQtyInputBlur = (productId) => {
+    clearDraftQuantity(productId);
+  };
+
   const handleClearCart = () => {
     if (isCartLocked || isCheckingOutRef.current) return;
     setCart([]);
+    setDraftQuantities({});
     setIsMobileCartExpanded(false);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
@@ -952,36 +989,68 @@ export default function PosPage() {
         )}
       </section>
 
-      {/* Giỏ hàng bên phải — CHỈ hiển thị khi có hàng trong giỏ */}
+      {/* Giỏ hàng bên phải — luôn giữ cột cố định trên desktop để không giật layout */}
       {hasCartItems && (
-        <>
-          <div
-            className={`${styles.mobileCartBackdrop} ${
-              isMobileCartExpanded ? styles.mobileCartBackdropVisible : ''
-            }`}
-            style={
-              mobileDragHeight !== null
-                ? {
-                    opacity: mobileDragProgress,
-                    transition: 'none',
-                    pointerEvents: mobileDragProgress > 0.02 ? 'auto' : 'none',
-                  }
-                : undefined
-            }
-            onClick={() => setIsMobileCartExpanded(false)}
-            aria-hidden="true"
-          />
-          <aside
-            ref={mobileCartPanelRef}
-            className={`${styles.cartPanel} ${
-              isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''
-            }`}
-            onTouchStart={handleMobileCartTouchStart}
-            onTouchMove={handleMobileCartTouchMove}
-            onTouchEnd={handleMobileCartTouchEnd}
-            onTouchCancel={handleMobileCartTouchEnd}
-            aria-label="Giỏ hàng hiện tại"
-          >
+        <div
+          className={`${styles.mobileCartBackdrop} ${
+            isMobileCartExpanded ? styles.mobileCartBackdropVisible : ''
+          }`}
+          style={
+            mobileDragHeight !== null
+              ? {
+                  opacity: mobileDragProgress,
+                  transition: 'none',
+                  pointerEvents: mobileDragProgress > 0.02 ? 'auto' : 'none',
+                }
+              : undefined
+          }
+          onClick={() => setIsMobileCartExpanded(false)}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        ref={mobileCartPanelRef}
+        className={`${styles.cartPanel} ${
+          !hasCartItems ? styles.cartPanelEmpty : ''
+        } ${isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''}`}
+        onTouchStart={hasCartItems ? handleMobileCartTouchStart : undefined}
+        onTouchMove={hasCartItems ? handleMobileCartTouchMove : undefined}
+        onTouchEnd={hasCartItems ? handleMobileCartTouchEnd : undefined}
+        onTouchCancel={hasCartItems ? handleMobileCartTouchEnd : undefined}
+        aria-label="Giỏ hàng hiện tại"
+      >
+        {!hasCartItems ? (
+          <>
+            <div className={styles.cartHeader}>
+              <h2 className={styles.cartTitle}>
+                <svg
+                  className={styles.cartTitleIcon}
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="9" cy="21" r="1" />
+                  <circle cx="20" cy="21" r="1" />
+                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                </svg>
+                <span>Giỏ hàng (0 món)</span>
+              </h2>
+            </div>
+            <div className={styles.cartEmptyState}>
+              <p className={styles.cartEmptyStateTitle}>Giỏ hàng đang trống</p>
+              <p className={styles.cartEmptyStateDesc}>
+                Chọn sản phẩm ở danh sách bên trái để thêm vào đơn bán hàng.
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
             <button
               type="button"
               className={styles.mobileCartToggle}
@@ -1071,7 +1140,25 @@ export default function PosPage() {
                   >
                     −
                   </button>
-                  <span className={styles.qtyValue}>{item.quantity}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={styles.qtyInput}
+                    value={
+                      item.productId in draftQuantities
+                        ? draftQuantities[item.productId]
+                        : String(item.quantity)
+                    }
+                    onChange={(e) => handleQtyInputChange(item, e.target.value)}
+                    onBlur={() => handleQtyInputBlur(item.productId)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    disabled={isCartLocked}
+                    aria-label={`Số lượng ${item.name}`}
+                  />
                   <button
                     type="button"
                     className={styles.qtyBtn}
@@ -1295,9 +1382,9 @@ export default function PosPage() {
                 : 'Xác nhận bán hàng'}
             </button>
           </div>
-        </aside>
-        </>
-      )}
+          </>
+        )}
+      </aside>
 
       {/* Modal 1: Lỗi tồn kho không đủ (HTTP 409 INSUFFICIENT_STOCK) — dữ liệu thật từ Backend */}
       {stockConflictVm && (

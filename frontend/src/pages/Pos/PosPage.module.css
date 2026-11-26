@@ -1,6 +1,6 @@
 .posLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   gap: 22px;
   align-items: start;
 }
@@ -437,10 +437,7 @@
 }
 
 @media (min-width: 1600px) {
-  .productGrid {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-  }
-
+  .productGrid,
   .productGridWithCart {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -704,7 +701,7 @@
   color: #b91c1c;
 }
 
-/* Cart Sidebar (chỉ hiển thị khi có sản phẩm trong giỏ) */
+/* Cart Sidebar (luôn giữ cột bên phải trên desktop để tránh giật layout) */
 .cartPanel {
   position: sticky;
   top: 20px;
@@ -715,18 +712,39 @@
   background-color: #ffffff;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
   overflow: hidden;
-  animation: slideInCart 0.18s ease-out;
 }
 
-@keyframes slideInCart {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.cartEmptyState {
+  padding: 40px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.cartEmptyStateTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.cartEmptyStateDesc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+:global([data-theme='dark']) .cartEmptyStateTitle {
+  color: #e2e8f0;
+}
+
+:global([data-theme='dark']) .cartEmptyState {
+  color: #94a3b8;
 }
 
 .cartHeader {
@@ -856,6 +874,37 @@
   font-size: 13px;
   font-weight: 600;
   color: #0f172a;
+}
+
+.qtyInput {
+  width: 38px;
+  height: 28px;
+  padding: 0 2px;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  background: transparent;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.qtyInput:focus {
+  background-color: #ffffff;
+  box-shadow: inset 0 0 0 2px #10b981;
+}
+
+:global([data-theme='dark']) .qtyInput {
+  color: #f8fafc;
+  border-left-color: #334155;
+  border-right-color: #334155;
+}
+
+:global([data-theme='dark']) .qtyInput:focus {
+  background-color: #0f172a;
 }
 
 .cartItemRight {
@@ -1452,6 +1501,7 @@
 }
 
 @media (max-width: 1024px) {
+  .posLayout,
   .posLayoutWithCart {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1462,6 +1512,10 @@
 }
 
 @media (max-width: 768px) {
+  .cartPanelEmpty {
+    display: none;
+  }
+
   .posLayoutWithCart {
     padding-bottom: 190px;
   }
