@@ -355,10 +355,11 @@ export default function PosPage() {
   }, [isMockMode, refreshTrigger]);
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
-  const posPageSize = 14;
+  const posPageSize = hasCartItems ? 10 : 14;
 
-  // Tải danh sách sản phẩm hiển thị tại POS với pageSize cố định (14 SP/trang)
-  // để tránh đổi số lượng thẻ / gọi lại API khi thêm sản phẩm đầu tiên vào giỏ hàng.
+  // Tải danh sách sản phẩm hiển thị tại POS:
+  // - Chưa có sản phẩm trong giỏ: 14 sản phẩm/trang (2 dòng x 7 cột)
+  // - Có ít nhất 1 sản phẩm trong giỏ: 10 sản phẩm/trang (2 dòng x 5 cột)
   const isFiltering = Boolean(debouncedSearch || selectedCategoryId);
 
   useEffect(() => {
@@ -896,7 +897,7 @@ export default function PosPage() {
                 hasCartItems ? styles.productGridWithCart : ''
               }`}
             >
-              {products.map((product) => {
+              {products.slice(0, posPageSize).map((product) => {
               const inCartQty = cartQuantityMap.get(product.id) || 0;
               const isOutOfStock = product.quantity <= 0;
               const isLowStock =
