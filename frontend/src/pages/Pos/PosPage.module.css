@@ -1,6 +1,6 @@
 .posLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
   align-items: start;
 }
@@ -701,7 +701,7 @@
   color: #b91c1c;
 }
 
-/* Cart Sidebar (luôn giữ cột bên phải trên desktop để tránh giật layout) */
+/* Cart Sidebar (chỉ hiển thị khi có sản phẩm trong giỏ) */
 .cartPanel {
   position: sticky;
   top: 20px;
@@ -712,39 +712,6 @@
   background-color: #ffffff;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
   overflow: hidden;
-}
-
-.cartEmptyState {
-  padding: 40px 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 8px;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.cartEmptyStateTitle {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #334155;
-}
-
-.cartEmptyStateDesc {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-
-:global([data-theme='dark']) .cartEmptyStateTitle {
-  color: #e2e8f0;
-}
-
-:global([data-theme='dark']) .cartEmptyState {
-  color: #94a3b8;
 }
 
 .cartHeader {
@@ -1501,7 +1468,6 @@
 }
 
 @media (max-width: 1024px) {
-  .posLayout,
   .posLayoutWithCart {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1512,10 +1478,6 @@
 }
 
 @media (max-width: 768px) {
-  .cartPanelEmpty {
-    display: none;
-  }
-
   .posLayoutWithCart {
     padding-bottom: 190px;
   }

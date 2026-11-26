@@ -989,68 +989,36 @@ export default function PosPage() {
         )}
       </section>
 
-      {/* Giỏ hàng bên phải — luôn giữ cột cố định trên desktop để không giật layout */}
+      {/* Giỏ hàng bên phải — CHỈ hiển thị khi có sản phẩm trong giỏ */}
       {hasCartItems && (
-        <div
-          className={`${styles.mobileCartBackdrop} ${
-            isMobileCartExpanded ? styles.mobileCartBackdropVisible : ''
-          }`}
-          style={
-            mobileDragHeight !== null
-              ? {
-                  opacity: mobileDragProgress,
-                  transition: 'none',
-                  pointerEvents: mobileDragProgress > 0.02 ? 'auto' : 'none',
-                }
-              : undefined
-          }
-          onClick={() => setIsMobileCartExpanded(false)}
-          aria-hidden="true"
-        />
-      )}
-      <aside
-        ref={mobileCartPanelRef}
-        className={`${styles.cartPanel} ${
-          !hasCartItems ? styles.cartPanelEmpty : ''
-        } ${isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''}`}
-        onTouchStart={hasCartItems ? handleMobileCartTouchStart : undefined}
-        onTouchMove={hasCartItems ? handleMobileCartTouchMove : undefined}
-        onTouchEnd={hasCartItems ? handleMobileCartTouchEnd : undefined}
-        onTouchCancel={hasCartItems ? handleMobileCartTouchEnd : undefined}
-        aria-label="Giỏ hàng hiện tại"
-      >
-        {!hasCartItems ? (
-          <>
-            <div className={styles.cartHeader}>
-              <h2 className={styles.cartTitle}>
-                <svg
-                  className={styles.cartTitleIcon}
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="9" cy="21" r="1" />
-                  <circle cx="20" cy="21" r="1" />
-                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                </svg>
-                <span>Giỏ hàng (0 món)</span>
-              </h2>
-            </div>
-            <div className={styles.cartEmptyState}>
-              <p className={styles.cartEmptyStateTitle}>Giỏ hàng đang trống</p>
-              <p className={styles.cartEmptyStateDesc}>
-                Chọn sản phẩm ở danh sách bên trái để thêm vào đơn bán hàng.
-              </p>
-            </div>
-          </>
-        ) : (
-          <>
+        <>
+          <div
+            className={`${styles.mobileCartBackdrop} ${
+              isMobileCartExpanded ? styles.mobileCartBackdropVisible : ''
+            }`}
+            style={
+              mobileDragHeight !== null
+                ? {
+                    opacity: mobileDragProgress,
+                    transition: 'none',
+                    pointerEvents: mobileDragProgress > 0.02 ? 'auto' : 'none',
+                  }
+                : undefined
+            }
+            onClick={() => setIsMobileCartExpanded(false)}
+            aria-hidden="true"
+          />
+          <aside
+            ref={mobileCartPanelRef}
+            className={`${styles.cartPanel} ${
+              isMobileCartExpanded ? styles.cartPanelMobileExpanded : ''
+            }`}
+            onTouchStart={handleMobileCartTouchStart}
+            onTouchMove={handleMobileCartTouchMove}
+            onTouchEnd={handleMobileCartTouchEnd}
+            onTouchCancel={handleMobileCartTouchEnd}
+            aria-label="Giỏ hàng hiện tại"
+          >
             <button
               type="button"
               className={styles.mobileCartToggle}
@@ -1382,9 +1350,9 @@ export default function PosPage() {
                 : 'Xác nhận bán hàng'}
             </button>
           </div>
-          </>
-        )}
-      </aside>
+          </aside>
+        </>
+      )}
 
       {/* Modal 1: Lỗi tồn kho không đủ (HTTP 409 INSUFFICIENT_STOCK) — dữ liệu thật từ Backend */}
       {stockConflictVm && (
