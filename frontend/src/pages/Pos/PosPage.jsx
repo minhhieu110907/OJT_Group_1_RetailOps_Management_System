@@ -356,6 +356,9 @@ export default function PosPage() {
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
   const posPageSize = hasCartItems ? 10 : 14;
+  // Trên trang 1 luôn tải sẵn 14 sản phẩm để khi thêm món đầu hoặc xóa hết giỏ hàng
+  // có thể cắt 10 <-> 14 sản phẩm tức thời từ bộ nhớ, không cần gọi lại API gây trễ.
+  const apiPageSize = currentPage === 1 ? 14 : posPageSize;
 
   // Tải danh sách sản phẩm hiển thị tại POS:
   // - Chưa có sản phẩm trong giỏ: 14 sản phẩm/trang (2 dòng x 7 cột)
@@ -377,7 +380,7 @@ export default function PosPage() {
         const res = await productsApi.getProducts({
           isMockMode,
           page: currentPage,
-          pageSize: posPageSize,
+          pageSize: apiPageSize,
           keyword: debouncedSearch,
           categoryId: selectedCategoryId,
           status: 'ACTIVE',
@@ -412,7 +415,7 @@ export default function PosPage() {
   }, [
     isMockMode,
     currentPage,
-    posPageSize,
+    apiPageSize,
     debouncedSearch,
     selectedCategoryId,
     refreshTrigger,
