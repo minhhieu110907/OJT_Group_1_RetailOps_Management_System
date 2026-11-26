@@ -355,10 +355,10 @@ export default function PosPage() {
   }, [isMockMode, refreshTrigger]);
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
-  const posPageSize = 10;
+  const posPageSize = 14;
 
-  // Tải danh sách sản phẩm hiển thị tại POS với pageSize cố định (10 SP/trang)
-  // để tránh đổi bố cục / gọi lại API khi thêm sản phẩm đầu tiên vào giỏ hàng.
+  // Tải danh sách sản phẩm hiển thị tại POS với pageSize cố định (14 SP/trang)
+  // để tránh đổi số lượng thẻ / gọi lại API khi thêm sản phẩm đầu tiên vào giỏ hàng.
   const isFiltering = Boolean(debouncedSearch || selectedCategoryId);
 
   useEffect(() => {

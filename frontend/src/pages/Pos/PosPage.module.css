@@ -437,7 +437,10 @@
 }
 
 @media (min-width: 1600px) {
-  .productGrid,
+  .productGrid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
   .productGridWithCart {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
