@@ -101,6 +101,7 @@ export default function PosPage() {
         loadPosCart(window.localStorage, ownerScope)
       : []
   );
+  const [draftQuantities, setDraftQuantities] = useState({});
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [manualReconciliationConfirmed, setManualReconciliationConfirmed] =
     useState(false);
@@ -355,6 +356,9 @@ export default function PosPage() {
 
   const hasCartItems = cart.length > 0 || Boolean(pendingCheckout);
   const posPageSize = hasCartItems ? 10 : 14;
+  // Trên trang 1 luôn tải sẵn 14 sản phẩm để khi thêm món đầu hoặc xóa hết giỏ hàng
+  // có thể cắt 10 <-> 14 sản phẩm tức thời từ bộ nhớ, không cần gọi lại API gây trễ.
+  const apiPageSize = currentPage === 1 ? 14 : posPageSize;
 
   // Tải danh sách sản phẩm hiển thị tại POS:
   // - Chưa có sản phẩm trong giỏ: 14 sản phẩm/trang (2 dòng x 7 cột)
@@ -376,7 +380,7 @@ export default function PosPage() {
         const res = await productsApi.getProducts({
           isMockMode,
           page: currentPage,
-          pageSize: posPageSize,
+          pageSize: apiPageSize,
           keyword: debouncedSearch,
           categoryId: selectedCategoryId,
           status: 'ACTIVE',
@@ -411,7 +415,7 @@ export default function PosPage() {
   }, [
     isMockMode,
     currentPage,
-    posPageSize,
+    apiPageSize,
     debouncedSearch,
     selectedCategoryId,
     refreshTrigger,
@@ -467,8 +471,18 @@ export default function PosPage() {
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
+  const clearDraftQuantity = (productId) => {
+    setDraftQuantities((prev) => {
+      if (!(productId in prev)) return prev;
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  };
+
   const handleUpdateQty = (productId, nextQty) => {
     if (isCartLocked || isCheckingOutRef.current) return;
+    clearDraftQuantity(productId);
     const nextCart = updateCartItemQuantity(cart, productId, nextQty);
     setCart(nextCart);
     if (nextCart.length === 0) {
@@ -477,9 +491,36 @@ export default function PosPage() {
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
 
+  const handleQtyInputChange = (item, rawValue) => {
+    if (isCartLocked || isCheckingOutRef.current) return;
+    const digitsOnly = String(rawValue || '').replace(/\D/g, '');
+    if (digitsOnly === '') {
+      setDraftQuantities((prev) => ({ ...prev, [item.productId]: '' }));
+      return;
+    }
+    const parsed = Number.parseInt(digitsOnly, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setDraftQuantities((prev) => ({ ...prev, [item.productId]: '' }));
+      return;
+    }
+    const nextCart = updateCartItemQuantity(cart, item.productId, parsed);
+    const updatedItem = nextCart.find((entry) => entry.productId === item.productId);
+    setCart(nextCart);
+    setDraftQuantities((prev) => ({
+      ...prev,
+      [item.productId]: String(updatedItem ? updatedItem.quantity : parsed),
+    }));
+    idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
+  };
+
+  const handleQtyInputBlur = (productId) => {
+    clearDraftQuantity(productId);
+  };
+
   const handleClearCart = () => {
     if (isCartLocked || isCheckingOutRef.current) return;
     setCart([]);
+    setDraftQuantities({});
     setIsMobileCartExpanded(false);
     idempotencyKeyRef.current = generateCheckoutIdempotencyKey();
   };
@@ -859,7 +900,7 @@ export default function PosPage() {
                 hasCartItems ? styles.productGridWithCart : ''
               }`}
             >
-              {products.map((product) => {
+              {products.slice(0, posPageSize).map((product) => {
               const inCartQty = cartQuantityMap.get(product.id) || 0;
               const isOutOfStock = product.quantity <= 0;
               const isLowStock =
@@ -952,7 +993,7 @@ export default function PosPage() {
         )}
       </section>
 
-      {/* Giỏ hàng bên phải — CHỈ hiển thị khi có hàng trong giỏ */}
+      {/* Giỏ hàng bên phải — CHỈ hiển thị khi có sản phẩm trong giỏ */}
       {hasCartItems && (
         <>
           <div
@@ -1071,7 +1112,25 @@ export default function PosPage() {
                   >
                     −
                   </button>
-                  <span className={styles.qtyValue}>{item.quantity}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className={styles.qtyInput}
+                    value={
+                      item.productId in draftQuantities
+                        ? draftQuantities[item.productId]
+                        : String(item.quantity)
+                    }
+                    onChange={(e) => handleQtyInputChange(item, e.target.value)}
+                    onBlur={() => handleQtyInputBlur(item.productId)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    disabled={isCartLocked}
+                    aria-label={`Số lượng ${item.name}`}
+                  />
                   <button
                     type="button"
                     className={styles.qtyBtn}
@@ -1295,7 +1354,7 @@ export default function PosPage() {
                 : 'Xác nhận bán hàng'}
             </button>
           </div>
-        </aside>
+          </aside>
         </>
       )}
 
