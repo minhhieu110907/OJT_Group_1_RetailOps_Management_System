@@ -26,7 +26,7 @@ export default function ProtectedRoute({ allowedRoles = [], children }) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#f8fafc',
+          backgroundColor: 'var(--color-bg-page, #f8fafc)',
           gap: '12px',
         }}
       >
@@ -34,13 +34,13 @@ export default function ProtectedRoute({ allowedRoles = [], children }) {
           style={{
             width: '36px',
             height: '36px',
-            border: '3px solid #6366f1',
+            border: '3px solid var(--color-primary, #087F5B)',
             borderTopColor: 'transparent',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
           }}
         />
-        <p style={{ fontSize: '14px', color: '#64748b', fontWeight: 500 }}>
+        <p style={{ fontSize: '14px', color: 'var(--color-text-secondary, #64748b)', fontWeight: 500 }}>
           Đang khôi phục phiên đăng nhập...
         </p>
       </div>
