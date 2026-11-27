@@ -219,7 +219,8 @@ export default function PurchaseList() {
             page: 1,
             pageSize: 100,
             status: 'ACTIVE',
-            fetchAll: false,
+            fetchAll: true,
+            maxPages: 10,
           }),
         ]);
 
@@ -1974,19 +1975,6 @@ export default function PurchaseList() {
                     </div>
                   )}
 
-                  {/* Ô tìm kiếm sản phẩm phía server nếu danh mục sản phẩm > 100 */}
-                  {(productsMeta.isTruncated || productSearchTerm) && (
-                    <div style={{ marginBottom: '10px' }}>
-                      <input
-                        type="text"
-                        className={styles.formInput}
-                        placeholder="Tìm nhanh sản phẩm theo tên hoặc mã SKU trên toàn hệ thống..."
-                        value={productSearchTerm}
-                        onChange={(e) => setProductSearchTerm(e.target.value)}
-                      />
-                    </div>
-                  )}
-
                   <div className={styles.lineHeaderRow}>
                     <span>Sản phẩm</span>
                     <span>Số lượng</span>
@@ -2237,18 +2225,6 @@ export default function PurchaseList() {
                 </button>
               )}
             </div>
-
-            {(productsMeta.isTruncated || productSearchTerm) && (
-              <div style={{ marginBottom: '10px' }}>
-                <input
-                  type="text"
-                  className={styles.formInput}
-                  placeholder={`Tìm sản phẩm theo SKU hoặc tên (đang hiển thị ${activeProducts.length}/${productsMeta.total} SP)...`}
-                  value={productSearchTerm}
-                  onChange={(e) => setProductSearchTerm(e.target.value)}
-                />
-              </div>
-            )}
 
             <div className={styles.lineHeaderRow}>
               <span>Sản phẩm</span>
